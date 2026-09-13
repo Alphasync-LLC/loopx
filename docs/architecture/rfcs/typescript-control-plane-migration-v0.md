@@ -3,7 +3,7 @@
 - Status: Accepted, transaction-payoff phase in progress
 - Proposed by: LoopX maintainers
 - Date: 2026-08-15
-- Last revised: 2026-09-12
+- Last revised: 2026-09-13
 - Scope: an incremental, replacement-first migration of the LoopX control-plane
   core from Python to TypeScript without maintaining two semantic
   implementations
@@ -52,7 +52,7 @@ receipt; the lease is never mutated. Explicit `--update-operation-id` supports
 CLI retries with unchanged proof and intent, including historical replay after
 expiry or transfer. Missing/stale proof and historical inactive leases fail
 closed. No-proof receipt fingerprints remain compatible. This is the bounded
-#4105 lease-fence slice, not full T1 metadata or T2 effect closure; legacy updates
+#4152 lease-fence slice, not full T1 metadata or T2 effect closure; legacy updates
 without these options remain unchanged. See the [Todo contract](../../project-agent-todo-contract.md#lease-fenced-canonical-textnote-updates).
 
 Monitor metadata authoring and poll transitions now share `todos/monitor_metadata.ts`.
@@ -552,6 +552,18 @@ writer still have real callers; this slice does not retire them or complete T1.
 Next close ownership/decision metadata with their lifecycle admission and
 validation effects, then the remaining leased Monitor transaction in T2.
 
+Declarative decision metadata is now part of the same v1 planning transaction.
+`decision_scope` is accepted only on `user_gate` records and
+`required_decision_scopes` only on Agent Todos; both are normalized to the
+public `decision_scope_v0` shape, deduplicated in first-seen order, and rejected
+atomically when malformed or attached to the wrong role. Explicit empty
+`required_decision_scopes` clears a stale dependency. `decision_outcome` and
+`decision_scope_outcomes` remain effect-owned terminal state and are rejected by
+the native planning boundary. The public planner also preserves omitted scope
+fields instead of materializing nulls, so an unrelated metadata correction no
+longer erases a retained user-gate scope. This closes the declarative metadata
+part of T1 without granting approval, lease, completion, or promotion authority.
+
 - Reuse the current provider text/note transaction, lifecycle admission,
   field-plan and completion rules. Enumerate actual public metadata edits and
   explicit-clear behavior before implementation; this is not permission to
@@ -627,6 +639,7 @@ an equal-byte retry syncs file and directory before reporting `current`. Narrati
 canonical records stay intact. This converges the retained Python presentation/legacy
 input adapter; it adds no RPC or business state machine and does not change TS authority
 transactions, provider defaults, SQLite D2 or D3 promotion requirements.
+Handoff mode now shares a typed quiescence policy between the legacy adapter and one provider-neutral CAS/receipt transaction. Promoted show/set consume canonical mode and complete Todo/lease facts; the old Python transition decision is removed. Legacy state/lease locks remain until their last writer retires. See [handoff-mode operation and replay](../../reference/handoff-mode.md).
 
 Task-graph topology now shares `work_items/planning_relations.ts` with inventory
 and horizon. One pure TS request owns relationship discovery, deterministic
@@ -868,6 +881,26 @@ Stacked schema-identifier cleanup is independent maintenance, not a prerequisite
 for this sequence. Absorb a downstream change only when the selected complete
 transaction actually needs it; rebase the remaining work after its base merges.
 
+### Manager collaboration integration checkpoint (2026-09-13)
+
+At `7eb4b7bb1661bd5eff63a8725a33169792d5964b`, #4152 is the merged
+lease-fenced text/note update slice; #4121's SQLite candidate is also merged,
+without provider promotion. These actual heads supersede the earlier execution
+card's pending-code implication, not its qualification holds.
+
+The [manager/handoff RFC](capable-manager-semantic-handoff-v0.md) follows this
+RFC's transaction-payoff rule. Its proposed collaboration owner replaces one
+complete request transaction and old semantic callers; it does not introduce
+a leaf RPC per field, a new TS daemon, or another Todo/Vision/lease authority.
+Existing `coordination/todo_continuation.ts` is a promoted-local, same-machine,
+registered-agent, lease-free Todo path, not a general pre-Todo/cross-Goal
+handoff. Retain its actual compatibility semantics while integrating it.
+M2 reports the migration economics receipt and cross-commit recovery evidence;
+M1 normal host tools need not wait for full TS or provider migration.
+Shared Goal amendments retain their own proposal/commit boundary, and
+shared-authority D1–D3/T4 conditions remain applicable to any affected storage
+or full-writer retirement. No new runtime behavior is delivered by this note.
+
 ## 0. Decision in one example
 
 During migration, the Python `loopx` CLI sends one coarse typed transaction to
@@ -1103,6 +1136,15 @@ establish the pattern.
 Subsequent candidates must name a remaining transaction and its deletion
 leverage; remaining quota settlement readback is eligible only when it can
 retire or materially shrink the facade rather than add another leaf handler.
+
+The prior-host-Turn recovery boundary remains a transaction-level follow-up:
+receipt selection, exact Todo lifecycle observation, settlement validation, and
+recovery/continuation selection must move together before its Python coordinator
+can be retired. The current source-boundary repair reuses `todo list --todo-id`
+for lifecycle evidence so display truncation cannot keep a closed Turn in
+recovery. It preserves closeout policy and adds no leaf RPC; it is not a completed
+Stage 2B cutover. Future migration must retain crowded-inventory, provider-failure,
+identity-conflict, and same-Turn no-spend recovery coverage.
 
 For each completed transaction, replace migration-only characterization workers
 and Python implementation fixtures with native TS semantic/invariant tests plus

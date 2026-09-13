@@ -3,7 +3,7 @@
 - Status：Accepted，transaction-payoff 阶段进行中
 - Proposed by：LoopX maintainers
 - Date：2026-08-15
-- Last revised：2026-09-12
+- Last revised：2026-09-13
 - Scope：LoopX 控制面核心从 Python 到 TypeScript 的增量、replacement-first
   迁移；不长期维护两份语义实现
 - Tracking issue：[#3225](https://github.com/huangruiteng/loopx/issues/3225)
@@ -41,7 +41,7 @@ Provider-first text/note 更新现可携带当前执行 key 和租约版本，�
 禁用自动获取及委托覆盖。修改和回执受同一个 provider revision 保护，租约不变。
 显式 `--update-operation-id` 支持同凭证、同内容的 CLI 重试，过期或转交后仍可回放
 历史回执。缺失／陈旧凭证及历史非活跃租约拒绝；无凭证的旧回执指纹保持兼容。
-这是 #4105 的租约 fence 切片，不是完整 T1 metadata 或 T2 effect 闭合；不带新选项
+这是 #4152 的租约 fence 切片，不是完整 T1 metadata 或 T2 effect 闭合；不带新选项
 的 legacy 更新不变。用法见 [Todo 合同](../../project-agent-todo-contract.md#lease-fenced-canonical-textnote-updates)。
 
 Monitor metadata authoring 与 poll transition 现共用 `todos/monitor_metadata.ts`。
@@ -432,6 +432,15 @@ planning 事务更新 `action_kind`、`task_domain`、`task_repository`、
 不退役它们，也不宣称完整 T1。下一步结合 lifecycle admission 与 validation effect
 闭合 ownership／decision metadata，再推进 T2 剩余带 lease Monitor 事务。
 
+声明式决策元数据现已进入同一个 v1 planning 事务：`decision_scope` 只能写入
+`user_gate`，`required_decision_scopes` 只能写入 Agent Todo；两者统一归一化为公开的
+`decision_scope_v0` 形状，按首次出现顺序去重，格式错误或角色不匹配时整笔原子拒绝。
+显式空的 `required_decision_scopes` 会清除旧依赖。`decision_outcome` 与
+`decision_scope_outcomes` 仍属于 effect-owned terminal state，native planning 边界会
+拒绝它们。公开 planner 也保留 scope 字段的省略语义，不再把省略物化成 null，因而无关
+metadata 修正不会擦掉保留的 user-gate scope。这闭合的是 T1 的声明式 metadata 部分，
+不授予批准、lease、完成或 promotion 权限。
+
 - 复用现有 provider text/note 事务、lifecycle 准入、field-plan 和 completion
   规则。先枚举公开 metadata 编辑与显式 clear，不把 `UPDATE_FIELDS` 扩成所有存储
   字段，也不让 generic patch 获得 terminal transition 权限。
@@ -488,6 +497,7 @@ fenced 示例被当成真实任务、归档 end marker 后叙述进入历史、�
 文件／目录同步，之后才报告 `current`。区域外正文和 canonical record 不被改写。
 这是永久 Python 展示／legacy 输入适配层的收敛：TS authority transaction、provider
 默认值、SQLite D2 与 D3 promotion 合同不变，不增加 RPC 或另一份业务状态机。
+Handoff mode 的 legacy adapter 与原生 CAS／receipt 事务现共用 TS 空闲判断；晋升后的 show/set 使用 canonical mode 和完整 Todo／lease 快照，删除 Python 切换决策。旧 state／lease 锁仍服务未晋升 writer，不能提前删除。操作与回放合同见 [handoff-mode](../../reference/handoff-mode.md)。
 
 Task graph topology 与 inventory/horizon 共用 `work_items/planning_relations.ts`。
 一轮纯 TS 请求拥有关系发现、稳定有界遍历、边去重与缺失/截断完整度；删除
@@ -668,6 +678,22 @@ promotion、启动模型／任务、soak automation、发布或合并仍需各�
 
 stack 中的 schema identifier 清理是独立维护，不是上述路线的前置条件。只吸收所选
 完整事务确实依赖的下游改动；base 合并后，其余工作再 rebase。
+
+### 管家 collaboration 衔接检查点（2026-09-13）
+
+在 `7eb4b7bb1661bd5eff63a8725a33169792d5964b`，#4152 是已合并的
+lease-fenced text/note update 切片；#4121 SQLite 候选也已合并，但未晋级 provider。
+实际 head 更新早期执行卡暗示的代码待合并状态，不解除其资格保留条件。
+
+[管家/handoff RFC](capable-manager-semantic-handoff-v0.zh-CN.md) 遵循本文完整
+事务收益规则：拟议 collaboration owner 替换一个完整请求事务与旧语义 caller，
+不按字段增加 leaf RPC、不新增 TS daemon、不另造 Todo/Vision/lease authority。
+已有 `coordination/todo_continuation.ts` 仅支持 promoted-local、同机、已注册
+Agent、无 lease Todo，不是通用 pre-Todo/cross-Goal handoff；集成时保留其真实
+兼容语义。M2 提供迁移收益回执及跨提交恢复证据；M1 普通主机工具无需等待全部 TS
+或 provider 迁移。共享 Goal amendment 保留独立 proposal/commit 边界；受影响的
+存储或完整 writer 退役，继续遵守 shared-authority D1–D3/T4 条件。此说明不交付
+新的 runtime 行为。
 
 ## 0. 用一个例子说明决策
 
@@ -877,6 +903,13 @@ end-to-end adapter contract，替换 migration-only characterization worker 与 
 implementation fixture。只有旧 authority 仍可执行，或 versioned compatibility
 window 仍需 differential proof 时才保留 characterization corpus；引入时必须记录
 删除触发条件。
+
+Prior-host-Turn recovery 保留为完整事务的后续迁移：receipt 选择、精确 Todo
+lifecycle 读取、settlement 验证与 recovery/continuation 决策需要一起迁移，才能
+退出 Python coordinator。本次读取边界修复复用 `todo list --todo-id` 获取生命周期
+证据，避免展示截断让已关闭的 Turn 持续进入 recovery；关闭规则保持不变，不增加
+leaf RPC，也不将其计为已完成的 Stage 2B cutover。后续迁移需要保留大量无关 Todo、
+provider 失败、身份冲突及同 Turn 无扣额恢复的验证。
 
 当前实现状态：Stage 1、bounded Stage 2A proof 与已交付的 Stage 2B cutover 已就位：
 
