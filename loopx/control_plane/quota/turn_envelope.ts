@@ -478,6 +478,25 @@ function contractCapsule(
     );
     if (Object.keys(compact).length > 0) capsule[sourceKey] = compact;
   }
+  // Preserve the bounded source diagnosis; the generic capsule list path is
+  // for scalar lists and must not stringify structured component checks.
+  const diagnostics = object(payload.vision_continuation_audit).outcome_checkpoint_diagnostics;
+  if (Array.isArray(diagnostics) && diagnostics.length > 0) {
+    const audit = object(capsule.vision_continuation_audit);
+    audit.outcome_checkpoint_diagnostics = diagnostics.slice(0, 5).map((value) => {
+      const source = object(value);
+      const checks = object(source.component_checks);
+      return {
+        reason_code: text(source.reason_code, 80),
+        resolution_hint: text(source.resolution_hint, 420),
+        component_checks: Object.fromEntries([
+          "checkpoint_satisfied", "checkpoint_fresh", "path_outcome_valid",
+          "evidence_refs_present", "final_outcome_claim_present", "no_reported_outcome_gap",
+        ].filter((key) => typeof checks[key] === "boolean").map((key) => [key, checks[key]])),
+      };
+    });
+    capsule.vision_continuation_audit = audit;
+  }
   const taskScope = text(payload.task_scope, 80);
   if (taskScope) capsule.task_scope = taskScope;
   const workLane = object(payload.work_lane_contract);

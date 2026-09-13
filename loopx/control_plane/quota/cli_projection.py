@@ -429,6 +429,7 @@ def _compact_vision_continuation_audit(
         "trigger_kinds",
         "required_before_closeout",
         "recommended_action",
+        "outcome_checkpoint_diagnostics",
     )
     compact = {key: audit[key] for key in retained_fields if key in audit}
     judge = audit.get("vision_gap_judge")
