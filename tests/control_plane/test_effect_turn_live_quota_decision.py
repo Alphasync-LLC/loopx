@@ -189,6 +189,18 @@ def test_managed_turn_projects_prior_unsettled_heartbeat_recovery(
     agent_id = "codex-fixture"
     todo_id = "todo_ordinary_work"
     prior_turn_id = "managed-prior-turn"
+    state_path = tmp_path / "ACTIVE_GOAL_STATE.md"
+    state_path.write_text(
+        "# Goal\n\n## Agent Todo\n\n- [ ] Keep advancing the selected task.\n"
+        f"  <!-- loopx:todo todo_id={todo_id} status=open "
+        "task_class=advancement_task -->\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "registry.json").write_text(json.dumps({
+        "common_runtime_root": str(runtime_root),
+        "goals": [{"id": GOAL_ID, "repo": str(tmp_path),
+                   "state_file": str(state_path)}],
+    }), encoding="utf-8")
     event = build_rollout_event(
         goal_id=GOAL_ID,
         event_kind="quota_should_run",
