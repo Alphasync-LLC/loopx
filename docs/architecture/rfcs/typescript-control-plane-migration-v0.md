@@ -1124,6 +1124,15 @@ Subsequent candidates must name a remaining transaction and its deletion
 leverage; remaining quota settlement readback is eligible only when it can
 retire or materially shrink the facade rather than add another leaf handler.
 
+The prior-host-Turn recovery boundary remains a transaction-level follow-up:
+receipt selection, exact Todo lifecycle observation, settlement validation, and
+recovery/continuation selection must move together before its Python coordinator
+can be retired. The current source-boundary repair reuses `todo list --todo-id`
+for lifecycle evidence so display truncation cannot keep a closed Turn in
+recovery. It preserves closeout policy and adds no leaf RPC; it is not a completed
+Stage 2B cutover. Future migration must retain crowded-inventory, provider-failure,
+identity-conflict, and same-Turn no-spend recovery coverage.
+
 For each completed transaction, replace migration-only characterization workers
 and Python implementation fixtures with native TS semantic/invariant tests plus
 one durable end-to-end adapter contract. Retain a characterization corpus only

@@ -894,6 +894,13 @@ implementation fixture。只有旧 authority 仍可执行，或 versioned compat
 window 仍需 differential proof 时才保留 characterization corpus；引入时必须记录
 删除触发条件。
 
+Prior-host-Turn recovery 保留为完整事务的后续迁移：receipt 选择、精确 Todo
+lifecycle 读取、settlement 验证与 recovery/continuation 决策需要一起迁移，才能
+退出 Python coordinator。本次读取边界修复复用 `todo list --todo-id` 获取生命周期
+证据，避免展示截断让已关闭的 Turn 持续进入 recovery；关闭规则保持不变，不增加
+leaf RPC，也不将其计为已完成的 Stage 2B cutover。后续迁移需要保留大量无关 Todo、
+provider 失败、身份冲突及同 Turn 无扣额恢复的验证。
+
 当前实现状态：Stage 1、bounded Stage 2A proof 与已交付的 Stage 2B cutover 已就位：
 
 - Turn settlement/commit：TypeScript 拥有 preflight authorization、ordered-prefix
