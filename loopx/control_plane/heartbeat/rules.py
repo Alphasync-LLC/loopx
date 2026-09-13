@@ -25,6 +25,18 @@ HEARTBEAT_VISION_WRITEBACK_RULE_SHORT = (
     "writeback: no-change=`surface_only`/no spend; "
     "unchanged->`--vision-unchanged-reason`; material->actual outcome."
 )
+REWARD_MEMORY_OUTCOME_RULE = (
+    "`reward_memory_recall.experiment.automatic_ingest=true`: reusable Todo outcomes "
+    "add `--reward-memory-reflection-json <turn_reward_memory_reflection_v0 JSON>` "
+    "to refresh. LoopX stages privately; provider ingest needs caller-declared Todo "
+    "validator to attest exact reflection digest/evidence, then exact writeback/spend "
+    "readback. Missing attestation stays awaiting; zero provider calls. Never include "
+    "raw/private material."
+)
+REWARD_MEMORY_OUTCOME_COMPACT_RULE = (
+    "`--reward-memory-reflection-json`: Todo validator exact digest/evidence; "
+    "else zero provider calls; no raw/private."
+)
 SCHEDULER_HINT_APPLICATION_RULE = (
     "`scheduler_hint` no-spend. host_action=pause_or_delete_current_heartbeat -> "
     "automation_update stop once, verify, end; else apply_needed -> RRULE via "
