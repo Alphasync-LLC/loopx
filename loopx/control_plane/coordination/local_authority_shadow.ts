@@ -711,6 +711,14 @@ export function composeLocalAuthorityShadowHead(
     if (entry.partition === "todos") {
       handoffMode = String(projection.handoff_mode);
       todos = structuredClone(projection.todos as JsonObject[]);
+      // The Todo partition is the current-graph authority. When a Todo leaves
+      // that graph (archived, superseded or removed), its retained lease file
+      // becomes an orphan edge that the source projection never emits. Retain
+      // only leases whose Todo is still part of the graph the projection just
+      // published, so the candidate head cannot accumulate an orphan that the
+      // next qualification reports as `shadow_projection_drift`.
+      const graphTodoIds = new Set(todos.map((item) => String(item.todo_id)));
+      leases = leases.filter((lease) => graphTodoIds.has(String(lease.todo_id)));
     } else {
       leases = structuredClone(projection.leases as JsonObject[]);
     }
