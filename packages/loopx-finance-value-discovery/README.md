@@ -52,8 +52,62 @@ The packet enforces:
 
 It rejects raw provider bodies, private paths, credentials, account or
 portfolio material, future-dated evidence, unsupported fields, and malformed
-public URLs. It never emits investment advice, a price target, a trade, or an
-automatic watch.
+public URLs. The discovery reducer never emits investment advice, a price
+target, a trade, or an automatic watch.
+
+## Simulation-only transaction confirmation / 仅模拟交易确认
+
+Extension 0.7.0 adds the
+`finance_transaction_approval_input_v0` consumer, deliberately separate from
+the discovery reducer. It turns an explicit, already-bounded candidate action
+into Core's canonical `loopx_operation_request_v0`. The request freezes the
+order action, public evidence links, evidence observation time, expected
+economics, expiry, and no-trade conditions into the same projection shown by
+the Dashboard and the Goal Channel Lark card. It always targets
+`account:simulation` and the `finance.operation.simulate` executor permission.
+It cannot place an order, sign, transfer, infer an approver, or create standing
+trading authority.
+
+0.7.0 新增的 `finance_transaction_approval_input_v0` consumer 与发现 reducer
+明确隔离。它只把一个已经收敛、显式提出的候选动作转换成 Core 的
+`loopx_operation_request_v0`，并把下单动作、公开证据链接、证据观察时间、
+预期经济性、过期时间和禁交易条件冻结进 Dashboard 与 Goal Channel 飞书卡片
+共用的投影。目标固定为 `account:simulation`，权限固定为
+`finance.operation.simulate`；它不能真实下单、签名、转账、推断审批人或产生
+持续交易权限。
+
+The executor revision must come from the enabled `loopx-finance-execution`
+extension readback. Authorized principals must be explicit provider-qualified
+identities from the current Goal Channel operator authority; the Finance builder
+neither discovers nor broadens them. Build the packet once, retain both its
+idempotency key and canonical request, then let Core persist and deliver it
+through the existing two-step entrypoint:
+
+```bash
+loopx-finance-value-discovery build-operation-request \
+  --input-json transaction-approval.json > approval-packet.json
+jq '.operation_request' approval-packet.json > operation-request.json
+loopx goal-channel prepare-operation \
+  --goal-id <goal> --agent-id <agent> \
+  --summary "Review one simulated finance transaction" \
+  --idempotency-key "$(jq -r '.idempotency_key' approval-packet.json)" \
+  --request-json operation-request.json --execute --format json
+loopx goal-channel deliver-operation \
+  --goal-id <goal> --proposal-id <operation-id> --execute --format json
+```
+
+`prepare-operation` only writes Core's canonical proposal; `deliver-operation`
+projects that same proposal to the bound Lark group. The Dashboard reads the
+same safe projection. Confirm/reject callbacks remain Core-owned and produce an
+idempotent receipt. Managed Turn callers may submit the input schema to the
+extension runtime and select `operation_request` from its returned packet.
+
+`executor_revision` 必须来自已启用 `loopx-finance-execution` 的真实 readback；
+审批人必须来自当前 Goal Channel 操作权限，并以 provider-qualified principal
+显式传入，Finance builder 不发现或扩大审批人范围。两者都不会被猜测。
+`prepare-operation` 只写入 Core 的 canonical proposal，`deliver-operation` 再将
+同一 proposal 投影到 Goal 绑定群；Dashboard 也读取同一安全投影。确认/拒绝
+callback 与幂等 receipt 继续由 Core 负责。
 
 ## Public-Safe Research Surface
 
