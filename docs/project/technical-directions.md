@@ -132,6 +132,7 @@ remain later explicit decisions.
 
 | Exploration | Stage | Current entry | Implementation rule |
 | --- | --- | --- | --- |
+| Frontier science research portfolio | Draft / proposal only | [Bilingual RFC](../architecture/rfcs/frontier-science-research-program-v0.md) | Route ten tracks through existing owners; qualify sequential evidence, continuation compression and stride shadow experiments before active treatment. No research uplift or resource commitment is implied. |
 | Effect Program and settlement algebra | Accepted / runtime hardening | [RFC](../architecture/rfcs/agent-loop-effect-interpreter-v0.md) | Improve the shared typed contract and negative coverage; keep scheduler ownership and domain-local ACK semantics explicit. |
 | TypeScript control-plane migration | Accepted / transaction-payoff phase | [RFC](../architecture/rfcs/typescript-control-plane-migration-v0.md) | Cut over complete transactions, delete Python semantic/facade debt, and report bridge traffic plus migration economics; preserve delivery/vision decisions as domain-local reducers rather than generic Effect Program steps. |
 | Hierarchical agent stride | Active research | [#3203](https://github.com/huangruiteng/loopx/issues/3203) | Qualify read-only and shadow evidence before adaptive selection. |

@@ -112,6 +112,14 @@ changes.
 
 ## Planning, Research, And Adaptive Intelligence
 
+- [Frontier Science Research Program v0](frontier-science-research-program-v0.md)
+  ([中文版](frontier-science-research-program-v0.zh-CN.md))
+  - **RFC status:** Draft, under maintainer review.
+  - **Delivery on `main`:** Proposal only.
+  - **Current boundary:** Ten cross-disciplinary research tracks, existing-owner
+    routing, evidence limits and staged experiment gates. Prioritizes sequential
+    evidence, decision-preserving continuation and stride shadow evaluation;
+    no runtime treatment, resource commitment or scientific uplift is promoted.
 - [Research Exploration Control Plane v0](research-exploration-control-plane-v0.md)
   ([中文版](research-exploration-control-plane-v0.zh-CN.md))
   - **RFC status:** Draft, under maintainer review.
