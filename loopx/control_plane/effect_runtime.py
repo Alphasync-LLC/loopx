@@ -14,7 +14,7 @@ import uuid
 from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 from ..file_lock import process_is_alive
 
@@ -22,10 +22,14 @@ EFFECT_RUNTIME_REQUEST_SCHEMA_VERSION = "loopx_effect_runtime_request_v0"
 EFFECT_RUNTIME_RESPONSE_SCHEMA_VERSION = "loopx_effect_runtime_response_v1"
 EFFECT_RUNTIME_INFO_SCHEMA_VERSION = "loopx_effect_runtime_info_v0"
 EFFECT_RUNTIME_READINESS_SCHEMA_VERSION = "loopx_effect_runtime_readiness_v0"
+EFFECT_RUNTIME_STARTUP_ERROR_SCHEMA_VERSION = (
+    "loopx_effect_runtime_startup_error_v0"
+)
 MINIMUM_NODE_VERSION = (22, 18, 0)
 MINIMUM_NODE_VERSION_TEXT = ".".join(str(part) for part in MINIMUM_NODE_VERSION)
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 MAX_REQUEST_BYTES = 2 * 1024 * 1024
+MAX_STARTUP_DIAGNOSTIC_BYTES = 8 * 1024
 STARTUP_LOCK_TIMEOUT_SECONDS = 15.0
 STARTUP_READY_TIMEOUT_SECONDS = 15.0
 STARTUP_POLL_SECONDS = 0.025
@@ -407,6 +411,53 @@ def _remote_runtime_error(value: object) -> EffectRuntimeRemoteError:
     )
 
 
+def _read_startup_stderr(capture: IO[bytes]) -> bytes:
+    """Return the bounded stderr a managed runtime wrote before it exited."""
+
+    try:
+        capture.seek(0)
+        return capture.read(MAX_STARTUP_DIAGNOSTIC_BYTES)
+    except (OSError, ValueError):
+        return b""
+
+
+def _startup_diagnostic(raw: bytes) -> tuple[str, str] | None:
+    """Return the typed diagnostic a rejected managed runtime published.
+
+    A server that rejects its own startup configuration writes one JSON
+    envelope to stderr and exits before it listens, so a matching envelope is
+    the authoritative configuration error. Any other stderr content, such as a
+    Node.js stack trace, is not a typed diagnostic and must not be reported as
+    one.
+    """
+
+    if not raw:
+        return None
+    for line in reversed(raw.decode("utf-8", errors="replace").splitlines()):
+        candidate = line.strip()
+        if not candidate.startswith("{"):
+            continue
+        try:
+            payload = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        if (
+            payload.get("schema_version")
+            != EFFECT_RUNTIME_STARTUP_ERROR_SCHEMA_VERSION
+        ):
+            continue
+        code = payload.get("code")
+        if not isinstance(code, str) or not code:
+            continue
+        rendered = " ".join(str(payload.get("message") or "").split())[:240]
+        return code, rendered or (
+            "TypeScript Effect runtime rejected its startup configuration"
+        )
+    return None
+
+
 def _start_runtime(*, fingerprint: str, info_path: Path) -> dict[str, Any]:
     runtime_dir = info_path.parent
     runtime_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -458,49 +509,63 @@ def _start_runtime(*, fingerprint: str, info_path: Path) -> dict[str, Any]:
         token = secrets.token_urlsafe(32)
         environment = os.environ.copy()
         environment["LOOPX_EFFECT_RUNTIME_TOKEN"] = token
-        try:
-            process = subprocess.Popen(
-                [
-                    _node_executable(),
-                    "--no-warnings",
-                    "--experimental-strip-types",
-                    str(_runtime_server_path()),
-                    "--info",
-                    str(info_path),
-                    "--fingerprint",
-                    fingerprint,
-                ],
-                env=environment,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=os.name != "nt",
-                close_fds=True,
-            )
-        except OSError as exc:
-            raise EffectRuntimeStartupError(
-                "TypeScript Effect runtime process could not be launched",
-                diagnostic_code="runtime_launch_failed",
-            ) from exc
-        ready_deadline = time.monotonic() + STARTUP_READY_TIMEOUT_SECONDS
-        while time.monotonic() < ready_deadline:
-            info = _read_info(info_path, fingerprint=fingerprint)
-            if info is not None:
-                return info
-            exit_code = process.poll()
-            if exit_code is not None:
-                raise EffectRuntimeStartupError(
-                    "TypeScript Effect runtime exited before becoming ready "
-                    f"(exit_code={exit_code})",
-                    diagnostic_code="runtime_exited_before_ready",
+        # Capture stderr so a rejected startup can publish a typed
+        # configuration diagnostic instead of a bare exit status. The capture
+        # is an unlinked temporary file, so it cannot deadlock the child on a
+        # full pipe and it leaves no stale path behind.
+        with tempfile.TemporaryFile() as startup_stderr:
+            try:
+                process = subprocess.Popen(
+                    [
+                        _node_executable(),
+                        "--no-warnings",
+                        "--experimental-strip-types",
+                        str(_runtime_server_path()),
+                        "--info",
+                        str(info_path),
+                        "--fingerprint",
+                        fingerprint,
+                    ],
+                    env=environment,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=startup_stderr,
+                    start_new_session=os.name != "nt",
+                    close_fds=True,
                 )
-            time.sleep(STARTUP_POLL_SECONDS)
-        if process.poll() is None:
-            process.terminate()
-        raise EffectRuntimeStartupError(
-            "TypeScript Effect runtime did not become ready before the startup deadline",
-            diagnostic_code="runtime_startup_timeout",
-        )
+            except OSError as exc:
+                raise EffectRuntimeStartupError(
+                    "TypeScript Effect runtime process could not be launched",
+                    diagnostic_code="runtime_launch_failed",
+                ) from exc
+            ready_deadline = time.monotonic() + STARTUP_READY_TIMEOUT_SECONDS
+            while time.monotonic() < ready_deadline:
+                info = _read_info(info_path, fingerprint=fingerprint)
+                if info is not None:
+                    return info
+                exit_code = process.poll()
+                if exit_code is not None:
+                    diagnostic = _startup_diagnostic(
+                        _read_startup_stderr(startup_stderr)
+                    )
+                    if diagnostic is not None:
+                        code, message = diagnostic
+                        raise EffectRuntimeStartupError(
+                            message,
+                            diagnostic_code=code,
+                        )
+                    raise EffectRuntimeStartupError(
+                        "TypeScript Effect runtime exited before becoming ready "
+                        f"(exit_code={exit_code})",
+                        diagnostic_code="runtime_exited_before_ready",
+                    )
+                time.sleep(STARTUP_POLL_SECONDS)
+            if process.poll() is None:
+                process.terminate()
+            raise EffectRuntimeStartupError(
+                "TypeScript Effect runtime did not become ready before the startup deadline",
+                diagnostic_code="runtime_startup_timeout",
+            )
     finally:
         lock.unlink(missing_ok=True)
 

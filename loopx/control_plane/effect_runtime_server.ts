@@ -1,3 +1,4 @@
+import { writeSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { chmod, rm } from "node:fs/promises";
 
@@ -19,8 +20,18 @@ import {
 const REQUEST_SCHEMA = "loopx_effect_runtime_request_v0";
 const RESPONSE_SCHEMA = "loopx_effect_runtime_response_v1";
 const INFO_SCHEMA = "loopx_effect_runtime_info_v0";
+const STARTUP_ERROR_SCHEMA = "loopx_effect_runtime_startup_error_v0";
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
 const DEFAULT_IDLE_MS = 5 * 60 * 1_000;
+// Bounds for LOOPX_EFFECT_RUNTIME_IDLE_MS. The upper bound is the largest
+// delay `setTimeout` accepts: a larger delay overflows and fires immediately,
+// which is the same silent immediate-shutdown failure as a NaN or negative
+// value.
+const MIN_IDLE_MS = 1;
+const MAX_IDLE_MS = 2 ** 31 - 1;
+const STARTUP_CONFIG_EXIT_CODE = 2;
+const INVALID_IDLE_TIMEOUT_CODE = "invalid_idle_timeout";
+const MAX_REPORTED_RAW_LENGTH = 32;
 let shutdownRequested = false;
 
 function asObject(value: unknown): JsonObject {
@@ -37,10 +48,51 @@ function parseArg(name: string): string {
   return requiredString(process.argv[index + 1], name);
 }
 
+function failStartup(code: string, message: string): never {
+  writeSync(
+    2,
+    `${JSON.stringify({
+      schema_version: STARTUP_ERROR_SCHEMA,
+      code,
+      message,
+    })}\n`,
+  );
+  process.exit(STARTUP_CONFIG_EXIT_CODE);
+}
+
+function idleTimeoutGuidance(): string {
+  return "LOOPX_EFFECT_RUNTIME_IDLE_MS must be a base-10 integer between " +
+    `${MIN_IDLE_MS} and ${MAX_IDLE_MS} milliseconds; leave it unset to use ` +
+    `the ${DEFAULT_IDLE_MS} ms default`;
+}
+
+function parseIdleMs(raw: string | undefined): number {
+  if (raw === undefined) return DEFAULT_IDLE_MS;
+  const received = JSON.stringify(raw.slice(0, MAX_REPORTED_RAW_LENGTH));
+  if (!/^[0-9]+$/.test(raw)) {
+    failStartup(
+      INVALID_IDLE_TIMEOUT_CODE,
+      `${idleTimeoutGuidance()} (received ${received})`,
+    );
+  }
+  const parsed = Number(raw);
+  if (
+    !Number.isSafeInteger(parsed) ||
+    parsed < MIN_IDLE_MS ||
+    parsed > MAX_IDLE_MS
+  ) {
+    failStartup(
+      INVALID_IDLE_TIMEOUT_CODE,
+      `${idleTimeoutGuidance()} (received ${received})`,
+    );
+  }
+  return parsed;
+}
+
 const infoPath = parseArg("--info");
 const fingerprint = parseArg("--fingerprint");
 const token = requiredString(process.env.LOOPX_EFFECT_RUNTIME_TOKEN, "runtime token");
-const idleMs = Number(process.env.LOOPX_EFFECT_RUNTIME_IDLE_MS ?? DEFAULT_IDLE_MS);
+const idleMs = parseIdleMs(process.env.LOOPX_EFFECT_RUNTIME_IDLE_MS);
 let idleTimer: NodeJS.Timeout;
 const handlers = createEffectRuntimeHandlers({
   fingerprint,
