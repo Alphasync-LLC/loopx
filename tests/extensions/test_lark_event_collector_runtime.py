@@ -13,11 +13,27 @@ from loopx.extensions.lark.event_collector import (
     plan_lark_event_collector,
 )
 from loopx.extensions.lark.event_collector_runtime import (
+    _callback_event_shape,
     _run_json_with_status,
     enrich_lark_event_reply_context,
     lark_event_requires_reply_context_lookup,
     run_lark_event_collector,
 )
+
+
+def test_operation_callback_failure_shape_retains_timestamp_width_without_value() -> None:
+    shape = _callback_event_shape(
+        {
+            "type": "card.action.trigger",
+            "timestamp": "1776409469273",
+            "action_tag": "button",
+            "action_value": "{}",
+        }
+    )
+
+    assert shape["timestamp_is_digits"] is True
+    assert shape["timestamp_digit_count"] == 13
+    assert "1776409469273" not in json.dumps(shape)
 
 
 def test_reply_context_lookup_does_not_trust_unrelated_text_mentions() -> None:
@@ -313,6 +329,7 @@ def test_collector_runs_independent_operation_callback_consumer(
     assert status["listener_ready"] is False
     assert status["failed_callback_count"] == 1
     assert status["last_failure_code"] == "result_delivery_unverified"
+    assert status["last_failure_stage"] == "handle_callback"
     assert status["listener_active"] is False
 
 

@@ -72,12 +72,35 @@ _CALLBACK_FAILURE_CODES = {
     "operation confirmation arrived after expiry": "operation_expired",
     "operation callback result delivery was not verified": "result_delivery_unverified",
 }
+_CALLBACK_FAILURE_STAGES = {
+    "_callback_action": "parse_action",
+    "_callback_timestamp": "validate_timestamp",
+    "_callback_card_content_matches": "verify_card_content",
+    "_operator_membership_verified": "verify_operator_membership",
+    "decide_operation": "claim_operation",
+    "_execute_claimed_operation": "execute_operation",
+    "_update_callback_card": "deliver_result",
+}
 CommandRunner = Callable[..., subprocess.CompletedProcess[str]]
 Sleeper = Callable[[float], None]
 
 
 def _operation_callback_failure_code(exc: BaseException) -> str:
     return _CALLBACK_FAILURE_CODES.get(str(exc), "callback_rejected")
+
+
+def _operation_callback_failure_stage(exc: BaseException) -> str:
+    """Return a value-free processing stage for a rejected callback."""
+
+    stage = "handle_callback"
+    traceback = exc.__traceback__
+    while traceback is not None:
+        stage = _CALLBACK_FAILURE_STAGES.get(
+            traceback.tb_frame.f_code.co_name,
+            stage,
+        )
+        traceback = traceback.tb_next
+    return stage
 
 
 def _callback_event_shape(payload: Mapping[str, Any]) -> dict[str, object]:
@@ -108,6 +131,7 @@ def _callback_event_shape(payload: Mapping[str, Any]) -> dict[str, object]:
         card_shape = "object"
     elif card_content is not None:
         card_shape = type(card_content).__name__
+    timestamp = str(payload.get("timestamp") or "")
     return {
         "type_supported": payload.get("type") == "card.action.trigger",
         "action_is_button": payload.get("action_tag") == "button",
@@ -116,7 +140,8 @@ def _callback_event_shape(payload: Mapping[str, Any]) -> dict[str, object]:
         "event_id_valid": bool(
             re.fullmatch(r"[A-Za-z0-9._:-]{1,240}", str(payload.get("event_id") or ""))
         ),
-        "timestamp_is_digits": str(payload.get("timestamp") or "").isdigit(),
+        "timestamp_is_digits": timestamp.isdigit(),
+        "timestamp_digit_count": len(timestamp),
         "operator_id_present": bool(payload.get("operator_id")),
         "message_id_present": bool(payload.get("message_id")),
         "chat_id_present": bool(payload.get("chat_id")),
@@ -487,6 +512,7 @@ def _write_operation_callback_status(
     callback_delivery_verified: bool | None = None,
     failure_kind: str | None = None,
     failure_code: str | None = None,
+    failure_stage: str | None = None,
     failure_event_shape: Mapping[str, object] | None = None,
     consumer_returncode: int | None = None,
     recovered_result_count_delta: int = 0,
@@ -541,6 +567,7 @@ def _write_operation_callback_status(
         ),
         "last_failure_kind": failure_kind or prior.get("last_failure_kind"),
         "last_failure_code": failure_code or prior.get("last_failure_code"),
+        "last_failure_stage": failure_stage or prior.get("last_failure_stage"),
         "last_failure_event_shape": (
             dict(failure_event_shape)
             if failure_event_shape is not None
@@ -825,6 +852,7 @@ def run_lark_event_collector(
                             listener_ready=True,
                             failure_kind=type(exc).__name__,
                             failure_code=_operation_callback_failure_code(exc),
+                            failure_stage=_operation_callback_failure_stage(exc),
                             failure_event_shape=_callback_event_shape(payload),
                         )
                         continue
