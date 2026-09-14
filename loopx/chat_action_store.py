@@ -411,6 +411,49 @@ class ChatActionStore:
             self._write(payload)
             return proposal
 
+    def record_operation_delivery_snapshot(
+        self,
+        proposal_id: str,
+        *,
+        submitted_card: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Persist the immutable sent card after verifying its recorded digest."""
+
+        safe_card = _safe_json_value(
+            dict(submitted_card), path="operation.delivery.submitted_card"
+        )
+        if not isinstance(safe_card, dict):
+            raise ValueError("operation submitted card must be an object")
+        token = _opaque_id(proposal_id, field="proposal_id")
+        with exclusive_file_lock(
+            self.path,
+            agent_id="loopx-chat",
+            operation="record_operation_delivery_snapshot",
+        ):
+            payload = self._read()
+            proposal = payload["proposals"].get(token)
+            operation = (
+                proposal.get("operation") if isinstance(proposal, dict) else None
+            )
+            delivery = (
+                operation.get("delivery") if isinstance(operation, dict) else None
+            )
+            if not isinstance(delivery, dict):
+                raise ActionConflictError("operation card delivery was not recorded")
+            if _canonical_digest(safe_card) != delivery.get("card_digest"):
+                raise ActionConflictError("operation submitted card digest drifted")
+            existing = delivery.get("submitted_card")
+            if existing is not None:
+                if existing != safe_card:
+                    raise ActionConflictError(
+                        "operation submitted card snapshot already differs"
+                    )
+                return proposal
+            delivery["submitted_card"] = safe_card
+            proposal["updated_at"] = _utc_now()
+            self._write(payload)
+            return proposal
+
     def decide_operation(
         self,
         proposal_id: str,

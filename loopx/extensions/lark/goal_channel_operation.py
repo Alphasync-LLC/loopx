@@ -520,6 +520,10 @@ def deliver_goal_channel_operation_card(
             "delivered_at": datetime.now(timezone.utc).isoformat(),
         },
     )
+    store.record_operation_delivery_snapshot(
+        proposal_id,
+        submitted_card=card,
+    )
     return operation_packet(
         ok=True,
         goal_id=goal_id,
@@ -1238,7 +1242,12 @@ def handle_goal_channel_operation_callback(
         operator_principal=operator_principal,
         profile_app_id=profile_app_id,
     ):
-        expected_card = _submitted_confirmation_card(proposal)
+        submitted_card = delivery.get("submitted_card")
+        expected_card = (
+            dict(submitted_card)
+            if isinstance(submitted_card, Mapping)
+            else _submitted_confirmation_card(proposal)
+        )
         if _digest(expected_card) != delivery.get("card_digest"):
             raise ActionConflictError("recorded operation card digest drifted")
         card_content = event.get("card_content")

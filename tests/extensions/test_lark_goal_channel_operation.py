@@ -825,6 +825,7 @@ def test_card_v2_normalized_readback_and_callback_fallback_complete_simulation(
 def test_provider_normalized_card_v2_callback_and_replay_complete_simulation(
     tmp_path: Path,
     callback_shape: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     store, registry, runtime, binding, target = _fixture(tmp_path)
     proposal = _prepare(store, registry)
@@ -848,12 +849,22 @@ def test_provider_normalized_card_v2_callback_and_replay_complete_simulation(
     durable = store.load(proposal["proposal_id"])
     assert durable is not None
     card = sent_cards[durable["operation"]["delivery"]["message_id"]]
+    assert durable["operation"]["delivery"]["submitted_card"] == card
     callback_content = {
         "provider_json": json.dumps(_lark_card_v2_user_content(card)),
         "userdsl": _normalized_card_v2(card),
         "empty": "",
     }[callback_shape]
     event = {**_event(durable, card), "card_content": callback_content}
+
+    def fail_rebuild(_proposal: Mapping[str, Any]) -> dict[str, Any]:
+        raise AssertionError("callback must use the immutable delivery snapshot")
+
+    monkeypatch.setattr(
+        goal_channel_operation,
+        "_submitted_confirmation_card",
+        fail_rebuild,
+    )
     execution_count = 0
 
     def executor(claimed: dict[str, Any]) -> dict[str, Any]:
