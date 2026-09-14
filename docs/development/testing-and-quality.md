@@ -181,12 +181,17 @@ but cannot replace that proof. For changes affecting PostgreSQL authority,
 configure `LOOPX_TEST_POSTGRES_URL` to an isolated disposable server and run
 `npm run test:postgresql-authority-store`; a skipped suite is an evidence gap,
 not a pass. Record the exact commit, backend version, tested behavior, and
-failures or limits. If no safe real environment is available, hold delivery.
+failures or limits. The `PostgreSQL Integration` workflow runs that ladder row
+and the service admission suite against a disposable server, so the path stays
+qualified in CI as well as locally. If no safe real environment is available,
+hold delivery.
 
 重构交付前必须验证受影响的真实生产入口和真实后端。单测、mock 与内存 conformance
 不能替代这项证据。影响 PostgreSQL authority 时，配置指向隔离临时实例的
 `LOOPX_TEST_POSTGRES_URL`，运行 `npm run test:postgresql-authority-store`；跳过不算
-通过。记录精确 commit、后端版本、验证行为与失败或局限；没有安全的真实环境则暂停交付。
+通过。记录精确 commit、后端版本、验证行为与失败或局限；`PostgreSQL Integration`
+workflow 会在临时实例上运行该 ladder row 与 service admission 套件，因此这条路径在
+CI 与本地都会保持验证。没有安全的真实环境则暂停交付。
 
 When one semantic owner fronts multiple authority providers, use a three-arm
 refactor comparison: the immutable legacy baseline, the file provider, and a
