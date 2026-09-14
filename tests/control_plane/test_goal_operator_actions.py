@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import os
 import subprocess
 import sys
 from typing import Any
@@ -15,6 +16,25 @@ from loopx.registry import registry_goals
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GOAL_ID = "goal-actions-fixture"
+
+
+def _run_projected_argv(argv: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run the catalog's complete argv without injecting hidden context."""
+    assert argv and argv[0] == "loopx"
+    # Use the checkout's launcher as the executable while preserving every
+    # argument emitted by the public action contract verbatim.
+    command = [str(REPO_ROOT / "scripts" / "loopx"), *argv[1:]]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(REPO_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
+    env["LOOPX_PYTHON"] = sys.executable
+    return subprocess.run(
+        command,
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=env,
+    )
 
 
 def _write_registry(tmp_path: Path, *, activation_state: str = "active") -> tuple[Path, Path]:
@@ -69,21 +89,23 @@ def test_typescript_projection_owns_legal_lifecycle_action() -> None:
     active = effect_runtime_result(
         "goal.operator_actions.project",
         {
-            "schema_version": "loopx_goal_action_projection_request_v1",
+            "schema_version": "loopx_goal_action_projection_request_v2",
             "goal_id": GOAL_ID,
+            "registry_locator": "/tmp/registry.json",
+            "runtime_root_locator": "/tmp/runtime",
             "activation_state": "active",
             "state_fingerprint": "a" * 64,
-            "operator_gate_required": False,
         },
     )
     stopped = effect_runtime_result(
         "goal.operator_actions.project",
         {
-            "schema_version": "loopx_goal_action_projection_request_v1",
+            "schema_version": "loopx_goal_action_projection_request_v2",
             "goal_id": GOAL_ID,
+            "registry_locator": "/tmp/registry.json",
+            "runtime_root_locator": "/tmp/runtime",
             "activation_state": "stopped",
             "state_fingerprint": "b" * 64,
-            "operator_gate_required": False,
         },
     )
 
@@ -101,16 +123,17 @@ def test_typescript_projection_rejects_invalid_state_and_fingerprint() -> None:
         effect_runtime_result(
             "goal.operator_actions.project",
             {
-                "schema_version": "loopx_goal_action_projection_request_v1",
+                "schema_version": "loopx_goal_action_projection_request_v2",
                 "goal_id": GOAL_ID,
+                "registry_locator": "/tmp/registry.json",
+                "runtime_root_locator": "/tmp/runtime",
                 "activation_state": "watching",
                 "state_fingerprint": "not-a-digest",
-                "operator_gate_required": False,
             },
         )
 
 
-def test_catalog_adds_gate_actions_without_replacing_lifecycle_action(
+def test_catalog_contains_only_fresh_lifecycle_action(
     tmp_path: Path,
 ) -> None:
     from loopx.control_plane.goals.operator_actions import build_goal_action_catalog
@@ -120,15 +143,9 @@ def test_catalog_adds_gate_actions_without_replacing_lifecycle_action(
     packet = build_goal_action_catalog(
         registry_path=registry_path,
         goal_id=GOAL_ID,
-        operator_gate_required=True,
     )
 
-    assert [action["action_id"] for action in packet["actions"]] == [
-        "gate.approve",
-        "gate.reject",
-        "gate.defer",
-        "goal.stop",
-    ]
+    assert [action["action_id"] for action in packet["actions"]] == ["goal.stop"]
     assert all(action["goal_id"] == GOAL_ID for action in packet["actions"])
     assert all(action["requires_confirmation"] is True for action in packet["actions"])
     assert packet["authority_owner"] == "typescript_control_plane"
@@ -153,6 +170,12 @@ def test_goal_actions_cli_projects_exact_fresh_execution_identity(
     assert action["execution"]["expected_state_fingerprint"] == packet["state_fingerprint"]
     assert action["execution"]["argv"] == [
         "loopx",
+        "--registry",
+        str(registry_path),
+        "--runtime-root",
+        str(tmp_path / "runtime"),
+        "--format",
+        "json",
         "goal-lifecycle",
         "--goal-id",
         GOAL_ID,
@@ -163,6 +186,22 @@ def test_goal_actions_cli_projects_exact_fresh_execution_identity(
         "--execute",
     ]
     assert project.exists()
+
+
+def test_projected_action_runs_verbatim_against_non_default_registry(
+    tmp_path: Path,
+) -> None:
+    _project, registry_path = _write_registry(tmp_path)
+    projected = _run_cli(registry_path, "goal-actions", "--goal-id", GOAL_ID)
+    action = json.loads(projected.stdout)["actions"][0]
+
+    executed = _run_projected_argv(action["execution"]["argv"])
+
+    assert executed.returncode == 0, executed.stderr
+    payload = json.loads(executed.stdout)
+    assert payload["ok"] is True
+    assert payload["written"] is True
+    assert payload["readback"]["verified"] is True
 
 
 def test_projected_lifecycle_action_rejects_stale_registry_without_writing(
@@ -184,7 +223,7 @@ def test_projected_lifecycle_action_rejects_stale_registry_without_writing(
     )
     changed_bytes = registry_path.read_bytes()
 
-    executed = _run_cli(registry_path, *action["execution"]["argv"][1:])
+    executed = _run_projected_argv(action["execution"]["argv"])
 
     assert executed.returncode == 1
     payload = json.loads(executed.stdout)
@@ -205,7 +244,7 @@ def test_fresh_projected_lifecycle_action_applies_and_projects_resume(
         if item["action_id"] == "goal.stop"
     )
 
-    executed = _run_cli(registry_path, *stop["execution"]["argv"][1:])
+    executed = _run_projected_argv(stop["execution"]["argv"])
 
     assert executed.returncode == 0, executed.stderr
     applied = json.loads(executed.stdout)

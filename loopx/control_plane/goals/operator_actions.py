@@ -13,7 +13,7 @@ from .activation_service import _source_and_target
 
 
 GOAL_ACTION_PROJECTION_REQUEST_SCHEMA_VERSION = (
-    "loopx_goal_action_projection_request_v1"
+    "loopx_goal_action_projection_request_v2"
 )
 GOAL_ACTION_CATALOG_SCHEMA_VERSION = "loopx_goal_action_catalog_v1"
 
@@ -36,7 +36,6 @@ def build_goal_action_catalog(
     *,
     registry_path: Path,
     goal_id: str,
-    operator_gate_required: bool = False,
     runtime_root_override: str | None = None,
 ) -> dict[str, Any]:
     """Adapt one stable registry snapshot into the TS-owned action catalog."""
@@ -69,9 +68,10 @@ def build_goal_action_catalog(
             {
                 "schema_version": GOAL_ACTION_PROJECTION_REQUEST_SCHEMA_VERSION,
                 "goal_id": normalized_goal_id,
+                "registry_locator": str(requested_registry),
+                "runtime_root_locator": authority_route.sync_runtime_root,
                 "activation_state": source_state.value,
                 "state_fingerprint": fingerprint,
-                "operator_gate_required": bool(operator_gate_required),
             },
         )
     except EffectRuntimeRejected as exc:
