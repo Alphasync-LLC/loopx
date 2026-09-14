@@ -355,12 +355,13 @@ test("PostgreSQL service identity format stays provider-specific", () => {
   assert.equal(POSTGRESQL_STORE_IDENTITY_PATTERN.test("sqlite:abc"), false);
 });
 
-if (process.env.LOOPX_TEST_POSTGRES_URL) {
+const realPathUrl = process.env.LOOPX_TEST_POSTGRES_URL;
+if (realPathUrl) {
   test("PostgreSQL service real-path integration (set LOOPX_TEST_POSTGRES_URL)", async () => {
     // The disposable PostgreSQL integration is intentionally kept in the
     // provider integration suite; this test documents the required real-path
     // command without sharing mutable singleton metadata with that suite.
-    assert.match(process.env.LOOPX_TEST_POSTGRES_URL, /^postgres(?:ql)?:\/\//);
+    assert.match(realPathUrl, /^postgres(?:ql)?:\/\//);
   });
 } else {
   test("PostgreSQL service real-path integration (set LOOPX_TEST_POSTGRES_URL)", {skip: true}, () => {});
