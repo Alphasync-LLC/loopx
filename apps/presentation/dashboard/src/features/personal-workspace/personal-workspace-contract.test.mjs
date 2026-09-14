@@ -26,6 +26,7 @@ const dashboard = source("../../views/dashboard-page.tsx");
 const tasks = source("./goal-tasks-view.tsx");
 const status = source("../../data/status.ts");
 const chatData = source("../../data/chat.ts");
+const actionReview = source("../../../../../../loopx/control_plane/presentation/action_review_plan.ts");
 
 assert.match(model, /kind: "todo"/, "Todo has its own drawer selection");
 for (const field of ["dependencies", "nextTransition", "ownerLabel", "todoId", "taskClass"]) {
@@ -90,6 +91,17 @@ assert.doesNotMatch(router, /protectedActionIntent|protectedActionRules/, "Free-
 assert.doesNotMatch(router, /"goal\.update"/, "The browser Router type cannot emit a protected Goal action");
 assert.doesNotMatch(page, /intentRoute\.actionKind === "goal\.update"|workspace-protected-/, "Free-text send has no legacy protected-action preview branch");
 assert.match(chatData, /protected_action: protectedActionProposalSchema/, "Chat accepts one narrow semantic protected-action proposal");
+assert.match(chatData, /"operation\.execute"/, "Dashboard accepts canonical operation proposals");
+assert.match(chatData, /operation: typedOperationEnvelopeSchema\.nullable\(\)\.optional\(\)/, "Dashboard retains the canonical operation lifecycle");
+assert.match(page, /function operationProposalFields/, "Operation details have a dedicated safe projection");
+assert.doesNotMatch(page.match(/function operationProposalFields[\s\S]*?\n\}/)?.[0] ?? "", /authorized_principals|payload_digest|parameters\.payload/, "Operation details do not expose private authority or inline payloads");
+assert.match(page, /t\("proposal\.primary\.operationGroup"\)/, "Operation confirmation routes users to the bound group");
+assert.match(chatData, /result_delivery:/, "Dashboard retains operation result-delivery readback");
+assert.match(actionReview, /proposal\.action_kind !== "operation\.execute" \|\| objectValue\(objectValue\(proposal\.operation\)\?\.result_delivery\) !== null/, "An operation is not complete in the Dashboard until result delivery is verified");
+assert.match(page, /reviewPlan\.operationFrame/, "Dashboard operation details consume the shared TS review frame");
+assert.match(page, /operation\.execute" && proposal\.status === "applied"/, "Dashboard restores terminal operation receipts from the canonical action store");
+assert.match(page, /proposal\.action_kind !== "operation\.execute"[\s\S]*reviewPlan\.interaction !== "completed"/, "Pending operation result-card readback remains visible instead of becoming a generic apply error");
+assert.match(drawer, /selection\.item\.actionKind !== "operation\.execute"/, "Dashboard hides generic local controls for authenticated group operations");
 assert.match(dashboard, /response\.protected_action/, "Agent semantic protected intent is projected only after the Chat response");
 assert.match(dashboard, /normalizedMessage\.includes\(normalizedTarget\)/, "A model-invented protected target cannot reach typed preview");
 assert.match(page, /if \(semanticPreview\) await createPreview\(semanticPreview\)/, "Semantic intent still enters the typed preview boundary");
@@ -376,6 +388,11 @@ assert.match(machineSettings, /applyMachineConfiguration\([\s\S]*preview\.plan_r
 assert.match(machineSettings, /previewMachineConfigurationRollback\(/, "Machine settings preview rollback before execution");
 assert.match(machineSettings, /liveDefaultDescription/, "Live defaults and Goal overrides are explained together");
 assert.match(machineSettings, /inspection\?\.capability_catalog\.capabilities/, "Machine settings discover capabilities from the shared registry catalog");
+assert.match(machineSettings, /inspection\?\.invalid_namespaces\[0\]/, "Invalid machine state identifies the affected namespace without reading its stored values");
+assert.match(machineSettings, /machine-invalid-repair[\s\S]*role="alert"/, "Invalid machine state exposes a visible guided repair path");
+assert.match(machineSettings, /capability\.machine_namespace === invalidNamespace/, "Invalid machine state opens the affected capability editor first");
+assert.match(chatData, /status: z\.enum\(\["configured", "absent", "invalid"\]\)/, "Machine inspection accepts the safe invalid repair projection");
+assert.match(chatData, /invalid_namespaces: z\.array\(z\.string\(\)\)/, "Machine inspection parses value-free invalid namespace IDs");
 assert.match(machineSettings, /personal-capability-json-editor/, "Every machine-configurable capability keeps an advanced JSON fallback");
 assert.match(machineSettings, /selected\.machine_namespace, desiredConfiguration/, "Preview targets the selected capability namespace");
 assert.match(machineSettings, /previewMachineConfigurationRemoval\(selected\.machine_namespace\)/, "Configured capabilities expose a typed removal preview");

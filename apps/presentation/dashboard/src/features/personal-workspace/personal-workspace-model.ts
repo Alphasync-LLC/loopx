@@ -1,4 +1,4 @@
-import type { ActionReviewPlan } from "./action-review-plan-types";
+import type { ActionReviewPlan } from "../../../../../../loopx/control_plane/presentation/action_review_plan.js";
 import type { GoalAcceptanceObservation } from "../../data/goal-acceptance-observation";
 import type { AttentionDetails } from "./attention-details";
 import type { WorkspaceLoadError } from "../../data/workspace-progressive-status";
@@ -215,7 +215,8 @@ export type WorkspaceActionPreview = {
     | "monitor.create"
     | "monitor.update"
     | "gate.resolve"
-    | "run.correct";
+    | "run.correct"
+    | "operation.execute";
   agentLabel?: string;
   fields: Array<{ key: string; label: string; value: string }>;
   goalId?: string;

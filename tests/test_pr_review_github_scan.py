@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import loopx.cli_commands.pr_review as pr_review_cli_module
 import loopx.pr_review as pr_review_module
 import loopx.pr_review_merge_readiness as merge_readiness_module
+import loopx.capabilities.pr_review_queue.github_source as github_source_module
 import pytest
 from loopx.capabilities.machine_configuration.builtins import (
     build_builtin_machine_configuration_registry,
@@ -26,6 +27,7 @@ def _rows() -> list[dict[str, object]]:
             "number": 1,
             "title": "one",
             "state": "OPEN",
+            "changedFiles": 1,
             "headRefOid": HEAD_1,
             "updatedAt": "2026-08-12T00:00:00Z",
         },
@@ -33,6 +35,7 @@ def _rows() -> list[dict[str, object]]:
             "number": 2,
             "title": "two",
             "state": "OPEN",
+            "changedFiles": 1,
             "headRefOid": HEAD_2,
             "updatedAt": "2026-08-12T00:00:00Z",
         },
@@ -61,6 +64,16 @@ def _fake_run_gh_json(args: list[str], *, cwd: Path | None = None):
             ]
         )
         return {
+            "body": f"Body for PR {number}",
+            "files": [
+                {
+                    "path": f"src/pr_{number}.py",
+                    "additions": int(number),
+                    "deletions": 0,
+                }
+            ],
+            "reviewDecision": "REVIEW_REQUIRED",
+            "mergeStateStatus": "CLEAN",
             "createdAt": "2026-08-11T00:00:00Z",
             "commits": [
                 {
@@ -91,6 +104,10 @@ def test_pr_list_keeps_nested_details_in_bounded_per_pr_reads(monkeypatch) -> No
     list_call = next(args for args in calls if args[0] == "pr" and args[1] == "list")
     json_fields = list_call[list_call.index("--json") + 1].split(",")
     assert "statusCheckRollup" not in json_fields
+    assert "body" not in json_fields
+    assert "files" not in json_fields
+    assert "reviewDecision" not in json_fields
+    assert "mergeStateStatus" not in json_fields
     assert "createdAt" in json_fields
     assert {"commits", "reviews"}.isdisjoint(json_fields)
 
@@ -106,9 +123,16 @@ def test_pr_list_keeps_nested_details_in_bounded_per_pr_reads(monkeypatch) -> No
     detail_calls = [args for args in calls if args[:2] == ["pr", "view"]]
     assert [args[2] for args in detail_calls] == ["1", "2"]
     assert all(
-        args[args.index("--json") + 1] == "createdAt,commits,reviews,statusCheckRollup"
+        args[args.index("--json") + 1]
+        == "body,files,reviewDecision,mergeStateStatus,createdAt,commits,reviews,statusCheckRollup"
         for args in detail_calls
     )
+    assert rows[0]["body"] == "Body for PR 1"
+    assert rows[0]["files"] == [
+        {"path": "src/pr_1.py", "additions": 1, "deletions": 0}
+    ]
+    assert rows[0]["reviewDecision"] == "REVIEW_REQUIRED"
+    assert rows[0]["mergeStateStatus"] == "CLEAN"
     assert rows[0]["commits"][0]["committedDate"] == "2026-08-12T00:00:00Z"
     assert rows[0]["reviews"] == []
 
@@ -130,6 +154,69 @@ def test_pr_list_failed_check_lookup_leaves_rollup_absent(monkeypatch) -> None:
     assert scan["complete"] is False
     assert scan["states"][0]["detail_read_failures"] == 2
     assert scan["states"][0]["source_read_valid"] is False
+
+
+def test_pr_list_paginates_files_when_graphql_detail_is_truncated(monkeypatch) -> None:
+    row = _rows()[0]
+    row["changedFiles"] = 101
+    rest_files = [
+        {"filename": f"src/file_{index}.py", "additions": index, "deletions": 0}
+        for index in range(101)
+    ]
+    calls: list[list[str]] = []
+
+    def fake(args: list[str], *, cwd: Path | None = None):
+        calls.append(args)
+        if args[:2] == ["pr", "list"]:
+            return [row]
+        if args[:2] == ["pr", "view"]:
+            details = _fake_run_gh_json(args, cwd=cwd)
+            details["files"] = details["files"] * 100
+            return details
+        if args[:3] == ["api", "--paginate", "--slurp"]:
+            return [rest_files[:100], rest_files[100:]]
+        raise AssertionError(args)
+
+    monkeypatch.setattr(pr_review_module, "_run_gh_json", fake)
+    scan = pr_review_module.scan_github_pull_requests(
+        repo="huangruiteng/loopx",
+        limit=10,
+        state_filter="open",
+    )
+
+    assert scan["states"][0]["source_read_valid"] is True
+    assert len(scan["pull_requests"][0]["files"]) == 101
+    assert scan["pull_requests"][0]["files"][-1]["path"] == "src/file_100.py"
+    assert ["api", "--paginate", "--slurp"] in [call[:3] for call in calls]
+
+
+def test_pr_list_marks_source_incomplete_when_rest_files_are_still_truncated(
+    monkeypatch,
+) -> None:
+    row = _rows()[0]
+    row["changedFiles"] = 101
+
+    def fake(args: list[str], *, cwd: Path | None = None):
+        if args[:2] == ["pr", "list"]:
+            return [row]
+        if args[:2] == ["pr", "view"]:
+            details = _fake_run_gh_json(args, cwd=cwd)
+            details["files"] = details["files"] * 100
+            return details
+        if args[:3] == ["api", "--paginate", "--slurp"]:
+            return [[{"filename": f"src/file_{index}.py"} for index in range(100)]]
+        raise AssertionError(args)
+
+    monkeypatch.setattr(pr_review_module, "_run_gh_json", fake)
+    scan = pr_review_module.scan_github_pull_requests(
+        repo="huangruiteng/loopx",
+        limit=10,
+        state_filter="open",
+    )
+
+    assert scan["complete"] is False
+    assert scan["states"][0]["detail_read_failures"] == 1
+    assert "files" not in scan["pull_requests"][0]
 
 
 def test_security_policy_keeps_public_entry_classification_after_move() -> None:
@@ -1259,7 +1346,9 @@ def test_github_transport_preserves_utf8_under_gbk_locale(monkeypatch):
 
     monkeypatch.setattr(subprocess, "_text_encoding", lambda: "gbk")
     monkeypatch.setattr(
-        pr_review_module, "subprocess", SimpleNamespace(run=child, PIPE=subprocess.PIPE)
+        github_source_module,
+        "subprocess",
+        SimpleNamespace(run=child, PIPE=subprocess.PIPE),
     )
     assert pr_review_module._run_gh_json(["pr", "view", "1"]) == payload
 
@@ -1280,7 +1369,9 @@ def test_github_transport_keeps_json_and_process_failures(monkeypatch):
 
     monkeypatch.setattr(subprocess, "_text_encoding", lambda: "gbk")
     monkeypatch.setattr(
-        pr_review_module, "subprocess", SimpleNamespace(run=child, PIPE=subprocess.PIPE)
+        github_source_module,
+        "subprocess",
+        SimpleNamespace(run=child, PIPE=subprocess.PIPE),
     )
     with pytest.raises(json.JSONDecodeError):
         pr_review_module._run_gh_json(["pr", "view", "1"])
@@ -1311,7 +1402,9 @@ def test_github_transport_replaces_malformed_utf8(monkeypatch):
         )
 
     monkeypatch.setattr(
-        pr_review_module, "subprocess", SimpleNamespace(run=child, PIPE=subprocess.PIPE)
+        github_source_module,
+        "subprocess",
+        SimpleNamespace(run=child, PIPE=subprocess.PIPE),
     )
     assert pr_review_module._run_gh_json(["pr", "view", "1"]) == {
         "title": "broken\ufffd"
