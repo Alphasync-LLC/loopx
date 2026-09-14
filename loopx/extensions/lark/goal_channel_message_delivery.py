@@ -29,6 +29,30 @@ from .goal_channel_transport import (
 from .presentation.kanban import CommandRunner
 
 
+class GoalChannelDeliveryStageError(ValueError):
+    """One typed, public-safe failure stage of a Goal Channel delivery.
+
+    The summary is the only user-visible text and must never carry private
+    provider or configuration detail. `external_write_performed` is True or
+    False only when the provider outcome is known; None means the outcome is
+    unknown and the projected receipt must treat the provider write as
+    performed instead of claiming a clean run.
+    """
+
+    def __init__(
+        self,
+        summary: str,
+        *,
+        blocker: str,
+        failure_stage: str,
+        external_write_performed: bool | None = False,
+    ) -> None:
+        super().__init__(summary)
+        self.blocker = blocker
+        self.failure_stage = failure_stage
+        self.external_write_performed = external_write_performed
+
+
 def resolve_bound_goal_channel(
     *,
     binding_path: Path,
@@ -353,7 +377,11 @@ class GoalChannelMessageDeliverySession:
         )
         payload = json_payload(result)
         if result.get("returncode") != 0:
-            raise ValueError("Goal Channel delivery dedupe readback failed")
+            raise GoalChannelDeliveryStageError(
+                "Goal Channel delivery dedupe readback failed",
+                blocker="dedupe_history_read_failed",
+                failure_stage="read_dedupe_history",
+            )
         for message in _message_rows(payload):
             sender_type, sender_app_id = _message_sender(message)
             if (
@@ -372,7 +400,11 @@ class GoalChannelMessageDeliverySession:
             ):
                 return str(message["message_id"])
         if not _history_is_complete(payload):
-            raise ValueError("Goal Channel delivery dedupe history is incomplete")
+            raise GoalChannelDeliveryStageError(
+                "Goal Channel delivery dedupe history is incomplete",
+                blocker="dedupe_history_incomplete",
+                failure_stage="read_dedupe_history",
+            )
         return None
 
     def resolve(self, requested_goal_id: str) -> Mapping[str, Any]:
@@ -434,13 +466,21 @@ class GoalChannelMessageDeliverySession:
                     )
                 )
             if dict(self.resolve_current_binding()) != self.binding:
-                raise ValueError("Goal Channel delivery binding drifted")
+                raise GoalChannelDeliveryStageError(
+                    "Goal Channel delivery binding drifted",
+                    blocker="binding_drifted",
+                    failure_stage="prepare_delivery_transaction",
+                )
             existing_message_id = self._existing_message(card, route)
             # The history lookup is a provider round trip. Recheck under the same
             # lock used by binding writers immediately before either accepting
             # the dedupe result or performing the external write.
             if dict(self.resolve_current_binding()) != self.binding:
-                raise ValueError("Goal Channel delivery binding drifted")
+                raise GoalChannelDeliveryStageError(
+                    "Goal Channel delivery binding drifted",
+                    blocker="binding_drifted",
+                    failure_stage="prepare_delivery_transaction",
+                )
             if existing_message_id is not None:
                 self.expected_cards.setdefault(existing_message_id, []).append(
                     dict(card)
@@ -477,7 +517,11 @@ class GoalChannelMessageDeliverySession:
             json_payload(result), {"message_id"}, MESSAGE_ID_PATTERN
         )
         if result.get("returncode") != 0 or not message_id:
-            raise ValueError("Goal Channel delivery send failed")
+            raise GoalChannelDeliveryStageError(
+                "Goal Channel delivery send failed",
+                blocker="provider_send_rejected",
+                failure_stage="send_operation_card",
+            )
         self.expected_cards.setdefault(message_id, []).append(dict(card))
         return {
             "message_id": message_id,
