@@ -218,6 +218,12 @@ def test_operation_callback_status_separates_readiness_from_qualification(
                 "listener_active": True,
                 "listener_ready": True,
                 "callback_delivery_verified": False,
+                "last_failure_code": "callback_timestamp_invalid",
+                "last_failure_stage": "validate_timestamp",
+                "last_failure_event_shape": {
+                    "timestamp_is_digits": True,
+                    "timestamp_digit_count": 13,
+                },
             }
         ),
         encoding="utf-8",
@@ -241,6 +247,14 @@ def test_operation_callback_status_separates_readiness_from_qualification(
     assert (
         status["operation_callback_qualification_state"] == "listener_ready_unqualified"
     )
+    assert status["operation_callback_last_failure_code"] == (
+        "callback_timestamp_invalid"
+    )
+    assert status["operation_callback_last_failure_stage"] == "validate_timestamp"
+    assert status["operation_callback_last_failure_event_shape"] == {
+        "timestamp_is_digits": True,
+        "timestamp_digit_count": 13,
+    }
 
     payload = json.loads(callback_status.read_text(encoding="utf-8"))
     payload["callback_delivery_verified"] = True

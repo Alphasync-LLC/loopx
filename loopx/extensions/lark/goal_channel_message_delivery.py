@@ -258,12 +258,29 @@ def card_projection_matches(
     )
 
 
+def _has_callback_behavior(value: object) -> bool:
+    if isinstance(value, Mapping):
+        if value.get("type") == "callback":
+            return True
+        return any(_has_callback_behavior(child) for child in value.values())
+    if isinstance(value, list):
+        return any(_has_callback_behavior(child) for child in value)
+    return False
+
+
 def message_card_matches(
-    value: Mapping[str, Any], expected: Mapping[str, Any] | None
+    value: Mapping[str, Any],
+    expected: Mapping[str, Any] | None,
+    *,
+    allow_normalized: bool = True,
 ) -> bool:
     if expected is None:
         return False
     observed = _message_card(value)
+    if isinstance(observed, Mapping) and observed == expected:
+        return True
+    if not allow_normalized:
+        return False
     if isinstance(observed, Mapping) and card_projection_matches(observed, expected):
         return True
     content = value.get("content")
@@ -344,7 +361,14 @@ class GoalChannelMessageDeliverySession:
                 and str(message.get("chat_id") or "") == route["chat_id"]
                 and sender_type == "app"
                 and sender_app_id == route["bot_app_id"]
-                and message_card_matches(message, card)
+                and message_card_matches(
+                    message,
+                    card,
+                    # Provider-normalized Card 2.0 history omits callback
+                    # values. Visible equality therefore cannot prove that an
+                    # old actionable message carries this operation id/digest.
+                    allow_normalized=not _has_callback_behavior(card),
+                )
             ):
                 return str(message["message_id"])
         if not _history_is_complete(payload):

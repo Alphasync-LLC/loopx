@@ -17,6 +17,10 @@ from loopx.extensions.lark.goal_channel_contracts import (
     GOAL_CHANNEL_BINDING_SCHEMA_VERSION,
     write_goal_channel_binding,
 )
+from loopx.extensions.lark.goal_channel_message_delivery import (
+    message_card_matches,
+    normalized_card_text,
+)
 from loopx.extensions.lark.goal_channel_operation import (
     build_goal_channel_operation_card,
     build_goal_channel_operation_result_card,
@@ -194,6 +198,49 @@ def _normalized_card_v2(card: Mapping[str, Any]) -> str:
         lines.extend(column["elements"][0]["content"] for column in columns)
     lines.append("</card>")
     return "\n".join(lines)
+
+
+def test_normalized_action_card_cannot_prove_historical_action_identity() -> None:
+    card = {
+        "schema": "2.0",
+        "header": {
+            "title": {"content": "Simulated trade request"},
+            "subtitle": {"content": "Synthetic fixture · no venue call"},
+            "text_tag_list": [],
+        },
+        "body": {
+            "elements": [
+                {
+                    "tag": "column_set",
+                    "columns": [
+                        {
+                            "tag": "column",
+                            "elements": [
+                                {
+                                    "tag": "button",
+                                    "text": {"content": "Confirm"},
+                                    "behaviors": [
+                                        {
+                                            "type": "callback",
+                                            "value": {
+                                                "operation_id": (
+                                                    "proposal-normalized-binding"
+                                                )
+                                            },
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        },
+    }
+    normalized = {"content": normalized_card_text(card)}
+
+    assert message_card_matches(normalized, card)
+    assert not message_card_matches(normalized, card, allow_normalized=False)
 
 
 def _runner(

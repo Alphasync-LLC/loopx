@@ -738,6 +738,12 @@ def inspect_lark_event_collector(
         "operation_callback_last_failure_code": callback_status.get(
             "last_failure_code"
         ),
+        "operation_callback_last_failure_stage": callback_status.get(
+            "last_failure_stage"
+        ),
+        "operation_callback_last_failure_event_shape": callback_status.get(
+            "last_failure_event_shape"
+        ),
         "operation_callback_console_configuration_preflighted": False,
         "thread_complete": all(
             route["inbox"]["thread_complete"] for route in config["routes"]
