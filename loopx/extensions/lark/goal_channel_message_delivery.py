@@ -129,7 +129,7 @@ def _message_card(value: Mapping[str, Any]) -> Mapping[str, Any] | None:
     return parsed if isinstance(parsed, Mapping) else None
 
 
-def _normalized_card_text(card: Mapping[str, Any]) -> str | None:
+def normalized_card_text(card: Mapping[str, Any]) -> str | None:
     if card.get("schema") == "2.0":
         return _normalized_card_v2_text(card)
     header = card.get("header")
@@ -249,8 +249,8 @@ def card_projection_matches(
 
     if observed == expected:
         return True
-    observed_text = _normalized_card_text(observed)
-    expected_text = _normalized_card_text(expected)
+    observed_text = normalized_card_text(observed)
+    expected_text = normalized_card_text(expected)
     return (
         observed_text is not None
         and expected_text is not None
@@ -267,7 +267,7 @@ def message_card_matches(
     if isinstance(observed, Mapping) and card_projection_matches(observed, expected):
         return True
     content = value.get("content")
-    return isinstance(content, str) and content == _normalized_card_text(expected)
+    return isinstance(content, str) and content == normalized_card_text(expected)
 
 
 def _message_sender(value: Mapping[str, Any]) -> tuple[str, str]:
@@ -518,6 +518,7 @@ class GoalChannelMessageDeliverySession:
 
 __all__ = [
     "GoalChannelMessageDeliverySession",
+    "normalized_card_text",
     "goal_channel_delivery_route",
     "resolve_bound_goal_channel",
 ]

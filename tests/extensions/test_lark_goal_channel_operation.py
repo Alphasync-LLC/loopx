@@ -284,6 +284,32 @@ def _runner(
                     ]
                 },
             }
+        elif (
+            "api" in args
+            and "GET" in args
+            and any("/open-apis/im/v1/messages/" in item for item in args)
+        ):
+            endpoint = next(
+                item for item in args if "/open-apis/im/v1/messages/" in item
+            )
+            message_id = endpoint.rsplit("/", 1)[-1]
+            payload = {
+                "ok": True,
+                "data": {
+                    "items": [
+                        {
+                            "message_id": message_id,
+                            "chat_id": CHAT_ID,
+                            "sender": {"sender_type": "app", "id": APP_ID},
+                            "body": {
+                                "content": json.dumps(
+                                    _lark_card_v2_user_content(sent_cards[message_id])
+                                )
+                            },
+                        }
+                    ]
+                },
+            }
         elif "messages" in args and "patch" in args:
             message_id = args[args.index("--message-id") + 1]
             update = json.loads(args[args.index("--data") + 1])
@@ -795,8 +821,10 @@ def test_card_v2_normalized_readback_and_callback_fallback_complete_simulation(
     )
 
 
+@pytest.mark.parametrize("callback_shape", ["provider_json", "userdsl", "empty"])
 def test_provider_normalized_card_v2_callback_and_replay_complete_simulation(
     tmp_path: Path,
+    callback_shape: str,
 ) -> None:
     store, registry, runtime, binding, target = _fixture(tmp_path)
     proposal = _prepare(store, registry)
@@ -820,10 +848,12 @@ def test_provider_normalized_card_v2_callback_and_replay_complete_simulation(
     durable = store.load(proposal["proposal_id"])
     assert durable is not None
     card = sent_cards[durable["operation"]["delivery"]["message_id"]]
-    event = {
-        **_event(durable, card),
-        "card_content": json.dumps(_lark_card_v2_user_content(card)),
-    }
+    callback_content = {
+        "provider_json": json.dumps(_lark_card_v2_user_content(card)),
+        "userdsl": _normalized_card_v2(card),
+        "empty": "",
+    }[callback_shape]
+    event = {**_event(durable, card), "card_content": callback_content}
     execution_count = 0
 
     def executor(claimed: dict[str, Any]) -> dict[str, Any]:
@@ -869,6 +899,11 @@ def test_provider_normalized_card_v2_callback_and_replay_complete_simulation(
     assert first["card_update_verified"] is True
     assert replay["external_write_performed"] is False
     assert execution_count == 1
+    if callback_shape == "empty":
+        assert any(
+            "GET" in call and any("/open-apis/im/v1/messages/" in item for item in call)
+            for call in calls
+        )
 
 
 def test_card_v2_callback_fallback_rejects_projection_drift(tmp_path: Path) -> None:

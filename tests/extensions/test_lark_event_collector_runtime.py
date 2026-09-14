@@ -223,8 +223,7 @@ def test_operation_callback_status_separates_readiness_from_qualification(
     assert status["operation_callback_listener_active"] is True
     assert status["operation_callback_listener_ready"] is True
     assert (
-        status["operation_callback_qualification_state"]
-        == "listener_ready_unqualified"
+        status["operation_callback_qualification_state"] == "listener_ready_unqualified"
     )
 
     payload = json.loads(callback_status.read_text(encoding="utf-8"))

@@ -32,6 +32,22 @@ APP_ID_PATTERN = re.compile(r"cli_[A-Za-z0-9_-]+")
 EVENT_READY_PREFIX = "[event] ready "
 EVENT_DIAGNOSTIC_PREFIX = "[event] "
 _CALLBACK_FAILURE_CODES = {
+    "collector Bot application identity is unverified": "collector_app_identity_unverified",
+    "operation callback event type is unsupported": "callback_event_type_unsupported",
+    "operation callback must come from a button": "callback_action_not_button",
+    "operation callback action_value is invalid": "callback_action_value_invalid",
+    "operation callback action is incomplete": "callback_action_incomplete",
+    "operation callback action schema is unsupported": "callback_action_schema_unsupported",
+    "operation callback decision is unsupported": "callback_decision_unsupported",
+    "operation callback update token is invalid": "callback_update_token_invalid",
+    "operation callback event_id is invalid": "callback_event_id_invalid",
+    "operation callback message_id is invalid": "callback_message_id_invalid",
+    "operation callback chat_id is invalid": "callback_chat_id_invalid",
+    "operation callback operator_id is invalid": "callback_operator_id_invalid",
+    "operation callback host is unsupported": "callback_host_unsupported",
+    "operation callback card content is unavailable": "callback_card_content_unavailable",
+    "operation callback proposal was not found": "callback_proposal_not_found",
+    "typed operation proposal is unavailable": "callback_operation_unavailable",
     "operation card delivery was not recorded": "delivery_not_recorded",
     "operation callback digest drifted": "confirmation_digest_drifted",
     "recorded operation card digest drifted": "recorded_card_digest_drifted",
@@ -993,9 +1009,7 @@ def run_lark_event_collector(
         result.update(
             {
                 "operation_callback_listener_started": True,
-                "operation_callback_listener_ready": bool(
-                    callback_stats.get("ready")
-                ),
+                "operation_callback_listener_ready": bool(callback_stats.get("ready")),
                 "operation_callback_received_count": callback_stats["received"],
                 "operation_callback_verified_count": callback_stats["verified"],
                 "operation_callback_failure_count": callback_stats["failed"],

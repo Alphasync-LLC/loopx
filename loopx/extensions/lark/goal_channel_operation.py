@@ -27,6 +27,7 @@ from .goal_channel_message_delivery import (
     GoalChannelMessageDeliverySession,
     card_projection_matches,
     message_card_matches,
+    normalized_card_text,
     resolve_bound_goal_channel,
 )
 from .goal_channel_transport import call, json_payload, lark_args
@@ -629,6 +630,91 @@ def _lark_card_v2_fallback_matches_title(
     return collect(elements) and any(item.get("tag") == "img" for item in leaves)
 
 
+def _callback_card_content_matches(value: object, expected: Mapping[str, Any]) -> bool:
+    """Verify either provider JSON or the documented userDSL callback shape."""
+
+    observed: object = value
+    if isinstance(value, str):
+        if not value:
+            return False
+        try:
+            observed = json.loads(value)
+        except json.JSONDecodeError:
+            return value == normalized_card_text(expected)
+    return bool(
+        isinstance(observed, Mapping)
+        and (
+            card_projection_matches(observed, expected)
+            or _lark_card_v2_fallback_matches(observed, expected)
+        )
+    )
+
+
+def _read_callback_card_content(
+    *,
+    runner: CommandRunner,
+    cli_bin: str,
+    profile: str,
+    message_id: str,
+    chat_id: str,
+    app_id: str,
+) -> object:
+    """Retry the CLI's best-effort callback hydration through exact readback."""
+
+    result = call(
+        runner,
+        lark_args(
+            cli_bin=cli_bin,
+            profile=profile,
+            tail=[
+                "api",
+                "GET",
+                f"/open-apis/im/v1/messages/{message_id}",
+                "--params",
+                json.dumps({"card_msg_content_type": "user_card_content"}),
+                "--as",
+                "bot",
+            ],
+        ),
+    )
+    if result.get("returncode") != 0:
+        return None
+    message = _find_message(json_payload(result), message_id)
+    sender = message.get("sender") if isinstance(message, Mapping) else None
+    if (
+        not isinstance(message, Mapping)
+        or str(message.get("chat_id") or "") != chat_id
+        or not isinstance(sender, Mapping)
+        or sender.get("sender_type") != "app"
+        or sender.get("id") != app_id
+    ):
+        return None
+    body = message.get("body") if isinstance(message, Mapping) else None
+    return body.get("content") if isinstance(body, Mapping) else None
+
+
+def _callback_replays_confirmation(
+    *,
+    confirmation: object,
+    action: Mapping[str, str],
+    event: Mapping[str, Any],
+    operator_principal: str,
+    profile_app_id: str,
+) -> bool:
+    if not isinstance(confirmation, Mapping):
+        return False
+    expected = {
+        "event_id": str(event["event_id"]),
+        "principal": operator_principal,
+        "message_id": str(event["message_id"]),
+        "chat_id": str(event["chat_id"]),
+        "app_id": profile_app_id,
+        "confirmation_digest": action["confirmation_digest"],
+        "decision": action["decision"],
+    }
+    return all(confirmation.get(key) == value for key, value in expected.items())
+
+
 def _operator_membership_verified(
     *,
     runner: CommandRunner,
@@ -1128,13 +1214,6 @@ def handle_goal_channel_operation_callback(
             raise ValueError(f"operation callback {field} is invalid")
     if str(event.get("host") or "") != "im_message":
         raise ValueError("operation callback host is unsupported")
-    card_content = event.get("card_content")
-    try:
-        card = json.loads(card_content) if isinstance(card_content, str) else None
-    except json.JSONDecodeError as exc:
-        raise ValueError("operation callback card_content is invalid") from exc
-    if not isinstance(card, Mapping):
-        raise ValueError("operation callback requires exact card_content")
     store = ChatActionStore(action_store_root)
     proposal = store.load(action["operation_id"])
     if proposal is None:
@@ -1145,15 +1224,6 @@ def handle_goal_channel_operation_callback(
         raise ActionConflictError("operation card delivery was not recorded")
     if action["confirmation_digest"] != operation.get("confirmation_digest"):
         raise ActionConflictError("operation callback digest drifted")
-    if _digest(card) != delivery.get("card_digest"):
-        expected_card = _submitted_confirmation_card(proposal)
-        if _digest(expected_card) != delivery.get("card_digest"):
-            raise ActionConflictError("recorded operation card digest drifted")
-        if not (
-            card_projection_matches(card, expected_card)
-            or _lark_card_v2_fallback_matches(card, expected_card)
-        ):
-            raise ActionConflictError("operation callback card content drifted")
     if profile_app_id != delivery.get("app_id"):
         raise ActionConflictError("operation callback app identity drifted")
     operator_id = str(event["operator_id"])
@@ -1161,6 +1231,30 @@ def handle_goal_channel_operation_callback(
     chat_id = str(event["chat_id"])
     if operator_principal not in set(parameters.get("authorized_principals") or []):
         raise ActionConflictError("principal is not authorized for this operation")
+    if not _callback_replays_confirmation(
+        confirmation=operation.get("confirmation"),
+        action=action,
+        event=event,
+        operator_principal=operator_principal,
+        profile_app_id=profile_app_id,
+    ):
+        expected_card = _submitted_confirmation_card(proposal)
+        if _digest(expected_card) != delivery.get("card_digest"):
+            raise ActionConflictError("recorded operation card digest drifted")
+        card_content = event.get("card_content")
+        if card_content is None or card_content == "":
+            card_content = _read_callback_card_content(
+                runner=runner,
+                cli_bin=cli_bin,
+                profile=profile,
+                message_id=str(event["message_id"]),
+                chat_id=chat_id,
+                app_id=profile_app_id,
+            )
+        if card_content is None or card_content == "":
+            raise ValueError("operation callback card content is unavailable")
+        if not _callback_card_content_matches(card_content, expected_card):
+            raise ActionConflictError("operation callback card content drifted")
     if not _operator_membership_verified(
         runner=runner,
         cli_bin=cli_bin,
