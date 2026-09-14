@@ -681,8 +681,7 @@ def test_period_metric_recomputes_caller_asserted_derived_fields_and_bounds_rows
     assert projected["admission_reason"] == ("source_period_metric_is_evidence_only")
 
     oversized_metrics = [
-        _period_metric(f"metric-{index}")
-        for index in range(MAX_PERIOD_METRICS + 1)
+        _period_metric(f"metric-{index}") for index in range(MAX_PERIOD_METRICS + 1)
     ]
     with pytest.raises(ValueError, match="at most"):
         validate_source_period_metrics(oversized_metrics)
