@@ -579,15 +579,31 @@ def _deliver_lark_inbox_outbound(
         )
     intent_digest = _intent_digest(profile, chat_id, receipt)
     if delivery_attempt_recorder is not None:
-        delivery_attempt_recorder(
-            {
-                "schema_version": "manager_return_delivery_attempt_v0",
-                "provider": "lark",
-                "message_ref": reply_message_id,
-                "intent_digest": intent_digest,
-                "provider_receipt": receipt,
-            }
-        )
+        try:
+            delivery_attempt_recorder(
+                {
+                    "schema_version": "manager_return_delivery_attempt_v0",
+                    "provider": "lark",
+                    "message_ref": reply_message_id,
+                    "intent_digest": intent_digest,
+                    "provider_receipt": receipt,
+                }
+            )
+        except (OSError, TypeError, ValueError):
+            return _result(
+                status="sent_unverified",
+                ok=False,
+                execute=True,
+                receipt=receipt,
+                identity_verified=True,
+                membership_verified=True,
+                write_performed=True,
+                placement=placement,
+                blocker="lark_inbox_reply_delivery_attempt_not_persisted",
+                format_preflight_passed=True,
+                provider_preview_performed=True,
+                provider_preview_verified=True,
+            )
     readback = _call(
         runner,
         base

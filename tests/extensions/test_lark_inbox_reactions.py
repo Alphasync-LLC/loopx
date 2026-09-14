@@ -1002,6 +1002,31 @@ def test_read_only_recovery_rejects_changed_intent_without_provider_call(
     assert runner.calls == []
 
 
+def test_reply_fails_closed_after_send_when_locator_persistence_fails(
+    tmp_path: Path,
+) -> None:
+    config, _, project = _fixture(tmp_path, lifecycle=False)
+    runner = ReplyRunner()
+
+    result = reply_lark_event_inbox(
+        project=project,
+        config_path=config,
+        message_id="om_reaction_fixture",
+        text="处理完成",
+        execute=True,
+        runner=runner,
+        delivery_attempt_recorder=lambda _attempt: (_ for _ in ()).throw(
+            OSError("synthetic private persistence failure")
+        ),
+    )
+
+    assert result["external_write_performed"] is True
+    assert result["reply_verified"] is False
+    assert result["blocker"] == "lark_inbox_reply_delivery_attempt_not_persisted"
+    assert sum("+messages-reply" in call and "--dry-run" not in call for call in runner.calls) == 1
+    assert not any("+messages-mget" in call for call in runner.calls)
+
+
 def test_verified_reply_accepts_provider_token_or_rendered_mention_name(
     tmp_path: Path,
 ) -> None:

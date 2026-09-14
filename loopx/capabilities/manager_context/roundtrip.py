@@ -17,6 +17,28 @@ from ...file_lock import exclusive_file_lock
 from ...presentation.public_safety import scan_public_boundary_text
 
 PHASES = ("decision", "conclusion")
+DELIVERY_STATUSES = {
+    "queued",
+    "retry_pending",
+    "verification_required",
+    "delivered",
+    "superseded",
+    "explicit_unverified",
+}
+DELIVERY_ERRORS = {
+    "provider_delivery_unverified",
+    "provider_locator_unavailable",
+    "provider_verifier_unavailable",
+    "provider_verification_unavailable",
+    "provider_delivery_intent_conflict",
+    "provider_message_missing",
+    "provider_delivery_mismatch",
+    "return_authorization_unavailable",
+    "original_route_unavailable",
+    "initial_delivery_receipt_unavailable",
+    "original_route_or_return_delivery_unavailable",
+    "delivery_state_unreadable",
+}
 DELIVERY_ATTEMPT_SCHEMA = "manager_return_delivery_attempt_v0"
 _PROVIDER = re.compile(r"[a-z][a-z0-9_-]{0,31}")
 _OPAQUE_REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,511}")
@@ -182,12 +204,21 @@ def reply_status(root, row):
         reply = _read(path)
         state_path = path.with_name(phase + ".delivery.json")
         state = _read(state_path) if state_path.exists() else {}
+        status = state.get("status", "queued")
+        error = state.get("error")
+        if status not in DELIVERY_STATUSES:
+            status, error = "explicit_unverified", "delivery_state_unreadable"
+        elif error is not None and error not in DELIVERY_ERRORS:
+            status, error = "explicit_unverified", "delivery_state_unreadable"
+        delivered_at = state.get("delivered_at")
+        if not isinstance(delivered_at, str) or len(delivered_at) > 80:
+            delivered_at = None
         item = {
             "phase": phase,
-            "status": state.get("status", "queued"),
+            "status": status,
             "created_at": reply.get("created_at"),
-            "delivered_at": state.get("delivered_at"),
-            "error": state.get("error"),
+            "delivered_at": delivered_at,
+            "error": error,
         }
         if state.get("verification") == "reconciled_after_restart":
             item["verification"] = "reconciled_after_restart"

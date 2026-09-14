@@ -13,8 +13,15 @@ export function ReturnDeliveryStatus({ delivery }: { delivery?: WorkspaceReturnD
       : delivery.status === "explicit_unverified"
         ? t("returnDelivery.unverified")
         : t("returnDelivery.queued");
+  const tone = delivery.status === "delivered"
+    ? "delivered"
+    : delivery.status === "verification_required"
+      ? "verification_required"
+      : delivery.status === "explicit_unverified"
+        ? "explicit_unverified"
+        : "queued";
   return (
-    <small className={`personal-return-delivery is-${delivery.status}`} role="status">
+    <small className={`personal-return-delivery is-${tone}`} role="status">
       {label}
     </small>
   );

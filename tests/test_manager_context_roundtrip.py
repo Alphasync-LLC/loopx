@@ -521,6 +521,23 @@ def test_provider_verification_stops_after_return_authority_revocation(flow):
     assert transport.verify_calls == 0
 
 
+def test_public_delivery_projection_normalizes_unknown_private_state(flow):
+    root, _, _, create = flow
+    _, _, receipt = create(True)
+    rid = receipt["request_id"]
+    acknowledge(root, "research", "worker", rid, "adopt", "Checked")
+    report(root, "research", "worker", rid, "conclusion", "Bounded result.")
+    _write(
+        _root(root) / "replies" / rid / "conclusion.delivery.json",
+        {"status": "verification_required", "error": "private provider detail"},
+    )
+
+    state = reply_status(root, receipt)[0]
+    assert state["status"] == "explicit_unverified"
+    assert state["error"] == "delivery_state_unreadable"
+    assert "private" not in str(state)
+
+
 def test_background_service_delivers_without_another_agent_or_query(flow):
     root, registry, store, create = flow
     _, _, receipt = create(True)
