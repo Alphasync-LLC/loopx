@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from html import unescape
 import mimetypes
 import time
 import uuid
@@ -39,6 +38,7 @@ from .chat_ssh_source_api import SshSourceRequestMixin
 from .chat_store import ChatSessionStore
 from .capabilities.manager_runtime import manager_runtime_capability_projection
 from .capabilities.manager_context.roundtrip import project_chat_session_snapshot
+from .control_plane.goals.active_state_metadata import active_state_section_text
 from .control_plane.status.ssh_host_catalog import (
     SSH_HOST_CATALOG_PATH,
     ssh_host_catalog_payload,
@@ -124,26 +124,6 @@ def _compact_text(value: Any, *, limit: int = 600) -> str:
     return " ".join(str(value or "").split())[:limit].strip()
 
 
-def _active_state_section(state_text: str, heading: str) -> str:
-    lines = state_text.splitlines()
-    try:
-        start = next(i for i, line in enumerate(lines) if line.rstrip(" \t") == f"## {heading}") + 1
-    except StopIteration:
-        return ""
-    end = next((i for i in range(start, len(lines)) if lines[i].startswith("## ")), len(lines))
-    section_lines = [line for line in lines[start:end] if line]
-    if heading == "Objective" and section_lines and all(
-        line.startswith("> ") for line in section_lines
-    ):
-        return _compact_text(" ".join(unescape(line[2:]) for line in section_lines))
-    lines = [
-        line.strip().removeprefix("- ").strip()
-        for line in section_lines
-        if line.strip() and not line.lstrip().startswith("<!--")
-    ]
-    return _compact_text(" ".join(lines))
-
-
 def _goal_public_context(registry: dict[str, Any], goal: dict[str, Any]) -> dict[str, Any]:
     goal_id = str(goal.get("id") or "")
     project = Path(str(goal.get("repo") or ".")).expanduser().resolve()
@@ -153,7 +133,7 @@ def _goal_public_context(registry: dict[str, Any], goal: dict[str, Any]) -> dict
     if state_path is not None and state_path.exists():
         try:
             state_text = state_path.read_text(encoding="utf-8")
-            objective = _active_state_section(state_text, "Objective")
+            objective = _compact_text(active_state_section_text(state_text, "Objective"))
             title_line = next(
                 (line[2:].strip() for line in state_text.splitlines() if line.startswith("# ")),
                 "",

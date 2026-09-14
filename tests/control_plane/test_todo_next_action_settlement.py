@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from loopx.bootstrap import render_state_markdown
-from loopx.chat_server import _active_state_section
+from loopx.control_plane.goals.active_state_metadata import active_state_section_text
 from loopx.control_plane.todos.active_state_todo_parser import parse_todo_source
 from loopx.control_plane.effect_runtime import MAX_REQUEST_BYTES
 from loopx.control_plane.todos.next_action_runtime import (
@@ -190,7 +190,7 @@ def test_bootstrap_keeps_objective_separate_from_todo_sources(
     assert len(items["agent"]) == 1
     assert items["agent"][0]["action_kind"] == "onboarding_connection_validation"
     assert active_state_next_action_entries(state_text) == [items["agent"][0]["text"]]
-    assert _active_state_section(state_text, "Objective") == " ".join(objective.split())
+    assert active_state_section_text(state_text, "Objective") == " ".join(objective.split())
     objective_line = next(line for line in state_text.splitlines() if line.startswith("objective: "))
     assert json.loads(objective_line.removeprefix("objective: ")) == objective
 
@@ -198,8 +198,8 @@ def test_bootstrap_keeps_objective_separate_from_todo_sources(
 @pytest.mark.parametrize("heading", ["## Objective", "## Objective  ", "## Objective\t"])
 def test_objective_readback_preserves_existing_heading_whitespace(heading: str) -> None:
     state = f"{heading}\n\nKeep the original objective.\n\n## Next Action\n\nContinue."
-    assert _active_state_section(state, "Objective") == "Keep the original objective."
-    assert _active_state_section(state, "Missing") == ""
+    assert active_state_section_text(state, "Objective") == "Keep the original objective."
+    assert active_state_section_text(state, "Missing") == ""
 
 
 def test_higher_priority_agent_todo_rebinds_generated_onboarding_next_action(

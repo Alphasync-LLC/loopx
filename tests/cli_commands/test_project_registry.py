@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from loopx.cli import main
-from loopx.chat_server import _active_state_section
+from loopx.control_plane.goals.active_state_metadata import active_state_section_text
 from loopx.control_plane.todos.active_state_todo_parser import parse_todo_source
 from loopx.control_plane.projects import registry as project_registry
 
@@ -102,7 +102,7 @@ def test_project_register_creates_project_goal_and_resumable_state(
     assert sources == {"user": "User Todo / Owner Review Reading Queue", "agent": "Agent Todo"}
     assert items == {"user": [], "agent": []}
     assert archive == []
-    assert _active_state_section(state, "Objective") == " ".join(objective.split())
+    assert active_state_section_text(state, "Objective") == " ".join(objective.split())
 
 
 def test_project_register_defaults_to_knowledge_root_when_global_registry_exists(

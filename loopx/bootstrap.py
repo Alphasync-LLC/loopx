@@ -40,7 +40,7 @@ from .orchestration import (
     MULTI_SUBAGENT_ORCHESTRATION_MODE,
 )
 from .paths import rel_or_abs, resolve_runtime_root
-from .presentation.markdown import markdown_blockquote, markdown_frontmatter_string
+from .control_plane.goals.active_state_metadata import markdown_blockquote, markdown_frontmatter_string
 from .registry_writability import probe_registry_write_path
 from .todos import add_todo_to_lines
 

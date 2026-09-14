@@ -13,7 +13,7 @@ from ..todos.active_state_editing import atomic_write_state_text as _atomic_writ
 from ..coordination.legacy_writer_fence import legacy_todo_write_transaction, require_legacy_state_replacement_allowed
 from ...paths import DEFAULT_RUNTIME_ROOT
 from ...registry import atomic_write_json
-from ...presentation.markdown import markdown_blockquote, markdown_frontmatter_string
+from ..goals.active_state_metadata import markdown_blockquote, markdown_frontmatter_string
 from ...repository_identity import normalize_repository_identity
 from .contract import validate_project_record_bindings
 
