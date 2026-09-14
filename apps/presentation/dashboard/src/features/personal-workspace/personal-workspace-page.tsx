@@ -1789,7 +1789,9 @@ export function PersonalWorkspacePage({
   if (settingsOpen) {
     return (
       <WorkspaceSettingsPage
+        callbacks={effectiveDrawerCallbacks}
         focusGoalConnection={Boolean(selection?.kind === "settings" && selection.goalId)}
+        goalNotifications={model.goalNotifications ?? []}
         goals={workspaceGoals}
         initialGoalId={selection?.kind === "settings" ? selection.goalId ?? selectedGoalId : selectedGoalId}
         initialTab={selection?.kind === "settings" ? selection.tab ?? "lark" : "lark"}
