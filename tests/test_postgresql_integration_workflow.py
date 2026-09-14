@@ -36,6 +36,12 @@ def _step_running(fragment: str) -> dict:
     return matches[0]
 
 
+def _step_named(name: str) -> dict:
+    matches = [step for step in _steps() if step.get("name") == name]
+    assert len(matches) == 1, (name, len(matches))
+    return matches[0]
+
+
 def test_workflow_qualifies_the_authority_paths() -> None:
     triggers = _triggers()
     assert "workflow_dispatch" in triggers
@@ -71,7 +77,7 @@ def test_workflow_uses_the_canonical_ladder_row() -> None:
 
 
 def test_workflow_asserts_the_service_path_by_name() -> None:
-    step = _step_running("test:postgresql-authority-service")
+    step = _step_running("npm run test:postgresql-authority-service")
     assert step["env"]["LOOPX_TEST_POSTGRES_SERVICE_URL"].endswith("/loopx_service")
     assert step["env"]["LOOPX_TEST_POSTGRES_URL"].endswith("/loopx_store")
     # The suite keeps a placeholder test that stays green without a URL, so the
@@ -81,6 +87,9 @@ def test_workflow_asserts_the_service_path_by_name() -> None:
         "PostgreSQL service admits an authorized tenant and rotates a restored incarnation"
         in step["run"]
     )
+    # A renamed or dropped script is a coverage loss, not a silent skip.
+    installed = _step_named("Assert the service admission suite is available")
+    assert "test:postgresql-authority-service" in installed["run"]
 
 
 def test_workflow_keeps_bounded_evidence() -> None:
