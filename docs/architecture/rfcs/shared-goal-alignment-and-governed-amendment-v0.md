@@ -305,9 +305,10 @@ The effective path is:
 1. **Propose.** Any authorized proposer submits
    `goal_amendment_proposal_v0`, including the base revision/digest, amendment
    class, retained/changed/stopped intent, evidence references, affected Todos,
-   and linked replan obligation. An optional host-session rendezvous may help
-   discover or review the gap, but only promoted durable evidence enters the
-   proposal.
+   and linked replan obligation. A request-derived proposal also binds the
+   immutable source request id and revision. An optional host-session rendezvous
+   may help discover or review the gap, but only promoted durable evidence enters
+   the proposal.
 2. **Admit.** LoopX validates schema, actor identity, bounded evidence pointers,
    amendment class, and impact scope. A host locator cannot prove actor identity
    or count as evidence. Admission does not approve or apply the proposal.
@@ -323,8 +324,12 @@ The effective path is:
    authorized by a lease.
 5. **Commit.** The `GoalAmendmentAuthority` transaction submits the policy-authorized digest
    with an `operation_id`, expected `base_goal_revision`, and
-   `base_intent_digest`. It revalidates policy and performs one CAS. A stale
-   base fails closed. Routine in-envelope amendments do not wait for a human.
+   `base_intent_digest`, then revalidates policy and performs one CAS. For a
+   request-derived proposal, the same authorization decision also verifies that
+   the bound source request revision remains live and neither revoked nor
+   superseded; revocation/supersession racing commit fails closed. A stale Goal
+   or source-request basis fails closed. Routine in-envelope amendments do not
+   wait for a human.
 6. **Receipt.** The same transaction records the proposal digest, actor,
    authority source, old/new revisions, retained/changed/stopped delta,
    evidence references, affected Todos, lease disposition, and exact replan
@@ -354,7 +359,8 @@ Illustrative `goal_amendment_proposal_v0`:
   "stopped": [],
   "evidence_refs": ["evidence:..."],
   "affected_todo_ids": ["todo-a", "todo-b"],
-  "replan_obligation_id": "replan:..."
+  "replan_obligation_id": "replan:...",
+  "source_request_ref": {"request_id": "req_...", "revision": 1}
 }
 ```
 

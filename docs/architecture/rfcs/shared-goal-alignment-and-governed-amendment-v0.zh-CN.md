@@ -277,8 +277,9 @@ committing --CAS success--> committed + receipt -> frontier reconciliation
 1. **Propose。** 任一有 proposal 权限的 actor 提交
    `goal_amendment_proposal_v0`，其中包含 base revision/digest、amendment
    class、retained/changed/stopped intent、evidence references、affected Todos
-   与关联的 replan obligation。可选的 host-session rendezvous 可以帮助发现或审阅
-   gap，但只有经过提升的 durable evidence 才能进入 proposal。
+   与关联的 replan obligation。由请求派生的 proposal 还必须绑定不可变的来源
+   request id 与 revision。可选的 host-session rendezvous 可以帮助发现或审阅 gap，
+   但只有经过提升的 durable evidence 才能进入 proposal。
 2. **Admit。** LoopX 校验 schema、actor identity、有界 evidence pointer、
    amendment class 与影响范围。Host locator 不能证明 actor identity，也不能充当
    evidence。Admission 不等于 approve 或 apply。
@@ -291,8 +292,10 @@ committing --CAS success--> committed + receipt -> frontier reconciliation
    policy 阻塞。Semantic amendment 不能静默使 lease 已授权的工作失效。
 5. **Commit。** `GoalAmendmentAuthority` transaction 带 `operation_id`、期望的
    `base_goal_revision` 与 `base_intent_digest` 提交 policy-authorized digest，
-   再次校验 policy 并执行一次 CAS。Base 过期时 fail closed。日常 in-envelope
-   amendment 不等待人。
+   再次校验 policy 并执行一次 CAS。对于 request-derived proposal，同一次授权
+   decision 还要验证所绑定的来源 request revision 仍有效且未被撤销或替代；撤销/
+   替代与 commit 竞态时 fail closed。Goal 或来源请求的 basis 过期均 fail closed。
+   日常 in-envelope amendment 不等待人。
 6. **Receipt。** 同一事务记录 proposal digest、actor、authority source、旧/新
    revision、retained/changed/stopped delta、evidence references、affected Todos、
    lease disposition 与精确 replan obligation settlement。
@@ -321,7 +324,8 @@ committing --CAS success--> committed + receipt -> frontier reconciliation
   "stopped": [],
   "evidence_refs": ["evidence:..."],
   "affected_todo_ids": ["todo-a", "todo-b"],
-  "replan_obligation_id": "replan:..."
+  "replan_obligation_id": "replan:...",
+  "source_request_ref": {"request_id": "req_...", "revision": 1}
 }
 ```
 
