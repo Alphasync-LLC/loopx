@@ -55,6 +55,30 @@ def _require_positive_int(value: Any, *, field: str) -> int:
     return value
 
 
+def _require_matching_attempts(journal_attempt: Any, failure_attempt: Any) -> None:
+    """Refuse a journal whose two persisted attempt fields disagree.
+
+    The executor increments ``host_attempt_count`` and ``record_host_failure``
+    writes the same value into ``host_failure.attempt``. The controller reads
+    the nested field for the retry ceiling while the projection reports the top
+    level, so a divergence would present one attempt count and authorize on
+    another.
+    """
+
+    authority = _require_positive_int(
+        journal_attempt,
+        field="Turn journal host_attempt_count",
+    )
+    nested = _require_positive_int(
+        failure_attempt,
+        field="Turn journal host_failure attempt",
+    )
+    if nested != authority:
+        raise ValueError(
+            "Turn journal host_failure attempt disagrees with host_attempt_count"
+        )
+
+
 def _validated_turn_receipt(journal: Mapping[str, Any]) -> ValidatedTurnReceipt:
     """Rebuild the controller receipt from the canonical journal alone.
 
@@ -136,6 +160,17 @@ def managed_step_receipt_from_journal(
         raise ValueError(
             f"host failure {failure.get('kind')} is not retryable; repair instead"
         )
+    # The journal records the attempt twice: once as the top-level
+    # `host_attempt_count` the executor increments, and once inside the typed
+    # `host_failure` record the controller reads to decide whether the retry
+    # ceiling is reached. `record_host_failure` writes them from one value, so a
+    # disagreement means the journal was edited or corrupted. Preferring either
+    # side would let the presentation report `3/3` while the controller still
+    # authorized a retry, so refuse the Turn instead.
+    _require_matching_attempts(
+        journal.get("host_attempt_count"),
+        failure.get("attempt"),
+    )
 
     receipt = _validated_turn_receipt(journal)
     lineage = receipt.lineage

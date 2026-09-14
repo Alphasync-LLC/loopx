@@ -243,6 +243,37 @@ def test_observation_must_be_a_positive_integer() -> None:
         _decide(journal, observed_attempt=True)
 
 
+def test_journal_attempt_divergence_is_refused() -> None:
+    """The two persisted attempt fields must agree, in both directions.
+
+    The executor increments ``host_attempt_count`` while the controller reads
+    ``host_failure.attempt`` for the retry ceiling. A journal that reports one
+    value at the top level and another inside the typed failure would present
+    ``3/3`` while still authorizing a retry, so it must fail closed.
+    """
+
+    consumed = _failed_journal(kind="provider_capacity", attempt=3)
+    consumed["host_failure"] = build_host_failure_record("provider_capacity", attempt=1)
+
+    with pytest.raises(ValueError, match="host_failure attempt disagrees"):
+        _decide(consumed)
+
+    # The opposite direction is refused the same way: a nested attempt ahead of
+    # the journal's own counter.
+    ahead = _failed_journal(kind="provider_capacity", attempt=1)
+    ahead["host_failure"] = build_host_failure_record("provider_capacity", attempt=3)
+
+    with pytest.raises(ValueError, match="host_failure attempt disagrees"):
+        _decide(ahead)
+
+    # An agreeing journal still decides normally, so the binding is not a blanket
+    # rejection of the retryable path.
+    agreeing = _failed_journal(kind="provider_capacity", attempt=1)
+    decided = _decide(agreeing)
+    assert decided["disposition"] == "wait"
+    assert decided["attempt"] == 1
+
+
 def test_foreign_lineage_is_refused() -> None:
     journal = _failed_journal(
         lineage={"goal_id": "other-goal", "agent_id": AGENT_ID, "todo_id": TODO_ID}
