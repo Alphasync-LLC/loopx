@@ -22,6 +22,7 @@ from loopx.extensions.lark.inbox_reactions import (
 from loopx.extensions.lark.inbox_reply import (
     reply_lark_event_inbox,
     send_lark_inbox_message,
+    verify_lark_inbox_reply,
 )
 
 
@@ -925,6 +926,80 @@ def test_multiline_readback_must_preserve_line_structure(tmp_path: Path) -> None
     assert result["status"] == "sent_unverified"
     assert result["provider_preview_verified"] is True
     assert result["reply_verified"] is False
+
+
+def test_unverified_reply_records_private_locator_and_read_only_recovery(
+    tmp_path: Path,
+) -> None:
+    config, _, project = _fixture(tmp_path, lifecycle=False)
+    attempts: list[dict[str, str]] = []
+    first_runner = ReplyRunner(matching_readback=False)
+
+    sent = reply_lark_event_inbox(
+        project=project,
+        config_path=config,
+        message_id="om_reaction_fixture",
+        text="处理完成",
+        execute=True,
+        runner=first_runner,
+        delivery_attempt_recorder=attempts.append,
+    )
+
+    assert sent["status"] == "sent_unverified"
+    assert attempts == [
+        {
+            "schema_version": "manager_return_delivery_attempt_v0",
+            "provider": "lark",
+            "message_ref": "om_reply_fixture",
+            "intent_digest": attempts[0]["intent_digest"],
+            "provider_receipt": sent["idempotency_key"],
+        }
+    ]
+    assert attempts[0]["intent_digest"].startswith("sha256:")
+    assert "message_ref" not in sent
+
+    recovery_runner = ReplyRunner()
+    recovered = verify_lark_inbox_reply(
+        project=project,
+        config_path=config,
+        message_id="om_reaction_fixture",
+        text="处理完成",
+        attempt=attempts[0],
+        runner=recovery_runner,
+    )
+
+    assert recovered["reply_verified"] is True
+    assert recovered["verification_performed"] is True
+    assert not any(
+        "+messages-send" in call or "+messages-reply" in call
+        for call in recovery_runner.calls
+    )
+
+
+def test_read_only_recovery_rejects_changed_intent_without_provider_call(
+    tmp_path: Path,
+) -> None:
+    config, _, project = _fixture(tmp_path, lifecycle=False)
+    runner = ReplyRunner()
+    result = verify_lark_inbox_reply(
+        project=project,
+        config_path=config,
+        message_id="om_reaction_fixture",
+        text="different result",
+        attempt={
+            "schema_version": "manager_return_delivery_attempt_v0",
+            "provider": "lark",
+            "message_ref": "om_reply_fixture",
+            "intent_digest": "sha256:" + "a" * 64,
+            "provider_receipt": "sha256:" + "b" * 64,
+        },
+        runner=runner,
+    )
+
+    assert result["reply_verified"] is False
+    assert result["verification_performed"] is True
+    assert result["blocker"] == "provider_delivery_intent_conflict"
+    assert runner.calls == []
 
 
 def test_verified_reply_accepts_provider_token_or_rendered_mention_name(

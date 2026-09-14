@@ -19,6 +19,7 @@ from loopx.capabilities.manager_context import (
 from loopx.capabilities.manager_context.roundtrip import (
     ReturnService,
     drain,
+    project_chat_return_deliveries,
     report,
     reply_status,
 )
@@ -321,7 +322,203 @@ def test_ambiguous_provider_write_is_not_blindly_resent(flow):
         now=datetime.now(timezone.utc) + timedelta(days=2),
     )
     assert len(calls) == 1
-    assert reply_status(root, r)[0]["status"] == "verification_required"
+    assert reply_status(root, r)[0] == {
+        "phase": "conclusion",
+        "status": "explicit_unverified",
+        "created_at": reply_status(root, r)[0]["created_at"],
+        "delivered_at": None,
+        "error": "provider_locator_unavailable",
+    }
+
+
+def test_known_provider_locator_is_verified_after_restart_without_resend(flow):
+    root, registry, store, create = flow
+    session, _, receipt = create(True)
+    rid = receipt["request_id"]
+    acknowledge(root, "research", "worker", rid, "adopt", "Checked")
+    report(
+        root,
+        "research",
+        "worker",
+        rid,
+        "conclusion",
+        "Processed with a recorded validation result.",
+    )
+
+    class Transport:
+        def __init__(self):
+            self.send_calls = 0
+            self.verify_calls = 0
+
+        def send_with_attempt(self, route, session, turn, text, record_attempt):
+            self.send_calls += 1
+            record_attempt(
+                {
+                    "schema_version": "manager_return_delivery_attempt_v0",
+                    "provider": "lark",
+                    "message_ref": "om_provider_reply",
+                    "intent_digest": "sha256:" + "a" * 64,
+                    "provider_receipt": "sha256:" + "b" * 64,
+                }
+            )
+            raise RuntimeError("synthetic process interruption after provider send")
+
+        def verify(self, route, session, turn, text, attempt):
+            self.verify_calls += 1
+            assert attempt["message_ref"] == "om_provider_reply"
+            return {
+                "ok": True,
+                "verification_performed": True,
+                "reply_verified": True,
+            }
+
+    transport = Transport()
+    drain(root, registry, store, transport)
+    first = reply_status(root, receipt)[0]
+    assert first["status"] == "verification_required"
+    assert "message_ref" not in first and "intent_digest" not in first
+    first_projection = project_chat_return_deliveries(
+        root, session["session_id"], store.messages(session["session_id"])
+    )
+    assert next(
+        row for row in first_projection if row.get("origin") == "manager_followup"
+    )["return_delivery"]["status"] == "verification_required"
+    assert "om_provider_reply" not in json.dumps(first_projection)
+
+    drain(root, registry, ChatSessionStore(root), transport)
+    recovered = reply_status(root, receipt)[0]
+    assert recovered["status"] == "delivered"
+    assert recovered["verification"] == "reconciled_after_restart"
+    assert transport.send_calls == 1
+    assert transport.verify_calls == 1
+
+    projected = project_chat_return_deliveries(
+        root, session["session_id"], store.messages(session["session_id"])
+    )
+    returned = [row for row in projected if row.get("origin") == "manager_followup"]
+    assert returned[0]["return_delivery"] == {
+        "schema_version": "manager_return_delivery_status_v0",
+        **recovered,
+    }
+
+
+def test_provider_verification_outage_retries_read_only_without_resend(flow):
+    root, registry, store, create = flow
+    _, _, receipt = create(True)
+    rid = receipt["request_id"]
+    acknowledge(root, "research", "worker", rid, "adopt", "Checked")
+    report(root, "research", "worker", rid, "conclusion", "Bounded result.")
+
+    class Transport:
+        send_calls = 0
+        verify_calls = 0
+
+        def send_with_attempt(self, route, session, turn, text, record_attempt):
+            self.send_calls += 1
+            record_attempt(
+                {
+                    "schema_version": "manager_return_delivery_attempt_v0",
+                    "provider": "lark",
+                    "message_ref": "om_provider_reply",
+                    "intent_digest": "sha256:" + "a" * 64,
+                    "provider_receipt": "sha256:" + "b" * 64,
+                }
+            )
+            return {"external_write_performed": True, "reply_verified": False}
+
+        def verify(self, *_args):
+            self.verify_calls += 1
+            return {
+                "ok": False,
+                "verification_performed": False,
+                "reply_verified": False,
+                "blocker": "provider_verification_unavailable",
+            }
+
+    transport = Transport()
+    now = datetime.now(timezone.utc)
+    drain(root, registry, store, transport, now=now)
+    drain(root, registry, ChatSessionStore(root), transport, now=now)
+    state = reply_status(root, receipt)[0]
+    assert state["status"] == "verification_required"
+    assert state["error"] == "provider_verification_unavailable"
+    assert transport.send_calls == 1 and transport.verify_calls == 1
+
+
+def test_provider_verification_mismatch_is_terminal_and_public_safe(flow):
+    root, registry, store, create = flow
+    _, _, receipt = create(True)
+    rid = receipt["request_id"]
+    acknowledge(root, "research", "worker", rid, "adopt", "Checked")
+    report(root, "research", "worker", rid, "conclusion", "Bounded result.")
+
+    class Transport:
+        def send_with_attempt(self, route, session, turn, text, record_attempt):
+            record_attempt(
+                {
+                    "schema_version": "manager_return_delivery_attempt_v0",
+                    "provider": "lark",
+                    "message_ref": "om_private_provider_reply",
+                    "intent_digest": "sha256:" + "a" * 64,
+                    "provider_receipt": "sha256:" + "b" * 64,
+                }
+            )
+            return {"external_write_performed": True, "reply_verified": False}
+
+        def verify(self, *_args):
+            return {
+                "ok": False,
+                "verification_performed": True,
+                "reply_verified": False,
+                "blocker": "private provider mismatch detail",
+            }
+
+    transport = Transport()
+    drain(root, registry, store, transport)
+    drain(root, registry, ChatSessionStore(root), transport)
+    state = reply_status(root, receipt)[0]
+    assert state["status"] == "explicit_unverified"
+    assert state["error"] == "provider_delivery_mismatch"
+    assert "private" not in str(state)
+
+
+def test_provider_verification_stops_after_return_authority_revocation(flow):
+    root, registry, store, create = flow
+    _, _, receipt = create(True)
+    rid = receipt["request_id"]
+    acknowledge(root, "research", "worker", rid, "adopt", "Checked")
+    report(root, "research", "worker", rid, "conclusion", "Bounded result.")
+
+    class Transport:
+        verify_calls = 0
+
+        def send_with_attempt(self, route, session, turn, text, record_attempt):
+            record_attempt(
+                {
+                    "schema_version": "manager_return_delivery_attempt_v0",
+                    "provider": "lark",
+                    "message_ref": "om_provider_reply",
+                    "intent_digest": "sha256:" + "a" * 64,
+                    "provider_receipt": "sha256:" + "b" * 64,
+                }
+            )
+            return {"external_write_performed": True, "reply_verified": False}
+
+        def verify(self, *_args):
+            self.verify_calls += 1
+            return {"verification_performed": True, "reply_verified": True}
+
+    transport = Transport()
+    drain(root, registry, store, transport)
+    _write(
+        _root(root) / "policy.json", {"schema_version": POLICY_SCHEMA, "sources": {}}
+    )
+    drain(root, registry, ChatSessionStore(root), transport)
+
+    state = reply_status(root, receipt)[0]
+    assert state["status"] == "explicit_unverified"
+    assert state["error"] == "return_authorization_unavailable"
+    assert transport.verify_calls == 0
 
 
 def test_background_service_delivers_without_another_agent_or_query(flow):

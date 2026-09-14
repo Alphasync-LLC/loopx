@@ -7,6 +7,7 @@ routing, receiver-authored replies, and publication receipts. No model polling.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from datetime import datetime, timezone, timedelta
 
@@ -16,6 +17,54 @@ from ...file_lock import exclusive_file_lock
 from ...presentation.public_safety import scan_public_boundary_text
 
 PHASES = ("decision", "conclusion")
+DELIVERY_ATTEMPT_SCHEMA = "manager_return_delivery_attempt_v0"
+_PROVIDER = re.compile(r"[a-z][a-z0-9_-]{0,31}")
+_OPAQUE_REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,511}")
+_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+
+
+def _delivery_attempt(value):
+    if not isinstance(value, dict) or set(value) != {
+        "schema_version",
+        "provider",
+        "message_ref",
+        "intent_digest",
+        "provider_receipt",
+    }:
+        raise ValueError("invalid manager return delivery attempt")
+    if value.get("schema_version") != DELIVERY_ATTEMPT_SCHEMA:
+        raise ValueError("invalid manager return delivery attempt")
+    if not _PROVIDER.fullmatch(str(value.get("provider") or "")):
+        raise ValueError("invalid manager return delivery attempt")
+    if not _OPAQUE_REF.fullmatch(str(value.get("message_ref") or "")):
+        raise ValueError("invalid manager return delivery attempt")
+    if not _DIGEST.fullmatch(str(value.get("intent_digest") or "")):
+        raise ValueError("invalid manager return delivery attempt")
+    if not _DIGEST.fullmatch(str(value.get("provider_receipt") or "")):
+        raise ValueError("invalid manager return delivery attempt")
+    return dict(value)
+
+
+def _verification_error(outcome):
+    blocker = str(outcome.get("blocker") or "")
+    if blocker in {
+        "provider_delivery_intent_conflict",
+        "provider_message_missing",
+        "provider_verification_unavailable",
+    }:
+        return blocker
+    return "provider_delivery_mismatch"
+
+
+def _verification_exception_error(exc):
+    message = str(exc)
+    if "authorization" in message or "authorized" in message:
+        return "return_authorization_unavailable"
+    if any(token in message for token in ("conversation", "route", "binding", "target")):
+        return "original_route_unavailable"
+    if "initial reply" in message or "initial_receipt" in message:
+        return "initial_delivery_receipt_unavailable"
+    return None
 
 
 def register(root, row, session, turn):
@@ -133,16 +182,51 @@ def reply_status(root, row):
         reply = _read(path)
         state_path = path.with_name(phase + ".delivery.json")
         state = _read(state_path) if state_path.exists() else {}
-        result.append(
-            {
-                "phase": phase,
-                "status": state.get("status", "queued"),
-                "created_at": reply.get("created_at"),
-                "delivered_at": state.get("delivered_at"),
-                "error": state.get("error"),
-            }
-        )
+        item = {
+            "phase": phase,
+            "status": state.get("status", "queued"),
+            "created_at": reply.get("created_at"),
+            "delivered_at": state.get("delivered_at"),
+            "error": state.get("error"),
+        }
+        if state.get("verification") == "reconciled_after_restart":
+            item["verification"] = "reconciled_after_restart"
+        result.append(item)
     return result
+
+
+def project_chat_return_deliveries(root, session_id, messages):
+    """Attach public-safe delivery readback to returned Chat transcript rows."""
+
+    statuses = {}
+    paths = sorted((_root(root) / "roundtrips").glob("*.json"))
+    for path in paths[:2000]:
+        try:
+            route = _read(path)
+            if route.get("session_id") != session_id:
+                continue
+            request_id = str(route.get("request_id") or "")
+            if path.stem != request_id or not re.fullmatch(r"[a-f0-9]{64}", request_id):
+                continue
+            for item in reply_status(root, route):
+                phase = item.get("phase")
+                if phase not in PHASES:
+                    continue
+                message_id = "handoff." + _hash([request_id, phase])
+                statuses[message_id] = {
+                    "schema_version": "manager_return_delivery_status_v0",
+                    **item,
+                }
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    return [
+        (
+            {**message, "return_delivery": statuses[message.get("message_id")]}
+            if message.get("message_id") in statuses
+            else message
+        )
+        for message in messages
+    ]
 
 
 def drain(root, registry, store, external_sender, *, now=None, cancelled=lambda: False):
@@ -163,11 +247,7 @@ def drain(root, registry, store, external_sender, *, now=None, cancelled=lambda:
                 # it blindly, and do not starve unrelated pending returns.
                 logging.getLogger(__name__).warning("Unreadable manager return receipt")
                 continue
-            if state.get("status") in {
-                "delivered",
-                "superseded",
-                "verification_required",
-            }:
+            if state.get("status") in {"delivered", "superseded", "explicit_unverified"}:
                 continue
             if state.get("retry_at") and now.isoformat() < state["retry_at"]:
                 continue
@@ -231,15 +311,114 @@ def drain(root, registry, store, external_sender, *, now=None, cancelled=lambda:
                     return processed
                 transport = {}
                 if route["channel_id"] != "manager":
-                    sent = external_sender(route, session, turn, text)
-                    if sent.get("reply_verified") is not True:
-                        if sent.get("external_write_performed") is True:
+                    if state.get("status") == "verification_required":
+                        try:
+                            attempt = _delivery_attempt(state.get("attempt"))
+                        except ValueError:
                             _write(
                                 state_path,
                                 {
-                                    "status": "verification_required",
-                                    "error": "provider_delivery_unverified",
+                                    "status": "explicit_unverified",
+                                    "error": "provider_locator_unavailable",
                                 },
+                            )
+                            continue
+                        verifier = getattr(external_sender, "verify", None)
+                        if not callable(verifier):
+                            _write(
+                                state_path,
+                                {
+                                    "status": "explicit_unverified",
+                                    "error": "provider_verifier_unavailable",
+                                },
+                            )
+                            continue
+                        verified = verifier(route, session, turn, text, attempt)
+                        if (
+                            isinstance(verified, dict)
+                            and verified.get("verification_performed") is True
+                            and verified.get("reply_verified") is True
+                        ):
+                            _write(
+                                state_path,
+                                {
+                                    "status": "delivered",
+                                    "delivered_at": now.isoformat(),
+                                    "message_id": mid,
+                                    "provider_receipt": attempt["provider_receipt"],
+                                    "reply_verified": True,
+                                    "verification": "reconciled_after_restart",
+                                },
+                            )
+                            continue
+                        if (
+                            isinstance(verified, dict)
+                            and verified.get("verification_performed") is True
+                        ):
+                            _write(
+                                state_path,
+                                {
+                                    "status": "explicit_unverified",
+                                    "error": _verification_error(verified),
+                                },
+                            )
+                            continue
+                        attempts = int(state.get("attempts", 0)) + 1
+                        _write(
+                            state_path,
+                            {
+                                **state,
+                                "status": "verification_required",
+                                "attempts": attempts,
+                                "error": "provider_verification_unavailable",
+                                "retry_at": (
+                                    now
+                                    + timedelta(
+                                        seconds=min(300, 5 * 2 ** min(attempts, 6))
+                                    )
+                                ).isoformat(),
+                            },
+                        )
+                        continue
+
+                    def record_attempt(value):
+                        attempt = _delivery_attempt(value)
+                        current = _read(state_path) if state_path.exists() else {}
+                        existing = current.get("attempt")
+                        if existing is not None and _delivery_attempt(existing) != attempt:
+                            raise ValueError("manager return delivery attempt conflict")
+                        _write(
+                            state_path,
+                            {
+                                "status": "verification_required",
+                                "error": "provider_delivery_unverified",
+                                "attempt": attempt,
+                            },
+                        )
+
+                    sender = getattr(external_sender, "send_with_attempt", None)
+                    sent = (
+                        sender(route, session, turn, text, record_attempt)
+                        if callable(sender)
+                        else external_sender(route, session, turn, text)
+                    )
+                    if sent.get("reply_verified") is not True:
+                        if sent.get("external_write_performed") is True:
+                            current = _read(state_path) if state_path.exists() else {}
+                            _write(
+                                state_path,
+                                (
+                                    {
+                                        **current,
+                                        "status": "verification_required",
+                                        "error": "provider_delivery_unverified",
+                                    }
+                                    if current.get("attempt") is not None
+                                    else {
+                                        "status": "explicit_unverified",
+                                        "error": "provider_locator_unavailable",
+                                    }
+                                ),
                             )
                             continue
                         raise ValueError("return_transport_unavailable")
@@ -256,7 +435,19 @@ def drain(root, registry, store, external_sender, *, now=None, cancelled=lambda:
                         **transport,
                     },
                 )
-            except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+            except (OSError, ValueError, KeyError, TypeError, RuntimeError) as exc:
+                current = _read(state_path) if state_path.exists() else {}
+                if current.get("status") == "verification_required" and current.get(
+                    "attempt"
+                ) is not None:
+                    error = _verification_exception_error(exc)
+                    if error:
+                        _write(
+                            state_path,
+                            {"status": "explicit_unverified", "error": error},
+                        )
+                    processed += 1
+                    continue
                 attempts = int(state.get("attempts", 0)) + 1
                 _write(
                     state_path,

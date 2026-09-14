@@ -168,6 +168,16 @@ sending, and never retargets a closed/replaced conversation. An offline transpor
 retries the persisted answer rather than rerunning the worker. Ambiguous external
 writes remain `verification_required` and are not blindly resent.
 
+When the provider returned a trustworthy message locator before readback failed,
+the same background pump persists that private attempt and later performs a
+read-only verification. A matching message advances the original delivery to
+`delivered` without sending again. Provider outages retain
+`verification_required`; a missing legacy locator, changed intent, missing
+message, or verified mismatch becomes `explicit_unverified`. CLI, Manager read,
+and Chat expose the same public-safe state and reason without returning the
+provider locator. The Lark adapter keeps locator interpretation and provider
+readback; `manager-context` remains the sole result/delivery writer.
+
 New handoffs persist their exact original return route. Legacy requests remain
 queryable; a receiver can explicitly report one only when its exact persisted
 Chat receipt uniquely recovers the route. Historical timestamps stay unknown.

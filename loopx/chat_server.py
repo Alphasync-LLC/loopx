@@ -758,7 +758,15 @@ class ChatRequestHandler(
 
     def _session_snapshot(self, session_id: str) -> None:
         try:
-            self._send_json(self.server.chat_store.session_snapshot(session_id))
+            snapshot = self.server.chat_store.session_snapshot(session_id)
+            from .capabilities.manager_context.roundtrip import (
+                project_chat_return_deliveries,
+            )
+
+            snapshot["messages"] = project_chat_return_deliveries(
+                self.server.runtime_root, session_id, snapshot["messages"]
+            )
+            self._send_json(snapshot)
         except KeyError:
             self._send_error("chat session was not found", status=404)
 
