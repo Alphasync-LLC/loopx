@@ -586,9 +586,7 @@ def _operation_transport_runner(
     *,
     command_prefix: Sequence[str],
 ) -> Callable[[list[str], Path | None, float | None], dict[str, Any]]:
-    def run(
-        argv: list[str], cwd: Path | None, timeout: float | None
-    ) -> dict[str, Any]:
+    def run(argv: list[str], cwd: Path | None, timeout: float | None) -> dict[str, Any]:
         effective_argv = list(argv)
         if (
             len(command_prefix) > 1
