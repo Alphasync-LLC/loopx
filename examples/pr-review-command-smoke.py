@@ -22,9 +22,11 @@ from loopx.pr_review import (  # noqa: E402
     build_pr_review_packet,
     load_pr_fixture,
 )
+from loopx.skill_install_readback import PACKAGED_HOST_SKILL_IDS  # noqa: E402
 
 FIXTURE = REPO_ROOT / "examples" / "fixtures" / "pr-review.public.json"
 PR_REVIEW_SKILL = REPO_ROOT / "skills" / "loopx-pr-review" / "SKILL.md"
+PR_MERGE_SKILL = REPO_ROOT / "skills" / "loopx-pr-merge" / "SKILL.md"
 PRIVATE_PATTERNS = [
     re.compile(r"/" + r"Users/[A-Za-z0-9._-]+/"),
     re.compile(r"/" + r"private/"),
@@ -106,6 +108,25 @@ def main() -> int:
         policy_requirement.group(1),
         REVIEW_POLICY_REVISION,
     )
+
+    # The merge-decision workflow must require the capability-owned review
+    # evidence for the exact head, and must stay out of the default installed
+    # skill set so it cannot disturb hosts that never merge LoopX pull requests.
+    assert PR_MERGE_SKILL.is_file(), PR_MERGE_SKILL
+    assert "loopx-pr-merge" not in PACKAGED_HOST_SKILL_IDS
+    merge_text = " ".join(PR_MERGE_SKILL.read_text(encoding="utf-8").split())
+    for phrase in (
+        "Optional maintainer workflow",
+        "stays outside the default installed skill set",
+        "loopx --format json pr-review --state all",
+        "agent_response_contract.review_execution_contract",
+        "--check-merge-readiness NUMBER@HEAD_OID",
+        "ready=true",
+        "completion_gate",
+        "admin bypass never overrides this gate",
+        "A merge decision without this evidence is not authorized",
+    ):
+        assert phrase in merge_text, phrase
 
     assert _github_search_date("2026-06-28T00:00:00+08:00") == "2026-06-27"
     assert _github_search_date("2026-06-28T00:00:00Z") == "2026-06-28"
