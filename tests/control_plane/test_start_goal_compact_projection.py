@@ -168,19 +168,26 @@ def _block_effect_runtime_startup(
 
 
 @pytest.mark.parametrize(
-    ("diagnostic_code", "expected_action_fragment", "mentions_node_installation"),
+    (
+        "diagnostic_code",
+        "expected_action_fragment",
+        "mentions_node_installation",
+        "mentions_generic_runtime_recovery",
+    ),
     [
-        ("node_unavailable", "Install or activate Node.js", True),
+        ("node_unavailable", "Install or activate Node.js", True, True),
         (
             "startup_lock_timeout",
             "wait for the active startup to settle",
             False,
+            True,
         ),
-        ("runtime_launch_failed", "runtime still cannot start", False),
-        ("runtime_exited_before_ready", "runtime exits again", False),
-        ("runtime_startup_timeout", "startup continues to time out", False),
-        ("runtime_request_failed", "requests continue to fail", False),
-        ("future_runtime_diagnostic", "runtime remains unavailable", False),
+        ("runtime_launch_failed", "runtime still cannot start", False, True),
+        ("runtime_exited_before_ready", "runtime exits again", False, True),
+        ("runtime_startup_timeout", "startup continues to time out", False, True),
+        ("runtime_request_failed", "requests continue to fail", False, True),
+        ("invalid_idle_timeout", "LOOPX_EFFECT_RUNTIME_IDLE_MS", False, False),
+        ("future_runtime_diagnostic", "runtime remains unavailable", False, True),
     ],
 )
 def test_cli_reports_effect_runtime_startup_failure_without_traceback(
@@ -189,6 +196,7 @@ def test_cli_reports_effect_runtime_startup_failure_without_traceback(
     diagnostic_code: str,
     expected_action_fragment: str,
     mentions_node_installation: bool,
+    mentions_generic_runtime_recovery: bool,
 ) -> None:
     project = _write_connected_project(tmp_path)
     _block_effect_runtime_startup(monkeypatch, diagnostic_code=diagnostic_code)
@@ -222,11 +230,16 @@ def test_cli_reports_effect_runtime_startup_failure_without_traceback(
     assert payload["error"] == "LoopX TypeScript control-plane runtime is unavailable"
     assert payload["diagnostic_code"] == diagnostic_code
     assert payload["runtime_requirement"]["minimum_node_version"] == "22.18.0"
-    assert "loopx doctor --deep" in payload["recommended_action"]
-    assert expected_action_fragment in payload["recommended_action"]
-    assert ("Node.js" in payload["recommended_action"]) is mentions_node_installation
+    action = payload["recommended_action"]
+    assert expected_action_fragment in action
+    assert ("Node.js" in action) is mentions_node_installation
     if not mentions_node_installation:
-        assert "Install or activate Node.js" not in payload["recommended_action"]
+        assert "Install or activate Node.js" not in action
+    if mentions_generic_runtime_recovery:
+        assert "loopx doctor --deep" in action
+    else:
+        assert "loopx doctor --deep" not in action
+        assert "reinstall" not in action
     assert "Traceback" not in raw_output
 
 
@@ -263,6 +276,55 @@ def test_cli_reports_effect_runtime_startup_failure_in_default_markdown(
     assert "diagnostic_code: `node_unavailable`" in raw_output
     assert "loopx doctor --deep" in raw_output
     assert "Traceback" not in raw_output
+
+
+def test_guided_cli_keeps_actionable_invalid_idle_timeout_remediation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The real guided entrypoint must keep the actionable configuration fix.
+
+    This drives the real managed Node runtime instead of stubbing the startup
+    failure, so it also proves the typed stderr diagnostic survives the public
+    projection end to end.
+    """
+
+    project = _write_connected_project(tmp_path)
+    monkeypatch.setattr(effect_runtime, "_runtime_dir", lambda: tmp_path / "runtime")
+    monkeypatch.setenv("LOOPX_EFFECT_RUNTIME_IDLE_MS", "0")
+
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        exit_code = cli_main(
+            [
+                "--format",
+                "json",
+                "start-goal",
+                "--guided",
+                "--project",
+                str(project),
+                "--goal-id",
+                GOAL_ID,
+                "--agent-id",
+                AGENT_ID,
+                "--host-surface",
+                "shell",
+                "--goal-text",
+                GOAL_TEXT,
+            ]
+        )
+
+    payload = json.loads(output.getvalue())
+    assert exit_code == 1
+    assert payload["ok"] is False
+    assert payload["diagnostic_code"] == "invalid_idle_timeout"
+
+    action = payload["recommended_action"]
+    assert "LOOPX_EFFECT_RUNTIME_IDLE_MS" in action
+    assert "1..2147483647" in action
+    assert "unset" in action.lower()
+    assert "doctor" not in action
+    assert "reinstall" not in action
 
 
 def test_default_projection_preserves_host_actions_and_json_anchors(

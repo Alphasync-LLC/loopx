@@ -58,6 +58,12 @@ _EFFECT_RUNTIME_STARTUP_REMEDIATION_BY_CODE = {
         "Run `loopx doctor --deep` and retry `loopx start-goal --guided`. If "
         "requests continue to fail, repair or reinstall LoopX."
     ),
+    "invalid_idle_timeout": (
+        "Unset or correct the `LOOPX_EFFECT_RUNTIME_IDLE_MS` environment "
+        "variable. It must be a base-10 integer in the range 1..2147483647 "
+        "milliseconds, and unsetting it restores the default. Then retry "
+        "`loopx start-goal --guided`."
+    ),
 }
 _EFFECT_RUNTIME_STARTUP_DEFAULT_REMEDIATION = (
     "Run `loopx doctor --deep` and retry `loopx start-goal --guided`. If the "
