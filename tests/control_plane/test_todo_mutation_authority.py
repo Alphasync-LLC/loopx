@@ -29,6 +29,7 @@ from loopx.event_sourced_state import (
     backfill_todo_events_from_markdown,
     build_state_projection,
     make_state_event,
+    render_active_state_sections,
 )
 from loopx.status import parse_active_state_todos
 from loopx.todos import (
@@ -1855,6 +1856,46 @@ def test_updated_at_survives_todo_add_projection() -> None:
     assert (
         projection["agent_todos"]["items"][0]["updated_at"]
         == "2026-07-18T00:00:00+00:00"
+    )
+
+
+def test_resume_when_survives_markdown_render_round_trip() -> None:
+    added = make_state_event(
+        event_id="evt-resume-when-add",
+        goal_id=GOAL_ID,
+        event_type=TODO_ADDED,
+        refs={"todo_id": "todo_resume_when1"},
+        payload={
+            "role": "agent",
+            "title": "Wait for the issuer fix.",
+            "task_class": "blocker",
+        },
+        recorded_at="2026-07-18T00:00:00+00:00",
+    )
+    deferred = make_state_event(
+        event_id="evt-resume-when-defer",
+        goal_id=GOAL_ID,
+        event_type=TODO_DEFERRED,
+        refs={"todo_id": "todo_resume_when1"},
+        payload={
+            "reason": "blocked on the issuer fix",
+            "resume_when": "todo_done:todo_issuerfix",
+        },
+        recorded_at="2026-07-18T00:01:00+00:00",
+    )
+
+    projection = build_state_projection([added, deferred])
+
+    assert (
+        projection["agent_todos"]["items"][0]["resume_when"]
+        == "todo_done:todo_issuerfix"
+    )
+    rendered = render_active_state_sections(projection)
+    assert "resume_when=todo_done:todo_issuerfix" in rendered
+    reparsed = parse_active_state_todos(rendered)
+    assert (
+        reparsed["agent_todos"]["items"][0]["resume_when"]
+        == "todo_done:todo_issuerfix"
     )
 
 
