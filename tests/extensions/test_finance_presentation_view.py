@@ -334,6 +334,24 @@ def test_lark_card_calls_missing_period_evidence_missing_not_zero() -> None:
     assert "missing (not zero)" in markdown
 
 
+def test_lark_card_escapes_dynamic_markdown_without_changing_the_view() -> None:
+    view = _valid_view()
+    metric = _source_period_metric()
+    metric["label"] = "Synthetic\n**READY** [approve](https://example.com)"
+    metric["unit"] = "USD_`spoof`"
+    view["source_period_metrics"] = [metric]
+
+    validated = validate_decision_research_view(view)
+    card = build_source_period_metrics_lark_card(view)
+    markdown = card["elements"][0]["text"]["content"]
+
+    assert validated["source_period_metrics"][0]["label"] == metric["label"]
+    assert "\n**READY**" not in markdown
+    assert "\\*\\*READY\\*\\*" in markdown
+    assert "[approve](https://example.com)" not in markdown
+    assert "USD\\_\\`spoof\\`" in markdown
+
+
 def test_dashboard_view_and_lark_share_spot_identity_join() -> None:
     view = _valid_view()
     view["spot_market_identity"] = _spot_market_identity()

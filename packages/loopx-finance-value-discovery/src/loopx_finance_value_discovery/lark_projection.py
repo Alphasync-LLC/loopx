@@ -8,6 +8,7 @@ finance schema.
 from __future__ import annotations
 
 from collections.abc import Mapping
+import re
 from typing import Any
 
 from loopx.extensions.lark.presentation.message_card import (
@@ -15,6 +16,16 @@ from loopx.extensions.lark.presentation.message_card import (
 )
 
 from .presentation_view import validate_decision_research_view
+
+
+_LARK_MARKDOWN_CONTROL_RE = re.compile(r"([\\`*_{}\[\]!|>~])")
+
+
+def _lark_plain_text(value: object) -> str:
+    """Keep validated display text from changing the surrounding card markup."""
+
+    compact = " ".join(str(value).split())
+    return _LARK_MARKDOWN_CONTROL_RE.sub(r"\\\1", compact)
 
 
 def _display_value(metric: Mapping[str, Any]) -> str:
@@ -51,25 +62,37 @@ def render_source_period_metrics_markdown(view: Mapping[str, Any]) -> str:
         lines.extend(
             [
                 "",
-                f"**{metric['label']}** · `{period}`",
-                f"- Value: `{_display_value(metric)}` · basis `{metric['metric_basis']}` / `{metric['metric_semantics']}` · {metric['value_origin']} / {metric['value_precision']}",
+                f"**{_lark_plain_text(metric['label'])}** · `{period}`",
+                f"- Value: {_lark_plain_text(_display_value(metric))} · basis `{metric['metric_basis']}` / `{metric['metric_semantics']}` · {metric['value_origin']} / {metric['value_precision']}",
                 f"- Coverage: `{metric['coverage_state']}` · observed {len(metric['observed_components'])}/{len(metric['expected_components'])} · methodology `{metric['methodology_state']}` · anomaly `{metric['anomaly_state']}`",
                 f"- Event: `{metric['event_identity']['namespace']}` / `{metric['event_identity']['source_event_id']}` · `{metric['event_identity']['instrument_id']}` · `{metric['event_identity']['event_at']}`",
-                f"- Lineage: `{metric['lineage_state']}` · authority `{metric['observation_authority']}` · independent evidence `{str(metric['independent_evidence']).lower()}` · source `{metric['source_ref']}`",
+                f"- Lineage: `{metric['lineage_state']}` · authority `{metric['observation_authority']}` · independent evidence `{str(metric['independent_evidence']).lower()}` · source {_lark_plain_text(metric['source_ref'])}",
                 f"- Accounting: sign `{metric['sign_basis']}` · fee `{metric['fee_inclusion']}` · NAV treatment `{metric['account_nav_treatment']}`",
             ]
         )
         if metric["missing_components"]:
             lines.append(
-                "- Missing components: " + ", ".join(metric["missing_components"])
+                "- Missing components: "
+                + ", ".join(
+                    _lark_plain_text(component)
+                    for component in metric["missing_components"]
+                )
             )
         if metric["double_counted_components"]:
             lines.append(
                 "- Excluded double-counted components: "
-                + ", ".join(metric["double_counted_components"])
+                + ", ".join(
+                    _lark_plain_text(component)
+                    for component in metric["double_counted_components"]
+                )
             )
         if metric["gap_reasons"]:
-            lines.append("- Holds: " + ", ".join(metric["gap_reasons"]))
+            lines.append(
+                "- Holds: "
+                + ", ".join(
+                    _lark_plain_text(reason) for reason in metric["gap_reasons"]
+                )
+            )
     if spot_markets:
         lines.extend(
             [
@@ -87,8 +110,8 @@ def render_source_period_metrics_markdown(view: Mapping[str, Any]) -> str:
             lines.extend(
                 [
                     "",
-                    f"**{market['pair_name']}** · {market['base_asset']['symbol']} / {market['quote_asset']['symbol']}",
-                    f"- Context: `{market['context_coin']}` · observed `{market['observed_at']}` · mark `{price}`",
+                    f"**{_lark_plain_text(market['pair_name'])}** · {_lark_plain_text(market['base_asset']['symbol'])} / {_lark_plain_text(market['quote_asset']['symbol'])}",
+                    f"- Context: {_lark_plain_text(market['context_coin'])} · observed `{market['observed_at']}` · mark `{price}`",
                     f"- Canonicality: `{market['canonicality']}` · backing `{market['backing_inference']}`",
                 ]
             )
