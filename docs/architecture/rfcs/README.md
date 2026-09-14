@@ -213,6 +213,18 @@ changes.
     pieces exist, but the unified execution-frontend/session-ownership contract
     and cross-transport convergence are not accepted as one shipped product
     boundary.
+- [Agent Session Execution Modes v0](agent-session-execution-modes-v0.md)
+  ([中文版](agent-session-execution-modes-v0.zh-CN.md))
+  - **RFC status:** Draft, under maintainer review.
+  - **Delivery on `main`:** Partial; the attached-host binding, broker, and
+    runtime fencing are implemented, while cross-host admission is proposed.
+  - **Current boundary:** Normalizes the attached/managed session-ownership
+    decision into one cross-host admission rule: an explicit persisted mode per
+    binding, one executor per Agent binding, capability-gated delivery that
+    fails closed, and no implicit mode change. Desktop product flows stay with
+    the Desktop frontends RFC, local service lifecycle with the daemon RFC, and
+    continuation with the manager RFC. Optional preview hosts, session
+    rotation, and host promotion remain unapproved.
 - [Goal Channel Collaboration v0](goal-channel-collaboration-v0.md)
   ([中文版](goal-channel-collaboration-v0.zh-CN.md))
   - **RFC status:** Draft.
