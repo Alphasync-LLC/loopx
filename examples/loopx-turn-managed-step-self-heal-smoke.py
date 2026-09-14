@@ -337,8 +337,7 @@ def main() -> int:
             spends_after_failure = _quota_spend_count(runtime)
 
             # 2. The managed step must answer wait without touching anything.
-            _, step = _run_cli(
-                [
+            step_argv = [
                     "--registry",
                     str(registry),
                     "--runtime-root",
@@ -364,7 +363,10 @@ def main() -> int:
                     "--observed-max-attempts",
                     "3",
                 ]
-            )
+            journal_path = _journal_path(runtime, turn_key)
+            journal_before = journal_path.read_bytes()
+            _, step = _run_cli(step_argv)
+            assert journal_path.read_bytes() == journal_before
             assert step["ok"] is True, step
             assert step["disposition"] == "wait", step
             continuation = step["retry_continuation"]
@@ -379,6 +381,27 @@ def main() -> int:
             assert _quota_spend_count(runtime) == spends_after_failure, (
                 "the managed step changed the spend ledger"
             )
+
+            # A previous audit is not proof that the current journal is safe.
+            # Mutate only this disposable fixture, then restore it for the real
+            # successful retry below. Never substitute the checker result.
+            from loopx.control_plane.turn_driver import inspect_loopx_turn_journal
+            corrupt = json.loads(journal_before)
+            corrupt["completed_phases"] = ["quota_spend"]
+            try:
+                journal_path.write_text(json.dumps(corrupt), encoding="utf-8")
+                inspection = inspect_loopx_turn_journal(
+                    runtime, goal_id=GOAL_ID, agent_id=AGENT_ID,
+                    turn_key=turn_key, retry_failed=True,
+                )
+                assert inspection["recovery_decision"]["action"] == "blocked"
+                code, rejected = _run_cli(step_argv)
+                assert code == 1 and rejected["ok"] is False, rejected
+                assert "completed_phases_not_ordered_prefix" in rejected["error"]
+                assert "retry_continuation" not in rejected
+                assert _quota_spend_count(runtime) == spends_after_failure
+            finally:
+                journal_path.write_bytes(journal_before)
 
             # 3. Replaying the same Turn must self-heal and spend exactly once.
             exit_code, healed = _run_cli(_resume_argv(base, turn_key))

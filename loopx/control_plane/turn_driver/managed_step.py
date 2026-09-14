@@ -24,7 +24,7 @@ execution authority of its own.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 from .executor import LOOPX_TURN_EXECUTION_SCHEMA_VERSION
 from .host_failure import normalize_host_failure_record, project_host_failure
@@ -33,16 +33,13 @@ from .loop_controller import (
     ValidatedTurnReceipt,
     decide_loop_disposition,
 )
+from .turn_journal_runtime import interpret_turn_journal_projection
 from .transaction import (
     LOOPX_TURN_RECEIPT_VALIDATION_SCHEMA_VERSION,
     LoopXTurnResultKind,
 )
 
 LOOPX_TURN_MANAGED_STEP_SCHEMA_VERSION = "loopx_turn_managed_step_v0"
-
-# A blocked recovery audit means the journal is not resumable for this
-# identity; the controller decision must never be reached in that case.
-_REPLAY_BLOCKED_ACTION = "blocked"
 
 
 def _mapping(value: Any) -> dict[str, Any]:
@@ -136,9 +133,9 @@ def managed_step_receipt_from_journal(
     """Qualify one journaled Turn for the managed-step transition.
 
     Fails closed unless the journal is a finished failed Turn for exactly this
-    goal/agent/turn identity whose typed host failure is retryable. A recovery
-    audit whose planned action is ``blocked`` is refused here rather than at the
-    controller, because an unsafe journal must not reach the transition at all.
+    goal/agent/turn identity whose typed host failure is retryable. The current
+    snapshot must pass the canonical TS journal consistency check before the
+    controller is called; historical recovery audits never establish eligibility.
     """
 
     if journal.get("status") != "failed":
@@ -148,12 +145,6 @@ def managed_step_receipt_from_journal(
     result_kind = str(journal.get("result_kind") or "")
     if result_kind != LoopXTurnResultKind.HOST_FAILURE.value:
         raise ValueError("managed step requires a typed host failure Turn")
-
-    recovery = _mapping(journal.get("recovery_audit"))
-    planned = _mapping(recovery.get("planned"))
-    action = str(planned.get("action") or "")
-    if action == _REPLAY_BLOCKED_ACTION:
-        raise ValueError("Turn journal replay is blocked for this identity")
 
     failure = normalize_host_failure_record(journal.get("host_failure"))
     if failure.get("retryable") is not True:
@@ -176,6 +167,17 @@ def managed_step_receipt_from_journal(
     lineage = receipt.lineage
     if lineage["goal_id"] != goal_id or lineage["agent_id"] != agent_id:
         raise ValueError("Turn journal lineage does not match the requested goal/agent")
+    # Historical recovery_audit is explanatory, not proof about this snapshot.
+    # Reuse the same TS consistency rules as inspect-journal/run-once. This is
+    # not a retry request: fresh host-session validation remains with run-once,
+    # while the controller below owns the bounded retry disposition.
+    inspection = interpret_turn_journal_projection(
+        journal, goal_id=goal_id, agent_id=agent_id, turn_key=turn_key,
+    )
+    if inspection["journal_consistent"] is not True:
+        raise ValueError(
+            "Turn journal replay is blocked: " + ", ".join(cast(list[str], inspection["violations"]))
+        )
     return receipt
 
 

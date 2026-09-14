@@ -203,8 +203,11 @@ The Turn Journal remains the sole authority for the attempt count and retry
 ceiling. `--observed-attempt` and `--observed-max-attempts` are reconciled
 against it and refused on disagreement, so a caller's bookkeeping can be
 checked but never substituted. A Journal that is not a finished failed Turn,
-whose typed host failure is not retryable, or whose recovery plan is `blocked`
-is refused before the transition is reached.
+whose typed host failure is not retryable, or whose current snapshot fails the
+canonical TypeScript journal consistency checks is refused before the transition
+is reached. A stored recovery audit describes an earlier attempt, not current
+eligibility. The eventual `run-once` still revalidates host-session binding and
+execution authority before retrying.
 
 ## Boundary
 

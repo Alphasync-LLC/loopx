@@ -64,7 +64,10 @@ def _failed_journal(
         execution_mode="interactive-visible",
         session_action="resume",
     )
-    plan = {"transaction": transaction}
+    plan = {"transaction": transaction, "turn_envelope": {
+        **(_lineage() if lineage is None else lineage),
+        "action": {"selected_todo": {"todo_id": (_lineage() if lineage is None else lineage)["todo_id"]}},
+    }}
     failure_kind = result_kind in {
         LoopXTurnResultKind.HOST_FAILURE,
         LoopXTurnResultKind.VALIDATION_FAILED,
@@ -92,6 +95,7 @@ def _failed_journal(
     assert receipt["ok"] is True, receipt
     journal: dict[str, Any] = {
         "schema_version": "loopx_turn_journal_v0",
+        "goal_id": (_lineage() if lineage is None else lineage)["goal_id"],
         "status": status,
         "turn_key": transaction["turn_key"],
         "result_kind": result_kind.value,
@@ -283,7 +287,7 @@ def test_foreign_lineage_is_refused() -> None:
         _decide(journal)
 
 
-def test_blocked_recovery_audit_is_refused() -> None:
+def test_historical_recovery_audit_does_not_override_current_journal() -> None:
     journal = _failed_journal(kind="provider_capacity", attempt=1)
     journal["recovery_audit"] = {
         "schema_version": "loopx_turn_recovery_audit_v0",
@@ -305,6 +309,24 @@ def test_blocked_recovery_audit_is_refused() -> None:
         },
     }
 
+    assert _decide(journal)["disposition"] == "wait"
+    # The inverse matters too: a previous success audit cannot admit a now
+    # inconsistent journal. The TS owner independently defines phase order.
+    journal["recovery_audit"]["planned"]["action"] = "continue"
+    journal["completed_phases"] = ["quota_spend"]
+    with pytest.raises(ValueError, match="completed_phases_not_ordered_prefix"):
+        _decide(journal)
+
+
+@pytest.mark.parametrize("mutation", ["goal", "receipt_key", "settlement"])
+def test_current_journal_uses_canonical_identity_checks(mutation):
+    journal = _failed_journal()
+    if mutation == "goal":
+        journal["goal_id"] = "other-goal"
+    elif mutation == "receipt_key":
+        journal["receipt"]["turn_key"] = "sha256:" + "0" * 64
+    else:
+        journal["plan"]["transaction"]["settlement_plan"]["identity"]["effect_id"] = "invalid"
     with pytest.raises(ValueError, match="replay is blocked"):
         _decide(journal)
 
