@@ -153,10 +153,11 @@ def _block_effect_runtime_startup(
     monkeypatch: pytest.MonkeyPatch,
     *,
     diagnostic_code: str = "node_unavailable",
+    message: str = "TypeScript Effect runtime could not serve the request",
 ) -> None:
     def unavailable(*_args: object, **_kwargs: object) -> object:
         raise effect_runtime.EffectRuntimeStartupError(
-            "TypeScript Effect runtime could not serve the request",
+            message,
             diagnostic_code=diagnostic_code,
         )
 
@@ -186,7 +187,7 @@ def _block_effect_runtime_startup(
         ("runtime_exited_before_ready", "runtime exits again", False, True),
         ("runtime_startup_timeout", "startup continues to time out", False, True),
         ("runtime_request_failed", "requests continue to fail", False, True),
-        ("invalid_idle_timeout", "LOOPX_EFFECT_RUNTIME_IDLE_MS", False, False),
+        ("invalid_idle_timeout", "could not serve the request", False, False),
         ("future_runtime_diagnostic", "runtime remains unavailable", False, True),
     ],
 )
@@ -321,8 +322,64 @@ def test_guided_cli_keeps_actionable_invalid_idle_timeout_remediation(
 
     action = payload["recommended_action"]
     assert "LOOPX_EFFECT_RUNTIME_IDLE_MS" in action
-    assert "1..2147483647" in action
+    assert "between 1 and 2147483647 milliseconds" in action
+    assert '(received "0")' in action
     assert "unset" in action.lower()
+    assert "Then retry `loopx start-goal --guided`." in action
+    assert "doctor" not in action
+    assert "reinstall" not in action
+
+
+def test_invalid_idle_timeout_remediation_reuses_typed_runtime_message(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The projection reuses the runtime-owned guidance instead of restating it.
+
+    The TypeScript parser owns the accepted range and publishes it as the
+    typed startup message, so the guided CLI must surface whatever bounded
+    message the runtime produced and append only its own retry text. A varied
+    message proves no range is re-hardcoded on the Python side.
+    """
+
+    varied_message = (
+        "LOOPX_EFFECT_RUNTIME_IDLE_MS must be a base-10 integer between "
+        '7 and 9001 milliseconds (received "nope")'
+    )
+    project = _write_connected_project(tmp_path)
+    _block_effect_runtime_startup(
+        monkeypatch,
+        diagnostic_code="invalid_idle_timeout",
+        message=varied_message,
+    )
+
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        exit_code = cli_main(
+            [
+                "--format",
+                "json",
+                "start-goal",
+                "--guided",
+                "--project",
+                str(project),
+                "--goal-id",
+                GOAL_ID,
+                "--agent-id",
+                AGENT_ID,
+                "--host-surface",
+                "shell",
+                "--goal-text",
+                GOAL_TEXT,
+            ]
+        )
+
+    payload = json.loads(output.getvalue())
+    assert exit_code == 1
+    assert payload["diagnostic_code"] == "invalid_idle_timeout"
+    action = payload["recommended_action"]
+    assert action == f"{varied_message} Then retry `loopx start-goal --guided`."
+    assert "2147483647" not in action
     assert "doctor" not in action
     assert "reinstall" not in action
 
