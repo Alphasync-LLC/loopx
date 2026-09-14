@@ -583,13 +583,22 @@ def _write_operation_callback_status(
 
 def _operation_transport_runner(
     runner: CommandRunner,
-) -> Callable[[list[str], Path | None, float | None], Mapping[str, Any]]:
+    *,
+    command_prefix: Sequence[str],
+) -> Callable[[list[str], Path | None, float | None], dict[str, Any]]:
     def run(
         argv: list[str], cwd: Path | None, timeout: float | None
-    ) -> Mapping[str, Any]:
+    ) -> dict[str, Any]:
+        effective_argv = list(argv)
+        if (
+            len(command_prefix) > 1
+            and effective_argv
+            and effective_argv[0] == command_prefix[-1]
+        ):
+            effective_argv = [*command_prefix, *effective_argv[1:]]
         try:
             result = runner(
-                argv,
+                effective_argv,
                 cwd=cwd,
                 capture_output=True,
                 text=True,
@@ -788,7 +797,10 @@ def run_lark_event_collector(
         def consume_operation_callbacks() -> None:
             assert callback_process is not None
             assert callback_process.stdout is not None
-            transport_runner = _operation_transport_runner(runner)
+            transport_runner = _operation_transport_runner(
+                runner,
+                command_prefix=command_prefix,
+            )
             try:
                 for line in callback_process.stdout:
                     stripped = line.strip()
@@ -896,7 +908,10 @@ def run_lark_event_collector(
                         allowed_chat_ids=set(routes_by_chat),
                         cli_bin=lark_cli_executable,
                         profile=str(config["profile"]),
-                        runner=_operation_transport_runner(runner),
+                        runner=_operation_transport_runner(
+                            runner,
+                            command_prefix=command_prefix,
+                        ),
                     )
                 except Exception:  # noqa: BLE001
                     result = {"attempted": 1, "delivered": 0, "failed": 1}

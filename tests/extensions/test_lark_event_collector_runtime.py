@@ -14,6 +14,7 @@ from loopx.extensions.lark.event_collector import (
 )
 from loopx.extensions.lark.event_collector_runtime import (
     _callback_event_shape,
+    _operation_transport_runner,
     _run_json_with_status,
     enrich_lark_event_reply_context,
     lark_event_requires_reply_context_lookup,
@@ -21,7 +22,36 @@ from loopx.extensions.lark.event_collector_runtime import (
 )
 
 
-def test_operation_callback_failure_shape_retains_timestamp_width_without_value() -> None:
+def test_operation_transport_runner_preserves_explicit_node_prefix() -> None:
+    calls: list[list[str]] = []
+
+    def runner(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(argv)
+        return subprocess.CompletedProcess(
+            args=argv,
+            returncode=0,
+            stdout=json.dumps({"ok": True}),
+            stderr="",
+        )
+
+    transport = _operation_transport_runner(
+        runner,
+        command_prefix=["/opt/node", "/opt/lark-cli"],
+    )
+
+    result = transport(
+        ["/opt/lark-cli", "im", "chats", "get"],
+        None,
+        30,
+    )
+
+    assert result["returncode"] == 0
+    assert calls == [["/opt/node", "/opt/lark-cli", "im", "chats", "get"]]
+
+
+def test_operation_callback_failure_shape_retains_timestamp_width_without_value() -> (
+    None
+):
     shape = _callback_event_shape(
         {
             "type": "card.action.trigger",
