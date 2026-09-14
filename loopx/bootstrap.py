@@ -40,6 +40,7 @@ from .orchestration import (
     MULTI_SUBAGENT_ORCHESTRATION_MODE,
 )
 from .paths import rel_or_abs, resolve_runtime_root
+from .presentation.markdown import markdown_blockquote, markdown_frontmatter_string
 from .registry_writability import probe_registry_write_path
 from .todos import add_todo_to_lines
 
@@ -481,7 +482,7 @@ def render_state_markdown(
     include_connection_validation: bool = True,
     handoff_mode: str = HANDOFF_MODE_LEGACY,
 ) -> str:
-    safe_objective = objective.replace('"', '\\"')
+    safe_objective = markdown_frontmatter_string(objective)
     profile_summary = execution_profile_summary(execution_profile)
     onboarding_markdown = render_onboarding_state_markdown(
         onboarding_scan=onboarding_scan,
@@ -507,7 +508,7 @@ def render_state_markdown(
     state_text = f"""---
 status: active
 owner_mode: goal
-objective: "{safe_objective}"
+objective: {safe_objective}
 updated_at: {updated_at}
 adapter_id: {goal_id}
 {handoff_mode_line}---
@@ -516,7 +517,7 @@ adapter_id: {goal_id}
 
 ## Objective
 
-{objective}
+{markdown_blockquote(objective)}
 
 ## Authority Sources
 

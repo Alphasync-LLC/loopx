@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
+from html import escape
 from typing import Any
 
 
@@ -18,6 +20,17 @@ def as_list(value: Any) -> list[Any]:
 
 def markdown_scalar(value: Any) -> str:
     return str(value or "").replace("\r", " ").replace("\n", " ").replace("|", "\\|").strip()
+
+
+def markdown_frontmatter_string(value: str) -> str:
+    encoded = json.dumps(value, ensure_ascii=False)
+    for separator in ("\x85", "\u2028", "\u2029"):
+        encoded = encoded.replace(separator, f"\\u{ord(separator):04x}")
+    return encoded
+
+
+def markdown_blockquote(value: str) -> str:
+    return "\n".join(f"> {escape(line, quote=False)}" for line in value.splitlines())
 
 
 def markdown_code(value: Any) -> str:

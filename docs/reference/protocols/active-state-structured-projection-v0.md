@@ -119,6 +119,15 @@ Directly editing a projection is not a state transition.
 
 ## Markdown Ownership Boundary
 
+New bootstrap and project-registration documents quote each Objective line and
+escape HTML metacharacters. Fences, comments, headings, and Todo markers in the
+objective therefore remain content rather than document structure. The
+frontmatter stores the objective as a JSON string with Unicode line separators
+escaped. Chat context readback removes the generated quotation and decodes the
+text. Existing project registrations remain idempotent without rewriting their
+state. This changes objective presentation, not Todo authority or transitions;
+existing malformed documents are not automatically repaired.
+
 Markdown is not one undifferentiated database row. Agents generate and maintain
 both its structured sections and narrative through LoopX. The distinction is
 canonical ownership, not human versus Agent authorship: after promotion,

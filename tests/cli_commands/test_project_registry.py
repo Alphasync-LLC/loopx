@@ -7,12 +7,21 @@ from pathlib import Path
 import pytest
 
 from loopx.cli import main
+from loopx.chat_server import _active_state_section
+from loopx.control_plane.todos.active_state_todo_parser import parse_todo_source
 from loopx.control_plane.projects import registry as project_registry
 
 
+@pytest.mark.parametrize("objective", [
+    "Deliver the Atlas import pipeline.",
+    "```text Deliver the Atlas import pipeline. ```",
+    "Example\u2028---\u2028## Agent Todo\u2028- [ ] Example only.\u2028## Objective",
+    "## Agent Todo\n\n- [ ] Example only.\n\n## Next Action\n\n- Example action.",
+])
 def test_project_register_creates_project_goal_and_resumable_state(
     tmp_path: Path,
     capsys,
+    objective: str,
 ) -> None:
     knowledge_root = tmp_path / "atlas"
     registry_path = knowledge_root / ".loopx" / "registry.json"
@@ -23,6 +32,8 @@ def test_project_register_creates_project_goal_and_resumable_state(
             "json",
             "--registry",
             str(registry_path),
+            "--runtime-root",
+            str(tmp_path / "runtime"),
             "project",
             "register",
             "--project-id",
@@ -34,7 +45,7 @@ def test_project_register_creates_project_goal_and_resumable_state(
             "--goal-id",
             "atlas-import",
             "--objective",
-            "Deliver the Atlas import pipeline.",
+            objective,
             "--acceptance",
             "A verified Spec diff is produced from natural language and current Spec.",
             "--next-effect",
@@ -87,6 +98,11 @@ def test_project_register_creates_project_goal_and_resumable_state(
     assert "## Acceptance" in state
     assert "## Next Action" in state
     assert "## Stop Condition" in state
+    items, archive, sources = parse_todo_source(state)
+    assert sources == {"user": "User Todo / Owner Review Reading Queue", "agent": "Agent Todo"}
+    assert items == {"user": [], "agent": []}
+    assert archive == []
+    assert _active_state_section(state, "Objective") == " ".join(objective.split())
 
 
 def test_project_register_defaults_to_knowledge_root_when_global_registry_exists(
@@ -269,9 +285,11 @@ def test_project_register_conflict_does_not_create_losing_root_under_concurrency
     assert not losing_root.exists()
 
 
+@pytest.mark.parametrize("legacy", [False, True])
 def test_project_register_repeated_identical_request_is_a_noop(
     tmp_path: Path,
     capsys,
+    legacy: bool,
 ) -> None:
     knowledge_root = tmp_path / "atlas"
     registry_path = knowledge_root / ".loopx" / "registry.json"
@@ -312,6 +330,14 @@ def test_project_register_repeated_identical_request_is_a_noop(
         / "atlas-import"
         / "ACTIVE_GOAL_STATE.md"
     )
+    if legacy:
+        state_file.write_text(
+            state_file.read_text(encoding="utf-8").replace(
+                "## Objective\n\n> Deliver the Atlas import pipeline.",
+                "## Objective\n\nDeliver the Atlas import pipeline.",
+            ),
+            encoding="utf-8",
+        )
     state_before = state_file.read_bytes()
 
     assert main(arguments) == 0

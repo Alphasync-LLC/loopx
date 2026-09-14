@@ -3,7 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from loopx.bootstrap import render_state_markdown
+from loopx.chat_server import _active_state_section
+from loopx.control_plane.todos.active_state_todo_parser import parse_todo_source
 from loopx.control_plane.effect_runtime import MAX_REQUEST_BYTES
 from loopx.control_plane.todos.next_action_runtime import (
     _agent_todo_snapshots,
@@ -124,6 +128,78 @@ def test_bootstrap_binds_generated_connection_validation_next_action(
         state_text
     )
     assert "loopx:next-action" not in json.dumps(record)
+
+
+@pytest.mark.parametrize(
+    "objective",
+    [
+        pytest.param("Implement and validate the task.", id="plain"),
+        pytest.param("```text Implement and validate the task. ```", id="backticks"),
+        pytest.param("~~~text Implement and validate the task. ~~~", id="tildes"),
+        pytest.param("<!-- Implement and validate the task.", id="open-comment"),
+        pytest.param("Review ## Objective and ## Next Action examples.", id="inline-headings"),
+        *[
+            pytest.param(
+                f"Example{separator}---{separator}## Agent Todo{separator}"
+                f"- [ ] Example only.{separator}## Objective",
+                id=f"separator-{ord(separator):04x}",
+            )
+            for separator in ("\x85", "\u2028", "\u2029")
+        ],
+        pytest.param("Compare a < b && c > d without decoding &amp;.", id="html-text"),
+        pytest.param(r'Inspect C:\tools\new and "quoted text".', id="backslashes"),
+        pytest.param(
+            "Describe the format:\n\n## Next Action\n\n- Example only.\n\nContinue the task.",
+            id="next-action-example",
+        ),
+        pytest.param(
+            "Describe this example:\n\n## Agent Todo\n\n- [ ] Example only.\n"
+            "  <!-- loopx:todo todo_id=todo_example task_class=advancement_task -->",
+            id="todo-example",
+        ),
+        pytest.param(
+            "```markdown\n## Agent Todo\n"
+            "<!-- loopx:todo-region-v0 role=agent begin -->\n"
+            "- [ ] Example only.\n"
+            "<!-- loopx:todo-region-v0 role=agent end -->\n```",
+            id="fenced-region-example",
+        ),
+    ],
+)
+def test_bootstrap_keeps_objective_separate_from_todo_sources(
+    tmp_path: Path, objective: str,
+) -> None:
+    state_text = render_state_markdown(
+        project=tmp_path,
+        goal_id=GOAL_ID,
+        adapter_kind="read_only_project_map_v0",
+        objective=objective,
+        updated_at="2026-08-21T00:00:00+08:00",
+        goal_doc=None,
+        execution_profile=None,
+    )
+
+    items, archive, sources = parse_todo_source(state_text)
+
+    assert sources == {
+        "user": "User Todo / Owner Review Reading Queue",
+        "agent": "Agent Todo",
+    }
+    assert items["user"] == []
+    assert archive == []
+    assert len(items["agent"]) == 1
+    assert items["agent"][0]["action_kind"] == "onboarding_connection_validation"
+    assert active_state_next_action_entries(state_text) == [items["agent"][0]["text"]]
+    assert _active_state_section(state_text, "Objective") == " ".join(objective.split())
+    objective_line = next(line for line in state_text.splitlines() if line.startswith("objective: "))
+    assert json.loads(objective_line.removeprefix("objective: ")) == objective
+
+
+@pytest.mark.parametrize("heading", ["## Objective", "## Objective  ", "## Objective\t"])
+def test_objective_readback_preserves_existing_heading_whitespace(heading: str) -> None:
+    state = f"{heading}\n\nKeep the original objective.\n\n## Next Action\n\nContinue."
+    assert _active_state_section(state, "Objective") == "Keep the original objective."
+    assert _active_state_section(state, "Missing") == ""
 
 
 def test_higher_priority_agent_todo_rebinds_generated_onboarding_next_action(

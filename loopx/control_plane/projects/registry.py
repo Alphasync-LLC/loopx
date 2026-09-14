@@ -13,6 +13,7 @@ from ..todos.active_state_editing import atomic_write_state_text as _atomic_writ
 from ..coordination.legacy_writer_fence import legacy_todo_write_transaction, require_legacy_state_replacement_allowed
 from ...paths import DEFAULT_RUNTIME_ROOT
 from ...registry import atomic_write_json
+from ...presentation.markdown import markdown_blockquote, markdown_frontmatter_string
 from ...repository_identity import normalize_repository_identity
 from .contract import validate_project_record_bindings
 
@@ -133,7 +134,7 @@ def _state_markdown(
 status: active
 owner_mode: goal
 project_id: {json.dumps(project_id, ensure_ascii=False)}
-objective: {json.dumps(objective, ensure_ascii=False)}
+objective: {markdown_frontmatter_string(objective)}
 updated_at: {updated_at}
 adapter_id: {goal_id}
 ---
@@ -142,7 +143,7 @@ adapter_id: {goal_id}
 
 ## Objective
 
-{objective}
+{markdown_blockquote(objective)}
 
 ## Acceptance
 
@@ -326,7 +327,19 @@ def register_project_goal(
                     if existing_updated_at is not None
                     else None
                 )
-                if existing_state != matching_state:
+                legacy_state = (
+                    matching_state.replace(
+                        f"objective: {markdown_frontmatter_string(objective)}\n",
+                        f"objective: {json.dumps(objective, ensure_ascii=False)}\n",
+                        1,
+                    ).replace(
+                        f"## Objective\n\n{markdown_blockquote(objective)}\n",
+                        f"## Objective\n\n{objective}\n",
+                        1,
+                    )
+                    if matching_state is not None else None
+                )
+                if existing_state not in (matching_state, legacy_state):
                     raise ValueError(
                         f"goal state file conflicts with registration: {state_file}"
                     )

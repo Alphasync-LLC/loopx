@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from html import unescape
 import mimetypes
 import time
 import uuid
@@ -124,16 +125,20 @@ def _compact_text(value: Any, *, limit: int = 600) -> str:
 
 
 def _active_state_section(state_text: str, heading: str) -> str:
-    marker = f"## {heading}"
-    start = state_text.find(marker)
-    if start < 0:
+    lines = state_text.splitlines()
+    try:
+        start = next(i for i, line in enumerate(lines) if line.rstrip(" \t") == f"## {heading}") + 1
+    except StopIteration:
         return ""
-    content_start = start + len(marker)
-    end = state_text.find("\n## ", content_start)
-    section = state_text[content_start : end if end >= 0 else None]
+    end = next((i for i in range(start, len(lines)) if lines[i].startswith("## ")), len(lines))
+    section_lines = [line for line in lines[start:end] if line]
+    if heading == "Objective" and section_lines and all(
+        line.startswith("> ") for line in section_lines
+    ):
+        return _compact_text(" ".join(unescape(line[2:]) for line in section_lines))
     lines = [
         line.strip().removeprefix("- ").strip()
-        for line in section.splitlines()
+        for line in section_lines
         if line.strip() and not line.lstrip().startswith("<!--")
     ]
     return _compact_text(" ".join(lines))
