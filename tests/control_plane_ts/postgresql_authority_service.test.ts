@@ -11,6 +11,7 @@ import {
 import {
   PostgreSqlAuthorityService,
   type PostgreSqlPrincipalAuthenticationResult,
+  type PostgreSqlAuthorityServiceOpenRequest,
   type PostgreSqlTenantAuthorizationResult,
 } from "../../loopx/control_plane/coordination/postgresql_authority_service.ts";
 import {
@@ -203,6 +204,87 @@ test("PostgreSQL service fails closed for authentication, tenant, and identity d
     assert.equal(rejectedIdentity.principal_id, "principal-service-fixture");
   }
   assert.equal(connectionAttempts, 1);
+});
+
+test("PostgreSQL service rejects malformed memberships before opening the provider", async () => {
+  let connectionAttempts = 0;
+  const database = metadataDatabase(STORE_IDENTITY, {
+    onConnect: () => connectionAttempts += 1,
+  });
+  const request = {
+    credential: {kind: "opaque", token: "never-persist"},
+    tenant_id: TENANT_ID,
+    goal_id: GOAL_ID,
+    store_identity: STORE_IDENTITY,
+  };
+
+  const malformed = new PostgreSqlAuthorityService({
+    database,
+    authenticatePrincipal: () => principalResult(),
+    authorizeTenant: allowedTenant,
+  });
+  const nullRequest = await malformed.openStore(
+    null as unknown as PostgreSqlAuthorityServiceOpenRequest,
+  );
+  assert.deepEqual(nullRequest, {
+    status: "rejected",
+    reason_code: "invalid_service_request",
+    reason: "PostgreSQL service request is invalid",
+  });
+  const untrimmedTenant = await malformed.openStore({
+    ...request,
+    tenant_id: ` ${TENANT_ID}`,
+  });
+  assert.equal(untrimmedTenant.status, "rejected");
+  if (untrimmedTenant.status === "rejected") {
+    assert.equal(untrimmedTenant.reason_code, "invalid_service_request");
+    assert.equal(untrimmedTenant.reason, "tenant id must be a non-empty trimmed string");
+  }
+
+  const unverified = new PostgreSqlAuthorityService({
+    database,
+    authenticatePrincipal: () => {
+      throw new Error("synthetic verifier outage");
+    },
+    authorizeTenant: allowedTenant,
+  });
+  assert.deepEqual(await unverified.openStore(request), {
+    status: "rejected",
+    reason_code: "principal_verification_unavailable",
+    reason: "PostgreSQL service could not verify the principal",
+    tenant_id: TENANT_ID,
+    goal_id: GOAL_ID,
+  });
+
+  const invalidPrincipal = new PostgreSqlAuthorityService({
+    database,
+    authenticatePrincipal: () => principalResult(""),
+    authorizeTenant: allowedTenant,
+  });
+  assert.deepEqual(await invalidPrincipal.openStore(request), {
+    status: "rejected",
+    reason_code: "principal_unauthenticated",
+    reason: "PostgreSQL service returned an invalid authenticated principal",
+    tenant_id: TENANT_ID,
+    goal_id: GOAL_ID,
+  });
+
+  const unavailableAuthorization = new PostgreSqlAuthorityService({
+    database,
+    authenticatePrincipal: () => principalResult(),
+    authorizeTenant: () => {
+      throw new Error("synthetic authorization outage");
+    },
+  });
+  assert.deepEqual(await unavailableAuthorization.openStore(request), {
+    status: "rejected",
+    reason_code: "tenant_authorization_unavailable",
+    reason: "PostgreSQL service could not authorize the tenant",
+    principal_id: "principal-service-fixture",
+    tenant_id: TENANT_ID,
+    goal_id: GOAL_ID,
+  });
+  assert.equal(connectionAttempts, 0);
 });
 
 test("PostgreSQL service treats provider metadata failures as unavailable", async () => {
