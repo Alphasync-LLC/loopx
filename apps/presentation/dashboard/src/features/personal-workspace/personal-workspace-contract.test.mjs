@@ -10,6 +10,7 @@ const page = source("./personal-workspace-page.tsx");
 const router = source("./personal-workspace-router.ts");
 const shell = source("./workspace-shell.tsx");
 const timeline = source("./channel-timeline.tsx");
+const returnDelivery = source("./return-delivery-status.tsx");
 const runRow = source("./cards/run-row.tsx");
 const larkSettings = source("./lark-settings-page.tsx");
 const machineSettings = source("./machine-configuration-settings.tsx");
@@ -97,6 +98,13 @@ assert.match(page, /function operationProposalFields/, "Operation details have a
 assert.doesNotMatch(page.match(/function operationProposalFields[\s\S]*?\n\}/)?.[0] ?? "", /authorized_principals|payload_digest|parameters\.payload/, "Operation details do not expose private authority or inline payloads");
 assert.match(page, /t\("proposal\.primary\.operationGroup"\)/, "Operation confirmation routes users to the bound group");
 assert.match(chatData, /result_delivery:/, "Dashboard retains operation result-delivery readback");
+assert.match(chatData, /return_delivery\??:/, "Chat messages retain manager return-delivery readback");
+assert.match(dashboard, /deliveryByMessage/, "Manager return polling refreshes delivery state after the message arrives");
+assert.match(timeline + page, /ReturnDeliveryStatus/, "Both manager conversation surfaces render return delivery state");
+for (const state of ["delivered", "verification_required", "explicit_unverified"]) {
+  assert.match(returnDelivery, new RegExp(state), `Return delivery renders ${state}`);
+}
+assert.doesNotMatch(returnDelivery, /message_ref|provider_receipt|intent_digest/, "Provider-private locator facts never enter the return status badge");
 assert.match(actionReview, /proposal\.action_kind !== "operation\.execute" \|\| objectValue\(objectValue\(proposal\.operation\)\?\.result_delivery\) !== null/, "An operation is not complete in the Dashboard until result delivery is verified");
 assert.match(page, /reviewPlan\.operationFrame/, "Dashboard operation details consume the shared TS review frame");
 assert.match(page, /operation\.execute" && proposal\.status === "applied"/, "Dashboard restores terminal operation receipts from the canonical action store");

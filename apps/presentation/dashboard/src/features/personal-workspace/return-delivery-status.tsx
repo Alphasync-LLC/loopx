@@ -1,0 +1,21 @@
+import { useWorkspaceI18n } from "./i18n";
+import type { WorkspaceReturnDelivery } from "./personal-workspace-model";
+
+export function ReturnDeliveryStatus({ delivery }: { delivery?: WorkspaceReturnDelivery }) {
+  const { t } = useWorkspaceI18n();
+  if (!delivery) return null;
+  const label = delivery.status === "delivered"
+    ? delivery.verification === "reconciled_after_restart"
+      ? t("returnDelivery.reconciled")
+      : t("returnDelivery.delivered")
+    : delivery.status === "verification_required"
+      ? t("returnDelivery.verifying")
+      : delivery.status === "explicit_unverified"
+        ? t("returnDelivery.unverified")
+        : t("returnDelivery.queued");
+  return (
+    <small className={`personal-return-delivery is-${delivery.status}`} role="status">
+      {label}
+    </small>
+  );
+}
