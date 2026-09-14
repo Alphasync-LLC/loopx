@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import html
 import json
@@ -572,12 +572,17 @@ def _callback_action(event: Mapping[str, Any]) -> dict[str, str]:
 
 def _callback_timestamp(value: object) -> str:
     token = str(value or "").strip()
-    if not token.isdigit() or len(token) > 16:
+    precision = {
+        13: 1_000,
+        16: 1_000_000,
+    }.get(len(token))
+    if not token.isdigit() or precision is None:
         raise ValueError("operation callback timestamp is invalid")
+    seconds, remainder = divmod(int(token), precision)
     return (
-        datetime.fromtimestamp(
-            int(token) / 1000,
-            tz=timezone.utc,
+        (
+            datetime.fromtimestamp(seconds, tz=timezone.utc)
+            + timedelta(microseconds=remainder * (1_000_000 // precision))
         )
         .isoformat()
         .replace("+00:00", "Z")
