@@ -87,7 +87,7 @@ Map P0/P1 catalog rows to canary archetypes before picking commands:
 | Family | P0/P1 Pattern Coverage | Default Canary Archetypes | Trigger Surfaces | Minimum Useful Fixture | Failure Meaning |
 | --- | --- | --- | --- | --- | --- |
 | Work Routing | IP-001, IP-002, IP-003, IP-007, IP-008, IP-021, IP-029 | Hot-path route canary; Planning governance canary when cadence or repair is involved | `quota should-run`, `interaction_contract`, `work_lane_contract`, scheduler hint, handoff todo state | one eligible delivery fixture, one blocked/fallback fixture, one quiet or monitor fixture | agent turn routing is unsafe: it may spend, wait, notify, or choose fallback incorrectly |
-| Human Decision | IP-004, IP-014, IP-017, IP-027 | Scoped decision canary; Product/readiness canary when first-screen human copy changes | user todos, decision scope, operator-gate/reward preview, deferred resume candidates | one concrete user ask, one scoped non-blocking gate, one preview-or-append dry run | humans may be asked the wrong question, or an agent may continue without the needed decision |
+| Human Decision | IP-004, IP-014, IP-017, IP-027, IP-030 | Scoped decision canary; Product/readiness canary when first-screen human copy changes | user todos, decision scope, operator-gate/reward preview, deferred resume candidates | one concrete user ask, one scoped non-blocking gate, one preview-or-append dry run | humans may be asked the wrong question, or an agent may continue without the needed decision |
 | State And Boundary | IP-005, IP-006, IP-011, IP-016, IP-019, IP-020, IP-022, IP-023, IP-025, IP-026, IP-028 | Projection and boundary canary; Hot-path route canary when the projection feeds quota/status | active state, todo metadata, task graph, authority source, claim lease, connector runtime policy, public/private scan | fixture state plus structured projection check; boundary scan for touched public files | compact state and executable truth diverge, so dashboards and agents may trust stale or unsafe authority |
 | Evidence Lifecycle | IP-012, IP-015 | Evidence lifecycle canary; Product/readiness canary when evidence is rendered | external handle observation, benchmark lifecycle reducer, compact result projection | compact public-safe evidence fixture with raw-material exclusion assertions | progress evidence may be missing, double-counted, or represented with unsafe raw material |
 | Planning Governance | IP-010, IP-013, IP-018, IP-024 | Planning governance canary; Hot-path route canary when cadence changes affect execution | stalled run history, autonomous replan obligation, repair delta, cadence hint, plan-to-todo writeback | two-turn stalled fixture plus repair/writeback delta assertion | the agent may keep planning in prose while the machine-visible frontier stays unchanged |
@@ -320,6 +320,7 @@ Human asks, approvals, interventions, and reward-derived lessons.
 | P0 | IP-027 | Deferred Gate Resume | Status/quota plus controller | notify only when the resume gate is still user-held | keep deferred work visible after open lanes; when ready, require lifecycle replan instead of no-candidate wait |
 | P0 | IP-014 | Decision Write Preview And Append | User/operator | explicit preview/apply decision | append only exact run-bound reward or gate decision event |
 | P1 | IP-017 | User Reward Lesson Promotion | User plus LoopX | acknowledge only when lesson changes route/priority/boundary | promote correction into durable lesson, todo, or projection before continuing |
+| P1 | IP-030 | Machine Configuration Preview And Revision-Guarded Apply | User plus agent | require explicit approval of the exact plan revision | preview the exact change, then apply, remove, or roll back only the matching revision |
 | P2 | IP-009 | Active User Assistance | User simulator / operator | bounded intervention | inject audited user help without leaking reward/oracle signals |
 
 ### State And Boundary
@@ -1186,6 +1187,65 @@ main blocker or keeps following a stale local-only benchmark staging todo.
 - future `user_reward_lesson_projection_gap` status/quota smoke that checks
   explicit operating lessons are projected into `recommended_action`,
   active `Agent Todo`, or a state-projection repair warning.
+
+#### IP-030 Machine Configuration Preview And Revision-Guarded Apply
+
+**Trigger**
+
+- a typed machine-configuration namespace is about to change; the built-in
+  namespaces are `change_quality_qualification`, `manager_runtime`,
+  `periodic_report`, `pull_request_review`, and `todo_replan_cadence`. The
+  public catalog returned by `loopx machine-config describe` is authoritative,
+  so this inventory has to stay complete rather than approximate;
+- `pull_request_review` carries `review_priority`, which defaults to
+  `other-developers-first` and accepts `owner-first` as an explicit opt-in that
+  changes review ordering only;
+- `loopx machine-config preview` returns a `plan_revision` for the exact
+  envelope, namespace patch, removal, or rollback that would be applied;
+- a Goal-level override and a live machine default may both be in scope.
+
+**Expected behavior**
+
+The control plane separates the preview from the effect. `preview` computes the
+exact resulting configuration and returns a `plan_revision` derived from that
+plan identity. `apply`, `remove`, and `rollback` re-derive the plan and refuse to
+write unless `--expected-plan-revision` still matches, so an owner decision is
+bound to the exact revision that was shown. A namespace-scoped patch preserves
+every sibling namespace; a whole-envelope write must name them explicitly. A
+Goal override wins over the machine default, and clearing the override restores
+the live machine default rather than a stale snapshot. Unknown namespaces,
+unknown envelope fields, and private fields inside a public update fail closed
+before any effect.
+
+**Visual Model**
+
+```mermaid
+sequenceDiagram
+  participant U as User or operator
+  participant A as Agent
+  participant M as machine-config store
+  A->>M: preview exact change
+  M-->>A: plan_revision for the resulting plan
+  A->>U: show exact change and revision
+  U-->>A: approve that revision
+  A->>M: apply --expected-plan-revision --execute
+  M-->>A: applied, or rejected when the plan no longer matches
+```
+
+**Bad smell**
+
+The agent applies a revision the owner never saw, or reuses a `plan_revision`
+after another writer changed the plan, so the applied configuration no longer
+matches what was previewed. A namespace patch is written as a whole envelope and
+silently drops sibling namespaces, or a machine default replaces an explicit
+Goal override instead of the override winning.
+
+**Validation**
+
+- `tests/capabilities/test_machine_configuration_contract.py`
+- `tests/capabilities/test_machine_configuration_goal_defaults.py`
+- `loopx machine-config preview` and `loopx machine-config apply --help` for the
+  exact `--expected-plan-revision` and `--execute` contract
 
 #### IP-009 Active User Assistance
 

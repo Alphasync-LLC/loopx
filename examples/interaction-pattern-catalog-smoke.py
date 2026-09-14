@@ -3,10 +3,17 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+
+from loopx.capabilities.machine_configuration.builtins import (  # noqa: E402
+    build_builtin_machine_configuration_registry,
+)
+
 CATALOG = REPO_ROOT / "docs" / "concepts" / "interaction-pattern-catalog.md"
 STATE_MODEL = REPO_ROOT / "docs" / "state-interaction-model.md"
 SELF_REPAIR_PATTERNS = (
@@ -155,6 +162,19 @@ def main() -> int:
             "refresh state so `quota should-run` selects the corrected rule",
         ],
         source=SELF_REPAIR_PATTERNS,
+    )
+
+    # Every registered built-in machine-configuration namespace must be
+    # discoverable from the catalog, so a new capability cannot land as a
+    # silent omission in the IP-030 inventory.
+    registered_namespaces = sorted(
+        build_builtin_machine_configuration_registry().namespace_ids
+    )
+    undocumented = [ns for ns in registered_namespaces if ns not in catalog]
+    assert not undocumented, (
+        f"{CATALOG}: built-in machine-configuration namespaces missing from the "
+        f"catalog: {undocumented}; document them in IP-030 or record an explicit "
+        "intentional omission"
     )
 
     print("interaction-pattern-catalog-smoke: ok")
