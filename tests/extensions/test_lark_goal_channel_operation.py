@@ -395,6 +395,22 @@ def _event(proposal: dict[str, Any], card: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def test_callback_timestamp_normalizes_milliseconds_and_microseconds() -> None:
+    expected = "2023-11-14T22:13:20.123000Z"
+
+    assert goal_channel_operation._callback_timestamp("1700000000123") == expected
+    assert goal_channel_operation._callback_timestamp("1700000000123000") == expected
+
+    for invalid in (
+        "1700000000",
+        "17000000001230",
+        "17000000001230000",
+        "not-a-timestamp",
+    ):
+        with pytest.raises(ValueError, match="timestamp is invalid"):
+            goal_channel_operation._callback_timestamp(invalid)
+
+
 def _lark_card_v2_callback_fallback(card: Mapping[str, Any]) -> dict[str, Any]:
     header = card["header"]
     return {
@@ -783,6 +799,69 @@ def test_delivery_callback_simulation_and_replay_share_one_claim(
     assert store.load(proposal_id)["operation"]["result_delivery"]["transport"] == (
         "callback_update"
     )
+
+
+def test_microsecond_callback_completes_simulation_and_result_delivery(
+    tmp_path: Path,
+) -> None:
+    store, registry, runtime, binding, target = _fixture(tmp_path)
+    proposal = _prepare(store, registry)
+    calls: list[list[str]] = []
+    sent_cards: dict[str, dict[str, Any]] = {}
+    runner = _runner(calls, sent_cards)
+
+    deliver_goal_channel_operation_card(
+        proposal_id=proposal["proposal_id"],
+        action_store_root=store.root,
+        runtime_root=runtime,
+        binding_path=binding,
+        target_path=target,
+        execute=True,
+        runner=runner,
+        executor_binding_resolver=lambda _parameters, _runtime: {
+            "revision": "simulator-v0"
+        },
+    )
+    durable = store.load(proposal["proposal_id"])
+    assert durable is not None
+    card = sent_cards[durable["operation"]["delivery"]["message_id"]]
+    event = {
+        **_event(durable, card),
+        "timestamp": str(int(datetime.now(timezone.utc).timestamp() * 1_000_000)),
+    }
+
+    def executor(claimed: dict[str, Any]) -> dict[str, Any]:
+        operation = claimed["operation"]
+        return {
+            "schema_version": "loopx_operation_outcome_v0",
+            "outcome": "simulated_filled",
+            "projection_verified": True,
+            "operation_id": operation["operation_id"],
+            "payload_digest": operation["payload_digest"],
+            "claim_id": operation["claim"]["claim_id"],
+            "executor_revision": operation["executor_revision"],
+            "summary": "Simulation completed without an external venue write.",
+            "simulation": True,
+            "external_write_performed": False,
+            "observed_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    receipt = handle_goal_channel_operation_callback(
+        event,
+        runtime_root=runtime,
+        action_store_root=store.root,
+        profile_app_id=APP_ID,
+        cli_bin="lark-cli",
+        profile="operation-bot",
+        runner=runner,
+        executor=executor,
+    )
+
+    assert receipt["outcome"] == "simulated_filled"
+    assert receipt["card_update_verified"] is True
+    operation = store.load(proposal["proposal_id"])["operation"]
+    assert operation["lifecycle_state"] == "outcome_observed"
+    assert operation["result_delivery"]["transport"] == "callback_update"
 
 
 def test_card_v2_normalized_readback_and_callback_fallback_complete_simulation(
