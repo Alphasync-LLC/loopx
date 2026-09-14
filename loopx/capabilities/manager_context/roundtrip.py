@@ -260,6 +260,16 @@ def project_chat_return_deliveries(root, session_id, messages):
     ]
 
 
+def project_chat_session_snapshot(root, store, session_id):
+    """Project return delivery state into one existing Chat snapshot."""
+
+    snapshot = store.session_snapshot(session_id)
+    snapshot["messages"] = project_chat_return_deliveries(
+        root, session_id, snapshot["messages"]
+    )
+    return snapshot
+
+
 def drain(root, registry, store, external_sender, *, now=None, cancelled=lambda: False):
     """Restart-safe return delivery; transport retries never rerun the worker/model."""
     now = now or datetime.now(timezone.utc)
