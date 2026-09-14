@@ -141,6 +141,7 @@ remain later explicit decisions.
 | Goal artifact lifecycle projection | Draft / read model | [RFC](../architecture/rfcs/goal-artifact-lifecycle-projection-v0.md) | Derive milestones and legal next transitions read-only before adding writes. |
 | Post-outcome memory utility | Draft / research | [#3214](https://github.com/huangruiteng/loopx/issues/3214) | Attribute utility only after verified outcomes; retrieval and model judgment remain advisory. |
 | Goal Channel and Agent IM/OpenViking boundaries | Draft / integration exploration | [RFC index](../architecture/rfcs/README.md) | Keep delivery, durable control state, and scoped context under separate owners. |
+| Agent session execution modes | Draft / cross-host admission contract | [RFC](../architecture/rfcs/agent-session-execution-modes-v0.md) | Require one explicit per-binding mode, one executor, and validated writeback before a host binds sessions; keep Desktop product flows, service lifecycle, and continuation in their owning documents. |
 
 An exploration becomes implementation-ready only when it has a real caller or
 compatibility contract, an agreed smallest slice, and focused qualification.
