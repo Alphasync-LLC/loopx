@@ -31,8 +31,25 @@ from .private_json import write_private_json_atomic
 APP_ID_PATTERN = re.compile(r"cli_[A-Za-z0-9_-]+")
 EVENT_READY_PREFIX = "[event] ready "
 EVENT_DIAGNOSTIC_PREFIX = "[event] "
+_CALLBACK_FAILURE_CODES = {
+    "operation card delivery was not recorded": "delivery_not_recorded",
+    "operation callback digest drifted": "confirmation_digest_drifted",
+    "recorded operation card digest drifted": "recorded_card_digest_drifted",
+    "operation callback card content drifted": "callback_card_projection_drifted",
+    "operation callback app identity drifted": "callback_app_identity_drifted",
+    "principal is not authorized for this operation": "principal_not_authorized",
+    "operation callback tenant membership is unverified": "membership_unverified",
+    "operation callback does not match the delivered request": "delivery_binding_mismatch",
+    "operation is not awaiting confirmation": "operation_not_awaiting_confirmation",
+    "operation confirmation arrived after expiry": "operation_expired",
+    "operation callback result delivery was not verified": "result_delivery_unverified",
+}
 CommandRunner = Callable[..., subprocess.CompletedProcess[str]]
 Sleeper = Callable[[float], None]
+
+
+def _operation_callback_failure_code(exc: BaseException) -> str:
+    return _CALLBACK_FAILURE_CODES.get(str(exc), "callback_rejected")
 
 
 def _run_json(
@@ -392,6 +409,7 @@ def _write_operation_callback_status(
     listener_ready: bool | None = None,
     callback_delivery_verified: bool | None = None,
     failure_kind: str | None = None,
+    failure_code: str | None = None,
     consumer_returncode: int | None = None,
     recovered_result_count_delta: int = 0,
     result_delivery_failure_count_delta: int = 0,
@@ -444,6 +462,7 @@ def _write_operation_callback_status(
             else prior.get("last_verified_callback_at")
         ),
         "last_failure_kind": failure_kind or prior.get("last_failure_kind"),
+        "last_failure_code": failure_code or prior.get("last_failure_code"),
         "consumer_returncode": consumer_returncode,
         "updated_at": now,
         "private_content_returned": False,
@@ -722,6 +741,7 @@ def run_lark_event_collector(
                             listener_active=True,
                             listener_ready=True,
                             failure_kind=type(exc).__name__,
+                            failure_code=_operation_callback_failure_code(exc),
                         )
                         continue
                     callback_stats["verified"] += 1

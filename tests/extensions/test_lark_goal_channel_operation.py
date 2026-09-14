@@ -172,7 +172,36 @@ def _prepare(store: ChatActionStore, registry_path: Path) -> dict[str, Any]:
     )
 
 
-def _runner(calls: list[list[str]], sent_cards: dict[str, dict[str, Any]]):
+def _normalized_card_v2(card: Mapping[str, Any]) -> str:
+    header = card["header"]
+    lines = [
+        (
+            f'<card title="{header["title"]["content"]}" '
+            f'subtitle="{header["subtitle"]["content"]}">'
+        )
+    ]
+    lines.extend(f"「{item['text']['content']}」" for item in header["text_tag_list"])
+    for element in card["body"]["elements"]:
+        columns = element["columns"]
+        buttons = [
+            column["elements"][0]["text"]["content"]
+            for column in columns
+            if column["elements"][0]["tag"] == "button"
+        ]
+        if buttons:
+            lines.append(" ".join(f"[{label}]" for label in buttons))
+            continue
+        lines.extend(column["elements"][0]["content"] for column in columns)
+    lines.append("</card>")
+    return "\n".join(lines)
+
+
+def _runner(
+    calls: list[list[str]],
+    sent_cards: dict[str, dict[str, Any]],
+    *,
+    normalized_card_v2_readback: bool = False,
+):
     def run(
         args: list[str], _cwd: Path | None, _timeout: float | None
     ) -> dict[str, Any]:
@@ -219,7 +248,11 @@ def _runner(calls: list[list[str]], sent_cards: dict[str, dict[str, Any]]):
                         "chat_id": CHAT_ID,
                         "sender": {"sender_type": "app", "id": APP_ID},
                         "deleted": False,
-                        "body": {"content": json.dumps(card)},
+                        **(
+                            {"content": _normalized_card_v2(card)}
+                            if normalized_card_v2_readback
+                            else {"body": {"content": json.dumps(card)}}
+                        ),
                     }
                     for message_id, card in sent_cards.items()
                 ],
@@ -238,7 +271,15 @@ def _runner(calls: list[list[str]], sent_cards: dict[str, dict[str, Any]]):
                             "message_id": message_id,
                             "chat_id": CHAT_ID,
                             "sender": {"sender_type": "app", "id": APP_ID},
-                            "body": {"content": json.dumps(sent_cards[message_id])},
+                            **(
+                                {"content": _normalized_card_v2(sent_cards[message_id])}
+                                if normalized_card_v2_readback
+                                else {
+                                    "body": {
+                                        "content": json.dumps(sent_cards[message_id])
+                                    }
+                                }
+                            ),
                         }
                     ]
                 },
@@ -279,6 +320,55 @@ def _event(proposal: dict[str, Any], card: dict[str, Any]) -> dict[str, Any]:
         "form_value": "",
         "card_content": json.dumps(card),
     }
+
+
+def _lark_card_v2_callback_fallback(card: Mapping[str, Any]) -> dict[str, Any]:
+    header = card["header"]
+    return {
+        "title": (f"{header['title']['content']}\n{header['subtitle']['content']}"),
+        "elements": [
+            [
+                {"tag": "img", "image_key": "img_v3_public_fixture"},
+                {"tag": "text", "text": "Upgrade the client to view this card"},
+                {"tag": "text", "text": ""},
+            ]
+        ],
+    }
+
+
+def _lark_card_v2_user_content(card: Mapping[str, Any]) -> dict[str, Any]:
+    """Approximate the Card 2.0 projection returned by user_card_content."""
+
+    normalized = json.loads(json.dumps(card))
+    normalized["config"] = {
+        "enable_forward_interaction": False,
+        "streaming_mode": False,
+        "width_mode": "default",
+    }
+    normalized["header"].pop("icon")
+    sequence = 0
+
+    def visit(value: object) -> None:
+        nonlocal sequence
+        if isinstance(value, list):
+            for item in value:
+                visit(item)
+            return
+        if not isinstance(value, dict):
+            return
+        if value.get("tag") in {"column_set", "column", "markdown", "button"}:
+            sequence += 1
+            value["element_id"] = f"provider_element_{sequence}"
+        if value.get("tag") == "column_set":
+            value["horizontal_align"] = "left"
+        if value.get("tag") == "button":
+            value.pop("behaviors", None)
+            value.pop("confirm", None)
+        for child in value.values():
+            visit(child)
+
+    visit(normalized["body"])
+    return normalized
 
 
 def test_card_is_one_bounded_non_forwardable_confirmation_projection(
@@ -359,8 +449,9 @@ def test_lark_cards_consume_one_shared_ts_frame_each(
         for method, params in calls
     )
     assert confirmation["header"]["title"]["content"] == "Simulated trade request"
-    assert "confirm" not in (
-        confirmation["body"]["elements"][3]["columns"][0]["elements"][0]
+    assert (
+        "confirm"
+        not in (confirmation["body"]["elements"][3]["columns"][0]["elements"][0])
     )
     assert result["header"]["text_tag_list"][0]["text"]["content"] == "模拟完成"
     # Lark Card 2.0 rejects `corner_radius` on a column with error 200621,
@@ -619,6 +710,205 @@ def test_delivery_callback_simulation_and_replay_share_one_claim(
     assert store.load(proposal_id)["operation"]["result_delivery"]["transport"] == (
         "callback_update"
     )
+
+
+def test_card_v2_normalized_readback_and_callback_fallback_complete_simulation(
+    tmp_path: Path,
+) -> None:
+    store, registry, runtime, binding, target = _fixture(tmp_path)
+    proposal = _prepare(store, registry)
+    calls: list[list[str]] = []
+    sent_cards: dict[str, dict[str, Any]] = {}
+    runner = _runner(calls, sent_cards, normalized_card_v2_readback=True)
+
+    delivered = deliver_goal_channel_operation_card(
+        proposal_id=proposal["proposal_id"],
+        action_store_root=store.root,
+        runtime_root=runtime,
+        binding_path=binding,
+        target_path=target,
+        execute=True,
+        runner=runner,
+        executor_binding_resolver=lambda _parameters, _runtime: {
+            "revision": "simulator-v0"
+        },
+    )
+
+    assert delivered["status"] == "awaiting_confirmation"
+    durable = store.load(proposal["proposal_id"])
+    assert durable is not None
+    message_id = durable["operation"]["delivery"]["message_id"]
+    card = sent_cards[message_id]
+    event = {
+        **_event(durable, card),
+        "card_content": json.dumps(_lark_card_v2_callback_fallback(card)),
+    }
+    execution_count = 0
+
+    def executor(claimed: dict[str, Any]) -> dict[str, Any]:
+        nonlocal execution_count
+        execution_count += 1
+        operation = claimed["operation"]
+        return {
+            "schema_version": "loopx_operation_outcome_v0",
+            "outcome": "simulated_filled",
+            "projection_verified": True,
+            "operation_id": operation["operation_id"],
+            "payload_digest": operation["payload_digest"],
+            "claim_id": operation["claim"]["claim_id"],
+            "executor_revision": operation["executor_revision"],
+            "summary": "Simulation completed without an external venue write.",
+            "simulation": True,
+            "external_write_performed": False,
+            "observed_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    receipt = handle_goal_channel_operation_callback(
+        event,
+        runtime_root=runtime,
+        action_store_root=store.root,
+        profile_app_id=APP_ID,
+        cli_bin="lark-cli",
+        profile="operation-bot",
+        runner=runner,
+        executor=executor,
+    )
+    replay = handle_goal_channel_operation_callback(
+        event,
+        runtime_root=runtime,
+        action_store_root=store.root,
+        profile_app_id=APP_ID,
+        cli_bin="lark-cli",
+        profile="operation-bot",
+        runner=runner,
+        executor=executor,
+    )
+
+    assert receipt["outcome"] == "simulated_filled"
+    assert replay["outcome"] == "simulated_filled"
+    assert replay["external_write_performed"] is False
+    assert execution_count == 1
+    assert receipt["card_update_verified"] is True
+    assert (
+        store.load(proposal["proposal_id"])["operation"]["result_delivery"]["transport"]
+        == "callback_update"
+    )
+
+
+def test_provider_normalized_card_v2_callback_and_replay_complete_simulation(
+    tmp_path: Path,
+) -> None:
+    store, registry, runtime, binding, target = _fixture(tmp_path)
+    proposal = _prepare(store, registry)
+    calls: list[list[str]] = []
+    sent_cards: dict[str, dict[str, Any]] = {}
+    runner = _runner(calls, sent_cards, normalized_card_v2_readback=True)
+
+    delivered = deliver_goal_channel_operation_card(
+        proposal_id=proposal["proposal_id"],
+        action_store_root=store.root,
+        runtime_root=runtime,
+        binding_path=binding,
+        target_path=target,
+        execute=True,
+        runner=runner,
+        executor_binding_resolver=lambda _parameters, _runtime: {
+            "revision": "simulator-v0"
+        },
+    )
+    assert delivered["status"] == "awaiting_confirmation"
+    durable = store.load(proposal["proposal_id"])
+    assert durable is not None
+    card = sent_cards[durable["operation"]["delivery"]["message_id"]]
+    event = {
+        **_event(durable, card),
+        "card_content": json.dumps(_lark_card_v2_user_content(card)),
+    }
+    execution_count = 0
+
+    def executor(claimed: dict[str, Any]) -> dict[str, Any]:
+        nonlocal execution_count
+        execution_count += 1
+        operation = claimed["operation"]
+        return {
+            "schema_version": "loopx_operation_outcome_v0",
+            "outcome": "simulated_filled",
+            "projection_verified": True,
+            "operation_id": operation["operation_id"],
+            "payload_digest": operation["payload_digest"],
+            "claim_id": operation["claim"]["claim_id"],
+            "executor_revision": operation["executor_revision"],
+            "summary": "Simulation completed without an external venue write.",
+            "simulation": True,
+            "external_write_performed": False,
+            "observed_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    first = handle_goal_channel_operation_callback(
+        event,
+        runtime_root=runtime,
+        action_store_root=store.root,
+        profile_app_id=APP_ID,
+        cli_bin="lark-cli",
+        profile="operation-bot",
+        runner=runner,
+        executor=executor,
+    )
+    replay = handle_goal_channel_operation_callback(
+        event,
+        runtime_root=runtime,
+        action_store_root=store.root,
+        profile_app_id=APP_ID,
+        cli_bin="lark-cli",
+        profile="operation-bot",
+        runner=runner,
+        executor=executor,
+    )
+
+    assert first["outcome"] == replay["outcome"] == "simulated_filled"
+    assert first["card_update_verified"] is True
+    assert replay["external_write_performed"] is False
+    assert execution_count == 1
+
+
+def test_card_v2_callback_fallback_rejects_projection_drift(tmp_path: Path) -> None:
+    store, registry, runtime, binding, target = _fixture(tmp_path)
+    proposal = _prepare(store, registry)
+    calls: list[list[str]] = []
+    sent_cards: dict[str, dict[str, Any]] = {}
+    runner = _runner(calls, sent_cards, normalized_card_v2_readback=True)
+    deliver_goal_channel_operation_card(
+        proposal_id=proposal["proposal_id"],
+        action_store_root=store.root,
+        runtime_root=runtime,
+        binding_path=binding,
+        target_path=target,
+        execute=True,
+        runner=runner,
+        executor_binding_resolver=lambda _parameters, _runtime: {
+            "revision": "simulator-v0"
+        },
+    )
+    durable = store.load(proposal["proposal_id"])
+    assert durable is not None
+    card = sent_cards[durable["operation"]["delivery"]["message_id"]]
+    fallback = _lark_card_v2_callback_fallback(card)
+    fallback["title"] = "A different operation\nA different request"
+
+    with pytest.raises(ActionConflictError, match="card content drifted"):
+        handle_goal_channel_operation_callback(
+            {
+                **_event(durable, card),
+                "card_content": json.dumps(fallback),
+            },
+            runtime_root=runtime,
+            action_store_root=store.root,
+            profile_app_id=APP_ID,
+            cli_bin="lark-cli",
+            profile="operation-bot",
+            runner=runner,
+            executor=lambda _proposal: {},
+        )
 
 
 def test_concurrent_callback_replay_dispatches_the_claim_once(tmp_path: Path) -> None:

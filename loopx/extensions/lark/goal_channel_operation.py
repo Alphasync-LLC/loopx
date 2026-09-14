@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import html
@@ -24,6 +25,8 @@ from .goal_channel_delivery_contract import (
 )
 from .goal_channel_message_delivery import (
     GoalChannelMessageDeliverySession,
+    card_projection_matches,
+    message_card_matches,
     resolve_bound_goal_channel,
 )
 from .goal_channel_transport import call, json_payload, lark_args
@@ -295,6 +298,22 @@ def build_goal_channel_operation_card(
     }
 
 
+def _submitted_confirmation_card(proposal: Mapping[str, Any]) -> dict[str, Any]:
+    """Rebuild the immutable submitted card after the operation has advanced."""
+
+    operation = proposal.get("operation")
+    if not isinstance(operation, Mapping):
+        raise ValueError("typed operation envelope is unavailable")
+    if operation.get("lifecycle_state") == "awaiting_confirmation":
+        return build_goal_channel_operation_card(proposal)
+    replay = deepcopy(dict(proposal))
+    replay_operation = replay.get("operation")
+    if not isinstance(replay_operation, dict):
+        raise ValueError("typed operation envelope is unavailable")
+    replay_operation["lifecycle_state"] = "awaiting_confirmation"
+    return build_goal_channel_operation_card(replay)
+
+
 def build_goal_channel_operation_result_card(
     proposal: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -560,6 +579,56 @@ def _callback_timestamp(value: object) -> str:
     )
 
 
+def _lark_card_v2_fallback_matches(
+    observed: Mapping[str, Any], expected: Mapping[str, Any]
+) -> bool:
+    """Recognize Lark's message-get fallback for a Card 2.0 payload.
+
+    The provider exposes Card 2.0 through message-get as a title plus an
+    upgrade-client placeholder. ``card.action.trigger`` consumers hydrate
+    ``card_content`` from that endpoint, so its digest cannot equal the
+    submitted Card 2.0 JSON. The exact message, route, app, action digest, and
+    recorded submitted-card digest are checked independently by the caller.
+    """
+
+    if expected.get("schema") != "2.0":
+        return False
+    header = expected.get("header")
+    if not isinstance(header, Mapping):
+        return False
+    title_value = header.get("title")
+    subtitle_value = header.get("subtitle")
+    title = title_value.get("content") if isinstance(title_value, Mapping) else None
+    subtitle = (
+        subtitle_value.get("content") if isinstance(subtitle_value, Mapping) else None
+    )
+    expected_title = "\n".join(
+        item for item in (title, subtitle) if isinstance(item, str) and item
+    )
+    return _lark_card_v2_fallback_matches_title(observed, expected_title)
+
+
+def _lark_card_v2_fallback_matches_title(
+    observed: Mapping[str, Any], expected_title: str
+) -> bool:
+    if set(observed) != {"title", "elements"}:
+        return False
+    elements = observed.get("elements")
+    if observed.get("title") != expected_title or not isinstance(elements, list):
+        return False
+    leaves: list[Mapping[str, Any]] = []
+
+    def collect(value: object) -> bool:
+        if isinstance(value, list):
+            return bool(value) and all(collect(item) for item in value)
+        if not isinstance(value, Mapping) or value.get("tag") not in {"img", "text"}:
+            return False
+        leaves.append(value)
+        return True
+
+    return collect(elements) and any(item.get("tag") == "img" for item in leaves)
+
+
 def _operator_membership_verified(
     *,
     runner: CommandRunner,
@@ -726,16 +795,6 @@ def _find_message(value: object, message_id: str) -> Mapping[str, Any] | None:
     return None
 
 
-def _message_card(value: Mapping[str, Any]) -> Mapping[str, Any] | None:
-    body = value.get("body")
-    raw = body.get("content") if isinstance(body, Mapping) else value.get("content")
-    try:
-        card = json.loads(raw) if isinstance(raw, str) else raw
-    except json.JSONDecodeError:
-        return None
-    return card if isinstance(card, Mapping) else None
-
-
 def _result_card_readback_verified(
     payload: Mapping[str, Any],
     *,
@@ -746,7 +805,6 @@ def _result_card_readback_verified(
 ) -> bool:
     message = _find_message(payload, message_id)
     sender = message.get("sender") if isinstance(message, Mapping) else None
-    observed_card = _message_card(message) if isinstance(message, Mapping) else None
     return bool(
         payload.get("ok") is True
         and isinstance(message, Mapping)
@@ -754,8 +812,7 @@ def _result_card_readback_verified(
         and isinstance(sender, Mapping)
         and sender.get("sender_type") == "app"
         and sender.get("id") == app_id
-        and isinstance(observed_card, Mapping)
-        and _digest(observed_card) == _digest(card)
+        and message_card_matches(message, card)
     )
 
 
@@ -1089,7 +1146,14 @@ def handle_goal_channel_operation_callback(
     if action["confirmation_digest"] != operation.get("confirmation_digest"):
         raise ActionConflictError("operation callback digest drifted")
     if _digest(card) != delivery.get("card_digest"):
-        raise ActionConflictError("operation callback card content drifted")
+        expected_card = _submitted_confirmation_card(proposal)
+        if _digest(expected_card) != delivery.get("card_digest"):
+            raise ActionConflictError("recorded operation card digest drifted")
+        if not (
+            card_projection_matches(card, expected_card)
+            or _lark_card_v2_fallback_matches(card, expected_card)
+        ):
+            raise ActionConflictError("operation callback card content drifted")
     if profile_app_id != delivery.get("app_id"):
         raise ActionConflictError("operation callback app identity drifted")
     operator_id = str(event["operator_id"])

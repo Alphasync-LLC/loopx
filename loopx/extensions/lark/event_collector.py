@@ -735,6 +735,9 @@ def inspect_lark_event_collector(
         "operation_callback_last_evidence_at": callback_status.get(
             "last_verified_callback_at"
         ),
+        "operation_callback_last_failure_code": callback_status.get(
+            "last_failure_code"
+        ),
         "operation_callback_console_configuration_preflighted": False,
         "thread_complete": all(
             route["inbox"]["thread_complete"] for route in config["routes"]

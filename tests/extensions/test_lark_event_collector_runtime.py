@@ -313,6 +313,7 @@ def test_collector_runs_independent_operation_callback_consumer(
     assert status["callback_delivery_verified"] is True
     assert status["listener_ready"] is False
     assert status["failed_callback_count"] == 1
+    assert status["last_failure_code"] == "result_delivery_unverified"
     assert status["listener_active"] is False
 
 
