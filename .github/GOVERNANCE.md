@@ -37,7 +37,7 @@ as a maintainer or grant release, security, or governance authority.
 | [`@liubf21`](https://github.com/liubf21) | Write | Active |
 | [`@wchwawa`](https://github.com/wchwawa) | Write | Active |
 | [`@now-ing`](https://github.com/now-ing) | Write | Invitation pending |
-| [`@cocolord`](https://github.com/cocolord) | Write | Invitation pending |
+| [`@cocolord`](https://github.com/cocolord) | Write | Active |
 
 GitHub's repository settings are the operational source of truth for access.
 This public snapshot should be updated through a pull request when a write-role
