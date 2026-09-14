@@ -175,6 +175,10 @@ import {
 } from "./capability_hooks.ts";
 import { evaluatePostWritebackHookTransaction } from "./post_writeback_hook_transaction.ts";
 import { compileActionReviewPlan } from "./presentation/action_review_plan.ts";
+import {
+  classifyManagerReturnVerification,
+  normalizeManagerReturnDeliveryAttempt,
+} from "./collaboration/return_delivery.ts";
 
 type EffectRuntimeHandler = (params: JsonObject) => unknown | Promise<unknown>;
 
@@ -597,6 +601,14 @@ export function createEffectRuntimeHandlers(
     [
       "capability_hook.post_writeback.transaction",
       evaluatePostWritebackHookTransaction,
+    ],
+    [
+      "manager.return_delivery.normalize_attempt",
+      (params) => normalizeManagerReturnDeliveryAttempt(params.attempt),
+    ],
+    [
+      "manager.return_delivery.classify_verification",
+      (params) => classifyManagerReturnVerification(params.outcome),
     ],
     [
       "settlement.identity",

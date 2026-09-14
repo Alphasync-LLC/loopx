@@ -15,6 +15,7 @@ from . import _root, _read, _write, _hash, authority
 from .tracking import _entry, _now, _receipt
 from ...file_lock import exclusive_file_lock
 from ...presentation.public_safety import scan_public_boundary_text
+from ...control_plane.effect_runtime import effect_runtime_result
 
 PHASES = ("decision", "conclusion")
 DELIVERY_STATUSES = {
@@ -39,43 +40,20 @@ DELIVERY_ERRORS = {
     "original_route_or_return_delivery_unavailable",
     "delivery_state_unreadable",
 }
-DELIVERY_ATTEMPT_SCHEMA = "manager_return_delivery_attempt_v0"
-_PROVIDER = re.compile(r"[a-z][a-z0-9_-]{0,31}")
-_OPAQUE_REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,511}")
-_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
-
-
 def _delivery_attempt(value):
-    if not isinstance(value, dict) or set(value) != {
-        "schema_version",
-        "provider",
-        "message_ref",
-        "intent_digest",
-        "provider_receipt",
-    }:
-        raise ValueError("invalid manager return delivery attempt")
-    if value.get("schema_version") != DELIVERY_ATTEMPT_SCHEMA:
-        raise ValueError("invalid manager return delivery attempt")
-    if not _PROVIDER.fullmatch(str(value.get("provider") or "")):
-        raise ValueError("invalid manager return delivery attempt")
-    if not _OPAQUE_REF.fullmatch(str(value.get("message_ref") or "")):
-        raise ValueError("invalid manager return delivery attempt")
-    if not _DIGEST.fullmatch(str(value.get("intent_digest") or "")):
-        raise ValueError("invalid manager return delivery attempt")
-    if not _DIGEST.fullmatch(str(value.get("provider_receipt") or "")):
-        raise ValueError("invalid manager return delivery attempt")
-    return dict(value)
+    return dict(
+        effect_runtime_result(
+            "manager.return_delivery.normalize_attempt", {"attempt": value}
+        )
+    )
 
 
-def _verification_error(outcome):
-    blocker = str(outcome.get("blocker") or "")
-    if blocker in {
-        "provider_delivery_intent_conflict",
-        "provider_message_missing",
-        "provider_verification_unavailable",
-    }:
-        return blocker
-    return "provider_delivery_mismatch"
+def _verification_decision(outcome):
+    return dict(
+        effect_runtime_result(
+            "manager.return_delivery.classify_verification", {"outcome": outcome}
+        )
+    )
 
 
 def _verification_exception_error(exc):
@@ -375,11 +353,8 @@ def drain(root, registry, store, external_sender, *, now=None, cancelled=lambda:
                             )
                             continue
                         verified = verifier(route, session, turn, text, attempt)
-                        if (
-                            isinstance(verified, dict)
-                            and verified.get("verification_performed") is True
-                            and verified.get("reply_verified") is True
-                        ):
+                        decision = _verification_decision(verified)
+                        if decision["status"] == "delivered":
                             _write(
                                 state_path,
                                 {
@@ -388,19 +363,16 @@ def drain(root, registry, store, external_sender, *, now=None, cancelled=lambda:
                                     "message_id": mid,
                                     "provider_receipt": attempt["provider_receipt"],
                                     "reply_verified": True,
-                                    "verification": "reconciled_after_restart",
+                                    "verification": decision["verification"],
                                 },
                             )
                             continue
-                        if (
-                            isinstance(verified, dict)
-                            and verified.get("verification_performed") is True
-                        ):
+                        if decision["status"] == "explicit_unverified":
                             _write(
                                 state_path,
                                 {
                                     "status": "explicit_unverified",
-                                    "error": _verification_error(verified),
+                                    "error": decision["error"],
                                 },
                             )
                             continue
@@ -411,7 +383,7 @@ def drain(root, registry, store, external_sender, *, now=None, cancelled=lambda:
                                 **state,
                                 "status": "verification_required",
                                 "attempts": attempts,
-                                "error": "provider_verification_unavailable",
+                                "error": decision["error"],
                                 "retry_at": (
                                     now
                                     + timedelta(

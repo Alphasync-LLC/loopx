@@ -176,7 +176,10 @@ read-only verification. A matching message advances the original delivery to
 message, or verified mismatch becomes `explicit_unverified`. CLI, Manager read,
 and Chat expose the same public-safe state and reason without returning the
 provider locator. The Lark adapter keeps locator interpretation and provider
-readback; `manager-context` remains the sole result/delivery writer.
+readback; `manager-context` remains the sole result/delivery writer. The typed
+`control_plane/collaboration/return_delivery.ts` boundary owns provider-neutral
+attempt validation and verification classification; Python retains file-lock,
+persistence and adapter orchestration only.
 
 New handoffs persist their exact original return route. Legacy requests remain
 queryable; a receiver can explicitly report one only when its exact persisted
