@@ -1029,9 +1029,14 @@ export const typedActionsScenario = {
         throw new Error("Initial machine selection must follow the visible catalog order, not the API source order");
       }
       if (await page.locator(".personal-capability-editor-status").count()) throw new Error("Editable machine settings must not show internal editor-contract notices");
-      if (await machineCatalog.getByRole("button").count() !== goalCapabilityCatalog().length) {
-        throw new Error("Machine settings hid Goal-only capabilities from the shared catalog");
+      if (await machineCatalog.getByRole("button").count() !== goalCapabilityCatalog().length + 1) {
+        throw new Error("Machine settings did not combine machine-only and Goal capabilities in the shared catalog");
       }
+      await machineCatalog.getByRole("button", { name: /^管家 Runtime/ }).click();
+      await page.getByLabel(/^运行模式/u).waitFor({ state: "visible" });
+      await page.locator(".personal-capability-help > summary").click();
+      await page.getByText(/受保护操作仍单独校验/u).waitFor({ state: "visible" });
+      await page.screenshot({ path: resolve(outputDir, "manager-runtime-machine-profile.png"), fullPage: false, animations: "disabled" });
       const requestsBeforeReadOnly = api.machineConfigurationRequests.length;
       await machineCatalog.getByRole("button", { name: /^自适应子 Agent 容量/ }).click();
       await page.getByText(/此能力目前仅支持 Goal 级配置/u).waitFor({ state: "visible" });
@@ -1128,6 +1133,44 @@ export const typedActionsScenario = {
       await page.screenshot({ path: resolve(outputDir, "machine-capability-mobile-zh-cn.png"), fullPage: false, animations: "disabled" });
       await page.setViewportSize(settingsViewport);
       await page.waitForTimeout(200);
+      await page.getByRole("button", { name: /Lark/ }).click();
+
+      api.machineInspectionStatus = "invalid";
+      api.invalidMachineNamespaces = ["manager_runtime"];
+      await page.getByRole("button", { name: /机器配置/ }).click();
+      const invalidRepair = page.getByTestId("machine-invalid-repair");
+      await invalidRepair.waitFor({ state: "visible" });
+      await page.getByRole("heading", { level: 2, name: "管家 Runtime", exact: true }).waitFor({ state: "visible" });
+      await page.getByRole("button", { name: "预览变更", exact: true }).click();
+      const managerRepairPreview = api.machineConfigurationRequests.findLast(
+        (item) => item.phase === "preview" && item.namespace === "manager_runtime",
+      );
+      if (managerRepairPreview?.namespace_configuration?.runtime_profile !== "restricted") {
+        throw new Error(`Invalid Manager runtime did not use its safe catalog replacement: ${JSON.stringify(managerRepairPreview)}`);
+      }
+      await page.getByRole("button", { name: "应用已审阅预览", exact: true }).click();
+      await invalidRepair.waitFor({ state: "detached" });
+      const managerRepairApply = api.machineConfigurationRequests.findLast(
+        (item) => item.phase === "apply" && item.namespace === "manager_runtime",
+      );
+      if (managerRepairApply?.expected_plan_revision !== "sha256:machine-plan") {
+        throw new Error("Invalid Manager runtime repair lost its reviewed plan revision");
+      }
+
+      await page.getByRole("button", { name: /Lark/ }).click();
+      api.machineInspectionStatus = "invalid";
+      api.invalidMachineNamespaces = ["periodic_report"];
+      await page.getByRole("button", { name: /机器配置/ }).click();
+      await invalidRepair.waitFor({ state: "visible" });
+      await page.getByRole("heading", { level: 2, name: "周期报告", exact: true }).waitFor({ state: "visible" });
+      await page.getByRole("button", { name: "预览变更", exact: true }).click();
+      const periodicRepairPreview = api.machineConfigurationRequests.findLast(
+        (item) => item.phase === "preview" && item.namespace === "periodic_report",
+      );
+      if (!periodicRepairPreview) throw new Error("Invalid sibling namespace did not open the Periodic reports repair path");
+      await page.getByRole("button", { name: "应用已审阅预览", exact: true }).click();
+      await invalidRepair.waitFor({ state: "detached" });
+      await page.screenshot({ path: resolve(outputDir, "machine-invalid-namespace-repaired.png"), fullPage: false, animations: "disabled" });
       await page.getByRole("button", { name: /Lark/ }).click();
 
       await page.getByRole("button", { name: /连接 Lark App/ }).click();
