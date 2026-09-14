@@ -29,6 +29,7 @@ from .capabilities.pr_review_queue.github_source import run_gh_json as _run_gh_j
 from .capabilities.pr_review_queue.github_source import (
     attach_pr_review_details_concurrently as _attach_pr_review_details_concurrently,
 )
+from .capabilities.pr_review_queue.check_attempts import latest_check_attempts
 from .control_plane.runtime.time import now_utc_iso
 from .presentation.markdown import as_dict as _as_dict
 from .presentation.markdown import as_list as _as_list
@@ -674,7 +675,12 @@ def _check_state(item: dict[str, Any]) -> str:
 
 
 def _checks(pr: dict[str, Any]) -> dict[str, Any]:
-    items = [item for item in _as_list(pr.get("statusCheckRollup")) if isinstance(item, dict)]
+    raw_items = [
+        item
+        for item in _as_list(pr.get("statusCheckRollup"))
+        if isinstance(item, dict)
+    ]
+    items, superseded = latest_check_attempts(raw_items)
     counts: dict[str, int] = {}
     failures: list[str] = []
     pending: list[str] = []
@@ -688,6 +694,8 @@ def _checks(pr: dict[str, Any]) -> dict[str, Any]:
     if not items:
         return {
             "total": 0,
+            "raw_total": len(raw_items),
+            "superseded": superseded,
             "counts": {},
             "summary": "No status-check rollup was available from the source.",
             "failures": [],
@@ -701,6 +709,8 @@ def _checks(pr: dict[str, Any]) -> dict[str, Any]:
         summary = f"{counts.get('success', 0)} successful check(s)."
     return {
         "total": len(items),
+        "raw_total": len(raw_items),
+        "superseded": superseded,
         "counts": counts,
         "summary": summary,
         "failures": failures[:5],
