@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import signal
 import subprocess
@@ -48,6 +49,17 @@ _CALLBACK_FAILURE_CODES = {
     "operation callback card content is unavailable": "callback_card_content_unavailable",
     "operation callback proposal was not found": "callback_proposal_not_found",
     "typed operation proposal is unavailable": "callback_operation_unavailable",
+    "typed operation envelope is unavailable": "callback_operation_envelope_unavailable",
+    "operation review plan is unavailable": "callback_review_plan_unavailable",
+    "operation review frame is unavailable": "callback_review_frame_unavailable",
+    "operation projection is unavailable": "callback_projection_unavailable",
+    "operation projection fields are unavailable": "callback_projection_fields_unavailable",
+    "operation callback timestamp is invalid": "callback_timestamp_invalid",
+    "operation confirmation has unsupported or missing fields": "callback_confirmation_invalid",
+    "operation timestamps require a timezone": "callback_timestamp_timezone_missing",
+    "claimed operation disappeared before dispatch": "callback_claim_disappeared",
+    "operation executor outcome does not match the consumed claim": "callback_executor_outcome_invalid",
+    "operation disappeared before result delivery": "callback_operation_disappeared",
     "operation card delivery was not recorded": "delivery_not_recorded",
     "operation callback digest drifted": "confirmation_digest_drifted",
     "recorded operation card digest drifted": "recorded_card_digest_drifted",
@@ -66,6 +78,55 @@ Sleeper = Callable[[float], None]
 
 def _operation_callback_failure_code(exc: BaseException) -> str:
     return _CALLBACK_FAILURE_CODES.get(str(exc), "callback_rejected")
+
+
+def _callback_event_shape(payload: Mapping[str, Any]) -> dict[str, object]:
+    """Return a value-free diagnostic projection for a rejected callback."""
+
+    action_value = payload.get("action_value")
+    try:
+        action = (
+            json.loads(action_value) if isinstance(action_value, str) else action_value
+        )
+    except json.JSONDecodeError:
+        action = None
+    card_content = payload.get("card_content")
+    card_shape = "missing"
+    if isinstance(card_content, str):
+        if not card_content:
+            card_shape = "empty"
+        else:
+            try:
+                parsed_card = json.loads(card_content)
+            except json.JSONDecodeError:
+                card_shape = "text"
+            else:
+                card_shape = (
+                    "json_object" if isinstance(parsed_card, Mapping) else "json_other"
+                )
+    elif isinstance(card_content, Mapping):
+        card_shape = "object"
+    elif card_content is not None:
+        card_shape = type(card_content).__name__
+    return {
+        "type_supported": payload.get("type") == "card.action.trigger",
+        "action_is_button": payload.get("action_tag") == "button",
+        "action_is_object": isinstance(action, Mapping),
+        "action_field_count": len(action) if isinstance(action, Mapping) else 0,
+        "event_id_valid": bool(
+            re.fullmatch(r"[A-Za-z0-9._:-]{1,240}", str(payload.get("event_id") or ""))
+        ),
+        "timestamp_is_digits": str(payload.get("timestamp") or "").isdigit(),
+        "operator_id_present": bool(payload.get("operator_id")),
+        "message_id_present": bool(payload.get("message_id")),
+        "chat_id_present": bool(payload.get("chat_id")),
+        "host_supported": payload.get("host") == "im_message",
+        "token_present": bool(payload.get("token")),
+        "card_content_shape": card_shape,
+        "shape_digest": hashlib.sha256(
+            "\0".join(sorted(str(key) for key in payload)).encode()
+        ).hexdigest()[:16],
+    }
 
 
 def _run_json(
@@ -426,6 +487,7 @@ def _write_operation_callback_status(
     callback_delivery_verified: bool | None = None,
     failure_kind: str | None = None,
     failure_code: str | None = None,
+    failure_event_shape: Mapping[str, object] | None = None,
     consumer_returncode: int | None = None,
     recovered_result_count_delta: int = 0,
     result_delivery_failure_count_delta: int = 0,
@@ -479,6 +541,11 @@ def _write_operation_callback_status(
         ),
         "last_failure_kind": failure_kind or prior.get("last_failure_kind"),
         "last_failure_code": failure_code or prior.get("last_failure_code"),
+        "last_failure_event_shape": (
+            dict(failure_event_shape)
+            if failure_event_shape is not None
+            else prior.get("last_failure_event_shape")
+        ),
         "consumer_returncode": consumer_returncode,
         "updated_at": now,
         "private_content_returned": False,
@@ -758,6 +825,7 @@ def run_lark_event_collector(
                             listener_ready=True,
                             failure_kind=type(exc).__name__,
                             failure_code=_operation_callback_failure_code(exc),
+                            failure_event_shape=_callback_event_shape(payload),
                         )
                         continue
                     callback_stats["verified"] += 1
