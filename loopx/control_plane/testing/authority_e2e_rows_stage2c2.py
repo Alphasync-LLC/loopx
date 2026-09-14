@@ -63,11 +63,10 @@ PRIMARY_CRASH_WINDOWS: tuple[tuple[str, bool], ...] = (
 )
 DRAIN_CRASH_WINDOWS: tuple[str, ...] = ("before_commit", "after_commit", "after_cursor", "between_unlinks")
 PARITY_CYCLES = 3
-# ``todo archive-completed`` is deliberately absent: archiving a Todo that holds
-# a released lease record orphans that lease in the source projection while the
-# candidate head keeps it, so the bounded qualification drifts. The ladder
-# declares that gap as ``s2c2.archive_after_leased_completion_parity`` instead
-# of hiding it inside a passing row.
+# ``todo archive-completed`` stays out of this shared cross-writer parity set
+# because it is a Python-only lifecycle writer with no TypeScript counterpart to
+# interleave; the archive-after-lease fold is pinned by its own deterministic row
+# ``s2c2.archive_after_leased_completion_parity`` instead.
 PARITY_REQUIRED_WRITE_CLASSES: tuple[str, ...] = (
     "todo_add",
     "todo_update",
@@ -80,6 +79,19 @@ PARITY_REQUIRED_WRITE_CLASSES: tuple[str, ...] = (
     "task_lease_fence_close",
 )
 GROWTH_TRANSACTIONS = 10
+# The archive-after-lease row delivers six transactions: the add, the lease
+# acquire, the fenced complete (which also closes the lease fence), the anchor
+# add, and the archive that retires the completed Todo from the graph.
+ARCHIVE_PARITY_OPERATIONS = 6
+# The row's own coverage: the Todo add, the lease acquire, the fenced complete
+# with its lease fence close, and the archive-completed writer.
+ARCHIVE_PARITY_REQUIRED_WRITE_CLASSES: tuple[str, ...] = (
+    "todo_add",
+    "todo_complete",
+    "todo_archive_completed",
+    "task_lease_acquire",
+    "task_lease_fence_close",
+)
 GROWTH_TEXT_TEMPLATE = "Growth workload todo %02d " + "x" * 160
 # Each file-v0 transaction retains the complete projection, so the per-transaction
 # byte delta may grow by about one Todo record per transaction. A larger jump
@@ -1121,6 +1133,79 @@ def row_growth_measurement_gate(context: RowContext) -> RowOutcome:
     )
 
 
+def row_archive_after_leased_completion_parity(context: RowContext) -> RowOutcome:
+    """Archiving a Todo whose released lease stays on disk keeps the candidate head matched and qualifiable."""
+
+    workspace = capture_workspace(context, "ladder-archive-leased")
+    leased = add_todo(workspace, "Leased todo archived after its completion is captured.")
+    leased_todo_id = str(leased["todo_id"])
+    delivered(leased, label="todo add (leased)")
+    acquired = acquire_lease(workspace, todo_id=leased_todo_id, owner=AGENT_A, idempotency_key="ladder-archive-leased-a")
+    delivered(acquired, label="task-lease acquire")
+    completed = goal_cli(
+        workspace, "todo", "complete", "--todo-id", leased_todo_id, "--agent-id", AGENT_A,
+        "--task-lease-idempotency-key", "ladder-archive-leased-a",
+        "--task-lease-expected-version", lease_version(acquired, label="acquire"),
+        "--evidence", "validation://ladder-archive-leased", "--no-follow-up",
+    )
+    delivered(completed, label="todo complete")
+    anchor = add_todo(workspace, "Anchor todo that stays open across the archive write.")
+    anchor_todo_id = str(anchor["todo_id"])
+    delivered(anchor, label="todo add (anchor)")
+    qualified(qualify(workspace), label="baseline")
+    archived = goal_cli(workspace, "todo", "archive-completed", "--role", "agent", "--max-active-done", "0", "--execute")
+    expect(archived.get("changed") is True and archived.get("moved_count") == 1, "archive-completed must move exactly the completed todo")
+    inspection = _object(inspect(workspace).get("inspection"), "post-archive inspection")
+    expect(
+        inspection.get("status") == "matched" and inspection.get("parity_matches") is True,
+        "archiving a Todo whose released lease remains on disk must not orphan that lease in the candidate head",
+    )
+    expect(inspection.get("reason_code") is None, "a matched archive must report no drift reason")
+    # Require exactly the event kinds this row delivers, including the archive
+    # that retires the Todo from the graph while its released lease file stays
+    # on disk as audit history. Reusing the mixed-writer parity set here would
+    # demand writers this row never drives.
+    flags = ["--minimum-operations", str(ARCHIVE_PARITY_OPERATIONS)]
+    for write_class in ARCHIVE_PARITY_REQUIRED_WRITE_CLASSES:
+        flags.extend(["--require-event-kind", write_class])
+    qualification = qualified(qualify(workspace, *flags), label="post-archive")
+    read = read_candidate(workspace, anchor_todo_id)
+    expect(read.get("ok") is True, "a qualified read must remain available after the archive write")
+    lease_dir = workspace.runtime_root / "goals" / workspace.goal_id / "task-leases"
+    lease_names = sorted(path.name for path in lease_dir.glob("*.json"))
+    expect(f"{leased_todo_id}.json" in lease_names, "the released lease file must stay on disk as audit history")
+
+    # The second boundary the same rule covers: a later lease write must not
+    # re-read the retained lease of the archived Todo into its own partition.
+    successor = add_todo(workspace, "Successor todo that takes a fresh lease after the archive.")
+    successor_todo_id = str(successor["todo_id"])
+    delivered(successor, label="todo add (successor)")
+    successor_lease = acquire_lease(
+        workspace, todo_id=successor_todo_id, owner=AGENT_A, idempotency_key="ladder-archive-leased-b",
+    )
+    delivered(successor_lease, label="task-lease acquire (successor)")
+    after_successor = _object(inspect(workspace).get("inspection"), "post-successor inspection")
+    expect(
+        after_successor.get("status") == "matched" and after_successor.get("parity_matches") is True,
+        "a lease write after the archive must not inherit the retained lease of the archived Todo",
+    )
+    final_lease_names = sorted(path.name for path in lease_dir.glob("*.json"))
+    expect(
+        {f"{leased_todo_id}.json", f"{successor_todo_id}.json"} <= set(final_lease_names),
+        "both the archived Todo's audit lease and the successor's live lease must remain on disk",
+    )
+    return passed(
+        archived_todo=leased_todo_id,
+        retained_lease_files=len(lease_names),
+        parity_status="matched",
+        parity_reason=None,
+        qualification_cursor=str(qualification.get("cursor")),
+        anchor_read_qualified=True,
+        successor_todo=successor_todo_id,
+        post_successor_parity="matched",
+        final_lease_files=len(final_lease_names),
+    )
+
 __all__ = [
     "CRASH_WORKER",
     "DRAIN_CRASH_WINDOWS",
@@ -1129,6 +1214,7 @@ __all__ = [
     "PARITY_CYCLES",
     "PARITY_REQUIRED_WRITE_CLASSES",
     "PRIMARY_CRASH_WINDOWS",
+    "row_archive_after_leased_completion_parity",
     "row_drain_idempotent",
     "row_event_only_todo_source_holds",
     "row_growth_measurement_gate",

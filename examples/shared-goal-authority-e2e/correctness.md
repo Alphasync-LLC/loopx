@@ -314,10 +314,10 @@ Python/TS/JSON provenance, and reads back through an independent native process.
 
 The mandatory repair set must have zero failures, skips, pending, or unverified
 cases. Broader ladder rows retain their declared pending/environment gates:
-`s2c2.archive_after_leased_completion_parity` stays pending until the
-archive-completed writer captures the released lease it orphans, and
-`s2c2.sustained_parity_soak` until the Section 7.2 soak exists; these tests
-grant neither production promotion nor a completed Stage 2C claim.
+`s2c2.archive_after_leased_completion_parity` is now an executable
+deterministic row rather than a declaration, and `s2c2.sustained_parity_soak`
+stays pending until the Section 7.2 soak exists; these tests grant neither
+production promotion nor a completed Stage 2C claim.
 
 For a caller comparison, run both `test_shadow_observable*_e2e.py` files with
 `LOOPX_SHADOW_COMPARISON_SOURCE` set to an immutable baseline checkout, then to

@@ -32,7 +32,7 @@ GATED_ROW_IDS = (
     "s2b.postgresql_conformance_live",
 )
 PENDING_ONLY_ROW_ID = "s2c2.sustained_parity_soak"
-PENDING_ROW_IDS = ("s2c2.archive_after_leased_completion_parity", PENDING_ONLY_ROW_ID)
+PENDING_ROW_IDS = (PENDING_ONLY_ROW_ID,)
 CHEAP_DETERMINISTIC_ROW_ID = "s0.file_matrix_twelve_rows"
 FULL_LADDER_VARIABLE = "LOOPX_LADDER_FULL"
 # Rows whose assertions the in-repo CLI E2E suite already pins through the same
@@ -80,6 +80,7 @@ STAGE_2C2_ROW_IDS = (
     "s2c2.event_only_todo_source_holds",
     "s2c2.migration_seeds_and_drains",
     "s2c2.growth_measurement_gate",
+    "s2c2.archive_after_leased_completion_parity",
 )
 STAGE_2C2_POSIX_ONLY_ROW_IDS = (
     "s2c2.sigkill_between_primary_write_and_drain",

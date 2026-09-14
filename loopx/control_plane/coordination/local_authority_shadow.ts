@@ -689,6 +689,24 @@ function partitionsOf(head: JsonObject | null): JsonObject {
 }
 
 /**
+ * Todo ids still present in the current Todo graph.
+ *
+ * A published Todo partition also retains archived rows for audit, so the raw
+ * record list is not the graph. The source projection
+ * (`build_todo_runtime_shadow_projection`) and the TypeScript source
+ * verification both define the graph as `archive_state === "active"`; capture
+ * and fold must apply that same typed membership rule or the candidate head
+ * keeps a lease edge the source never emits.
+ */
+export function currentGraphTodoIds(todos: readonly JsonObject[]): Set<string> {
+  return new Set(
+    todos
+      .filter((item) => item.archive_state === "active")
+      .map((item) => String(item.todo_id)),
+  );
+}
+
+/**
  * Fold one partition into the candidate head. A v0 head (whole-snapshot
  * observation) is accepted as the starting point with no partition markers.
  * Markers describe the last actual mutation, not the last settled entry. Both
@@ -711,13 +729,12 @@ export function composeLocalAuthorityShadowHead(
     if (entry.partition === "todos") {
       handoffMode = String(projection.handoff_mode);
       todos = structuredClone(projection.todos as JsonObject[]);
-      // The Todo partition is the current-graph authority. When a Todo leaves
-      // that graph (archived, superseded or removed), its retained lease file
-      // becomes an orphan edge that the source projection never emits. Retain
-      // only leases whose Todo is still part of the graph the projection just
-      // published, so the candidate head cannot accumulate an orphan that the
-      // next qualification reports as `shadow_projection_drift`.
-      const graphTodoIds = new Set(todos.map((item) => String(item.todo_id)));
+      // The Todo partition carries the published Todo read records, including
+      // archived rows retained for audit. The candidate head, like the source
+      // projection, keeps live lease edges only for Todos that are still in the
+      // current graph (`archive_state === "active"`); a retained archived row
+      // must not re-admit the lease its archive just orphaned.
+      const graphTodoIds = currentGraphTodoIds(todos);
       leases = leases.filter((lease) => graphTodoIds.has(String(lease.todo_id)));
     } else {
       leases = structuredClone(projection.leases as JsonObject[]);

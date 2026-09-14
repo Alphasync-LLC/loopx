@@ -174,11 +174,14 @@ test("archiving a Todo drops its retained lease from the candidate head", async 
   const lease = { schema_version: "task_lease_v0", goal_id: "goal-a", todo_id: "todo_one", owner: "agent-a",
     idempotency_key: "k1", version: 1, lease_epoch: 1, status: "released", updated_at: "2026-09-06T00:00:00Z" };
   const base = { ...projection([todo("todo_one")]), leases: [lease] };
-  // A lease whose Todo left the graph would become an orphan edge the source
-  // projection never emits, so the Todo-partition fold must drop it.
+  // The published Todo partition retains the archived row for audit; the graph
+  // it represents no longer contains `todo_one`. The fold must key off
+  // `archive_state === "active"` like the source projection does, or the
+  // retained archived row re-admits the lease its archive just orphaned.
+  const archivedTodo = { ...todo("todo_one", "done"), archive_state: "archive" };
   const archived = composeLocalAuthorityShadowHead(base, "goal-a",
-    { partition: "todos", seq: 2 }, projection([]), "sha256:archived");
-  assert.deepEqual(archived.todos, []);
+    { partition: "todos", seq: 2 }, projection([archivedTodo]), "sha256:archived");
+  assert.deepEqual(archived.todos, [archivedTodo]);
   assert.deepEqual(archived.leases, []);
   // A lease whose Todo is still in the graph survives the same fold.
   const retained = composeLocalAuthorityShadowHead(base, "goal-a",
