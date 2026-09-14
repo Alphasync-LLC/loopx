@@ -77,8 +77,12 @@ def build_turn_decision_builder(
         execution_mode=args.execution_mode,
         scheduler_owner=args.scheduler_owner,
     )
+    # Use the resolved runtime root, not the raw CLI argument. When a registry
+    # declares `common_runtime_root` and the command omits `--runtime-root`,
+    # the raw value is None and the activation check would silently read the
+    # global default instead of this registry's own extension state.
     operator_inbox_urgency_projector = build_lark_operator_inbox_urgency_projector(
-        runtime_root_arg=runtime_root_arg,
+        runtime_root_arg=runtime_root,
     )
 
     def build_turn_decision(

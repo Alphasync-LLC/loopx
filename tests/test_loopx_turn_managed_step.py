@@ -341,3 +341,49 @@ def test_journal_turn_key_mismatch_is_refused() -> None:
 
     with pytest.raises(ValueError, match="turn_key"):
         _decide(journal)
+
+
+def test_shared_decision_builder_reads_the_resolved_runtime_root(monkeypatch) -> None:
+    """The activation check must read this registry's root, not the global default.
+
+    A registry that declares ``common_runtime_root`` while the command omits
+    ``--runtime-root`` passes ``None`` as the raw argument. Wiring the check to
+    that raw value would silently read the operator's global extension state.
+    """
+
+    import argparse
+    from pathlib import Path
+
+    from loopx.cli_commands import turn_decision
+
+    seen: list[object] = []
+
+    def _record(*, runtime_root_arg):
+        seen.append(runtime_root_arg)
+        return lambda **_: {"schema_version": "lark_event_inbox_urgency_v0"}
+
+    monkeypatch.setattr(
+        turn_decision, "build_lark_operator_inbox_urgency_projector", _record
+    )
+    args = argparse.Namespace(
+        goal_id=GOAL_ID,
+        agent_id="agent-a",
+        host="codex-cli",
+        execution_mode=None,
+        scheduler_owner=None,
+        available_capabilities=[],
+    )
+    resolved_root = Path("/tmp/registry-scoped-runtime-root")
+
+    turn_decision.build_turn_decision_builder(
+        args,
+        registry_path=Path("/tmp/registry.json"),
+        runtime_root=resolved_root,
+        runtime_root_arg=None,
+        status_payload={"ok": True, "attention_queue": {"items": []}, "run_history": {"goals": []}},
+    )
+
+    assert seen == [resolved_root], (
+        "the activation check must receive the resolved runtime root, not the raw "
+        f"argument that is None when the registry declares common_runtime_root: {seen}"
+    )
