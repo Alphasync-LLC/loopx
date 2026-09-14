@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from enum import Enum
 from typing import Any
 from pathlib import Path
 
@@ -12,6 +13,51 @@ from .goal_channel_contracts import bindings_for_goal
 from .goal_channel_targets import goal_channel_target_for_name
 from .goal_channel_transport import CHAT_ID_PATTERN, MESSAGE_ID_PATTERN
 from .goal_topic_routing import is_event_addressed_to_bot
+
+
+class ManagerAuthorityMode(str, Enum):
+    """The only authority states a manager route may enter."""
+
+    CONTEXT_ONLY = "context_only"
+    TURN_AUTHORIZED = "turn_authorized"
+
+
+def parse_manager_authority_mode(value: object) -> ManagerAuthorityMode | None:
+    """Parse a persisted route mode without coercing unknown values."""
+
+    if not isinstance(value, str):
+        return None
+    try:
+        return ManagerAuthorityMode(value)
+    except ValueError:
+        return None
+
+
+def invalid_manager_authority_result(
+    route: Mapping[str, Any], *, inbox_config_ref: str
+) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "status": "invalid_manager_authority_mode",
+        "goal_id": route["goal_id"],
+        "inbox_config_ref": inbox_config_ref,
+        "turn_authorized": False,
+        "model_invoked": False,
+        "external_write_performed": False,
+        "source_acknowledged": False,
+    }
+
+
+def unavailable_manager_context_result(
+    route: Mapping[str, Any], *, inbox_config_ref: str
+) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "status": "context_materials_unavailable",
+        "goal_id": route["goal_id"],
+        "inbox_config_ref": inbox_config_ref,
+        "source_acknowledged": False,
+    }
 
 
 def has_manager_binding(payloads: Mapping[str, Any], target_ref: str) -> bool:
@@ -80,15 +126,14 @@ def decide_manager_event(
         str(identity.get("bot_app_id") or "__unset__"),
     }:
         return ignored("self_message")
-    if not is_event_addressed_to_bot(event, identity):
-        return ignored("not_addressed")
     connector = binding.get("connector")
     if not _valid_manager_binding(goal_id, binding, routing):
         return ignored("invalid_routing_state")
     profile = str(identity.get("sender_profile") or "default")
+    turn_authorized = is_event_addressed_to_bot(event, identity)
     return {
         "matched": True,
-        "reason": "matched",
+        "reason": "matched" if turn_authorized else "context_only",
         "route": {
             "goal_id": goal_id,
             "connection_id": binding["connection_id"],
@@ -104,7 +149,16 @@ def decide_manager_event(
             "message_id": message_id,
             "event_id": str(event.get("event_id") or message_id),
             "topic_root_message_id": topic_root,
-            "capture_scope": "addressed_only",
+            # Capture and authority are intentionally separate.  The unique
+            # configured manager chat may retain non-self messages as bounded
+            # context, but only a provider-native mention or verified reply
+            # may enqueue a manager Turn.
+            "capture_scope": "configured_chat_all",
+            "authority_mode": (
+                ManagerAuthorityMode.TURN_AUTHORIZED.value
+                if turn_authorized
+                else ManagerAuthorityMode.CONTEXT_ONLY.value
+            ),
             "ingress_mode": "session_queue",
             "reply_mode": "topic_reply",
             "connector": dict(connector),
