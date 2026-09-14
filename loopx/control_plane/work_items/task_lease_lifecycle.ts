@@ -510,6 +510,9 @@ async function captureLeaseWrite(
 ): Promise<Awaited<ReturnType<typeof beginLeaseOutboxEntry>> | null> {
   if (request.runtime_shadow === null &&
       await requireShadowPrimaryWriteAllowed(request.runtime_root, request.goal_id) === null) return null;
+  if (request.operation === "fence_close" && request.authority !== null) {
+    await revalidateAuthoritySources(request.authority.source_receipts);
+  }
   const capture = await beginLeaseOutboxEntry({
     runtime_root: request.runtime_root,
     goal_id: request.goal_id,

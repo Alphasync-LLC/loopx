@@ -1189,6 +1189,21 @@ def row_archive_after_leased_completion_parity(context: RowContext) -> RowOutcom
         after_successor.get("status") == "matched" and after_successor.get("parity_matches") is True,
         "a lease write after the archive must not inherit the retained lease of the archived Todo",
     )
+    # Completion closes the lease fence in a separate native request. It must
+    # retain the same current-graph rule as acquire, not reintroduce audit leases.
+    successor_completed = goal_cli(
+        workspace, "todo", "complete", "--todo-id", successor_todo_id, "--agent-id", AGENT_A,
+        "--task-lease-idempotency-key", "ladder-archive-leased-b",
+        "--task-lease-expected-version", lease_version(successor_lease, label="successor acquire"),
+        "--evidence", "validation://ladder-successor-complete", "--no-follow-up",
+    )
+    delivered(successor_completed, label="todo complete (successor)")
+    drained = drain(workspace)
+    expect(drained.get("ok") is True and drained.get("pending_after") == 0,
+           "successor fence-close must leave no unprovable lease partition")
+    qualified(qualify(workspace), label="post-successor completion")
+    expect(read_candidate(workspace, anchor_todo_id).get("ok") is True,
+           "candidate reads must survive successor fence-close")
     final_lease_names = sorted(path.name for path in lease_dir.glob("*.json"))
     expect(
         {f"{leased_todo_id}.json", f"{successor_todo_id}.json"} <= set(final_lease_names),
