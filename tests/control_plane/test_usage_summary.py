@@ -62,6 +62,25 @@ def _run(
     return run
 
 
+def _slot_run(
+    goal_id: str,
+    *,
+    generated_at: datetime,
+    classification: str,
+    slots: int = 1,
+    voided_run_generated_at: str | None = None,
+) -> dict[str, Any]:
+    quota_event: dict[str, Any] = {"event_type": classification, "slots": slots}
+    if voided_run_generated_at is not None:
+        quota_event["voided_run_generated_at"] = voided_run_generated_at
+    return {
+        "goal_id": goal_id,
+        "generated_at": generated_at,
+        "classification": classification,
+        "quota_event": quota_event,
+    }
+
+
 def _identity_parse(value: Any) -> Any:
     return value
 
@@ -260,6 +279,59 @@ def test_build_usage_summary_keeps_old_runs_out_of_usage_windows() -> None:
     summary = build_usage_summary(history, parse_timestamp=_identity_parse)
     assert summary["totals"]["input_tokens_7d"] == 100
     assert summary["totals"]["input_tokens_24h"] == 100
+
+
+def test_aged_out_void_does_not_reduce_a_later_window() -> None:
+    now = datetime.now(timezone.utc)
+    spent = _slot_run(
+        "g1",
+        generated_at=now - timedelta(days=2),
+        classification="quota_slot_spent",
+    )
+    history = {
+        "runs": [
+            spent,
+            _slot_run(
+                "g1",
+                generated_at=now,
+                classification="quota_slot_voided",
+                voided_run_generated_at=str(spent["generated_at"]),
+            ),
+        ]
+    }
+
+    summary = build_usage_summary(history, parse_timestamp=_identity_parse)
+
+    # The voided spend is outside the 24h window, so the void must not drive
+    # that window negative; the spend ledger clamps the same input to zero.
+    assert summary["totals"]["quota_spend_slots_24h"] == 0
+    assert summary["goals"][0]["quota_spend_slots_24h"] == 0
+    # Both runs are inside the 7d window, so the void cancels its spend.
+    assert summary["totals"]["quota_spend_slots_7d"] == 0
+
+
+def test_void_only_cancels_the_spend_it_targets() -> None:
+    now = datetime.now(timezone.utc)
+    history = {
+        "runs": [
+            _slot_run(
+                "g1",
+                generated_at=now - timedelta(hours=2),
+                classification="quota_slot_spent",
+            ),
+            _slot_run(
+                "g1",
+                generated_at=now - timedelta(hours=1),
+                classification="quota_slot_voided",
+                voided_run_generated_at="some-other-run",
+            ),
+        ]
+    }
+
+    summary = build_usage_summary(history, parse_timestamp=_identity_parse)
+
+    assert summary["totals"]["quota_spend_slots_24h"] == 1
+    assert summary["goals"][0]["quota_spend_slots_24h"] == 1
 
 
 def test_build_usage_summary_is_provider_neutral() -> None:

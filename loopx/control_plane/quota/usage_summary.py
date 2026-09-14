@@ -4,6 +4,7 @@ import math
 from datetime import timedelta
 from typing import Any, Callable
 
+from .slot_accounting import load_quota_event_from_run
 from .spend_sources import VISIBLE_GOAL_SLOT_SPEND_SOURCE
 from .usage_collector import UsageRowError, UsageSample, collect_usage_for_run
 from ..runtime.time import now_utc
@@ -23,19 +24,61 @@ USAGE_METRIC_NAMES = (
 )
 
 
-def quota_spend_slots(run: dict[str, Any]) -> int:
+def quota_slot_contribution(run: dict[str, Any]) -> tuple[str, str, int] | None:
+    """Return the slot contribution a run makes to spend accounting.
+
+    Mirrors the canonical spend ledger: a spend is keyed by the run it was
+    recorded against and a void by the run it targets, so a void can only
+    cancel the spend it names.
+    """
+
     classification = str(run.get("classification") or "")
     if classification not in {"quota_slot_spent", "quota_slot_voided"}:
-        return 0
-    quota_event = run.get("quota_event") if isinstance(run.get("quota_event"), dict) else {}
+        return None
+    quota_event = load_quota_event_from_run(run)
+    if not quota_event:
+        return None
     raw_slots = quota_event.get("slots", 1)
     try:
         slots = max(0, int(raw_slots))
     except (TypeError, ValueError):
         slots = 1
-    if classification == "quota_slot_voided" or str(quota_event.get("event_type") or "") == "quota_slot_voided":
-        return -slots
-    return slots
+    if slots <= 0:
+        return None
+    if (
+        classification == "quota_slot_voided"
+        or str(quota_event.get("event_type") or "") == "quota_slot_voided"
+    ):
+        voided_run_generated_at = str(
+            quota_event.get("voided_run_generated_at") or ""
+        )
+        if not voided_run_generated_at:
+            return None
+        return ("voided", voided_run_generated_at, slots)
+    run_key = str(
+        quota_event.get("run_generated_at") or run.get("generated_at") or ""
+    )
+    if not run_key:
+        return None
+    return ("spent", run_key, slots)
+
+
+def _net_quota_spend_slots(
+    contributions: list[tuple[str, str, str, int]],
+) -> tuple[dict[str, int], int]:
+    """Clamp each spend against the voids targeting it, as the ledger does."""
+
+    spent: dict[tuple[str, str], int] = {}
+    voided: dict[tuple[str, str], int] = {}
+    for goal_id, kind, key, slots in contributions:
+        bucket = spent if kind == "spent" else voided
+        bucket[(goal_id, key)] = bucket.get((goal_id, key), 0) + slots
+    per_goal: dict[str, int] = {}
+    for (goal_id, key), spent_slots in spent.items():
+        per_goal[goal_id] = per_goal.get(goal_id, 0) + max(
+            0, spent_slots - voided.get((goal_id, key), 0)
+        )
+    return per_goal, sum(per_goal.values())
 
 
 def is_automation_run(run: dict[str, Any]) -> bool:
@@ -165,6 +208,8 @@ def build_usage_summary(
     goals: dict[str, dict[str, Any]] = {}
     observed_usage_metrics: set[str] = set()
     goal_usage_metrics: dict[str, set[str]] = {}
+    slot_contributions_24h: list[tuple[str, str, str, int]] = []
+    slot_contributions_7d: list[tuple[str, str, str, int]] = []
     sample_count = 0
 
     for run in history.get("runs") or []:
@@ -176,7 +221,7 @@ def build_usage_summary(
             continue
         goal_id = str(run.get("goal_id") or "unknown-goal")
         goal = goals.setdefault(goal_id, blank_usage_goal(goal_id))
-        slots = quota_spend_slots(run)
+        slot_contribution = quota_slot_contribution(run)
         automation_event = is_automation_run(run)
         progress_signal = is_progress_signal_run(run)
         # Present-but-illegal usage fails closed inside collect_usage_for_run.
@@ -186,8 +231,8 @@ def build_usage_summary(
         if generated_at >= cutoff_7d:
             totals["runs_7d"] += 1
             goal["runs_7d"] += 1
-            totals["quota_spend_slots_7d"] += slots
-            goal["quota_spend_slots_7d"] += slots
+            if slot_contribution is not None:
+                slot_contributions_7d.append((goal_id, *slot_contribution))
             if automation_event:
                 totals["automation_run_count_7d"] += 1
                 goal["automation_run_count_7d"] += 1
@@ -200,8 +245,8 @@ def build_usage_summary(
         if generated_at >= cutoff_24h:
             totals["runs_24h"] += 1
             goal["runs_24h"] += 1
-            totals["quota_spend_slots_24h"] += slots
-            goal["quota_spend_slots_24h"] += slots
+            if slot_contribution is not None:
+                slot_contributions_24h.append((goal_id, *slot_contribution))
             if automation_event:
                 totals["automation_run_count_24h"] += 1
                 goal["automation_run_count_24h"] += 1
@@ -211,6 +256,14 @@ def build_usage_summary(
             if usage_sample is not None:
                 _accumulate_usage(totals, usage_sample, "24h", observed_usage_metrics)
                 _accumulate_usage(goal, usage_sample, "24h", goal_metrics)
+
+    goal_slots_24h, total_slots_24h = _net_quota_spend_slots(slot_contributions_24h)
+    goal_slots_7d, total_slots_7d = _net_quota_spend_slots(slot_contributions_7d)
+    totals["quota_spend_slots_24h"] = total_slots_24h
+    totals["quota_spend_slots_7d"] = total_slots_7d
+    for goal_id, goal in goals.items():
+        goal["quota_spend_slots_24h"] = goal_slots_24h.get(goal_id, 0)
+        goal["quota_spend_slots_7d"] = goal_slots_7d.get(goal_id, 0)
 
     if totals["runs_24h"]:
         for goal in goals.values():
