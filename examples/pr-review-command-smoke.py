@@ -8,15 +8,20 @@ import re
 import subprocess
 import sys
 import tempfile
+import tomllib
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 import loopx.pr_review as pr_review_module  # noqa: E402
+from loopx.capabilities.project_skill_delivery.core import (  # noqa: E402
+    discover_project_scoped_skill_ids,
+)
 from loopx.capabilities.pr_review_queue.review_contract import (  # noqa: E402
     REVIEW_POLICY_REVISION,
 )
+from loopx.doctor import REQUIRED_INSTALLED_SKILL_PHRASES  # noqa: E402
 from loopx.pr_review import (  # noqa: E402
     _github_search_date,
     build_pr_review_packet,
@@ -26,6 +31,7 @@ from loopx.skill_install_readback import PACKAGED_HOST_SKILL_IDS  # noqa: E402
 
 FIXTURE = REPO_ROOT / "examples" / "fixtures" / "pr-review.public.json"
 PR_REVIEW_SKILL = REPO_ROOT / "skills" / "loopx-pr-review" / "SKILL.md"
+PR_MERGE_SKILL_DIR = REPO_ROOT / "skills" / "loopx-pr-merge"
 PR_MERGE_SKILL = REPO_ROOT / "skills" / "loopx-pr-merge" / "SKILL.md"
 PRIVATE_PATTERNS = [
     re.compile(r"/" + r"Users/[A-Za-z0-9._-]+/"),
@@ -114,10 +120,28 @@ def main() -> int:
     # skill set so it cannot disturb hosts that never merge LoopX pull requests.
     assert PR_MERGE_SKILL.is_file(), PR_MERGE_SKILL
     assert "loopx-pr-merge" not in PACKAGED_HOST_SKILL_IDS
+    # Repo-kept means repo-only: no scope marker, so no delivery path can copy
+    # this workflow onto a host that did not deliberately adopt it, and the
+    # wheel does not ship it either.
+    assert not (PR_MERGE_SKILL_DIR / ".loopx-skill-scope").exists()
+    assert "loopx-pr-merge" not in discover_project_scoped_skill_ids(
+        REPO_ROOT / "skills"
+    )
+    assert "loopx-pr-merge" not in REQUIRED_INSTALLED_SKILL_PHRASES
+    packaged_files = tomllib.loads(
+        (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )["tool"]["setuptools"]["data-files"]
+    assert not [
+        path
+        for paths in packaged_files.values()
+        for path in paths
+        if path.startswith("skills/loopx-pr-merge/")
+    ], "the repo-kept merge workflow must stay out of the packaged wheel"
     merge_text = " ".join(PR_MERGE_SKILL.read_text(encoding="utf-8").split())
     for phrase in (
         "Optional maintainer workflow",
         "stays outside the default installed skill set",
+        "It lives in the repository",
         "loopx --format json pr-review --state all",
         "agent_response_contract.review_execution_contract",
         "--check-merge-readiness NUMBER@HEAD_OID",
