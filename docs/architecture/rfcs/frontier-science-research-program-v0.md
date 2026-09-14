@@ -7,6 +7,8 @@
 - **Last normative revision:** 2026-09-15
 - **Implementation baseline:** `71dbaee69b528274438295c75d39967150e7c26e` (documentation inspection, not a full runtime audit)
 - **Language mirror:** [中文版](frontier-science-research-program-v0.zh-CN.md)
+- **Research tracker:** [#4391](https://github.com/huangruiteng/loopx/issues/4391)
+- **Community discussion:** [#4392](https://github.com/huangruiteng/loopx/discussions/4392)
 
 ## Document map and maintenance contract
 
@@ -391,4 +393,3 @@ Scientific novelty, implementation availability and deployment evidence are
 different facts. Target-answer access, annotation-assisted selection,
 unmeasured controller cost, repeat testing and weak transfer can each make
 an attractive paper unsuitable for immediate promotion.
-

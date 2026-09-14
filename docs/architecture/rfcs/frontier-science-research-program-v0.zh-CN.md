@@ -7,6 +7,8 @@
 - **最近规范修订：** 2026-09-15
 - **实现基线：** `71dbaee69b528274438295c75d39967150e7c26e`（文档检查，并非全量运行时审计）
 - **语言镜像：** [English](frontier-science-research-program-v0.md)
+- **研究跟踪：** [#4391](https://github.com/huangruiteng/loopx/issues/4391)
+- **社区讨论：** [#4392](https://github.com/huangruiteng/loopx/discussions/4392)
 
 ## 文档地图与维护契约
 
@@ -286,4 +288,3 @@ T01–T10 来源为原始论文、会议论文、官方研究文章或项目 REA
 ## 附录 E：评审经验
 
 科学新颖性、实现可得性、部署证据是不同事实。目标答案访问、标签辅助选择、未计入的 controller 成本、反复检验与弱迁移，都可能使一篇有吸引力的论文暂不适合晋升。
-
