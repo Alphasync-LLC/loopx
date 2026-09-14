@@ -70,14 +70,22 @@ try {
   await page.screenshot({ path: resolve(out, "partial-desktop.png") });
   releaseSlow();
   await page.waitForFunction(() => [...document.querySelectorAll('.personal-goal-link')].find((el) => el.textContent.includes('slow project'))?.textContent.match(/加载|Loading/) === null);
+  await page.waitForFunction(() => [...document.querySelectorAll('.personal-goal-link')].find((el) => el.textContent.includes('ready project'))?.textContent.match(/加载|Loading/) === null);
   retryFails = false;
   revisionMismatch = true;
-  const previousRequests = requested.length;
   await page.getByTestId("goal-status-loading").getByRole("button").click();
-  while (requested.length === previousRequests) await new Promise((done) => setTimeout(done, 10));
+  while (requested.filter((id) => id === "retry").length < 2) {
+    await new Promise((done) => setTimeout(done, 10));
+  }
   await page.getByTestId("goal-status-loading").getByRole("button").waitFor();
   revisionMismatch = false;
-  await page.getByTestId("goal-status-loading").getByRole("button").click();
+  const clickedRevisionRetry = await page.evaluate(() => {
+    const button = document.querySelector('[data-testid="goal-status-loading"] button');
+    if (!button) return false;
+    button.click();
+    return true;
+  });
+  assert.equal(clickedRevisionRetry, true, "revision error should keep a manual retry button mounted");
   await page.getByTestId("goal-status-loading").waitFor({ state: "hidden" });
   assert.ok(requested.filter((id) => id === "ready").length >= 2, "a transient service error should recover automatically");
   assert.ok(!requested.includes("archived"), "stopped history must not compete with the active first screen");
