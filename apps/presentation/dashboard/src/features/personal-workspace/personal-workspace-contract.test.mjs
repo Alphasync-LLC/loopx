@@ -14,6 +14,7 @@ const runRow = source("./cards/run-row.tsx");
 const larkSettings = source("./lark-settings-page.tsx");
 const machineSettings = source("./machine-configuration-settings.tsx");
 const goalCapabilitySettings = source("./goal-capability-settings.tsx");
+const notificationSettings = source("./notification-settings-panel.tsx");
 const capabilityFields = source("./capability-configuration-fields.tsx");
 const capabilityLocalization = source("./capability-localization.ts");
 const capabilityWorkbench = source("./capability-workbench.tsx");
@@ -405,6 +406,9 @@ assert.match(machineSettings, /localizedCapabilityFieldCopy\(locale\)/, "Machine
 assert.match(goalCapabilitySettings, /localizedCapabilityFieldCopy\(locale\)/, "Goal capability fields follow the selected locale");
 assert.match(machineSettings, /<CapabilityCatalogNavigation/, "Machine settings use the shared capability catalog navigation");
 assert.match(goalCapabilitySettings, /<CapabilityCatalogNavigation/, "Goal settings use the shared capability catalog navigation");
+assert.match(goalCapabilitySettings, /capability_id === "lark_event_inbox"[\s\S]*<GoalAutoNotifyToggle/, "Lark inbox capability exposes the independent human-gate notification control");
+assert.match(notificationSettings, /disabled=\{busy \|\| notification\?\.configured !== true/, "Gate notification control stays disabled until a Goal Channel is configured");
+assert.match(workspaceSettings, /goalNotifications\.find\(\(row\) => row\.goalId === initialGoalId\)/, "Goal capability settings receive the live Goal Channel notification state");
 assert.match(machineSettings, /<CapabilityDetailHeader/, "Machine settings use the shared capability detail header");
 assert.match(goalCapabilitySettings, /<CapabilityDetailHeader/, "Goal settings use the shared capability detail header");
 assert.match(capabilityWorkbench, /localizeCapability\(rawCapability, locale\)/, "Shared navigation localizes capability metadata without changing capability ids");
