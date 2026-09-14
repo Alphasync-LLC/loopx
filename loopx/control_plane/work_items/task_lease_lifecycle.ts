@@ -510,6 +510,9 @@ async function captureLeaseWrite(
 ): Promise<Awaited<ReturnType<typeof beginLeaseOutboxEntry>> | null> {
   if (request.runtime_shadow === null &&
       await requireShadowPrimaryWriteAllowed(request.runtime_root, request.goal_id) === null) return null;
+  if (request.operation === "fence_close" && request.authority !== null) {
+    await revalidateAuthoritySources(request.authority.source_receipts);
+  }
   const capture = await beginLeaseOutboxEntry({
     runtime_root: request.runtime_root,
     goal_id: request.goal_id,
@@ -518,6 +521,11 @@ async function captureLeaseWrite(
     operation_id: request.idempotency_key ?? request.fence_operation_id,
     previous_lease: previous,
     planned_lease: next,
+    // Lifecycle requests may omit authority facts; absent authority keeps the
+    // strict pre-existing capture instead of guessing a Todo graph.
+    active_todo_ids: request.authority === null
+      ? null
+      : [...request.authority.todos.keys()],
   });
   if (capture.failure && await requireShadowPrimaryWriteAllowed(request.runtime_root, request.goal_id) !== null) {
     throw new ShadowManagementError("shadow_capture_prepare_failed", "durable shadow preparation failed; the primary lease was not changed");

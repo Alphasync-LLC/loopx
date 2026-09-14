@@ -1688,11 +1688,12 @@ Live 行按环境门控（`LOOPX_TEST_POSTGRES_URL`；`NOKV_COORDINATION_LIVE=1`
 `summary.privacy_violations` 阻止 green 退出，任何开关都不能放宽。
 
 交付边界：test-only。没有任何生产入口构造任何 store；ladder 不新增产品路径，
-只经保留的 TypeScript store 读取候选。Stage 2C parity 后半段由上述十个
-`s2c2.*` 行执行；仍有两条声明保持 pending。`s2c2.archive_after_leased_completion_parity`
-记录 parity 行暴露的一个 capture 缺口：对持有已释放 lease 记录的 Todo 执行
-`todo archive-completed` 后，候选 head 仍保留该 lease，而 source 投影会丢弃这条
-已成孤儿的 lease，于是有界 qualification 报告 `shadow_projection_drift`。
+只经保留的 TypeScript store 读取候选。Stage 2C parity 后半段由上述十一个
+`s2c2.*` 行执行；只有一条声明保持 pending。`s2c2.archive_after_leased_completion_parity`
+原先是 parity 行暴露的 capture 缺口声明，现已成为可执行的确定性行：parity 后半段
+在对 Todo 分区做折叠时套用与 source 投影同一条当前图规则，因此对持有已释放 lease
+记录的 Todo 执行 `todo archive-completed` 后，候选 head 仍保持 matched，而不再报告
+`shadow_projection_drift`。
 `s2c2.sustained_parity_soak` 是由 7.2 节与车道 L 负责的 >=10 天合成 goal soak，
 有界 qualification 继续报告 `sustained_parity_verdict=not_evaluated`。本小节记录
 的是上述阶段的可执行证据；它不晋升任何 provider，也不完成 Stage 2C promotion。

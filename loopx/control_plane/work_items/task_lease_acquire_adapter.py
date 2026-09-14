@@ -698,6 +698,14 @@ def execute_native_task_lease_lifecycle(
                     "schema_version": LOCAL_AUTHORITY_SHADOW_BINDING_SCHEMA,
                     "provider": "file_v0",
                 }
+                if normalized_operation == "fence_close" and committed and release_lease:
+                    # The preceding Todo write may have changed the source.
+                    # Capture the current graph, not the terminal-verify snapshot
+                    # or the append-retained lease directory. Default-off cleanup
+                    # still needs no authority read.
+                    request["authority"] = task_lease_acquire_authority_facts(
+                        registry_path=registry_path, goal_id=goal_id, todo_id=todo_id,
+                    )
         compacted_todo = _compact_lifecycle_todo(todo, todo_id=str(todo_id))
         if compacted_todo is not None and not canonical_renew:
             request["todo"] = compacted_todo
