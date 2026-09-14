@@ -207,9 +207,18 @@ def reply_status(root, row):
 def project_chat_return_deliveries(root, session_id, messages):
     """Attach public-safe delivery readback to returned Chat transcript rows."""
 
+    pending_message_ids = {
+        message_id
+        for message in messages
+        if message.get("origin") == "manager_followup"
+        and isinstance((message_id := message.get("message_id")), str)
+        and message_id.startswith("handoff.")
+    }
+    if not pending_message_ids:
+        return list(messages)
     statuses = {}
     paths = sorted((_root(root) / "roundtrips").glob("*.json"))
-    for path in paths[:2000]:
+    for path in paths:
         try:
             route = _read(path)
             if route.get("session_id") != session_id:
@@ -217,15 +226,25 @@ def project_chat_return_deliveries(root, session_id, messages):
             request_id = str(route.get("request_id") or "")
             if path.stem != request_id or not re.fullmatch(r"[a-f0-9]{64}", request_id):
                 continue
+            route_message_ids = {
+                "handoff." + _hash([request_id, phase]) for phase in PHASES
+            }
+            if pending_message_ids.isdisjoint(route_message_ids):
+                continue
             for item in reply_status(root, route):
                 phase = item.get("phase")
                 if phase not in PHASES:
                     continue
                 message_id = "handoff." + _hash([request_id, phase])
+                if message_id not in pending_message_ids:
+                    continue
                 statuses[message_id] = {
                     "schema_version": "manager_return_delivery_status_v0",
                     **item,
                 }
+                pending_message_ids.discard(message_id)
+            if not pending_message_ids:
+                break
         except (OSError, ValueError, KeyError, TypeError):
             continue
     return [

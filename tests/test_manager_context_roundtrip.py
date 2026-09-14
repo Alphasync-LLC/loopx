@@ -18,8 +18,10 @@ from loopx.capabilities.manager_context import (
 )
 from loopx.capabilities.manager_context.roundtrip import (
     ReturnService,
+    _hash,
     drain,
     project_chat_return_deliveries,
+    project_chat_session_snapshot,
     report,
     reply_status,
 )
@@ -400,6 +402,73 @@ def test_known_provider_locator_is_verified_after_restart_without_resend(flow):
         "schema_version": "manager_return_delivery_status_v0",
         **recovered,
     }
+
+
+def test_chat_snapshot_keeps_current_session_delivery_after_unrelated_route_limit(flow):
+    root, _, store, _ = flow
+    session = store.create_session(
+        goal_id="loopx-manager",
+        agent_id="codex",
+        adapter_kind="codex_app_server",
+        upstream_thread_id="projection-limit",
+        channel_id="manager",
+    )
+    turn, _ = store.create_turn(
+        session["session_id"],
+        client_turn_id="projection-limit",
+        message="Check delivery projection completeness",
+        origin="web",
+    )
+
+    expected = {}
+    for request_id, status in (
+        ("e" * 64, "delivered"),
+        ("f" * 64, "verification_required"),
+    ):
+        _write(
+            _root(root) / "roundtrips" / f"{request_id}.json",
+            {"request_id": request_id, "session_id": session["session_id"]},
+        )
+        _write(
+            _root(root) / "replies" / request_id / "conclusion.json",
+            {
+                "request_id": request_id,
+                "phase": "conclusion",
+                "created_at": "2026-09-14T00:00:00+00:00",
+            },
+        )
+        delivery = {"status": status}
+        if status == "verification_required":
+            delivery["error"] = "provider_delivery_unverified"
+        _write(
+            _root(root) / "replies" / request_id / "conclusion.delivery.json",
+            delivery,
+        )
+        message_id = "handoff." + _hash([request_id, "conclusion"])
+        store.append_message(
+            session["session_id"],
+            role="agent",
+            text=f"Projected {status}",
+            turn_id=turn["turn_id"],
+            origin="manager_followup",
+            message_id=message_id,
+        )
+        expected[message_id] = status
+
+    for index in range(2000):
+        request_id = f"{index:064x}"
+        _write(
+            _root(root) / "roundtrips" / f"{request_id}.json",
+            {"request_id": request_id, "session_id": f"unrelated-{index}"},
+        )
+
+    snapshot = project_chat_session_snapshot(root, store, session["session_id"])
+    returned = {
+        row["message_id"]: row["return_delivery"]["status"]
+        for row in snapshot["messages"]
+        if row.get("message_id") in expected
+    }
+    assert returned == expected
 
 
 def test_provider_verification_outage_retries_read_only_without_resend(flow):
