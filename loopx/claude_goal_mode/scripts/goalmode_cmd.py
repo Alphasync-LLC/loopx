@@ -50,7 +50,7 @@ def gh_prefix():
 
 
 def gh(args, cwd=None):
-    return subprocess.run(gh_prefix() + args, cwd=cwd, capture_output=True, text=True, timeout=120)
+    return subprocess.run(gh_prefix() + args, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
 
 
 def slug(name: str) -> str:
@@ -144,7 +144,7 @@ def goal_detail(ctx):
             ["--format", "json", "quota", "should-run", "--goal-id", gid]
         if agent:
             cmd += ["--agent-id", agent]
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        out = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
         payload = json.loads(out.stdout or "{}")
     except Exception:
         pass

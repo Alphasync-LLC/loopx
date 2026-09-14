@@ -356,7 +356,7 @@ def history(workspace: GoalWorkspace) -> list[JsonObject]:
         [node, "--no-warnings", "--experimental-strip-types", "--input-type=module", "-e", script, str(request_path)],
         cwd=REPO_ROOT,
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         timeout=60,
         check=False,
     )
@@ -428,7 +428,7 @@ def crash_cli(workspace: GoalWorkspace, window: str, *args: str) -> None:
         env=cli_env(workspace),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
     )
     line = ""
     try:

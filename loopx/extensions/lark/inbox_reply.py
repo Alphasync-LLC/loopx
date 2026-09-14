@@ -40,7 +40,7 @@ class BotIdentityVerification(str, Enum):
 def _default_runner(args: Sequence[str]) -> Mapping[str, Any]:
     result = subprocess.run(
         list(args),
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         capture_output=True,
         timeout=30,
         check=False,

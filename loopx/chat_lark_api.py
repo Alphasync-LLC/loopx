@@ -90,7 +90,7 @@ def _default_git_runner(args: list[str]) -> dict[str, Any]:
             args,
             capture_output=True,
             check=False,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=10,
         )
     except (OSError, subprocess.TimeoutExpired):

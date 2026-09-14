@@ -532,7 +532,7 @@ def execute_loopx_cli(
         env=env,
         check=False,
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         timeout=timeout_seconds,
     )
     if completed.returncode not in accepted_return_codes:

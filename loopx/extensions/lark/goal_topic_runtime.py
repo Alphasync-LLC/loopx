@@ -135,7 +135,7 @@ def _default_simple_runner(args: list[str]) -> Mapping[str, Any]:
         completed = subprocess.run(
             args,
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             check=False,
             timeout=15,
         )
@@ -154,7 +154,7 @@ def _default_process_factory(args: list[str]) -> subprocess.Popen[str]:
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         bufsize=1,
     )
 

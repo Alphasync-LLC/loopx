@@ -73,7 +73,7 @@ def _run_git_name_only(repo_root: Path, args: list[str]) -> dict[str, object]:
     completed = subprocess.run(
         command,
         check=False,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -95,7 +95,7 @@ def _resolve_git_repo_root(candidate: Path) -> Path:
     completed = subprocess.run(
         ["git", "-C", str(candidate), "rev-parse", "--show-toplevel"],
         check=False,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )

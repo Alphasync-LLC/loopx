@@ -92,11 +92,11 @@ class GoalModeMCPControlPlane:
             command += ["--registry", registry]
         command += ["--format", "json"]
         result = subprocess.run(
-            [*command, *args], capture_output=True, text=True, timeout=30
+            [*command, *args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30
         )
         if legacy_args is not None and self._runtime_profile_flag_is_unsupported(result):
             result = subprocess.run(
-                [*command, *legacy_args], capture_output=True, text=True, timeout=30
+                [*command, *legacy_args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30
             )
         return (result.stdout or "") + (
             ("\n" + result.stderr) if result.returncode else ""
