@@ -23,9 +23,7 @@ ACTION_PORTFOLIO_SCHEMA_VERSION_V1 = "quota_action_portfolio_v1"
 ACTION_PORTFOLIO_SCHEMA_VERSION_V2 = "quota_action_portfolio_v2"
 PLANNING_HORIZON_SCHEMA_VERSION_V0 = "quota_planning_horizon_v0"
 GUIDED_TODO_DELTA_SCHEMA_VERSION_V0 = "loopx_guided_todo_delta_v0"
-PLANNING_INVENTORY_DETAIL_SCHEMA_VERSION_V0 = (
-    "todo_planning_inventory_detail_v0"
-)
+PLANNING_INVENTORY_DETAIL_SCHEMA_VERSION_V0 = "todo_planning_inventory_detail_v0"
 
 Metric = Literal["chars", "utf8_bytes", "lines", "compact_payload_chars"]
 
@@ -177,6 +175,55 @@ _REWARD_MEMORY_OUTCOME_PROMPT_V1_MIGRATION_ALLOWANCE: dict[Metric, int] = {
     "compact_payload_chars": 640,
 }
 
+# Two reviewed causes grow the Turn plan readback once, and both are consequences
+# of the same declared behavior change:
+#
+# 1. the plan adds one bounded managed-executor binding so a caller sees which
+#    executor a planned Turn would use and whether it can launch here, instead
+#    of inferring it from the host id;
+# 2. the default host becomes the managed `dsh` host, so the plan's host
+#    projection, scheduler execution context, and controller-owned
+#    `next_cli_actions` rendering change with it (a bounded-headless plan hands
+#    the next steps back to the outer controller instead of to the agent CLI
+#    loop).
+#
+# The allowance is bound to the rejected-then-accepted
+# none-to-v0 transition and to the Turn surfaces that quote it; quota, status,
+# and every other agent-facing surface keep the ordinary budget. It is one
+# time: once v0 is the baseline a v0-to-v0 change receives no allowance.
+_TURN_HOST_AND_MANAGED_EXECUTOR_BINDING_V0_GROWTH_ALLOWANCE: dict[Metric, int] = {
+    "chars": 832,
+    "utf8_bytes": 832,
+    "lines": 14,
+    "compact_payload_chars": 768,
+}
+
+_MANAGED_EXECUTOR_BINDING_SURFACES = frozenset(
+    {
+        "loopx_turn_plan",
+        "loopx_turn_plan_transaction_detail",
+        "loopx_turn_run_once_preview",
+    }
+)
+
+
+def _turn_host_and_managed_executor_binding_allowance(
+    row_id: str,
+    base: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    metric: Metric,
+) -> int:
+    surface = row_id.partition("/")[2].partition("/")[0]
+    if (
+        row_id.startswith(("surface/", "variant/"))
+        and surface in _MANAGED_EXECUTOR_BINDING_SURFACES
+        and base.get("managed_executor_binding_revision") is None
+        and candidate.get("managed_executor_binding_revision")
+        == "managed_executor_binding_v0"
+    ):
+        return _TURN_HOST_AND_MANAGED_EXECUTOR_BINDING_V0_GROWTH_ALLOWANCE[metric]
+    return 0
+
 
 def _reward_memory_outcome_prompt_allowance(
     row_id: str,
@@ -200,6 +247,7 @@ def _reward_memory_outcome_prompt_allowance(
     ):
         return _REWARD_MEMORY_OUTCOME_PROMPT_V1_MIGRATION_ALLOWANCE[metric]
     return 0
+
 
 # loopx_guided_todo_delta_v0 adds the continuation-aware Todo authoring
 # decision contract (reuse/update/link_successor/add_new plus a bounded
@@ -330,9 +378,7 @@ def _planning_horizon_schema_migration(
     base: dict[str, Any], candidate: dict[str, Any]
 ) -> str | None:
     base_versions = tuple(base.get("planning_horizon_schema_versions") or [])
-    candidate_versions = tuple(
-        candidate.get("planning_horizon_schema_versions") or []
-    )
+    candidate_versions = tuple(candidate.get("planning_horizon_schema_versions") or [])
     if base_versions == () and candidate_versions == (
         PLANNING_HORIZON_SCHEMA_VERSION_V0,
     ):
@@ -344,9 +390,7 @@ def _guided_todo_delta_schema_migration(
     base: dict[str, Any], candidate: dict[str, Any]
 ) -> str | None:
     base_versions = tuple(base.get("guided_todo_delta_schema_versions") or [])
-    candidate_versions = tuple(
-        candidate.get("guided_todo_delta_schema_versions") or []
-    )
+    candidate_versions = tuple(candidate.get("guided_todo_delta_schema_versions") or [])
     if base_versions == () and candidate_versions == (
         GUIDED_TODO_DELTA_SCHEMA_VERSION_V0,
     ):
@@ -357,9 +401,7 @@ def _guided_todo_delta_schema_migration(
 def _planning_inventory_detail_schema_migration(
     base: dict[str, Any], candidate: dict[str, Any]
 ) -> str | None:
-    base_versions = tuple(
-        base.get("planning_inventory_detail_schema_versions") or []
-    )
+    base_versions = tuple(base.get("planning_inventory_detail_schema_versions") or [])
     candidate_versions = tuple(
         candidate.get("planning_inventory_detail_schema_versions") or []
     )
@@ -394,8 +436,7 @@ def _schema_migration_state(
 ) -> _SchemaMigrationState:
     base_signature = base.get("action_signature_sha256")
     signature_changed = bool(
-        base_signature
-        and candidate.get("action_signature_sha256") != base_signature
+        base_signature and candidate.get("action_signature_sha256") != base_signature
     )
     signature_migration = (
         _action_signature_migration(base, candidate) if signature_changed else None
@@ -430,10 +471,9 @@ def _schema_migration_state(
         if inventory_detail_schema_changed
         else None
     )
-    guided_todo_delta_schema_changed = (
-        tuple(base.get("guided_todo_delta_schema_versions") or [])
-        != tuple(candidate.get("guided_todo_delta_schema_versions") or [])
-    )
+    guided_todo_delta_schema_changed = tuple(
+        base.get("guided_todo_delta_schema_versions") or []
+    ) != tuple(candidate.get("guided_todo_delta_schema_versions") or [])
     guided_todo_delta_schema_migration = (
         _guided_todo_delta_schema_migration(base, candidate)
         if guided_todo_delta_schema_changed
@@ -545,23 +585,46 @@ def _compare_row(base: dict[str, Any], candidate: dict[str, Any]) -> dict[str, A
                 candidate,
                 metric,
             ),
+            _turn_host_and_managed_executor_binding_allowance(
+                row_id,
+                base,
+                candidate,
+                metric,
+            ),
         )
         # Thin installed prompts contain bilingual lifecycle instructions. A
         # small character-level clarification can cost three bytes per CJK
         # character. Keep character, line and absolute output ceilings intact;
         # do not relax quota or other agent-facing surfaces with this allowance.
-        if row_id.startswith("surface/heartbeat_prompt_thin/") and metric == "utf8_bytes":
+        if (
+            row_id.startswith("surface/heartbeat_prompt_thin/")
+            and metric == "utf8_bytes"
+        ):
             allowance = max(allowance, 192)
-        if (row_id.startswith(("surface/", "variant/"))
-                and row_id.partition("/")[2].partition("/")[0] in {
-                    "heartbeat_prompt_thin", "heartbeat_prompt_brief", "heartbeat_prompt_compact"}
-                and base.get("host_prompt_static_safety_revision") is None
-                and candidate.get("host_prompt_static_safety_revision") == "host_prompt_static_safety_v1"):
+        if (
+            row_id.startswith(("surface/", "variant/"))
+            and row_id.partition("/")[2].partition("/")[0]
+            in {
+                "heartbeat_prompt_thin",
+                "heartbeat_prompt_brief",
+                "heartbeat_prompt_compact",
+            }
+            and base.get("host_prompt_static_safety_revision") is None
+            and candidate.get("host_prompt_static_safety_revision")
+            == "host_prompt_static_safety_v1"
+        ):
             # Authorized static safety + executable shell bootstrap restoration.
             # Absolute ceilings stay enforced by the probe; once merged, v1->v1
             # receives no allowance. Quota/status and other surfaces are excluded.
-            allowance = max(allowance, {"chars": 512, "utf8_bytes": 640,
-                                       "lines": 5, "compact_payload_chars": 512}[metric])
+            allowance = max(
+                allowance,
+                {
+                    "chars": 512,
+                    "utf8_bytes": 640,
+                    "lines": 5,
+                    "compact_payload_chars": 512,
+                }[metric],
+            )
         if migration.portfolio_growth_migration:
             allowance = max(
                 allowance,
@@ -579,9 +642,7 @@ def _compare_row(base: dict[str, Any], candidate: dict[str, Any]) -> dict[str, A
         if migration.inventory_detail_growth_migration:
             allowance = max(
                 allowance,
-                _PLANNING_INVENTORY_DETAIL_V0_MIGRATION_GROWTH_ALLOWANCE[
-                    metric
-                ],
+                _PLANNING_INVENTORY_DETAIL_V0_MIGRATION_GROWTH_ALLOWANCE[metric],
             )
         if migration.guided_todo_delta_growth_migration:
             allowance = max(
