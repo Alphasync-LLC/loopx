@@ -49,6 +49,56 @@ VOCABULARY_OPTIONAL_KEYS = {"literal_scan", "variable_sourced_values", "value_no
 TIERS = {"kernel", "cross_runtime", "cross_module"}
 STATUSES = {"canonical", "legacy", "merge_candidate"}
 
+# Hard ceiling on the registry's own floors and budgets, kept in code rather than
+# in the registry so one single-diff edit to ``vocabulary_v0.json`` cannot relax
+# the ratchet that guards it. Same anchor pattern as
+# ``tests/control_plane/test_m6_quality_gates.py::RFC_MODULE_BUDGETS``: the
+# registry may tighten past these values and never loosen past them, and moving
+# one requires editing this literal, where a reviewer sees it next to the JSON.
+COVERAGE_ANCHOR = {
+    "vocabularies": 26,
+    "owner_symbols": 46,
+    "literal_scan_fields": 1,
+    "projections": 1,
+    "relations": 9,
+    "schema_versions": 1,
+}
+COVERAGE_SUFFIX_ANCHOR = (".py", ".ts")
+BUDGET_ANCHOR = {
+    "same_runtime_forks": 25,
+    "same_runtime_fork_definitions": 58,
+    "conflicting_values": 18,
+    "conflicting_definitions": 59,
+    "schema_version_same_runtime_forks": 7,
+    "multi_value_twins": 19,
+    "multi_value_forks": 4,
+    "multi_value_fork_definitions": 10,
+    "same_runtime_forks_semantic": 18,
+    "conflicting_values_semantic": 2,
+}
+# Budgets for the legacy should-run decision fields, anchored the same way so a
+# single diff cannot widen a retirement budget to keep a field alive.
+RETIREMENT_ANCHOR = {
+    "execution_obligation": (21, 1),
+    "heartbeat_recommendation": (18, 1),
+    "work_lane_contract": (32, 3),
+    "external_evidence_observation": (11, 1),
+    "goal_boundary": (35, 2),
+    "protocol_action_packet": (7, 2),
+}
+RATCHET_KEYS = (
+    "same_runtime_forks",
+    "same_runtime_fork_definitions",
+    "conflicting_values",
+    "conflicting_definitions",
+    "schema_version_same_runtime_forks",
+    "multi_value_twins",
+    "multi_value_forks",
+    "multi_value_fork_definitions",
+    "same_runtime_forks_semantic",
+    "conflicting_values_semantic",
+)
+
 # Dispatch forms the literal scan recognises. Fixed here, not in the registry, so
 # the registry cannot narrow what the scan sees. ``{f}`` is the field name.
 DISPATCH_FORMS = (
@@ -134,6 +184,14 @@ def check_coverage_floor(registry: dict[str, Any]) -> str:
         require(count >= floor[key], f"coverage_floor.{key} is {floor[key]} but the registry now has {count}; coverage may only grow")
     declared_suffixes = {s for v in registry["vocabularies"].values() for s in v.get("literal_scan", {}).get("suffixes", [])}
     require(set(floor["literal_scan_suffixes"]) <= declared_suffixes, f"literal scans must still cover {floor['literal_scan_suffixes']}; declared {sorted(declared_suffixes)}")
+    for key, anchored in COVERAGE_ANCHOR.items():
+        require(
+            floor[key] >= anchored,
+            f"coverage_floor.{key} is {floor[key]}, below the anchored minimum {anchored}; "
+            "the registry cannot relax its own floor (see COVERAGE_ANCHOR in this smoke)",
+        )
+    for suffix in COVERAGE_SUFFIX_ANCHOR:
+        require(suffix in set(floor["literal_scan_suffixes"]), f"coverage_floor.literal_scan_suffixes dropped the anchored suffix {suffix}")
     return "coverage=" + ",".join(f"{key}:{count}/{floor[key]}" for key, count in actual.items())
 
 
@@ -288,10 +346,19 @@ def check_schema_version_owners(registry: dict[str, Any], sources: list[SourceFi
 def check_retirement_budgets(registry: dict[str, Any], sources: list[SourceFile]) -> list[str]:
     report: list[str] = []
     ledger = registry["retirement_ledger"]["should_run_legacy_decision_fields"]["fields"]
+    require(set(ledger) == set(RETIREMENT_ANCHOR), f"retirement ledger fields are {sorted(ledger)}; the anchored set is {sorted(RETIREMENT_ANCHOR)}")
     for field, budgets in ledger.items():
-        for suffix, key in ((".py", "python_module_budget"), (".ts", "typescript_module_budget")):
+        for suffix, key, anchored in (
+            (".py", "python_module_budget", RETIREMENT_ANCHOR[field][0]),
+            (".ts", "typescript_module_budget", RETIREMENT_ANCHOR[field][1]),
+        ):
             actual = sum(1 for file in sources if file.suffix == suffix and field in file.text)
             require(actual <= budgets[key], f"legacy field {field} grew to {actual} {suffix} modules; budget is {budgets[key]}")
+            require(
+                budgets[key] <= anchored,
+                f"legacy field {field} {suffix} budget is {budgets[key]}, above the anchored maximum {anchored}; "
+                "the registry cannot relax its own budget (see RETIREMENT_ANCHOR in this smoke)",
+            )
             report.append(f"{field}{suffix}={actual}/{budgets[key]}")
     return report
 
@@ -313,14 +380,13 @@ def check_inventory(registry: dict[str, Any], sources: list[SourceFile]) -> tupl
     ratchets = registry["inventory_ratchets"]
     summary = inventory["summary"]
     parts = []
-    for key in (
-        "same_runtime_forks",
-        "same_runtime_fork_definitions",
-        "conflicting_values",
-        "conflicting_definitions",
-        "schema_version_same_runtime_forks",
-    ):
+    for key in RATCHET_KEYS:
         require(summary[key] <= ratchets[key], f"inventory {key} grew to {summary[key]}; budget is {ratchets[key]}")
+        require(
+            ratchets[key] <= BUDGET_ANCHOR[key],
+            f"inventory {key} budget is {ratchets[key]}, above the anchored maximum {BUDGET_ANCHOR[key]}; "
+            "the registry cannot relax its own budget (see BUDGET_ANCHOR in this smoke)",
+        )
         parts.append(f"{key}={summary[key]}/{ratchets[key]}")
     return inventory, " ".join(parts)
 

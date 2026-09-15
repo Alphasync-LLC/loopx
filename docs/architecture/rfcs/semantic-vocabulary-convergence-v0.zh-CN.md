@@ -139,8 +139,12 @@ todos、capabilities 与 TypeScript 运行时各自拥有同一想法的一种�
 - **I3 跨运行时一致。** 词表同时有 Python 与 TypeScript owner 时，两侧集合完全
   相同。
 - **I4 全射投影。** 注册投影为每个源值恰好命名一次：要么映射，要么声明拒绝。
-- **I5 棘轮只降。** 退休、孪生与清单预算可在任何 PR 中调低。调高需要维护者
-  批准并记入附录 B。
+- **I5 棘轮只降。** 退休、孪生与清单预算可在任何 PR 中调低。每个预算在 smoke
+  里另由一个 `BUDGET_ANCHOR`（或 `RETIREMENT_ANCHOR`）字面量钉住，每个下限由
+  一个 `COVERAGE_ANCHOR` 钉住，沿用
+  `tests/control_plane/test_m6_quality_gates.py` 的 `RFC_MODULE_BUDGETS` 锚点
+  模式：注册表可以比锚点更紧，永远不能比锚点更松。调高锚点必须改一个代码
+  字面量，评审者会在 JSON 旁边看到它。
 - **I6 同 diff 可见。** 语义变化与其注册表修改或清单再生成落在同一个可评审
   diff 里。
 - **I7 确定性且公开安全。** 检查只读已跟踪源码，不需网络或凭据，失败文本只
@@ -149,6 +153,12 @@ todos、capabilities 与 TypeScript 运行时各自拥有同一想法的一种�
   与扫描后缀集合被记录为下限。owner 只能是 `module::Symbol` 或 `null`；裸模块
   路径被拒绝，null owner 必须声明字面量扫描。扫描识别的分发形式固定在 smoke
   里。因此一次注册表修改不可能悄悄收窄守卫所见。
+- **I9 两种载体形状都被度量。** 词表进入代码的形态有两种：字符串常量
+  （`NAME = "value"`）与多值载体（枚举、命名闭集、`Literal` 别名、
+  TypeScript `as const` 数组）。两者适用同一条冲突规则：同一个名字在两个模块
+  中被定义，值集相同是孪生，值集不同是分叉。冲突预算只统计共享词表子集；
+  `SCHEMA_VERSION`、`COMMAND`、`*_LABEL` 这类模块局部约定名仍保留在清单
+  总数中可见，但不算漂移。
 
 ## 3. 范围与非目标
 
@@ -222,7 +232,7 @@ todos、capabilities 与 TypeScript 运行时各自拥有同一想法的一种�
 
 | 键 | 内容 | 检查 |
 | --- | --- | --- |
-| `coverage_floor` | 词表、owner 符号、字面量扫描字段、投影、关系、schema 版本的数量；扫描后缀集合 | 实际计数不低于下限；声明的后缀覆盖下限集合（I8） |
+| `coverage_floor` | 词表、owner 符号、字面量扫描字段、投影、关系、schema 版本的数量；扫描后缀集合 | 实际计数不低于下限，声明的后缀覆盖下限集合，且任何下限不得低于其 `COVERAGE_ANCHOR`（I8） |
 | `vocabularies.<name>.owners` | `python` 与 `typescript`，各为 `path::Symbol` 或 `null` | 枚举成员、闭集成员、`Literal` 别名或 `as const` 数组等于 `values`；该符号只在 owner 模块中定义（I1、I2、I3） |
 | `vocabularies.<name>.tier`、`status` | `kernel`、`cross_runtime`、`cross_module`；`canonical`、`legacy`、`merge_candidate` | 封闭枚举 |
 | `vocabularies.<name>.literal_scan` | `field`、根目录、后缀 | 固定分发形式捕获的每个字面量都已注册；每个注册值被捕获或来自变量（I2） |
@@ -233,16 +243,18 @@ todos、capabilities 与 TypeScript 运行时各自拥有同一想法的一种�
 | `relations.subsets` | 超集词表、排除值、子集符号的 owner | owner 符号等于超集减排除值 |
 | `projections.<name>.mapping` | 源值到目标值或 `null` | 键等于源词表；映射值与 owner 函数一致；`null` 路由抛出（I4） |
 | `schema_versions.<name>` | 常量名、值、owner 模块 | 唯一的定义模块就是列出的 owner 且都携带该值（I1） |
-| `retirement_ledger.<group>.fields` | 每字段的 Python 与 TypeScript 模块预算 | 实际模块数不超过预算（I5） |
+| `retirement_ledger.<group>.fields` | 每字段的 Python 与 TypeScript 模块预算 | 实际模块数不超过预算，且字段集合与每个预算与 `RETIREMENT_ANCHOR` 一致（I5） |
 | `dual_runtime_twins` | 根目录与模块预算 | 同名 `.py`/`.ts` 对数不超过预算（I5） |
-| `inventory_ratchets` | 同运行时分叉的名字数与定义数、冲突的名字数与定义数、schema 版本分叉数的预算 | 清单摘要计数不超过预算（I5） |
+| `inventory_ratchets` | 同运行时分叉的名字数与定义数、冲突的名字数与定义数、schema 版本分叉数、多值孪生与分叉数，以及共享词表冲突与分叉子集的预算 | 清单摘要计数不超过预算，且任何预算不得高于其 `BUDGET_ANCHOR` 条目（I5、I9） |
 
 `loopx/semantics/inventory_v0.json`，`schema_version` 为
 `loopx_semantic_inventory_v0`，由 `scripts/generate_semantic_inventory.py` 生成，
 必须与新鲜构建完全一致。它每行一条地列出 Python 枚举、闭集、`Literal` 别名、
-TypeScript `as const` 数组，以及拆为跨运行时孪生、同运行时分叉、冲突值三类的
-重复定义。消费者计数由 `--report` 打印而不提交，因此普通的消费者改动不会碰
-这个文件。单模块的字符串常量只计数，不列出。
+TypeScript `as const` 数组，以及拆为跨运行时孪生、同运行时分叉、冲突值、多值
+孪生与多值分叉四类的重复定义。每个多值冲突都带上全部定义模块及其值集，因此
+可评审的是分叉本身而不只是计数。消费者计数与合并候选组由 `--report` 打印而
+不提交，因此普通的消费者改动不会碰这个文件；合并候选是建议性的，因为值集
+相同并不能证明是同一个概念。单模块的字符串常量只计数，不列出。
 
 值是只增的。删除一个值、字段、owner 或关系属于 schema 缩减，遵循 `AGENTS.md`
 规则：枚举受影响表面、调研生产者与读者、在同一 diff 中调低下限、记录维护者
@@ -305,8 +317,26 @@ PR 中重新生成清单。
 | 注册表不能仅靠改数据被削弱 | 声明裸模块 owner；删掉一个 owner；把后缀收窄为 `.py`；重命名一个被关系引用的词表；加一个未知键 | 每项都失败并点名规则 | 同上 |
 | 新载体可见 | 新增一个枚举而不重新生成 | 失败文本说清单过期 | 同上 |
 | 冲突拼法不能增长 | 为已冲突名字加第三种值，重新生成 | 失败命名定义数预算 | 同上 |
+| 多值冲突不能增长 | 让一个闭集名在两个模块中以不同值集定义，或以相同值集定义，并重新生成 | `multi_value_forks` 或 `multi_value_twins` 失败并命名新名字 | 突变练习；非提交测试 |
+| 注册表不能放松自己的棘轮 | 在同一 diff 中调低任一 `coverage_floor` 计数、调高任一 `inventory_ratchets` 预算或退休预算，同时删掉它所统计的覆盖 | `COVERAGE_ANCHOR`、`BUDGET_ANCHOR` 或 `RETIREMENT_ANCHOR` 失败并命名被锚定的值 | 突变练习；挪动锚点是一次评审者可见的代码修改 |
+| 度量覆盖两种载体形状并过滤局部命名 | `pytest tests/architecture/test_semantic_inventory.py` | 通过，含冲突与模块局部约定两组夹具 | 规则来自本 RFC 而非扫描输出 |
 | 两处 owner 修正不改变行为 | `pytest tests/test_loopx_turn_transaction.py tests/test_loop_turn_loop_controller.py tests/test_turn_loop_disposition.py tests/test_loopx_turn_managed_step.py tests/control_plane -k authority` 与 `loopx canary premerge --from-git-diff` | 通过 | 在干净树上可复现的 `main` 既有环境失败除外 |
 | 文档治理接受这对 RFC | `python3 examples/docs-governance-smoke.py` | 通过 | 检查镜像、链接、索引 |
+
+已知边界，写明是为了不让这个检查被过度信任：
+
+- **改名可以洗白冲突。** 冲突按名字归组，因此把分叉的一侧改名会降低计数而
+  不消除漂移。这里的评审辅助是建议性合并报告；值集相同不能做成硬预算，因为
+  `CONFIDENCE_LEVELS` 与 `EDGE_CASE_COMPLEXITIES` 共享 `high/low/medium` 却
+  含义不同。
+- **单元素载体不可见。** 只有一个字符串成员的闭集不构成词表，因此把一个两值
+  集合降为一个值会让它完全退出清单。
+- **字面量扫描可能误读同一行上无关的比较。** 形如
+  `log("effective_action", kind === "repair_required")` 会被捕获为
+  `effective_action` 的值。为了让失败消失而登记被报告的值会扩宽词表，正确做法
+  是同时登记字段名与字面量，或改写该行；失败文本会给出文件，评审时可见。
+- **锚点是代码而非历史。** PR 仍可挪动锚点，但必须修改一个具名字面量，就在
+  注册表改动的旁边。
 
 ## 10. 运维契约
 
@@ -388,6 +418,36 @@ PR 中重新生成清单。
 - **对规范设计的影响：** 第 1 至 5、8、9、11、12 节修订；新增 I8。记为未合入
   草案的当日修订。
 
+### 2026-09-15 — 第二次评审后修复 M0 的度量
+
+- **基线：** `1dc6ad8d8`
+- **触发：** 第二次评审对 smoke 跑了 14 种攻击，7 种逃逸：单独调低某个
+  `coverage_floor`、一次调低全部下限、调高 `inventory_ratchets` 或某个退休
+  预算，以及最关键的——在同一个 diff 中删掉一个 owner 并同时调低对应的下限。
+  下限与被它守护的文件在同一个文件里，且只用 `>=` 比较，因此注册表可以放松
+  自己的棘轮。I5 与 I8 当时是散文，不是机器约束。
+- **同时发现：** 冲突检测只跑字符串常量，599 个多值载体只被列出、从未被比较。
+  基线上已经有四个同名分叉，其中 `SOURCE_SURFACES` 被定义四次、四套不同值集，
+  另有 19 个隐藏孪生。另外，18 个 `conflicting_values` 名字中有 16 个是模块
+  局部约定（`SCHEMA_VERSION` 出现 16 次，另有 `COMMAND`、`REQUEST_SCHEMA`、
+  `SURFACE`），因此该预算主要在度量局部命名。
+- **交付：** smoke 中新增锚点 `COVERAGE_ANCHOR`、`COVERAGE_SUFFIX_ANCHOR`、
+  `BUDGET_ANCHOR`、`RETIREMENT_ANCHOR`，关闭全部七种逃逸；
+  `multi_value_name_collisions` 让枚举、闭集、`Literal` 别名与 `as const`
+  数组适用字符串常量的冲突规则，四个分叉与 19 个孪生按当日计数入预算；
+  `MODULE_LOCAL_CONVENTION` 让局部名保留在可见总数中但不进入语义预算
+  （`conflicting_values_semantic` 为 2，`same_runtime_forks_semantic` 为 18）；
+  针对 32 组同名异名同值集的建议性合并候选报告；在独立冲突夹具上新增两个
+  扫描器测试；新增 I9 并写明第 9 节的边界。
+- **证据：** 附录 C 的 E11 到 E13。
+- **已知缺口：** 冲突按名字归组，因此改名仍可洗白一个；单元素载体不可见；
+  字面量扫描可能误读同一行上无关的比较。
+- **对规范设计的影响：** I5 与 I8 从"意图"改写为"已强制"；新增 I9；第 5 节
+  表格与第 9 节各行更新。现在放松预算的唯一方式是挪动锚点，而那是一次代码
+  修改。
+- **被收紧的未决项：** Q7 可能从"采纳 `maintainability_ratchet` 的例外
+  生命周期"收敛为"共用它的锚点模式"，因为本 smoke 已经在用该模式。
+
 ## 附录 B：决策日志
 
 | 日期 | 决策 | Owner / 批准 | 备选 | 变更的规范章节 |
@@ -408,6 +468,9 @@ PR 中重新生成清单。
 | E9 | owner 检查跳过了裸模块 owner | `1dc6ad8d8` | 第一版 smoke 的 `if "::" in python_owner` | `effective_action` 的 owner 从未被检查 | 读码加突变 |
 | E10 | 二十个漂移突变全部失败关闭（TS `===`、TS 三元、Python 成员、经 `or ""` 的 Python `==`、裸 owner、删 owner、收窄后缀、重命名词表、分叉符号、删 TS 值、扩宽枚举、改投影、旧字段回涨、清单过期、第三种冲突拼法、死值、变量生产者消失、子集破坏、schema 版本分叉、注册表未知键） | `1dc6ad8d8` + 本地改动，改动新增载体时重新生成清单，每次运行后恢复 | 临时改动后以 `python3 -B` 运行 smoke | 20/20 退出码 1 并点名规则、值或文件 | 本地练习，非提交测试 |
 | E5 | 九个漂移突变全部失败关闭（含数字与不含数字的未注册字面量、分叉常量、删除 TS 种类、扩宽 Python 枚举、改投影、旧字段回涨、注册表死值、新 py/ts 孪生） | `1dc6ad8d8` + 本地改动，每次运行后恢复 | 临时改动后以 `python3 -B` 运行 smoke | 9/9 退出码 1 并命名违规值或文件 | 本地练习，非提交测试；同尺寸同秒改写需 `-B` 绕过过期字节码 |
+| E11 | 注册表可以在一个 diff 内放松自己的棘轮 | `1dc6ad8d8` + 本地改动 | 十四种注册表突变：调低一个下限、调低全部下限、在删掉它统计的 owner 的同时调低下限、调高全部 `inventory_ratchets` 条目、调高单个条目、调高一个退休预算 | 锚点前 7 种逃逸，锚点后 0 种；每个被捕获的失败都命名被锚定的值 | 本地练习，非提交测试 |
+| E12 | 599 个多值载体只被列出、从未被比较 | `1dc6ad8d8` | 对枚举、闭集、`Literal` 别名与 `as const` 数组应用冲突规则 | 基线上已有 4 个同名分叉（10 个定义）与 19 个孪生，均未入预算；仅 `SOURCE_SURFACES` 就有四套不同值集 | 按名字归组；一次改名会把一个名字移出比较 |
+| E13 | 冲突预算主要在度量局部命名 | `1dc6ad8d8` | 对 `conflicting_values` 与 `same_runtime_forks` 名字应用 `MODULE_LOCAL_CONVENTION` | 18 个冲突中 16 个、25 个分叉中 7 个是模块局部约定；语义子集分别为 2 与 18 | 分类是名字模式，已在扫描器中说明并由夹具测试钉住 |
 
 ## 附录 D：被否决或取代的方案
 

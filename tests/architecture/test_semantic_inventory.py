@@ -103,6 +103,71 @@ def test_summary_counts_and_skipped_directories(repo: Path) -> None:
     assert summary["conflicting_values"] == 1
 
 
+@pytest.fixture
+def collision_repo(tmp_path: Path) -> Path:
+    """A tree where multi-value carriers collide and local names look like drift.
+
+    ``STATES`` is a closed set under two divergent value sets, ``TWIN_SET`` is one
+    closed set written twice, and ``SCHEMA_VERSION`` / ``FOO_SCHEMA_VERSION`` are
+    per-module names that must not be counted as shared vocabulary.
+    """
+    _write(
+        tmp_path,
+        "loopx/a.py",
+        'STATES = frozenset({"open", "closed"})\n'
+        'TWIN_SET = ("p", "q")\n'
+        'SCHEMA_VERSION = "a_v1"\n'
+        'FOO_SCHEMA_VERSION = "foo_v0"\n'
+        'SHARED = "same"\n',
+    )
+    _write(
+        tmp_path,
+        "loopx/b.py",
+        'STATES = frozenset({"open", "shut"})\n'
+        'TWIN_SET = ("p", "q")\n'
+        'SCHEMA_VERSION = "b_v1"\n'
+        'FOO_SCHEMA_VERSION = "foo_v0"\n'
+        'SHARED = "same"\n',
+    )
+    return tmp_path
+
+
+def test_multi_value_carriers_collide_like_string_constants(collision_repo: Path) -> None:
+    """An enum or closed set carries vocabulary, so a duplicate name is drift.
+
+    Before this rule the scanner listed multi-value carriers but never compared
+    them, so a closed set defined in two modules with divergent values was
+    invisible to every budget.
+    """
+    duplicates = build_inventory(collision_repo)["duplicate_definitions"]
+    assert [entry["name"] for entry in duplicates["multi_value_forks"]] == ["STATES"]
+    assert [entry["name"] for entry in duplicates["multi_value_twins"]] == ["TWIN_SET"]
+    fork = duplicates["multi_value_forks"][0]
+    assert [item["values"] for item in fork["definitions"]] == [
+        ["open", "closed"],
+        ["open", "shut"],
+    ], "the fork keeps both value sets so a reviewer sees the divergence"
+    assert [item["kind"] for item in fork["definitions"]] == [
+        "python_closed_set",
+        "python_closed_set",
+    ]
+
+
+def test_module_local_convention_names_stay_out_of_semantic_budgets(collision_repo: Path) -> None:
+    """``SCHEMA_VERSION`` and ``FOO_SCHEMA_VERSION`` are per-module names, not drift.
+
+    Counting them as conflicts measured local naming; the unfiltered totals stay
+    visible, while only the shared-vocabulary subset is budgeted.
+    """
+    summary = build_inventory(collision_repo)["summary"]
+    assert summary["conflicting_values"] == 1, "SCHEMA_VERSION still counts in the raw total"
+    assert summary["conflicting_values_semantic"] == 0, "neither name is shared vocabulary"
+    assert summary["same_runtime_forks"] == 2
+    assert summary["same_runtime_forks_semantic"] == 1, "only SHARED is shared vocabulary"
+    assert summary["multi_value_forks"] == 1
+    assert summary["multi_value_twins"] == 1
+
+
 def test_render_is_deterministic_valid_json(repo: Path) -> None:
     inventory = build_inventory(repo)
     rendered = render_inventory(inventory)

@@ -24,6 +24,15 @@ SKIP_PARTS = frozenset({"__pycache__", "node_modules"})
 
 UPPER_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
 SCHEMA_VERSION_NAME = re.compile(r"SCHEMA_VERSION$")
+# Names that are a per-module convention rather than shared vocabulary: every
+# module legitimately names its own ``SCHEMA_VERSION``, ``COMMAND``, or
+# ``*_LABEL``. Counting them as vocabulary conflicts measured local naming, not
+# drift, so they are reported but kept out of the semantic budgets.
+MODULE_LOCAL_CONVENTION = re.compile(
+    r"^(?:SCHEMA_VERSION|[A-Z][A-Z0-9_]*_SCHEMA_VERSION|COMMAND|REQUEST_SCHEMA|SURFACE|"
+    r"HOOK_ID|CAPABILITY_ID|DEFAULT_AGENT_ID|[A-Z][A-Z0-9_]*_LABEL|OWNER|NAME|VERSION|KIND|"
+    r"STATUS|MODE)$"
+)
 TS_CONST_ARRAY = re.compile(
     r"^export const (?P<name>[A-Z][A-Z0-9_]*)\s*(?::[^=\n]+)?=\s*\[(?P<body>.*?)\]\s*as const;",
     re.MULTILINE | re.DOTALL,
@@ -175,6 +184,61 @@ def _duplicate_kind(modules: list[str]) -> str:
     return "cross_runtime_twin" if suffixes == [".py", ".ts"] else "same_runtime_fork"
 
 
+def multi_value_carriers(
+    *,
+    enums: list[dict[str, Any]],
+    closed_sets: list[dict[str, Any]],
+    literal_aliases: list[dict[str, Any]],
+    const_arrays: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Tag each scan section with the carrier kind the collision report prints."""
+    carriers: list[dict[str, Any]] = []
+    for kind, entries in zip(
+        ("python_enum", "python_closed_set", "python_literal_alias", "typescript_const_array"),
+        (enums, closed_sets, literal_aliases, const_arrays),
+        strict=True,
+    ):
+        carriers.extend({**entry, "kind": kind} for entry in entries)
+    return carriers
+
+
+def multi_value_name_collisions(
+    carriers: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Group multi-value carriers by name to find collisions between modules.
+
+    A string constant is ``NAME = "value"``; a multi-value carrier is an enum, a
+    named closed set, a ``Literal`` alias, or a TypeScript ``as const`` array.
+    Both carry vocabulary, so both need the same collision rule: one name defined
+    in two modules with identical values is a twin, with different values is a
+    fork. Each entry keeps every defining module and its value set, so a reviewer
+    sees the divergence rather than a count.
+    """
+    by_name: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for carrier in carriers:
+        by_name[carrier["name"]].append(carrier)
+    twins: list[dict[str, Any]] = []
+    forks: list[dict[str, Any]] = []
+    for name, carriers_for_name in sorted(by_name.items()):
+        if len(carriers_for_name) < 2:
+            continue
+        definitions = sorted(
+            (
+                {"kind": item["kind"], "module": item["module"], "values": list(item["values"])}
+                for item in carriers_for_name
+            ),
+            key=lambda item: item["module"],
+        )
+        entry: dict[str, Any] = {"name": name, "definitions": definitions}
+        if len({tuple(item["values"]) for item in definitions}) == 1:
+            entry["values"] = definitions[0]["values"]
+            entry["modules"] = [item["module"] for item in definitions]
+            twins.append(entry)
+        else:
+            forks.append(entry)
+    return twins, forks
+
+
 def _sorted_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(entries, key=lambda entry: (entry["module"], entry["name"]))
 
@@ -200,6 +264,14 @@ def build_inventory(
             facts = typescript_facts(source)
             const_arrays.extend(facts["const_arrays"])
             string_constants.extend(facts["string_constants"])
+
+    multi_value = multi_value_carriers(
+        enums=enums,
+        closed_sets=closed_sets,
+        literal_aliases=literal_aliases,
+        const_arrays=const_arrays,
+    )
+    multi_twins, multi_forks = multi_value_name_collisions(multi_value)
 
     definitions = string_constant_definitions(string_constants)
     twins: list[dict[str, Any]] = []
@@ -233,6 +305,8 @@ def build_inventory(
             "cross_runtime_twins": twins,
             "same_runtime_forks": forks,
             "conflicting_values": conflicting,
+            "multi_value_twins": multi_twins,
+            "multi_value_forks": multi_forks,
         },
         "summary": {
             "source_files": len(sources),
@@ -248,6 +322,15 @@ def build_inventory(
             "same_runtime_fork_definitions": sum(len(item["modules"]) for item in forks),
             "conflicting_values": len(conflicting),
             "conflicting_definitions": sum(len(item["definitions"]) for item in conflicting),
+            "multi_value_twins": len(multi_twins),
+            "multi_value_forks": len(multi_forks),
+            "multi_value_fork_definitions": sum(len(item["definitions"]) for item in multi_forks),
+            "same_runtime_forks_semantic": sum(
+                1 for item in forks if not MODULE_LOCAL_CONVENTION.match(item["name"])
+            ),
+            "conflicting_values_semantic": sum(
+                1 for item in conflicting if not MODULE_LOCAL_CONVENTION.match(item["name"])
+            ),
         },
     }
 
@@ -308,6 +391,35 @@ def render_inventory(inventory: dict[str, Any]) -> str:
             lines.append(f'  "{key}": {rendered}{comma}')
     lines.append("}")
     return "\n".join(lines) + "\n"
+
+
+def merge_candidate_groups(inventory: dict[str, Any]) -> list[dict[str, Any]]:
+    """Advisory: distinct names carrying an identical multi-value set.
+
+    Value-set equality is a candidate signal, not proof of one concept:
+    ``CONFIDENCE_LEVELS`` and ``EDGE_CASE_COMPLEXITIES`` share ``high/low/medium``
+    while meaning different things. Each group is for review, never auto-merged,
+    and is printed on demand rather than committed so it cannot be mistaken for a
+    ratified decision.
+    """
+    by_values: dict[tuple[str, ...], list[dict[str, Any]]] = defaultdict(list)
+    for section in ("python_enums", "python_closed_sets", "python_literal_aliases", "typescript_const_arrays"):
+        for entry in inventory[section]:
+            if len(entry["values"]) >= 2:
+                by_values[tuple(sorted(entry["values"]))].append(entry)
+    groups: list[dict[str, Any]] = []
+    for values, entries in by_values.items():
+        names = sorted({entry["name"] for entry in entries})
+        if len(names) < 2:
+            continue
+        groups.append(
+            {
+                "names": names,
+                "values": list(values),
+                "modules": sorted({entry["module"] for entry in entries}),
+            }
+        )
+    return sorted(groups, key=lambda group: (-len(group["names"]), group["names"]))
 
 
 def consumer_ranking(inventory: dict[str, Any], sources: list[SourceFile]) -> list[dict[str, Any]]:
