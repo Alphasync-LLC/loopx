@@ -38,7 +38,7 @@ REGISTRY_PATH = REPO_ROOT / "loopx" / "semantics" / "vocabulary_v0.json"
 REGISTRY_SCHEMA_VERSION = "loopx_semantic_vocabulary_v0"
 VALUE_SHAPE = re.compile(r"^[a-z][a-z0-9_]*$")
 OWNER_SHAPE = re.compile(r"^[A-Za-z0-9_./-]+\.(py|ts)::[A-Za-z_][A-Za-z0-9_]*$")
-QUOTED = re.compile(r"\"([^\"]*)\"")
+QUOTED = re.compile(r'''["']([^"']*)["']''')
 
 REGISTRY_KEYS = {
     "schema_version", "rfc", "inventory", "policy", "coverage_floor", "vocabularies", "relations",
@@ -66,6 +66,9 @@ COVERAGE_ANCHOR = {
     "schema_versions": 1,
 }
 COVERAGE_SUFFIX_ANCHOR = (".py", ".ts")
+LITERAL_SCAN_ROOTS = ["loopx"]
+TWIN_ROOT_ANCHOR = "loopx/control_plane"
+TWIN_BUDGET_ANCHOR = 43
 BUDGET_ANCHOR = {
     "same_runtime_forks": 25,
     "same_runtime_fork_definitions": 58,
@@ -104,17 +107,16 @@ RATCHET_KEYS = (
 # Dispatch forms the literal scan recognises. Fixed here, not in the registry, so
 # the registry cannot narrow what the scan sees. ``{f}`` is the field name.
 DISPATCH_FORMS = (
-    # comparison against a literal anywhere later on the line: Python and TypeScript,
-    # including ``str(x.get("f") or "") == "v"`` and ``x.f !== "v"``
-    r'{f}\b[^\n]*?(?:===|!==|==|!=)\s*"([^"]*)"',
-    # assignment or object/dict key directly against a literal
-    r'{f}["\'\]\)]*\s*(?::|=|\bis)\s*"([^"]*)"',
-    # JS/TS conditional expression producing the field
-    r'{f}\b[^"\n]*?\?\s*"([^"]*)"\s*:\s*"([^"]*)"',
-    # membership test against an inline collection
-    r'{f}["\'\]\)]*[^"\n]*?\bin\s*[\(\[\{{]([^\)\]\}}]*)[\)\]\}}]',
-    # Python conditional expression producing the field
-    r'{f}\b[^"\n]*?=\s*"([^"]*)"\s+if\b[^"\n]*?\belse\s+"([^"]*)"',
+    # Python/TypeScript comparisons, including wrapped field reads.
+    r"""{f}\b[^\n]*?(?:===|!==|==|!=)\s*["']([^"']*)["']""",
+    # Assignment or object/dict key.
+    r"""{f}["\'\]\)]*\s*(?::|=|\bis)\s*["']([^"']*)["']""",
+    # TypeScript conditional expression.
+    r"""{f}\b[^"\n]*?\?\s*["']([^"']*)["']\s*:\s*["']([^"']*)["']""",
+    # Membership in an inline collection.
+    r"""{f}["\'\]\)]*[^"\n]*?\bin\s*[\(\[\{{]([^\)\]\}}]*)[\)\]\}}]""",
+    # Python conditional expression.
+    r"""{f}\b[^"\n]*?=\s*["']([^"']*)["']\s+if\b[^"\n]*?\belse\s+["']([^"']*)["']""",
 )
 MEMBERSHIP_FORM_INDEX = 3
 
@@ -126,10 +128,6 @@ class Drift(AssertionError):
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise Drift(message)
-
-
-def rel(path: Path) -> str:
-    return str(path.relative_to(REPO_ROOT))
 
 
 # --- registry shape -----------------------------------------------------------------
@@ -173,6 +171,10 @@ def load_registry() -> dict[str, Any]:
 
 
 def check_coverage_floor(registry: dict[str, Any]) -> str:
+    for vocabulary in registry["vocabularies"].values():
+        if scan := vocabulary.get("literal_scan"):
+            require(scan["roots"] == LITERAL_SCAN_ROOTS, "literal_scan roots must cover loopx")
+            require(set(scan["suffixes"]) == set(COVERAGE_SUFFIX_ANCHOR), "literal_scan must cover both Python and TypeScript")
     floor = registry["coverage_floor"]
     actual = {
         "vocabularies": len(registry["vocabularies"]),
@@ -367,8 +369,10 @@ def check_retirement_budgets(registry: dict[str, Any], sources: list[SourceFile]
 
 def check_dual_runtime_twins(registry: dict[str, Any]) -> str:
     entry = registry["dual_runtime_twins"]
-    root = REPO_ROOT / entry["root"]
-    twins = sorted(rel(path) for path in root.rglob("*.py") if path.name != "__init__.py" and path.with_suffix(".ts").is_file())
+    require(entry["root"] == TWIN_ROOT_ANCHOR, "dual_runtime_twins root differs from TWIN_ROOT_ANCHOR")
+    require(entry["module_budget"] == TWIN_BUDGET_ANCHOR, "dual_runtime_twins budget differs from TWIN_BUDGET_ANCHOR")
+    paths = {file.path for file in load_sources(REPO_ROOT, entry["root"])}
+    twins = sorted(path for path in paths if path.endswith(".py") and not path.endswith("/__init__.py") and path[:-3] + ".ts" in paths)
     require(len(twins) <= entry["module_budget"], f"{len(twins)} py/ts twin modules under {entry['root']}; budget is {entry['module_budget']}")
     return f"twins={len(twins)}/{entry['module_budget']}"
 

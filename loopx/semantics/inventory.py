@@ -15,6 +15,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import subprocess
 from typing import Any
 
 INVENTORY_SCHEMA_VERSION = "loopx_semantic_inventory_v0"
@@ -38,10 +39,10 @@ TS_CONST_ARRAY = re.compile(
     re.MULTILINE | re.DOTALL,
 )
 TS_STRING_CONST = re.compile(
-    r"^export const (?P<name>[A-Z][A-Z0-9_]*)\s*(?::\s*string)?\s*=\s*\"(?P<value>[^\"]*)\";",
+    r'''^export const (?P<name>[A-Z][A-Z0-9_]*)\s*(?::\s*string)?\s*=\s*["\'](?P<value>[^"\']*)["\'];''',
     re.MULTILINE,
 )
-QUOTED = re.compile(r"\"([^\"]*)\"")
+QUOTED = re.compile(r'''["']([^"']*)["']''')
 
 
 @dataclass(frozen=True)
@@ -53,14 +54,23 @@ class SourceFile:
 
 def load_sources(repo_root: Path, root: str = DEFAULT_ROOT) -> list[SourceFile]:
     files: list[SourceFile] = []
-    for path in sorted((repo_root / root).rglob("*")):
+    # Use the index as the source boundary, matching the repository canary
+    # policy. Untracked work and ignored local notes must never enter the map.
+    tracked = subprocess.run(
+        ["git", "ls-files", "--cached", "-z", "--", root],
+        cwd=repo_root, check=True, stdout=subprocess.PIPE,
+    ).stdout.decode("utf-8").split("\0")
+    for relative in sorted(set(tracked) - {""}):
+        path = repo_root / relative
+        if path.is_symlink():
+            raise ValueError(f"tracked source must not be a symlink: {relative}")
         if not path.is_file() or path.suffix not in SOURCE_SUFFIXES:
             continue
         if SKIP_PARTS.intersection(path.parts):
             continue
         files.append(
             SourceFile(
-                path=str(path.relative_to(repo_root)),
+                path=path.relative_to(repo_root).as_posix(),
                 suffix=path.suffix,
                 text=path.read_text(encoding="utf-8", errors="replace"),
             )
@@ -114,8 +124,8 @@ def python_facts(source: SourceFile) -> dict[str, list[dict[str, Any]]]:
     }
     try:
         tree = ast.parse(source.text)
-    except SyntaxError:
-        return facts
+    except SyntaxError as error:
+        raise ValueError(f"cannot inventory invalid Python source: {source.path}:{error.lineno}") from None
     for node in tree.body:
         if isinstance(node, ast.ClassDef) and _is_enum_class(node):
             values: list[str] = []

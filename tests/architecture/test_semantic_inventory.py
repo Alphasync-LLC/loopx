@@ -18,7 +18,10 @@ import pytest
 
 from loopx.semantics.inventory import (
     INVENTORY_SCHEMA_VERSION,
+    SourceFile,
     build_inventory,
+    load_sources,
+    python_facts,
     render_inventory,
 )
 
@@ -65,6 +68,11 @@ def repo(tmp_path: Path) -> Path:
     )
     _write(tmp_path, "loopx/__pycache__/junk.py", 'IGNORED = ("a", "b")\n')
     _write(tmp_path, "loopx/node_modules/dep.ts", 'export const IGNORED = ["a", "b"] as const;\n')
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "add", "loopx/a.py", "loopx/b.py", "loopx/b.ts"],
+        check=True,
+    )
     return tmp_path
 
 
@@ -129,6 +137,10 @@ def collision_repo(tmp_path: Path) -> Path:
         'FOO_SCHEMA_VERSION = "foo_v0"\n'
         'SHARED = "same"\n',
     )
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "add", "loopx/a.py", "loopx/b.py"], check=True,
+    )
     return tmp_path
 
 
@@ -186,3 +198,29 @@ def test_committed_inventory_matches_the_tree() -> None:
         cwd=REPO_ROOT,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_untracked_sources_do_not_change_inventory(repo: Path) -> None:
+    before = render_inventory(build_inventory(repo))
+    _write(repo, "loopx/local_notes.py", 'PRIVATE_CONTEXT = ("synthetic", "local")\n')
+    assert render_inventory(build_inventory(repo)) == before
+
+
+def test_tracked_symlink_cannot_read_untracked_source(repo: Path) -> None:
+    _write(repo, "private.py", 'PRIVATE_CONTEXT = ("synthetic", "local")\n')
+    (repo / "loopx/link.py").symlink_to(repo / "private.py")
+    subprocess.run(["git", "-C", str(repo), "add", "loopx/link.py"], check=True)
+    with pytest.raises(ValueError, match="symlink"):
+        load_sources(repo)
+
+
+def test_invalid_python_source_is_not_reported_as_empty() -> None:
+    with pytest.raises(ValueError, match="loopx/broken.py"):
+        python_facts(SourceFile("loopx/broken.py", ".py", 'STATES = ("open",\n'))
+
+
+def test_typescript_single_quoted_carriers_are_visible(repo: Path) -> None:
+    _write(repo, "loopx/b.ts", "export const KINDS = ['one', 'two'] as const;\nexport const SHARED = 'same';\n")
+    inventory = build_inventory(repo)
+    assert inventory["typescript_const_arrays"][0]["values"] == ["one", "two"]
+    assert any(item["name"] == "SHARED" for item in inventory["duplicate_definitions"]["same_runtime_forks"])

@@ -10,9 +10,13 @@ the smoke fails closed here on every pull request that runs the Python tests.
 
 from __future__ import annotations
 
+import copy
+import runpy
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SMOKE = REPO_ROOT / "examples" / "semantic-vocabulary-drift-smoke.py"
@@ -34,3 +38,28 @@ def test_semantic_vocabulary_registry_matches_the_code() -> None:
     assert completed.stdout.startswith("semantic-vocabulary-drift-smoke: ok"), (
         completed.stdout
     )
+
+
+@pytest.mark.parametrize("mutation", ["twin_budget", "twin_root", "scan_root"])
+def test_registry_cannot_relax_scan_scope_or_twin_budget(mutation: str) -> None:
+    smoke = runpy.run_path(str(SMOKE))
+    registry = copy.deepcopy(smoke["load_registry"]())
+    if mutation == "twin_budget":
+        registry["dual_runtime_twins"]["module_budget"] += 1
+    elif mutation == "twin_root":
+        registry["dual_runtime_twins"]["root"] = "loopx/semantics"
+    else:
+        registry["vocabularies"]["effective_action"]["literal_scan"]["roots"] = ["loopx/control_plane"]
+    with pytest.raises(smoke["Drift"]):
+        smoke["check_coverage_floor"](registry)
+        smoke["check_dual_runtime_twins"](registry)
+
+
+@pytest.mark.parametrize("suffix", [".py", ".ts"])
+@pytest.mark.parametrize("quote", ["'", '\"'])
+def test_literal_scan_rejects_unknown_value_with_either_quote(suffix: str, quote: str) -> None:
+    smoke = runpy.run_path(str(SMOKE))
+    text = f"effective_action = {quote}unregistered_action{quote}"
+    sources = [smoke["SourceFile"]("loopx/probe" + suffix, suffix, text)]
+    with pytest.raises(smoke["Drift"], match="unregistered_action"):
+        smoke["check_literal_vocabularies"](smoke["load_registry"](), sources)
