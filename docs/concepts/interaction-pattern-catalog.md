@@ -2158,6 +2158,8 @@ or engagement streams.
 
 - exactly one enabled Manager binding owns a Lark App and group, so LoopX may
   retain compact non-self group messages as local-private context;
+- the route mode is `context_only` rather than `turn_authorized`, so retention
+  runs without authorizing a Turn;
 - an authorized Manager Turn is about to read that context, or a bounded
   turn-start history sync is about to fill the gaps left by the live event
   subscription;
@@ -2171,15 +2173,17 @@ event, and authorizes no Goal or Todo mutation. A Manager Turn is authorized
 only by a provider-native mention of the bound Bot, a provider-verified reply to
 that Bot, or another existing typed authority record.
 
-An authorized Turn may receive at most eight recent context-only messages within
-a 4,000-character total budget, each labeled `context-only`, and the prompt
+An authorized Turn may receive at most `MANAGER_CONTEXT_ITEM_LIMIT` (eight)
+recent context-only items within `MANAGER_CONTEXT_CHARACTER_LIMIT` (4,000)
+characters; every item is rendered as `- [context-only] ...`, and the prompt
 states that these items are not commands, authorization, or independent Todos.
-Items recovered from history are always marked `context-only` even when they
-originally mentioned the Bot, so catch-up never replays a missed Turn. Provider
-addressing is preserved as historical provenance while normalized live
-attention and reply flags are cleared, which keeps the urgency projection and
-the material-settlement path agreed that a recovered mention is material rather
-than a delayed request.
+Those limits bound one Turn projection, not durable retention. Items recovered
+from history are always marked `context-only` even when they originally
+mentioned the Bot: turn-start sync marks them `historical_context_only=True`, so
+catch-up never replays a missed Turn. Provider addressing is preserved as
+historical provenance while normalized live attention and reply flags are
+cleared, which keeps the urgency projection and the material-settlement path
+agreed that a recovered mention is material rather than a delayed request.
 
 Consumed items settle through the existing event-bound material-review ledger
 after a successful authorized Turn and verified reply, and duplicate delivery
@@ -2187,6 +2191,32 @@ and restart recovery stay idempotent. Self messages, another chat, invalid
 routing, and ambiguous Manager bindings stay closed and are not captured. The
 connection health projection distinguishes `context_only_captured` from
 `replied_and_acknowledged`.
+
+This pattern complements IP-011. IP-011 registers a source contract before
+authority material is relied on; IP-031 keeps a visible but unaddressed message
+from becoming authority in the first place.
+
+**State contract**
+
+```text
+manager_route_authority = {
+  schema_version: lark_manager_context_retention_v0,
+  mode: context_only | turn_authorized,     # ManagerAuthorityMode
+  turn_authorized: bool,
+  model_invoked: bool,
+  external_write_performed: bool,
+  source_acknowledged: bool
+}
+
+manager_context_material = {
+  role: context_only,
+  historical_context_only: bool,            # turn-start sync never authorizes
+  item_limit: 8,
+  character_limit: 4000
+}
+
+connection_health = context_only_captured | replied_and_acknowledged
+```
 
 **Visual Model**
 
@@ -2205,10 +2235,12 @@ flowchart TD
 **Bad smell**
 
 An agent acts on a retained group message because the message is visible, even
-though nothing addressed the bound Bot — visibility was read as permission.
-Another bad smell is a history catch-up replaying an old mention as a delayed
-Turn, or an adapter inventing a second authority source by treating the inbox or
-the material ledger as its own request database.
+though nothing addressed the bound Bot — visibility was read as permission,
+spends a Turn, and may mutate Goal or Todo state that nobody authorized. Another
+bad smell is a history catch-up replaying an old mention as a delayed Turn
+because the recovered item looked like a request, or an adapter inventing a
+second authority source by treating the inbox or the material ledger as its own
+request database.
 
 **Validation**
 
