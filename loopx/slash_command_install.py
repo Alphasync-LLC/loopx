@@ -356,11 +356,23 @@ def materialize_loopx_entry_skill(
             else "codex-skills"
         ),
     )
-    return {
-        "skill_id": "loopx",
-        "path": str(skill_path),
-        "status": _target_status(skill_path, content, execute=execute),
-    }
+    status = _target_status(skill_path, content, execute=execute)
+    result = {"skill_id": "loopx", "path": str(skill_path), "status": status}
+    # Workflow installs can generate this entry without slash-commands. Keep
+    # the Codex presentation identical, without changing exact managed hosts.
+    if host_surface is None and status not in {
+        "skipped_user_file", "preserved_existing_loopx_skill",
+    }:
+        result["metadata_status"] = _target_status(
+            skill_path.parent / "agents" / "openai.yaml",
+            _openai_skill_metadata(
+                command=str(spec["command"]),
+                display_name="LoopX",
+                short_description=str(spec["description"]),
+            ),
+            execute=execute,
+        )
+    return result
 
 
 def _codex_home(value: str | None = None) -> Path:
