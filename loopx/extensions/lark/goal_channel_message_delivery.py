@@ -53,6 +53,49 @@ class GoalChannelDeliveryStageError(ValueError):
         self.external_write_performed = external_write_performed
 
 
+def _has_provider_response_body(result: Mapping[str, Any]) -> bool:
+    """Whether the provider answered at all, rejection text included."""
+
+    return any(str(result.get(key) or "").strip() for key in ("stdout", "stderr"))
+
+
+def delivery_send_failure(
+    result: Mapping[str, Any],
+) -> GoalChannelDeliveryStageError:
+    """Classify a send result that produced no usable message id.
+
+    Only a provider response body is a verdict, and only a non-zero exit with
+    that body is a rejection. A send that timed out, never started, or answered
+    without a body leaves the outcome unknown, and the card may already be live
+    in the chat: reporting a clean no-write there would be the misprojection
+    this stage's contract forbids. A zero exit without a readable message id is
+    the same unknown, because the provider accepted a write we cannot name.
+    """
+
+    if result.get("spawn_failed") is True:
+        return GoalChannelDeliveryStageError(
+            "Goal Channel delivery could not start the Lark CLI",
+            blocker="provider_unavailable",
+            failure_stage="send_operation_card",
+        )
+    if (
+        result.get("timed_out") is True
+        or result.get("returncode") == 0
+        or not _has_provider_response_body(result)
+    ):
+        return GoalChannelDeliveryStageError(
+            "Goal Channel delivery send outcome is unknown",
+            blocker="delivery_outcome_unknown",
+            failure_stage="send_operation_card",
+            external_write_performed=None,
+        )
+    return GoalChannelDeliveryStageError(
+        "Goal Channel delivery send failed",
+        blocker="provider_send_rejected",
+        failure_stage="send_operation_card",
+    )
+
+
 def resolve_bound_goal_channel(
     *,
     binding_path: Path,
@@ -517,11 +560,7 @@ class GoalChannelMessageDeliverySession:
             json_payload(result), {"message_id"}, MESSAGE_ID_PATTERN
         )
         if result.get("returncode") != 0 or not message_id:
-            raise GoalChannelDeliveryStageError(
-                "Goal Channel delivery send failed",
-                blocker="provider_send_rejected",
-                failure_stage="send_operation_card",
-            )
+            raise delivery_send_failure(result)
         self.expected_cards.setdefault(message_id, []).append(dict(card))
         return {
             "message_id": message_id,
@@ -585,7 +624,9 @@ class GoalChannelMessageDeliverySession:
 
 
 __all__ = [
+    "delivery_send_failure",
     "GoalChannelMessageDeliverySession",
+    "GoalChannelDeliveryStageError",
     "normalized_card_text",
     "goal_channel_delivery_route",
     "resolve_bound_goal_channel",

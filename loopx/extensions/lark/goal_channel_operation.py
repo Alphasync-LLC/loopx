@@ -534,8 +534,8 @@ def deliver_goal_channel_operation_card(
         )
     except Exception as exc:
         raise GoalChannelDeliveryStageError(
-            "operation card delivery outcome is unknown after the provider write",
-            blocker="delivery_outcome_unknown",
+            "operation card was delivered but its receipt could not be recorded",
+            blocker="delivery_receipt_write_failed",
             failure_stage="record_delivery_receipt",
             external_write_performed=None,
         ) from exc
@@ -880,7 +880,9 @@ def confirmed_operation_executor(
     whose executor revision no longer matches the installed extension is
     rejected with a typed blocker instead of surfacing later as an
     unreachable gated proposal. Resolution failures never leak the private
-    resolver text.
+    resolver text. ``executor_binding_resolver`` is a test seam with the same
+    shape as the delivery runner: production callers leave it unset and get the
+    extension binding resolver, so it is not a supported configuration entry.
     """
 
     executor = parameters.get("executor")
