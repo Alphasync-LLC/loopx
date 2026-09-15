@@ -57,7 +57,7 @@ SCHEDULER_HINT_COMPACT_RULE = (
 )
 SCHEDULER_HINT_THIN_RULE = (
     "host_action=pause_or_delete_current_heartbeat->automation_update stop(no-spend); "
-    "prompt_adoption=adopt(no-spend); "
+    "adoption=adopt(no-spend); "
     "else RRULE/projected-fallback_hint/ack/fail."
 )
 RUNTIME_CAPABILITY_PROJECTION_THIN_RULE = (
