@@ -144,7 +144,7 @@ def test_redaction_precedes_truncation_and_bounded_output():
     assert many["truncated"] and len(many["acceptance_gaps"]) == 12
 
 
-def collect_fixture(root: Path) -> dict:
+def collect_fixture(root: Path, *, missing_claim: bool = False) -> dict:
     project, runtime = root / "project", root / "runtime"
     project.mkdir(parents=True)
     state = project / "ACTIVE_GOAL_STATE.md"
@@ -190,6 +190,25 @@ def collect_fixture(root: Path) -> dict:
         dry_run=False,
         sync_global=False,
     )
+    if missing_claim:
+        refresh_state_run(
+            registry_path=registry, runtime_root_override=str(runtime),
+            goal_id="acceptance-demo", project=project, state_file=state,
+            classification="bounded_outcome_progress", recommended_action=None,
+            agent_id="agent-b", delivery_outcome="outcome_progress",
+            delivery_batch_scale="multi_surface",
+            agent_vision_packet={
+                "state": "active",
+                "vision_patch": {"vision_summary": "Verify the final outcome."},
+                "path_delta": {
+                    "outcome": "continue", "prior_assumption": "The selected path is suitable.",
+                    "observed_reality": "The milestone evidence supports continuing.",
+                    "retained": ["Continue the selected path."],
+                    "evidence_refs": ["result:verified-milestone"],
+                },
+            },
+            dry_run=False, sync_global=False,
+        )
     return collect_status(
         registry_path=registry,
         runtime_root_override=str(runtime),

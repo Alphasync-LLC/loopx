@@ -61,6 +61,62 @@ def register_turn_commands(
     )
     plan.add_argument("--limit", type=int, default=5)
 
+    managed_step = command_sub.add_parser(
+        "managed-step",
+        help=(
+            "Decide one bounded same-Turn continuation for a failed Turn "
+            "without executing it."
+        ),
+        description=(
+            "Read one canonical Turn journal, rebuild its validated receipt, "
+            "and ask the pure Turn Loop Controller for a disposition against "
+            "the current decision. Grants no execution authority: it never "
+            "launches a host, writes state, or spends quota. The Turn journal "
+            "remains the authority for the attempt count and retry budget."
+        ),
+    )
+    add_subcommand_format(managed_step)
+    _add_turn_decision_arguments(
+        managed_step,
+        default_host="dsh",
+        host_choices=["codex-cli", "dsh", "generic-cli"],
+        execution_mode_choices=["isolated-headless"],
+        default_execution_mode="isolated-headless",
+    )
+    managed_step.add_argument(
+        "--turn-key",
+        required=True,
+        help="Exact sha256 Turn key of the failed Turn to decide about.",
+    )
+    managed_step.add_argument(
+        "--observed-attempt",
+        type=int,
+        help=(
+            "Caller's observed attempt count, reconciled against the Turn "
+            "journal. A disagreement is refused rather than adopted."
+        ),
+    )
+    managed_step.add_argument(
+        "--observed-max-attempts",
+        type=int,
+        help=(
+            "Caller's observed retry ceiling, reconciled against the Turn "
+            "journal retry policy."
+        ),
+    )
+    managed_step.add_argument(
+        "--scan-root",
+        default=default_public_scan_root(),
+        help="Public files to scan for obvious private material.",
+    )
+    managed_step.add_argument(
+        "--scan-path",
+        action="append",
+        default=[],
+        help="Specific public file or directory to scan. Repeatable.",
+    )
+    managed_step.add_argument("--limit", type=int, default=5)
+
     run_once = command_sub.add_parser(
         "run-once",
         help=(

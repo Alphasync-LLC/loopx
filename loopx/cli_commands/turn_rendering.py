@@ -160,3 +160,52 @@ def render_loopx_turn_journal_inspection_markdown(
             "- effects: none",
         ]
     )
+
+
+def render_loopx_turn_managed_step_markdown(payload: dict[str, object]) -> str:
+    if not payload.get("ok"):
+        error = payload.get("error") or "Turn managed step failed"
+        return f"LoopX Turn managed step failed: {error}"
+    continuation = (
+        payload.get("retry_continuation")
+        if isinstance(payload.get("retry_continuation"), dict)
+        else {}
+    )
+    lineage = (
+        payload.get("lineage") if isinstance(payload.get("lineage"), dict) else {}
+    )
+    return "\n".join(
+        [
+            "# LoopX Turn Managed Step",
+            f"- disposition: {payload.get('disposition')}",
+            f"- reason: {payload.get('reason')}",
+            f"- turn_key: {payload.get('turn_key')}",
+            f"- attempt: {payload.get('attempt')}"
+            + (
+                f"/{payload.get('max_attempts')}"
+                if payload.get("max_attempts") is not None
+                else ""
+            ),
+            f"- goal_id: {lineage.get('goal_id') or 'none'}",
+            f"- agent_id: {lineage.get('agent_id') or 'none'}",
+            f"- todo_id: {lineage.get('todo_id') or 'none'}",
+            *(
+                [
+                    f"- retry_after_seconds: {continuation.get('retry_after_seconds')}",
+                    f"- retry_strategy: {continuation.get('strategy')}",
+                    "- same_turn: "
+                    f"{continuation.get('same_turn')}; "
+                    "retry_failed_turn: "
+                    f"{continuation.get('retry_failed_turn')}",
+                    "- fresh_envelope_required: "
+                    f"{continuation.get('fresh_envelope_required')}; "
+                    "model_fallback_allowed: "
+                    f"{continuation.get('model_fallback_allowed')}",
+                ]
+                if continuation
+                else ["- continuation: none"]
+            ),
+            "- execution_authority: none",
+            "- effects: none",
+        ]
+    )

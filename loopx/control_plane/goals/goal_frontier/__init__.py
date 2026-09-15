@@ -443,6 +443,13 @@ def build_vision_continuation_audit(
     }
     if acceptance_requirements:
         audit["acceptance_requirements"] = acceptance_requirements[:5]
+    diagnostics = [
+        {key: gap[key] for key in ("reason_code", "component_checks", "resolution_hint")}
+        for gap in compact_acceptance_gaps
+        if gap.get("reason_code") and gap.get("component_checks") and gap.get("resolution_hint")
+    ]
+    if diagnostics:
+        audit["outcome_checkpoint_diagnostics"] = diagnostics[:5]
     return audit
 
 
@@ -1146,6 +1153,9 @@ def derive_goal_frontier_replan_obligation_from_summaries(
                             "completed_todo_count",
                             "completed_todo_threshold",
                             "completed_todo_ids",
+                            "reason_code",
+                            "component_checks",
+                            "resolution_hint",
                         )
                         if gap.get(key) is not None
                     },
@@ -1174,6 +1184,13 @@ def derive_goal_frontier_replan_obligation_from_summaries(
                 "production actions, or owner-only decisions"
             ),
             recommended_action=(
+                " ".join(
+                    str(gap["resolution_hint"])
+                    for gap in compact_acceptance_gaps
+                    if gap.get("resolution_hint")
+                )
+                if all(gap.get("resolution_hint") for gap in compact_acceptance_gaps)
+                else
                 "run a bounded vision-gap replan before another quiet poll: create "
                 "successor work, update the agent vision, record evidence gap, or "
                 "record no-follow-up"

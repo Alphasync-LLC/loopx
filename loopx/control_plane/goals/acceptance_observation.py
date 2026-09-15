@@ -11,6 +11,10 @@ from .goal_vision_read_model import (
     acceptance_gaps_from_agent_vision,
     latest_agent_vision_from_runs,
 )
+from .goal_frontier.outcome_continuity import (
+    acceptance_gaps_from_outcome_checkpoint,
+    latest_outcome_vision_checkpoint_from_status_payload,
+)
 
 GOAL_ACCEPTANCE_OBSERVATION_SCHEMA_VERSION = "goal_acceptance_observation_projection_v0"
 OBSERVATION_LIMIT = 12
@@ -130,9 +134,13 @@ def build_goal_acceptance_observation(
             agent_runs, goal_id=goal_id, agent_id=agent or None
         )
         patch = _dict(_dict(vision).get("vision_patch"))
-        for gap in acceptance_gaps_from_agent_vision(
+        checkpoint = latest_outcome_vision_checkpoint_from_status_payload(
+            {"run_history": {"goals": [goal]}}, goal_id=goal_id, agent_id=agent or None,
+        )
+        agent_gaps = acceptance_gaps_from_agent_vision(
             vision, goal_status=goal.get("status")
-        ):
+        ) + acceptance_gaps_from_outcome_checkpoint(vision, checkpoint)
+        for gap in agent_gaps:
             gaps.append(
                 {
                     "kind": _text(gap.get("kind")) or "acceptance_gap",
@@ -145,7 +153,12 @@ def build_goal_acceptance_observation(
                     if gap.get("kind") == "vision_acceptance_gap"
                     else _text(gap.get("acceptance_summary")),
                     "observed_at": _text(gap.get("generated_at")),
-                    "source": "latest_agent_vision",
+                    "source": gap.get("source") or "latest_agent_vision",
+                    **{
+                        key: gap[key]
+                        for key in ("reason_code", "component_checks", "resolution_hint")
+                        if key in gap
+                    },
                 }
             )
     guards: list[dict[str, Any]] = []
