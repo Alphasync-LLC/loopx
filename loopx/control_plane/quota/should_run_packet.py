@@ -1317,6 +1317,7 @@ def _build_quota_should_run_payload(
         agent_scope_frontier=route.agent_scope_frontier,
         workspace_guard=prepared.workspace_guard,
         automation_prompt_upgrade=prepared.automation_prompt_upgrade,
+        automation_prompt_adoption=prepared.automation_prompt_adoption,
     )
     if prepared.agent_scoped_user_todo_override:
         payload[str(prepared.agent_scoped_user_todo_override["kind"])] = (
@@ -1471,8 +1472,7 @@ def _build_quota_should_run_payload(
             _load_app_automation_scheduler_state(
                 prepared.status_payload,
                 goal_id=prepared.safe_goal_id,
-                agent_id=quota_decision_agent_id(payload)
-                or prepared.requested_agent_id,
+                agent_id=quota_decision_agent_id(payload) or prepared.requested_agent_id,
                 surface=prepared.resolved_scheduler_context.context.host_surface.value,
             )
             if prepared.resolved_scheduler_context.ok

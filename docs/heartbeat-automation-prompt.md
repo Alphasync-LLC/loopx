@@ -637,7 +637,12 @@ heartbeats should search/use `automation_update` when available. If
 `scheduler_hint.app_automation.host_action=pause_or_delete_current_heartbeat`: in
 that terminal case, call `automation_update` once to pause the current
 heartbeat (delete only if pause is unavailable), verify the host result, spend
-no quota, and end the turn without a scheduler ACK. Otherwise call it only when
+no quota, and end the turn without a scheduler ACK. When the same lane reports
+`scheduler_hint.app_automation.prompt_adoption.host_action=adopt_managed_bootstrap`,
+its installed body is not the current managed loader: apply that reported
+prompt-only `api_update_request` once through `automation_update` after checking
+the reported prompt hash, read the automation back, and spend no quota. Otherwise
+call it only when
 `scheduler_hint.app_automation.stateful_backoff.apply_needed=true` and
 `scheduler_hint.app_automation.recommended_rrule` is present. After a successful
 RRULE update, run `loopx` with

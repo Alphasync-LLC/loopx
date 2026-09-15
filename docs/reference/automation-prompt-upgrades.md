@@ -68,6 +68,22 @@ read-only preview, not the upgrade executor. Do not infer a manual-only policy
 from its `adoption_required` status. Custom or inconsistent entries still need
 review; automatic prompt migration never grants scheduler or thread authority.
 
+## Deferred adoption obligations
+
+Reconciliation cannot write while the App runs, and a completed report cannot
+carry an unapplied migration into the next turn. An entry that is reviewable but
+not written is therefore recorded per lane in the runtime root's
+`app-automation-prompt-adoptions.json`, holding the reviewed prompt-only
+`automation_update` request, both prompt digests, and the host that was read.
+`quota should-run` projects that record as
+`scheduler_hint.app_automation.prompt_adoption` with
+`host_action=adopt_managed_bootstrap` and the no-spend policy, so the obligation
+survives the update that discovered it. The turn applies the request once
+through `automation_update`, reads the automation back, and spends no quota.
+The projection is not adoption authority and not delivery permission: it names
+only an entry this host already reviewed, it disappears as soon as the exact
+body is installed, and nothing re-classifies installed automations per turn.
+
 On the qualified macOS heartbeat schema, direct migration requires the App
 closed. The adapter holds a SQLite writer transaction through TOML delivery,
 compares the entire previewed manifest, preserves every non-prompt field, and
@@ -202,3 +218,13 @@ gh 登录，仍失败则明确要求已核验 SHA，不切换分支或静默覆�
 日程、暂停状态、模型、线程、通知偏好和历史均不迁移。
 不支持的存储仍需原生 API；运行中的本轮不热切换。普通测试不消耗模型 token，
 真实模型发布资格仍需独立评测，不能由迁移成功推断。
+
+App 运行中对账无法写入，而一次性报告也带不走未应用的迁移。因此可审阅但未写入的
+条目会按 lane 记录到 runtime root 的 `app-automation-prompt-adoptions.json`，保存
+已审阅的、仅改 prompt 的 `automation_update` 请求、两个 prompt 摘要以及读取来源。
+`quota should-run` 将该记录投影为
+`scheduler_hint.app_automation.prompt_adoption`，携带
+`host_action=adopt_managed_bootstrap` 与 no-spend 策略，使义务不被一次性报告带走；
+turn 通过 `automation_update` 应用一次并读回，不消耗额度。该投影不是采纳权威、
+也不授予交付权限：它只描述本 host 已审阅过的条目，目标 body 一旦安装即自动消失，
+且不按轮重新分类已安装的 automation。
