@@ -247,6 +247,32 @@ def _configure_repository_write_todo(project: Path) -> Path:
     return state_path
 
 
+def _configure_boundary_blocked_primary(project: Path) -> Path:
+    state_path = project / f".codex/goals/{GOAL_ID}/ACTIVE_GOAL_STATE.md"
+    state_text = state_path.read_text(encoding="utf-8")
+    state_path.write_text(
+        state_text.replace(
+            "action_kind=validate -->",
+            "action_kind=validate required_write_scopes=private/** -->",
+        ),
+        encoding="utf-8",
+    )
+    return state_path
+
+
+def _configure_completion_validation_todo(project: Path) -> Path:
+    state_path = project / f".codex/goals/{GOAL_ID}/ACTIVE_GOAL_STATE.md"
+    state_text = state_path.read_text(encoding="utf-8")
+    state_path.write_text(
+        state_text.replace(
+            "action_kind=validate -->",
+            "action_kind=validate validation_command=pytest -->",
+        ),
+        encoding="utf-8",
+    )
+    return state_path
+
+
 def _configure_selectable_alternative(
     project: Path,
     *,
@@ -1056,6 +1082,60 @@ def test_in_flight_progress_preserves_todo_across_heartbeat_settlements(
         "triggers": [{"kind": "in_flight_continuation", "todo_id": TODO_ID}],
         "delivery_boundary": "in_flight_continuation",
     }
+
+
+def test_in_flight_progress_settles_while_completion_validation_todo_is_open(
+    tmp_path: Path,
+) -> None:
+    project, runtime, registry_path = _write_fixture(tmp_path)
+    _configure_completion_validation_todo(project)
+    turn_id = "turn-settlement-open-validation"
+    guard_rc, guard = _run_cli(
+        registry_path,
+        runtime,
+        "quota",
+        "should-run",
+        "--codex-app",
+        "--goal-id",
+        GOAL_ID,
+        "--agent-id",
+        AGENT_ID,
+        "--turn-instance-id",
+        turn_id,
+        "--scan-path",
+        str(project),
+    )
+    assert guard_rc == 0, guard
+
+    refresh_rc, refresh = _run_cli(
+        registry_path,
+        runtime,
+        "refresh-state",
+        "--goal-id",
+        GOAL_ID,
+        "--classification",
+        "validated_intermediate_progress",
+        "--delivery-batch-scale",
+        "implementation",
+        "--delivery-outcome",
+        "outcome_progress",
+        "--delivery-boundary",
+        "in_flight_continuation",
+        "--agent-id",
+        AGENT_ID,
+        "--todo-id",
+        TODO_ID,
+        "--turn-instance-id",
+        turn_id,
+        "--no-global-sync",
+        "--suppress-external-sinks",
+    )
+
+    assert refresh_rc == 0, refresh
+    assert refresh["settlement_result"]["ok"] is True
+    assert refresh["vision_checkpoint"]["delivery_boundary"] == (
+        "in_flight_continuation"
+    )
 
 
 def test_recovery_does_not_bind_current_replan_and_reenters_same_turn(
@@ -2937,6 +3017,56 @@ def test_pending_selection_preserves_workspace_repair_then_reenters_same_turn(
     assert _heartbeat_receipt_count(runtime, turn_instance_id) == 2
 
 
+def test_boundary_projection_repair_keeps_same_turn_alternative_selectable(
+    tmp_path: Path,
+) -> None:
+    project, runtime, registry_path = _write_fixture(tmp_path)
+    _configure_boundary_blocked_primary(project)
+    _configure_selectable_alternative(project)
+    turn_instance_id = "turn-boundary-repair-alternative-selection"
+    guard_args = (
+        "quota",
+        "should-run",
+        "--codex-app",
+        "--goal-id",
+        GOAL_ID,
+        "--agent-id",
+        AGENT_ID,
+        "--turn-instance-id",
+        turn_instance_id,
+        "--scan-path",
+        str(project),
+    )
+
+    first_rc, first = _run_cli(registry_path, runtime, *guard_args)
+    selected_rc, selected = _run_cli(
+        registry_path,
+        runtime,
+        *guard_args,
+        "--todo-id",
+        ALTERNATIVE_TODO_ID,
+    )
+
+    assert first_rc == 0, first
+    assert first["effective_action"] == "boundary_projection_repair"
+    assert first["selected_todo"]["todo_id"] == TODO_ID
+    assert first["action_portfolio"]["selection_policy"][
+        "requires_explicit_turn_binding"
+    ] is True
+    assert "settlement_identity" not in first["heartbeat_receipt"]
+    assert selected_rc == 0, selected
+    assert selected.get("error_code") != "heartbeat_receipt_identity_conflict"
+    assert selected["effective_action"] == "normal_run"
+    assert selected["normal_delivery_allowed"] is True
+    assert selected["selected_todo"]["todo_id"] == ALTERNATIVE_TODO_ID
+    assert selected["selected_todo"]["selection_binding"] == "heartbeat_receipt"
+    assert selected["heartbeat_receipt"]["status"] == "upgraded"
+    assert selected["heartbeat_receipt"]["settlement_identity"]["todo_id"] == (
+        ALTERNATIVE_TODO_ID
+    )
+    assert _heartbeat_receipt_count(runtime, turn_instance_id) == 2
+
+
 def test_selection_added_after_pending_guard_reports_final_boundary(
     tmp_path: Path,
 ) -> None:
@@ -3306,6 +3436,181 @@ def test_pending_action_selection_can_bind_exact_newly_due_monitor(
     assert settled["execution_obligation"]["must_attempt_work"] is False
     assert settled["heartbeat_receipt"]["status"] == "replayed"
     assert _spend_run_count(runtime) == 0
+
+def test_prior_monitor_turn_accepts_exact_committed_receipt(
+    tmp_path: Path,
+) -> None:
+    project, runtime, registry_path = _write_fixture(tmp_path)
+    _append_newly_due_monitor(project)
+    prior_turn_id = "turn-monitor-exact-closeout"
+    guard_args = (
+        "quota",
+        "should-run",
+        "--codex-app",
+        "--goal-id",
+        GOAL_ID,
+        "--agent-id",
+        AGENT_ID,
+        "--scan-path",
+        str(project),
+        "--available-capability",
+        "network",
+        "--available-capability",
+        "external_evidence_poll",
+    )
+    prior_rc, prior = _run_cli(
+        registry_path,
+        runtime,
+        *guard_args,
+        "--turn-instance-id",
+        prior_turn_id,
+        "--todo-id",
+        DUE_MONITOR_TODO_ID,
+    )
+    assert prior_rc == 0, prior
+    assert prior["selected_todo"]["todo_id"] == DUE_MONITOR_TODO_ID
+
+    poll_rc, poll = _run_cli(
+        registry_path,
+        runtime,
+        "quota",
+        "monitor-poll",
+        "--goal-id",
+        GOAL_ID,
+        "--agent-id",
+        AGENT_ID,
+        "--turn-instance-id",
+        prior_turn_id,
+        "--todo-id",
+        DUE_MONITOR_TODO_ID,
+        "--target-key",
+        "due-monitor-fixture",
+        "--result-hash",
+        "unchanged-exact-closeout",
+        "--available-capability",
+        "network",
+        "--available-capability",
+        "external_evidence_poll",
+        "--execute",
+        "--scan-path",
+        str(project),
+    )
+    assert poll_rc == 0, poll
+    assert poll["material_change"] is False
+    assert poll["appended"] is True
+
+    next_turn_rc, next_turn = _run_cli(
+        registry_path,
+        runtime,
+        *guard_args,
+        "--turn-instance-id",
+        "turn-after-exact-monitor-closeout",
+    )
+    assert next_turn_rc == 0, next_turn
+    assert next_turn["effective_action"] != "unsettled_host_turn_recovery"
+    assert next_turn["selected_todo"]["todo_id"] == TODO_ID
+    assert _spend_run_count(runtime) == 0
+
+
+def test_prior_monitor_turn_recovery_rejects_wrong_identity_receipt(
+    tmp_path: Path,
+) -> None:
+    project, runtime, registry_path = _write_fixture(tmp_path)
+    _append_newly_due_monitor(project)
+    prior_turn_id = "turn-monitor-wrong-identity"
+    guard_args = (
+        "quota",
+        "should-run",
+        "--codex-app",
+        "--goal-id",
+        GOAL_ID,
+        "--agent-id",
+        AGENT_ID,
+        "--scan-path",
+        str(project),
+        "--available-capability",
+        "network",
+        "--available-capability",
+        "external_evidence_poll",
+    )
+    prior_rc, prior = _run_cli(
+        registry_path,
+        runtime,
+        *guard_args,
+        "--turn-instance-id",
+        prior_turn_id,
+        "--todo-id",
+        DUE_MONITOR_TODO_ID,
+    )
+    assert prior_rc == 0, prior
+    assert prior["selected_todo"]["todo_id"] == DUE_MONITOR_TODO_ID
+
+    preview_rc, preview = _run_cli(
+        registry_path,
+        runtime,
+        "quota",
+        "monitor-poll",
+        "--codex-app",
+        "--goal-id",
+        GOAL_ID,
+        "--agent-id",
+        AGENT_ID,
+        "--turn-instance-id",
+        prior_turn_id,
+        "--todo-id",
+        DUE_MONITOR_TODO_ID,
+        "--target-key",
+        "due-monitor-fixture",
+        "--result-hash",
+        "preview-only",
+        "--available-capability",
+        "network",
+        "--available-capability",
+        "external_evidence_poll",
+        "--scan-path",
+        str(project),
+    )
+    assert preview_rc == 0, preview
+    assert preview["dry_run"] is True
+    assert preview["appended"] is False
+    assert _classification_count(runtime, "quota_monitor_poll") == 0
+
+    index_path = runtime / "goals" / GOAL_ID / "runs" / "index.jsonl"
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    with index_path.open("a", encoding="utf-8") as stream:
+        stream.write(
+            json.dumps(
+                {
+                    "classification": "quota_monitor_poll",
+                    "goal_id": GOAL_ID,
+                    "agent_id": "different-agent",
+                    "todo_id": DUE_MONITOR_TODO_ID,
+                    "turn_instance_id": prior_turn_id,
+                    "quota_monitor_poll_commit": {
+                        "schema_version": "quota_monitor_poll_commit_receipt_v0",
+                        "effect_id": "quota-monitor-poll:wrong-agent-fixture",
+                        "request_digest": "sha256:wrong-agent-fixture",
+                    },
+                }
+            )
+            + "\n"
+        )
+
+    recovery_rc, recovery = _run_cli(
+        registry_path,
+        runtime,
+        *guard_args,
+        "--turn-instance-id",
+        "turn-after-wrong-monitor-receipt",
+    )
+    assert recovery_rc == 0, recovery
+    assert recovery["effective_action"] == "unsettled_host_turn_recovery"
+    packet = recovery["unsettled_host_turn_recovery"]
+    assert packet["binding_task_class"] == "continuous_monitor"
+    actions = recovery["interaction_contract"]["cli_channel"]["next_cli_actions"]
+    assert "quota monitor-poll" in actions[1]
+    assert f"--turn-instance-id {prior_turn_id}" in actions[1]
+    assert "--resume-when" not in "\n".join(actions)
 
 
 def test_receipt_bound_advancement_turn_records_multiple_due_monitors(

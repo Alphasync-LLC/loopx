@@ -9,23 +9,26 @@ from ..work_items.interaction_contract import (
     build_interaction_contract,
     build_protocol_action_packet,
 )
+from ..todos.contract import TODO_TASK_CLASS_MONITOR
+from ..todos.todo_semantics import todo_item_task_class
 from .heartbeat_receipt import (
     heartbeat_receipt_settlement_replan_obligation_id,
     heartbeat_receipt_settlement_todo_id,
     prior_closeout_required_heartbeat_receipts,
 )
 from .settlement import read_heartbeat_settlement
+from .monitor_poll import find_quota_monitor_poll_turn
 
 UNSETTLED_HOST_TURN_RECOVERY_SCHEMA_VERSION = "unsettled_host_turn_recovery_v0"
 
 
-def _typed_lifecycle_closeout(
+def _bound_todo_item(
     *,
     registry_path: Path,
     runtime_root: Path,
     goal_id: str,
     todo_id: str | None,
-) -> str | None:
+) -> dict[str, Any] | None:
     if not todo_id:
         return None
     # Reuse the exact-ID read path: presentation lanes omit terminal and
@@ -42,6 +45,12 @@ def _typed_lifecycle_closeout(
     item = readback.get("todo")
     if not isinstance(item, Mapping) or item.get("todo_id") != todo_id:
         return None
+    return dict(item)
+
+
+def _typed_lifecycle_closeout(item: Mapping[str, Any] | None) -> str | None:
+    if item is None:
+        return None
     status = str(item.get("status") or "")
     if (
         status == "open"
@@ -53,6 +62,44 @@ def _typed_lifecycle_closeout(
     if status in {"done", "blocked", "deferred"}:
         return f"todo_{status}"
     return None
+
+
+def _committed_monitor_poll_closeout(
+    *,
+    runtime_root: Path,
+    goal_id: str,
+    agent_id: str,
+    todo_id: str | None,
+    prior_turn_instance_id: str,
+    todo_item: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Read an exact committed no-spend closeout for a monitor-bound Turn."""
+
+    if (
+        not todo_id
+        or todo_item is None
+        or todo_item_task_class(todo_item) != TODO_TASK_CLASS_MONITOR
+    ):
+        return None
+    receipt = find_quota_monitor_poll_turn(
+        runtime_root,
+        goal_id=goal_id,
+        agent_id=agent_id,
+        todo_id=todo_id,
+        turn_instance_id=prior_turn_instance_id,
+    )
+    if receipt is None:
+        return None
+    commit_metadata = receipt.get("quota_monitor_poll_commit")
+    if not isinstance(commit_metadata, Mapping):
+        return None
+    effect_id = str(commit_metadata.get("effect_id") or "").strip()
+    effect_base = (
+        f"quota-monitor-poll:{goal_id}:{agent_id}:{prior_turn_instance_id}"
+    )
+    if effect_id not in {effect_base, f"{effect_base}:todo:{todo_id}"}:
+        return None
+    return receipt
 
 
 def _unsettled_host_turn_recovery(
@@ -88,12 +135,22 @@ def _unsettled_host_turn_recovery(
         )
         if readback is not None and readback.settlement.failure is None:
             return None
-        lifecycle_closeout = _typed_lifecycle_closeout(
+        todo_item = _bound_todo_item(
             registry_path=registry_path,
             runtime_root=runtime_root,
             goal_id=goal_id,
             todo_id=todo_id,
         )
+        if _committed_monitor_poll_closeout(
+            runtime_root=runtime_root,
+            goal_id=goal_id,
+            agent_id=agent_id,
+            todo_id=todo_id,
+            prior_turn_instance_id=prior_turn_id,
+            todo_item=todo_item,
+        ) is not None:
+            return None
+        lifecycle_closeout = _typed_lifecycle_closeout(todo_item)
         if lifecycle_closeout is not None:
             return None
         details_value = receipt.get("details")
@@ -106,7 +163,7 @@ def _unsettled_host_turn_recovery(
             missing_receipts.append("quota_spend_receipt")
         binding_kind = "todo" if todo_id else "autonomous_replan"
         binding_id = todo_id or replan_obligation_id
-        return {
+        recovery = {
             "schema_version": UNSETTLED_HOST_TURN_RECOVERY_SCHEMA_VERSION,
             "state": "recovery_required",
             "reason_code": "required_closeout_receipt_missing",
@@ -118,12 +175,22 @@ def _unsettled_host_turn_recovery(
             "missing_receipts": missing_receipts,
             "accepted_closeouts": [
                 "validated_writeback_and_quota_spend",
+                "exact_committed_quota_monitor_poll",
                 "typed_external_wait_with_runnable_successor",
                 "typed_blocker_or_lifecycle_transition",
             ],
             "external_state_policy": "typed_host_observation_only",
             "quota_policy": "no_spend_for_recovery_transition",
         }
+        if todo_item is not None:
+            recovery["binding_task_class"] = todo_item_task_class(todo_item)
+            recovery["binding_target_key"] = (
+                str(todo_item.get("target_key") or "").strip() or None
+            )
+            recovery["binding_cadence"] = (
+                str(todo_item.get("cadence") or "").strip() or None
+            )
+        return recovery
     return None
 
 

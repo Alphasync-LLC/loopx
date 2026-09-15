@@ -5,11 +5,14 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
+import time
 from unittest import mock
 
 from loopx import __version__
 import pytest
 
+from loopx.control_plane.runtime import runtime_projection_route
 from loopx.self_update import (
     UpdateAction,
     build_update_plan,
@@ -88,6 +91,80 @@ def build_check(doctor: dict[str, object], *, ref: str = "main") -> dict[str, ob
             check_only=True,
             doctor_payload=doctor,
         )
+
+
+@pytest.mark.parametrize("action", ["check", "plan"])
+def test_update_readiness_remains_bounded_when_one_source_registry_stalls(
+    action: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime_root = tmp_path / "runtime"
+    runtime_root.mkdir()
+    global_registry = runtime_root / "registry.global.json"
+    stalled_registry = tmp_path / "offline" / "registry.json"
+    stalled_registry.parent.mkdir()
+    stalled_registry.write_text("{}", encoding="utf-8")
+    global_registry.write_text(
+        json.dumps(
+            {
+                "registry_role": "global-local",
+                "common_runtime_root": str(runtime_root),
+                "goals": [
+                    {
+                        "id": "offline-goal",
+                        "source_registry": str(stalled_registry),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    release_stalled_read = threading.Event()
+    real_load_registry = runtime_projection_route.load_registry
+
+    def load_registry(path: Path):
+        if path == stalled_registry:
+            release_stalled_read.wait(timeout=2)
+        return real_load_registry(path)
+
+    observed: dict[str, object] = {}
+
+    def collect_bounded_doctor() -> dict[str, object]:
+        diagnostics = (
+            runtime_projection_route.collect_runtime_projection_route_diagnostics(
+                registry_path=global_registry,
+                runtime_root=runtime_root,
+                source_registry_read_timeout_seconds=0.02,
+            )
+        )
+        observed.update(diagnostics)
+        return doctor_payload(target_commit=INSTALLED_COMMIT, relation="same")
+
+    monkeypatch.setattr(runtime_projection_route, "load_registry", load_registry)
+    monkeypatch.setattr("loopx.self_update.collect_doctor", collect_bounded_doctor)
+    monkeypatch.setattr("loopx.self_update.urlopen", lambda *_args, **_kwargs: FakeVersionResponse())
+
+    started = time.monotonic()
+    payload = build_update_plan(
+        action=action,
+        repo="example/loopx",
+        ref="main",
+    )
+    elapsed = time.monotonic() - started
+    release_stalled_read.set()
+
+    assert elapsed < 0.5
+    assert payload["ok"] is True
+    assert observed["counts"] == {
+        "healthy": 0,
+        "ready": 0,
+        "single_runtime": 0,
+        "missing": 0,
+        "unavailable": 1,
+        "ambiguous": 0,
+        "lagging": 0,
+    }
 
 
 def test_same_version_older_commit_requires_release_or_install_successor() -> None:

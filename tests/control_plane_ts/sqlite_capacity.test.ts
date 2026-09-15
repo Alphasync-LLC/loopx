@@ -18,6 +18,11 @@ function axis(count: number): CapacityAxis {
     sample_window: 1000, status: "passed", cleanup_verified: true,
     warm: {commit: sample(1000), head: sample(3000), receipt: sample(2000), scan_100: sample(200)},
     cold_node: sample(20), cold_cli: {mutation: sample(20), status: sample(20), quota: sample(20)},
+    bounded_profile: {schema_version: "loopx_sqlite_authority_bounded_profile_v0", status: "available",
+      cursor: String(count), commits: count, checkpoints: Math.ceil(count / 64), checkpoint_interval: 64,
+      replay_budget_commits: 63, recovery_tail_commits: 0, retained_projection_bytes: 1024,
+      retained_delta_bytes: 1024, retained_payload_bytes: 0, database_bytes: 4096, wal_bytes: 0, shm_bytes: 0},
+    history_audit: {status: "verified", commits: count, checkpoints: Math.ceil(count / 64)},
     application_request_json_bytes: 0, files_at_target: {database_bytes: 0, wal_bytes: 0, shm_bytes: 0},
     sampled_peak_rss_bytes: 0, resource_peak_rss_bytes: 0, fill_seconds: 0, cli_commits: 20};
 }
@@ -61,13 +66,16 @@ test("CLI latency improvement is retained as a signed difference", () => {
   assert.equal(row?.status, "passed");
 });
 
-test("small capacity entrypoint exercises real SQLite and never claims a full qualification", {timeout: 60000}, async t => {
+// Budget: the bounded state log proves every encoded delta and audits the
+// retained chain, so the rehearsal costs more than the version-1 layout did
+// (about 27 s here, roughly twice that on a shared CI runner).
+test("small capacity entrypoint exercises real SQLite and never claims a full qualification", {timeout: 180000}, async t => {
   const directory = await mkdtemp(join(tmpdir(), "sqlite-capacity-report-"));
   t.after(() => rm(directory, {recursive: true, force: true}));
   const output = join(directory, "report.json");
   const child = spawnSync(process.execPath, ["--no-warnings", "--experimental-sqlite", "--experimental-strip-types",
     fileURLToPath(new URL("../../examples/coordination/sqlite-capacity.ts", import.meta.url)),
-    "--profile", "rehearsal", "--output", output], {encoding: "utf8", timeout: 55000});
+    "--profile", "rehearsal", "--output", output], {encoding: "utf8", timeout: 150000});
   assert.equal(child.status, 0, child.stderr);
   const report = JSON.parse(await readFile(output, "utf8"));
   assert.equal(report.full_d2_qualified, false);

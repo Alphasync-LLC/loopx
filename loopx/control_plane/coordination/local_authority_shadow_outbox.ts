@@ -160,10 +160,25 @@ async function nextSeq(directory: string, runtimeRoot: string, goalId: string, l
   return highest + 1;
 }
 
+/**
+ * Read the lease partition for one capture.
+ *
+ * The legacy lease directory is append-retained history: archiving a Todo
+ * leaves its released lease file on disk. The source projection models only
+ * the current Todo graph, so it drops a lease whose Todo is no longer part of
+ * that graph (see `build_todo_runtime_shadow_projection`). Capture must apply
+ * the same rule, or archiving a Todo after a released lease writes an orphan
+ * edge into the candidate head and parity reports `shadow_projection_drift`.
+ *
+ * `activeTodoIds` is the current Todo graph supplied by the caller; `null`
+ * means the caller could not read it, and the capture stays strict rather
+ * than guessing a projection.
+ */
 async function readLeasePartition(
   leaseDirectory: string,
   plannedStem: string,
   plannedLease: JsonObject | null,
+  activeTodoIds: ReadonlySet<string> | null,
 ): Promise<JsonObject[]> {
   const records = new Map<string, JsonObject>();
   let names: string[] = [];
@@ -176,6 +191,7 @@ async function readLeasePartition(
     if (!LEASE_FILE.test(name) || name.startsWith(".")) continue;
     const stem = name.slice(0, -".json".length);
     if (stem === plannedStem) continue;
+    if (activeTodoIds !== null && !activeTodoIds.has(stem)) continue;
     const raw: unknown = JSON.parse(await readFile(join(leaseDirectory, name), "utf8"));
     if (raw !== null && typeof raw === "object" && !Array.isArray(raw)) {
       records.set(stem, raw as JsonObject);
@@ -208,6 +224,12 @@ export interface LeaseOutboxCaptureInput {
   operation_id: string | null;
   previous_lease: JsonObject | null;
   planned_lease: JsonObject;
+  /**
+   * Current Todo graph for the goal, used to drop leases orphaned by an
+   * archived Todo exactly as the source projection does. `null` keeps the
+   * strict pre-existing behavior.
+   */
+  active_todo_ids: readonly string[] | null;
 }
 
 export interface LeaseOutboxCapture {
@@ -257,8 +279,11 @@ export async function beginLeaseOutboxEntry(
         canonicalAuthorityBytes(input.previous_lease).equals(canonicalAuthorityBytes(input.planned_lease))) {
       return { ...inert, skipped_reason: "partition_unchanged" };
     }
-    const projection = { leases: await readLeasePartition(input.lease_directory, plannedStem, input.planned_lease) };
-    const previousRecords = await readLeasePartition(input.lease_directory, plannedStem, input.previous_lease);
+    const activeTodoIds = input.active_todo_ids === null
+      ? null
+      : new Set(input.active_todo_ids);
+    const projection = { leases: await readLeasePartition(input.lease_directory, plannedStem, input.planned_lease, activeTodoIds) };
+    const previousRecords = await readLeasePartition(input.lease_directory, plannedStem, input.previous_lease, activeTodoIds);
     for (const item of [...previousRecords, ...projection.leases]) {
       const record = item.record as JsonObject;
       if (record.goal_id !== input.goal_id || record.todo_id !== item.file_stem) {

@@ -135,10 +135,39 @@ test("a lease writer with a missing cursor obtains its next sequence from proved
   await unlink(join(directory, "drain-cursor.json"));
   const capture = await beginLeaseOutboxEntry({ runtime_root: f.root, goal_id: "goal-a",
     lease_directory: join(f.root, "goals", "goal-a", "task-leases"), write_class: "task_lease_renew",
-    operation_id: null, previous_lease: lease, planned_lease: { ...lease, version: 2 } });
+    operation_id: null, previous_lease: lease, planned_lease: { ...lease, version: 2 },
+    active_todo_ids: null });
   assert.equal(capture.failure, null);
   assert.equal(capture.seq, 2);
   await assert.rejects(readFile(join(directory, "drain-cursor.json")), { code: "ENOENT" });
+});
+
+test("lease capture omits a lease whose Todo left the current graph", async (t) => {
+  const f = await fixture(t);
+  const leaseDirectory = join(f.root, "goals", "goal-a", "task-leases");
+  const archivedLease = { schema_version: "task_lease_v0", goal_id: "goal-a", todo_id: "todo_gone",
+    owner: "agent-a", version: 1, lease_epoch: 1, status: "released", updated_at: "2026-09-06T00:00:00Z" };
+  await writeFile(join(leaseDirectory, "todo_gone.json"), JSON.stringify(archivedLease));
+  const planned = { schema_version: "task_lease_v0", goal_id: "goal-a", todo_id: "todo_one",
+    owner: "agent-a", version: 1, lease_epoch: 1, status: "active", updated_at: "2026-09-06T00:00:00Z" };
+  // `todo_gone` is absent from the graph: the capture must not project it.
+  const filtered = await beginLeaseOutboxEntry({ runtime_root: f.root, goal_id: "goal-a",
+    lease_directory: leaseDirectory, write_class: "task_lease_acquire", operation_id: "op-1",
+    previous_lease: null, planned_lease: planned, active_todo_ids: ["todo_one"] });
+  assert.equal(filtered.failure, null);
+  const prepared = JSON.parse(await readFile(
+    join(f.root, "authority-shadow", "outbox", "goal-a", "leases",
+      `0000000001-${filtered.entry_id}.prepared.json`), "utf8"));
+  assert.deepEqual(prepared.projection.leases.map((item: JsonObject) => item.file_stem), ["todo_one"]);
+  // A graph that still contains the Todo retains it: the rule drops orphans only.
+  const retained = await beginLeaseOutboxEntry({ runtime_root: f.root, goal_id: "goal-a",
+    lease_directory: leaseDirectory, write_class: "task_lease_acquire", operation_id: "op-2",
+    previous_lease: null, planned_lease: planned, active_todo_ids: ["todo_one", "todo_gone"] });
+  assert.equal(retained.failure, null);
+  const second = JSON.parse(await readFile(
+    join(f.root, "authority-shadow", "outbox", "goal-a", "leases",
+      `0000000002-${retained.entry_id}.prepared.json`), "utf8"));
+  assert.deepEqual(second.projection.leases.map((item: JsonObject) => item.file_stem), ["todo_gone", "todo_one"]);
 });
 
 for (const [marker, resolution, expected] of [

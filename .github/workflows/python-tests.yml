@@ -231,7 +231,7 @@ jobs:
           tests=()
           for test in tests/control_plane_ts/*.test.ts; do
             case "$test" in
-              */sqlite_authority_store.test.ts|*/local_authority_provider.test.ts|*/authority_provider_parity.test.ts|*/sqlite_capacity.test.ts) continue ;;
+              */sqlite_authority_store.test.ts|*/sqlite_authority_bounded_profile.test.ts|*/sqlite_authority_migration.test.ts|*/local_authority_provider.test.ts|*/authority_provider_parity.test.ts|*/sqlite_capacity.test.ts) continue ;;
             esac
             tests+=("$test")
           done

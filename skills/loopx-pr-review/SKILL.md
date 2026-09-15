@@ -14,7 +14,8 @@ replace them with a host-specific checklist.
 
 Use this skill for `/loopx-pr-review`, explicit PR reviews, or review queues by
 state or time window. Route approval, merge, self-merge, and admin bypass to
-`loopx-pr-merge` after the evidence review is complete.
+`loopx-pr-merge` (optional repo-kept workflow, not installed by default) after
+the evidence review is complete; it never replaces this skill's exact-head gate.
 
 Run `loopx --format json pr-review --state all` before ad hoc GitHub reads.
 
