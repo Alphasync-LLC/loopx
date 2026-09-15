@@ -33,7 +33,7 @@ RFC 成熟度与交付成熟度彼此独立。带日期的进度条目不修改�
 
 1. **什么成为权威。** `loopx/semantics/` 下的两份文件。策展注册表
    `vocabulary_v0.json` 为每个内核与跨运行时词表命名：允许定义它的确切
-   `module::Symbol`、词表之间的关系（同一概念、共享字段名、子集）、全射投影，
+   `module::Symbol`、词表之间的关系（同一概念、共享字段名、子集）、完整投影，
    以及仓库同意只降不升的预算。生成清单 `inventory_v0.json` 映射 `loopx/` 下
    每一个闭集载体：字符串枚举、`Literal` 别名、命名闭集、TypeScript `as const`
    数组，以及在多个模块中定义的每个常量名。一支公共 smoke
@@ -116,7 +116,7 @@ LoopX 由大量小型 agent 驱动的 PR 生长而成。每个 PR 在需要之�
 - 三套近似同构的 Turn 结果词表并存：`LoopXTurnResultKind`（12）、
   `LoopXTurnRoute`（8）、`LoopDisposition`（8），`repair`/`repair_required` 与
   `replan`/`replan_required` 是同一裁决的不同拼法。route 到 disposition 的投影
-  是 `loop_controller.py:126` 的私有字典；没有任何声明说它是全射。真正承重的
+  是 `loop_controller.py:126` 的私有字典；没有任何声明说它覆盖全部输入。真正承重的
   `decide_loop_disposition` 决策表（result kind、retryable、attempt budget、
   decision user action、durable no-follow-up）只存在于控制器协议文档的散文里。
 - 文档已称为 legacy 的六个 should-run 决策字段仍各被 7 到 35 个 Python 模块
@@ -138,7 +138,7 @@ todos、capabilities 与 TypeScript 运行时各自拥有同一想法的一种�
   注册的值，注册表也不列出代码不携带的值。
 - **I3 跨运行时一致。** 词表同时有 Python 与 TypeScript owner 时，两侧集合完全
   相同。
-- **I4 全射投影。** 注册投影为每个源值恰好命名一次：要么映射，要么声明拒绝。
+- **I4 完整投影。** 注册投影为每个源值恰好命名一次：要么映射，要么声明拒绝。
 - **I5 棘轮只降。** 退休、孪生与清单预算可在任何 PR 中调低。每个预算在 smoke
   里另由一个 `BUDGET_ANCHOR`（或 `RETIREMENT_ANCHOR`）字面量钉住，每个下限由
   一个 `COVERAGE_ANCHOR` 钉住，沿用
@@ -238,7 +238,7 @@ todos、capabilities 与 TypeScript 运行时各自拥有同一想法的一种�
 
 | 键 | 内容 | 检查 |
 | --- | --- | --- |
-| `coverage_floor` | 词表、owner 符号、字面量扫描字段、投影、关系、schema 版本的数量；扫描后缀集合 | 实际计数不低于下限，声明的后缀覆盖下限集合，且任何下限不得低于其 `COVERAGE_ANCHOR`（I8） |
+| `coverage_floor` | 词表、owner 符号、字面量扫描字段、投影、关系、schema 版本的数量；扫描后缀集合 | 实际计数不低于下限，声明的后缀覆盖下限集合，且每个下限必须等于其 `COVERAGE_ANCHOR`（I8） |
 | `vocabularies.<name>.owners` | `python` 与 `typescript`，各为 `path::Symbol` 或 `null` | 枚举成员、闭集成员、`Literal` 别名或 `as const` 数组等于 `values`；该符号只在 owner 模块中定义（I1、I2、I3） |
 | `vocabularies.<name>.tier`、`status` | `kernel`、`cross_runtime`、`cross_module`；`canonical`、`legacy`、`merge_candidate` | 封闭枚举 |
 | `vocabularies.<name>.literal_scan` | `field`、根目录、后缀 | 固定分发形式捕获的每个字面量都已注册；每个注册值被捕获或来自变量（I2） |
@@ -251,15 +251,15 @@ todos、capabilities 与 TypeScript 运行时各自拥有同一想法的一种�
 | `schema_versions.<name>` | 常量名、值、owner 模块 | 唯一的定义模块就是列出的 owner 且都携带该值（I1） |
 | `retirement_ledger.<group>.fields` | 每字段的 Python 与 TypeScript 模块预算 | 实际模块数不超过预算，且字段集合与每个预算与 `RETIREMENT_ANCHOR` 一致（I5） |
 | `dual_runtime_twins` | 根目录与模块预算 | 同名 `.py`/`.ts` 对数不超过预算（I5） |
-| `inventory_ratchets` | 同运行时分叉的名字数与定义数、冲突的名字数与定义数、schema 版本分叉数、多值孪生与分叉数，以及共享词表冲突与分叉子集的预算 | 清单摘要计数不超过预算，且任何预算不得高于其 `BUDGET_ANCHOR` 条目（I5、I9） |
+| `inventory_ratchets` | 同运行时分叉的名字数与定义数、冲突的名字数与定义数、schema 版本分叉数、多值孪生与分叉数，以及共享词表冲突与分叉子集的预算 | 清单摘要计数不超过预算，且每个预算必须等于其 `BUDGET_ANCHOR` 条目（I5、I9） |
 
 `loopx/semantics/inventory_v0.json`，`schema_version` 为
 `loopx_semantic_inventory_v0`，由 `scripts/generate_semantic_inventory.py` 生成，
 必须与新鲜构建完全一致。它每行一条地列出 Python 枚举、闭集、`Literal` 别名、
 TypeScript `as const` 数组，以及拆为跨运行时孪生、同运行时分叉、冲突值、多值
 孪生与多值分叉四类的重复定义。每个多值冲突都带上全部定义模块及其值集，因此
-可评审的是分叉本身而不只是计数。消费者计数与合并候选组由 `--report` 打印而
-不提交，因此普通的消费者改动不会碰这个文件；合并候选是建议性的，因为值集
+可评审的是分叉本身而不只是计数。消费者计数由 `--report` 打印，合并候选组通过 `merge_candidate_groups` 获取，
+两者均不提交，因此普通的消费者改动不会碰这个文件；合并候选是建议性的，因为值集
 相同并不能证明是同一个概念。单模块的字符串常量只计数，不列出。
 
 值是只增的。删除一个值、字段、owner 或关系属于 schema 缩减，遵循 `AGENTS.md`
@@ -294,7 +294,14 @@ PR 中重新生成清单。
 ## 7. 安全、隐私与兼容
 
 - M0 没有任何运行时路径导入注册表；检查存在与否，产品行为不变。
-- smoke 只读已跟踪的仓库文件，只打印相对仓库根的路径与已注册标识符。
+- 扫描器使用 `git ls-files --cached -z` 枚举索引中的源文件路径，再读取工作树内容。
+  未跟踪与忽略文件不进入清单；新增源文件需先暂存路径，再重新生成清单。已跟踪
+  的符号链接与无法解析的 Python 源码使检查失败；运行时需要带 Git 元数据的检出。
+- 字面量及 TypeScript 载体扫描同时识别单引号与双引号。它们仍是结构性文本
+  扫描，不是完整解析器，也不做数据流分析。
+- 字面量扫描根目录与后缀、孪生模块根目录与预算均有代码锚点；仅修改 JSON
+  不能缩窄扫描范围或提高孪生预算。
+- 失败文本只使用仓库相对路径与已注册标识符。
 - 旧的读写方不受影响。预算冻结其当前分布，不删除任何一处引用。
 - 构建期检查不涉及混合版本。M2 引入生成绑定时，生成器的 `--check` 模式与
   smoke 同时运行，过期的生成文件无法合入。
@@ -383,7 +390,7 @@ PR 中重新生成清单。
    JSON 与扫描器，没有任何产品代码导入它。在记入附录 B 之前这只是提案。M1 前
    需定。
 2. **是否合并 `LoopXTurnRoute` 与 `LoopDisposition`？** Owner：Turn driver owner。
-   投影是全射但非单射（`blocked` 与 `wait` 都映到 `wait`），而 `stop`、
+   投影覆盖全部输入但非单射（`blocked` 与 `wait` 都映到 `wait`），而 `stop`、
    `terminal`、`contract_error` 只在一侧存在。`same_concept` 关系记录了四个共享
    裁决。建议：两者都保留，M2 发布投影，待 managed-step 消费者成熟后再议。
    M2 前需定。
