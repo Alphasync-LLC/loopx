@@ -72,6 +72,33 @@ const protocolActionFields = {
   agent_action: "advance one bounded segment",
 };
 
+test("only active hook reads carry additive prompt budget through the envelope", () => {
+  const source = payload();
+  const baseline = buildTurnEnvelope({ payload: source, protocol_action_fields: protocolActionFields, scheduler_execution_args: "" });
+  const command = "loopx inspect --registry /" + "route/".repeat(80) + "registry.json";
+  const read = { kind: "fixture_read", command, reason: "Read the pending observation",
+    source: "turn_start_capability_hook" };
+  source.required_reads = [read];
+  const ordinary = buildTurnEnvelope({ payload: source, protocol_action_fields: protocolActionFields, scheduler_execution_args: "" });
+  assert.equal((ordinary.compaction as JsonObject).budget_bytes, 8_192);
+  assert.equal(((ordinary.required_reads as JsonObject[])[0].command as string).length, 360);
+  assert.equal((ordinary.compaction as JsonObject).hook_prompt_budget_bytes, undefined);
+  source.required_reads = [{ ...read, prompt_budget_bytes: 1_536 }];
+  const active = buildTurnEnvelope({ payload: source, protocol_action_fields: protocolActionFields, scheduler_execution_args: "" });
+  assert.equal((active.required_reads as JsonObject[])[0].command, command);
+  assert.equal((active.compaction as JsonObject).budget_bytes, 8_192 + 1_536);
+  assert.equal((active.compaction as JsonObject).hook_prompt_budget_bytes, 1_536);
+  assert.equal((active.compaction as JsonObject).envelope_utf8_bytes, Buffer.byteLength(JSON.stringify(active)));
+  for (const field of ["action", "user", "scheduler", "execution_policy", "writeback"]) {
+    assert.deepEqual(active[field], baseline[field]);
+  }
+  source.required_reads = [{ ...read, source: "other", prompt_budget_bytes: 1_536 }];
+  const unrelated = buildTurnEnvelope({ payload: source, protocol_action_fields: protocolActionFields, scheduler_execution_args: "" });
+  assert.equal((unrelated.compaction as JsonObject).budget_bytes, 8_192);
+  delete source.required_reads;
+  assert.deepEqual(buildTurnEnvelope({ payload: source, protocol_action_fields: protocolActionFields, scheduler_execution_args: "" }), baseline);
+});
+
 test("pending capability action outranks stale replan commands and remains signed", () => {
   const source = payload();
   const command = "loopx periodic-report consume-pending --goal-id goal-turn-envelope --agent-id agent-ts --execute";

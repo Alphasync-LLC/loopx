@@ -5,9 +5,10 @@ import {
   type JsonObject,
 } from "../effect_program.ts";
 import { EffectRuntimeRequestError } from "../effect_runtime_errors.ts";
+import { turnStartPromptBudgetBytes } from "../capability_hooks.ts";
 import { requireJsonObject } from "../runtime_decode.ts";
 import { projectPendingCapabilityIntent } from "../work_items/pending_capability_intent.ts";
-import { measureTurnEnvelope, TURN_ENVELOPE_BUDGET_BYTES } from "./turn_envelope_budget.ts";
+import { measureTurnEnvelope, turnEnvelopeBudgetBytes } from "./turn_envelope_budget.ts";
 export { TURN_ENVELOPE_BUDGET_BYTES } from "./turn_envelope_budget.ts";
 
 export const TURN_ENVELOPE_SCHEMA_VERSION = "loopx_turn_envelope_v0";
@@ -294,9 +295,12 @@ function requiredReads(interaction: JsonObject, payload: JsonObject): JsonObject
   const result: JsonObject[] = [];
   for (const value of raw.slice(0, 5)) {
     const item = object(value);
-    const command = text(item.command, 360);
+    const promptBudget = item.source === "turn_start_capability_hook"
+      ? turnStartPromptBudgetBytes(item.prompt_budget_bytes) : 0;
+    const command = text(item.command, promptBudget || 360);
     if (!command) continue;
     const compact: JsonObject = { command };
+    if (promptBudget) compact.prompt_budget_bytes = promptBudget;
     for (const field of ["kind", "reason", "source"]) {
       const rendered = text(item[field], 240);
       if (rendered) compact[field] = rendered;
@@ -681,7 +685,7 @@ function turnActionProjection(payload: JsonObject, protocolActionFields: JsonObj
   // Guidance must not crowd out the actionable contract. Preserve a signed
   // content reference to the existing full-decision route under budget pressure.
   if (Object.keys(context).length > 0
-    && Buffer.byteLength(JSON.stringify(projection), "utf8") > TURN_ENVELOPE_BUDGET_BYTES - 1_400) {
+    && Buffer.byteLength(JSON.stringify(projection), "utf8") > turnEnvelopeBudgetBytes(projection) - 1_400) {
     projection.agent_context = {
       schema_version: context.schema_version, phase: context.phase, scope: context.scope,
       target: "coordinator", authority: "guidance_only", delivery: "projected",

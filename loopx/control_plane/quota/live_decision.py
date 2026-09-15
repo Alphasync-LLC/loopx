@@ -73,7 +73,7 @@ def _turn_start_required_reads(
         projected.append(
             {
                 key: read[key]
-                for key in ("kind", "command", "reason", "source", "ordering")
+                for key in ("kind", "command", "reason", "source", "ordering", "prompt_budget_bytes")
                 if key in read
             }
         )
@@ -484,6 +484,13 @@ def build_live_quota_should_run_decision(
         available_capabilities = remembered_runtime
     if route_source.startswith("loopx_turn_"):
         payload["runtime_root"] = str(runtime_root)
+    if codex_app_host and agent_id:
+        from ..heartbeat.prompt_upgrade_hook import extend_prompt_upgrade_reads
+
+        turn_start_hook_dispatch = extend_prompt_upgrade_reads(
+            turn_start_hook_dispatch, registry=registry_path, runtime_root=runtime_root,
+            goal_id=goal_id, agent_id=agent_id,
+        )
     _project_turn_start_required_reads(
         payload,
         turn_start_hook_dispatch,
