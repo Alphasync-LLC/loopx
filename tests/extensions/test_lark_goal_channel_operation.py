@@ -5,6 +5,7 @@ from collections.abc import Mapping
 import hashlib
 import json
 from pathlib import Path
+import subprocess
 import threading
 from typing import Any
 
@@ -1523,6 +1524,9 @@ def test_delivery_projects_typed_stage_blockers(tmp_path: Path) -> None:
     def _failed_delivery(
         case: str,
         fail_args: tuple[str, ...],
+        *,
+        outcome: dict[str, Any] | None = None,
+        raises: Exception | None = None,
     ) -> tuple[GoalChannelDeliveryStageError, list[list[str]]]:
         case_root = tmp_path / case
         case_root.mkdir()
@@ -1535,6 +1539,11 @@ def test_delivery_projects_typed_stage_blockers(tmp_path: Path) -> None:
             args: list[str], cwd: Path | None, timeout: float | None
         ) -> dict[str, Any]:
             if all(fragment in args for fragment in fail_args):
+                calls.append(list(args))
+                if raises is not None:
+                    raise raises
+                if outcome is not None:
+                    return dict(outcome)
                 return {
                     "returncode": 1,
                     "stdout": "",
@@ -1574,6 +1583,36 @@ def test_delivery_projects_typed_stage_blockers(tmp_path: Path) -> None:
     assert blocked.failure_stage == "send_operation_card"
     assert blocked.external_write_performed is False
 
+    # A provider answer is the only thing that can be projected as a verdict.
+    # Without one the card may already be live, so the send stage must report an
+    # unknown outcome rather than a clean no-write.
+    for case, outcome, raises in (
+        ("send-no-body", {"returncode": 1, "stdout": "", "stderr": ""}, None),
+        (
+            "send-timeout",
+            None,
+            subprocess.TimeoutExpired(cmd="lark-cli", timeout=30),
+        ),
+    ):
+        blocked, send_calls = _failed_delivery(
+            case, ("+messages-send",), outcome=outcome, raises=raises
+        )
+        assert blocked.blocker == "delivery_outcome_unknown", (case, blocked)
+        assert blocked.failure_stage == "send_operation_card", (case, blocked)
+        assert blocked.external_write_performed is None, (case, blocked)
+        assert any("+messages-send" in call for call in send_calls), case
+
+    # A command that never started cannot have written anything, and says so
+    # with its own blocker instead of being reported as a provider rejection.
+    blocked, send_calls = _failed_delivery(
+        "send-unavailable",
+        ("+messages-send",),
+        raises=FileNotFoundError("lark-cli"),
+    )
+    assert blocked.blocker == "provider_unavailable", blocked
+    assert blocked.failure_stage == "send_operation_card", blocked
+    assert blocked.external_write_performed is False, blocked
+
 
 def test_receipt_treats_post_send_failure_as_unknown_write(
     tmp_path: Path,
@@ -1606,7 +1645,9 @@ def test_receipt_treats_post_send_failure_as_unknown_write(
             },
         )
 
-    assert exc_info.value.blocker == "delivery_outcome_unknown"
+    # The readback already proved the card is live, so this stage keeps its own
+    # blocker instead of diluting the "provider outcome unknown" signal.
+    assert exc_info.value.blocker == "delivery_receipt_write_failed"
     assert exc_info.value.failure_stage == "record_delivery_receipt"
     assert exc_info.value.external_write_performed is None
     assert any("+messages-send" in call for call in calls)
