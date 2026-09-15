@@ -1398,14 +1398,16 @@ class ChatRuntimeController:
 
     def wait_for_turn(self, *, session_id: str, turn_id: str, timeout_sec: float = 920.0) -> dict[str, Any]:
         deadline = time.monotonic() + timeout_sec
-        while time.monotonic() < deadline:
-            turn = self.store.load_turn(session_id, turn_id)
-            if turn is None:
+        while True:
+            if (turn := self.store.load_turn(session_id, turn_id)) is None:
                 raise KeyError("chat turn was not found")
             if turn.get("status") in TERMINAL_TURN_STATES:
                 return turn
-            time.sleep(0.02)
-        raise TimeoutError("chat turn wait timed out")
+            if (remaining := deadline - time.monotonic()) <= 0:
+                raise TimeoutError("chat turn wait timed out")
+            with self.lock:
+                done_event = self.turn_done_events.get((session_id, turn_id))
+            (done_event.wait if done_event else time.sleep)(remaining if done_event else min(0.02, remaining))
 
     def close_session(self, session_id: str) -> bool:
         with self._session_adapter_lock(session_id):
