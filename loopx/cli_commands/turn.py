@@ -18,7 +18,6 @@ from ..capabilities.reward_memory import (
     run_configured_turn_outcome_ingest_fail_open,
 )
 from ..capabilities.periodic_report.cadence_runtime import extend_cadence_turn_start_dispatch
-from ..capabilities.periodic_report.pending_intent import periodic_report_pending_intent_interaction_hook
 from ..control_plane.quota.live_decision import build_live_quota_should_run_decision
 from ..control_plane.agents.workspace_guard import capture_delivery_workspace
 from ..control_plane.quota.heartbeat_receipt import (
@@ -66,11 +65,16 @@ from .lark_inbox import (
 from .turn_dsh_host import build_dsh_host_runner
 from .turn_registration import register_turn_commands as register_turn_commands
 from .turn_inspection import handle_turn_journal_inspection
+from .turn_decision import (
+    apply_controller_advisory_primary,
+    build_turn_decision_builder,
+    collect_turn_status_payload,
+)
+from .turn_managed_step import handle_turn_managed_step
 from .turn_rendering import (
     render_loopx_turn_execution_markdown as _render_loopx_turn_execution_markdown,
     render_loopx_turn_plan_markdown as _render_loopx_turn_plan_markdown,
 )
-from .turn_selection import turn_controller_advisory_primary
 from .turn_todo_writeback import (
     write_turn_repair_update,
     write_turn_validated_completion,
@@ -108,10 +112,16 @@ def handle_turn_command(
     )
     if inspection_result is not None:
         return inspection_result
+    managed_step_result = handle_turn_managed_step(
+        args,
+        registry_path=registry_path,
+        runtime_root_arg=runtime_root_arg,
+        output_format=output_format,
+        print_payload=print_payload,
+    )
+    if managed_step_result is not None:
+        return managed_step_result
     try:
-        scan_roots = [Path(item).expanduser() for item in args.scan_path]
-        if not scan_roots:
-            scan_roots = [Path(args.scan_root).expanduser()]
         runtime_root = resolve_status_projection_cache_runtime_root(
             registry_path=registry_path,
             runtime_root_override=runtime_root_arg,
@@ -144,60 +154,30 @@ def handle_turn_command(
         operator_inbox_urgency_projector = build_lark_operator_inbox_urgency_projector(
             runtime_root_arg=runtime_root,
         )
-        status_payload = collect_status(
-            registry_path=registry_path,
-            runtime_root_override=runtime_root_arg,
-            scan_roots=scan_roots,
-            limit=max(max(0, args.limit), AUTONOMOUS_REPLAN_PERIODIC_LOOKBACK),
-            goal_id=args.goal_id,
-            available_capabilities=args.available_capabilities,
-        )
+        scan_roots = [Path(item).expanduser() for item in args.scan_path]
+        if not scan_roots:
+            scan_roots = [Path(args.scan_root).expanduser()]
         scheduler_context = scheduler_execution_context_for_turn(
             host=args.host,
             execution_mode=args.execution_mode,
             scheduler_owner=args.scheduler_owner,
         )
-        def build_turn_decision(
-            *, requested_action_todo_id: str | None = None
-        ) -> dict[str, Any]:
-            return build_live_quota_should_run_decision(
-                status_payload,
-                goal_id=args.goal_id,
-                agent_id=args.agent_id,
-                available_capabilities=args.available_capabilities,
-                include_scheduler_detail=False,
-                codex_app_current_rrule=None,
+        # Decision building is shared with the managed step so both owners
+        # always answer from the same control-plane projection.
+        decision = apply_controller_advisory_primary(
+            build_turn_decision_builder(
+                args,
                 registry_path=registry_path,
                 runtime_root=runtime_root,
-                route_source="loopx_turn_plan",
-                scheduler_execution_context=scheduler_context,
-                operator_inbox_urgency_projector=operator_inbox_urgency_projector,
-                bounded_research_frontier_projector=(
-                    project_live_explore_composition_frontier
+                runtime_root_arg=runtime_root_arg,
+                status_payload=collect_turn_status_payload(
+                    args,
+                    registry_path=registry_path,
+                    runtime_root_arg=runtime_root_arg,
                 ),
-                requested_action_todo_id=requested_action_todo_id,
                 turn_start_hook_dispatch=turn_start_hook_dispatch,
-                interaction_projection_hooks=(periodic_report_pending_intent_interaction_hook(
-                    registry_path=registry_path, runtime_root=runtime_root,
-                    goal_id=args.goal_id, agent_id=args.agent_id),),
             )
-
-        decision = build_turn_decision()
-        controller_default = turn_controller_advisory_primary(decision)
-        if controller_default is not None:
-            primary_todo_id, advisory_portfolio = controller_default
-            decision = build_turn_decision(
-                requested_action_todo_id=primary_todo_id,
-            )
-            selected_todo = decision.get("selected_todo")
-            if not isinstance(selected_todo, dict) or (
-                selected_todo.get("todo_id") != primary_todo_id
-            ):
-                raise ValueError(
-                    "Turn controller advisory primary failed current eligibility"
-                )
-            selected_todo["selected_by"] = "turn_controller_advisory_primary"
-            decision["action_portfolio"] = advisory_portfolio
+        )
         resume_identity = {
             "goal_id": args.resume_goal_id,
             "agent_id": args.resume_agent_id,
