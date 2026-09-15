@@ -166,3 +166,13 @@ caption { text-align: left; font-size: 12px; margin-bottom: 12px; color: var(--b
   .github { padding: 12px 10px; font-size: 12px; }
   .index-note { flex-direction: column; gap: 8px; }
 }
+
+/* Approved vector figures: native-size reading on narrow screens. */
+.architecture-viewport { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; background: #fff; }
+.architecture-viewport a { display: block; }
+.architecture-viewport img { display: block; width: 100%; height: auto; }
+.architecture-viewport:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+.architecture-hint { display: block; margin-top: 6px; }
+@media (max-width: 600px) {
+  .architecture-viewport a { min-width: 960px; }
+}
