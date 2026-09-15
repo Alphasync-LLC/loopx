@@ -15,7 +15,10 @@ from .subagent_execution_topology import (
     bind_child_operations_to_topology,
     build_subagent_execution_topology,
 )
-from ..quota.turn_envelope import turn_envelope_action_signature_document
+from ..quota.turn_envelope import (
+    TURN_ENVELOPE_SCHEMA_VERSION,
+    turn_envelope_action_signature_document,
+)
 from ..scheduler.execution_context import (
     scheduler_execution_context_for_turn,
 )
@@ -28,7 +31,6 @@ LOOPX_ITERATION_CONTEXT_POLICY_SCHEMA_VERSION = (
     "loopx_iteration_context_policy_v0"
 )
 LOOPX_CHILD_HOST_OPERATION_SCHEMA_VERSION = "loopx_child_host_operation_v0"
-TURN_ENVELOPE_SCHEMA_VERSION = "loopx_turn_envelope_v0"
 SUPPORTED_HOSTS = {"codex-cli", "claude-code", "dsh", "generic-cli"}
 SUPPORTED_EXECUTION_MODES = {"interactive-visible", "isolated-headless"}
 SUPPORTED_ITERATION_CONTEXT_POLICIES = {"fresh", "resume_if_available"}

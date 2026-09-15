@@ -34,7 +34,7 @@ def commands_from(run: dict | None) -> list[str]:
     return commands
 
 
-def assert_control_plane_change_selects_state_machine_validation() -> None:
+def assert_control_plane_change_retains_state_machine_and_vocabulary_validation() -> None:
     payload = build_premerge_validation_gate(
         changed_files=[
             "loopx/control_plane/work_items/interaction_contract.py",
@@ -59,6 +59,7 @@ def assert_control_plane_change_selects_state_machine_validation() -> None:
     assert any("interaction-contract-state-machine-smoke.py" in item for item in catalog_commands), payload
     assert not any("control-plane-integrated-canary-smoke.py" in item for item in catalog_commands), payload
     assert any("heartbeat-quota-flow-smoke.py" in item for item in catalog_commands), payload
+    assert any("semantic-vocabulary-drift-smoke.py" in item for item in catalog_commands), payload
     assert any("bounded-context-namespace-smoke.py" in item for item in catalog_commands), payload
     assert risk_commands, payload
     assert payload["gate"]["status"] == "preview_only", payload
@@ -513,7 +514,7 @@ def assert_inherited_maintainability_red_is_advisory_only() -> None:
 
 
 def main() -> None:
-    assert_control_plane_change_selects_state_machine_validation()
+    assert_control_plane_change_retains_state_machine_and_vocabulary_validation()
     assert_public_docs_change_adds_boundary_scan()
     assert_quick_public_docs_change_skips_risk_profile_smokes()
     assert_public_boundary_scan_executes_in_process()
