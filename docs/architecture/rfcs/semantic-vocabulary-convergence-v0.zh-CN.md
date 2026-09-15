@@ -313,8 +313,8 @@ PR 中重新生成清单。
 
 | 声明 | 测试或证据 | 要求结果 | 边界 / 排除 |
 | --- | --- | --- | --- |
-| 基线上注册表与清单和代码一致 | `python3 examples/semantic-vocabulary-drift-smoke.py` | `ok` 并输出覆盖、棘轮、预算与孪生报告 | 只证明已注册词表与已映射载体的一致性 |
-| 清单新鲜 | `python3 scripts/generate_semantic_inventory.py --check` | 退出码 0 | 仅结构性映射 |
+| 基线上注册表与清单和代码一致 | `python3.11 examples/semantic-vocabulary-drift-smoke.py` | `ok` 并输出覆盖、棘轮、预算与孪生报告 | 只证明已注册词表与已映射载体的一致性 |
+| 清单新鲜 | `python3.11 scripts/generate_semantic_inventory.py --check` | 退出码 0 | 仅结构性映射 |
 | 扫描器分类规则 | `pytest tests/architecture/test_semantic_inventory.py` | 通过 | 夹具仓库；规则来自本 RFC 而非输出 |
 | Python 侧扩宽 `effective_action` 时失败关闭 | 通过 `==`、成员测试或条件表达式加一个未注册字面量 | 失败文本命名该值与文件 | 突变练习；非提交测试 |
 | TypeScript 侧扩宽 `effective_action` 时失败关闭 | 通过 `===` 或三元表达式加一个未注册字面量 | 同上 | 同上 |
@@ -506,7 +506,7 @@ PR 中重新生成清单。
 | E2 | `loopx/` 下 28 个不同的 `effective_action` 字面量 | `1dc6ad8d8` | smoke 的 `literal_scan` | 28 | 受正则约束；不含散文提及 |
 | E3 | 控制面下 43 对 py/ts 孪生 | `1dc6ad8d8` | smoke 孪生报告 | 43 | 仅同名规则 |
 | E4 | 旧字段分布 | `1dc6ad8d8` | smoke 预算报告 | 见注册表 | 模块提及数，非调用点 |
-| E6 | 闭集载体全局普查 | `1dc6ad8d8` | `python3 scripts/generate_semantic_inventory.py` 摘要 | 102 枚举、490 闭集、8 别名、40 数组、2002 命名常量、166 孪生、25/58 分叉、18/59 冲突 | AST 与 `as const` 文本扫描；仅模块级 |
+| E6 | 闭集载体全局普查 | `1dc6ad8d8` | `python3.11 scripts/generate_semantic_inventory.py` 摘要 | 102 枚举、490 闭集、8 别名、40 数组、2002 命名常量、166 孪生、25/58 分叉、18/59 冲突 | AST 与 `as const` 文本扫描；仅模块级 |
 | E7 | 第一版扫描模式捕获零个 TypeScript 站点 | `1dc6ad8d8` | 对每个含 `effective_action` 的 `.ts` 行应用该模式 | 7 个分发文件中 0 个匹配；`===` 总是失败 | 受模式约束 |
 | E8 | 第一版 smoke 全绿时基线上已有两个未注册 `effective_action` 值 | `1dc6ad8d8` | `turn_journal.ts:656` 三元表达式 | `observe_replay`、`block_replay` | 同上 |
 | E9 | owner 检查跳过了裸模块 owner | `1dc6ad8d8` | 第一版 smoke 的 `if "::" in python_owner` | `effective_action` 的 owner 从未被检查 | 读码加突变 |

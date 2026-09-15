@@ -375,8 +375,8 @@ inventory in the same PR.
 
 | Claim | Test or evidence | Required result | Boundary / exclusions |
 | --- | --- | --- | --- |
-| Registry and inventory match the code at baseline | `python3 examples/semantic-vocabulary-drift-smoke.py` | `ok` with coverage, ratchet, budget, and twin report | Proves parity for registered vocabularies and mapped carriers only |
-| Inventory is fresh | `python3 scripts/generate_semantic_inventory.py --check` | exit 0 | Structural map only |
+| Registry and inventory match the code at baseline | `python3.11 examples/semantic-vocabulary-drift-smoke.py` | `ok` with coverage, ratchet, budget, and twin report | Proves parity for registered vocabularies and mapped carriers only |
+| Inventory is fresh | `python3.11 scripts/generate_semantic_inventory.py --check` | exit 0 | Structural map only |
 | Scanner classification rules | `pytest tests/architecture/test_semantic_inventory.py` | pass | Fixture repository; rules from this RFC, not from output |
 | A widened `effective_action` set fails closed in Python | Add an unregistered literal via `==`, membership, or conditional expression | Failure names the value and file | Mutation exercise; not a committed test |
 | A widened `effective_action` set fails closed in TypeScript | Add an unregistered literal via `===` or a ternary | Same | Same |
@@ -602,7 +602,7 @@ commit-time check until a required PR job collects it.
 | E2 | 28 distinct `effective_action` literals across `loopx/` | `1dc6ad8d8` | the smoke's `literal_scan` | 28 | Pattern-bound; prose mentions excluded |
 | E3 | 43 py/ts twins under the control plane | `1dc6ad8d8` | smoke twin report | 43 | Same-basename rule only |
 | E4 | Legacy field spread | `1dc6ad8d8` | smoke budget report | see registry | Module mentions, not call sites |
-| E6 | Global census of closed-set carriers | `1dc6ad8d8` | `python3 scripts/generate_semantic_inventory.py` summary | 102 enums, 490 closed sets, 8 aliases, 40 arrays, 2002 named constants, 166 twins, 25/58 forks, 18/59 conflicts | AST and `as const` text scan; module-level only |
+| E6 | Global census of closed-set carriers | `1dc6ad8d8` | `python3.11 scripts/generate_semantic_inventory.py` summary | 102 enums, 490 closed sets, 8 aliases, 40 arrays, 2002 named constants, 166 twins, 25/58 forks, 18/59 conflicts | AST and `as const` text scan; module-level only |
 | E7 | First scan pattern captured zero TypeScript sites | `1dc6ad8d8` | pattern applied to every `.ts` line containing `effective_action` | 0 of 7 dispatching files matched; `===` always failed | Pattern-bound |
 | E8 | Two `effective_action` values unregistered on baseline while the first smoke was green | `1dc6ad8d8` | `turn_journal.ts:656` ternary | `observe_replay`, `block_replay` | Same |
 | E9 | Owner check skipped a bare-module owner | `1dc6ad8d8` | first smoke's `if "::" in python_owner` | `effective_action` owner never checked | Code reading plus mutation |
