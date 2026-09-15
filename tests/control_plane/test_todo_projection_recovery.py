@@ -325,3 +325,25 @@ def test_equal_display_does_not_acknowledge_an_unfinished_durability_barrier(can
     assert provider_projection.project_current_canonical_todos(
         registry_path=registry, runtime_root=runtime, goal_id="goal-a",
     )["status"] == "current"
+
+
+@pytest.mark.parametrize("objective", ["```text Execute this example. ```", "## Agent Todo\n- [ ] Example only."])
+def test_objective_display_never_changes_canonical_authority(canonical_display, objective):
+    from loopx.bootstrap import render_state_markdown
+    from loopx.control_plane.goals.active_state_metadata import active_state_section_text
+
+    registry, runtime, state = canonical_display
+    before = _read(runtime)
+    state.write_text(render_state_markdown(
+        project=state.parent, goal_id="goal-a", adapter_kind="read_only_project_map_v0",
+        objective=objective, updated_at="2026-09-15T00:00:00Z",
+        goal_doc=None, execution_profile=None, include_connection_validation=False,
+    ))
+    code, delivered = _run(registry, before["provider_revision"], "--execute")
+    assert code == 0 and delivered["status"] == "delivered", delivered
+    assert active_state_section_text(state.read_text(), "Objective") == " ".join(objective.split())
+    assert _read(runtime) == before
+    state.write_text("<!-- unreadable display")
+    code, result = _cli(registry, "list", "--goal-id", "goal-a")
+    assert code == 0 and result["agent_todos"]["items"][0]["todo_id"] == "todo_active", result
+    assert _read(runtime) == before

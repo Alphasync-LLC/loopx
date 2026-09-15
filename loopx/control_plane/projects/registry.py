@@ -13,7 +13,9 @@ from ..todos.active_state_editing import atomic_write_state_text as _atomic_writ
 from ..coordination.legacy_writer_fence import legacy_todo_write_transaction, require_legacy_state_replacement_allowed
 from ...paths import DEFAULT_RUNTIME_ROOT
 from ...registry import atomic_write_json
-from ..goals.active_state_metadata import markdown_blockquote, markdown_frontmatter_string
+from ..goals.active_state_metadata import (
+    markdown_blockquote, markdown_frontmatter_string, split_state_frontmatter,
+)
 from ...repository_identity import normalize_repository_identity
 from .contract import validate_project_record_bindings
 
@@ -175,6 +177,22 @@ adapter_id: {goal_id}
 """
 
 
+def _registration_state_matches(existing: str, expected: str, *, objective: str) -> bool:
+    """Compare metadata values and exact narrative without rewriting old state."""
+    existing_metadata, existing_body = split_state_frontmatter(existing)
+    expected_metadata, expected_body = split_state_frontmatter(expected)
+    if existing_metadata != expected_metadata:
+        return False
+    marker = "\n## Objective\n\n"
+    existing_prefix, separator, existing_section = existing_body.partition(marker)
+    expected_prefix, _, expected_section = expected_body.partition(marker)
+    if not separator or existing_prefix != expected_prefix:
+        return False
+    quoted = markdown_blockquote(objective)
+    remainder = expected_section[len(quoted):]
+    return existing_section in (quoted + remainder, objective + remainder)
+
+
 def register_project_goal(
     *,
     registry_path: Path,
@@ -327,19 +345,9 @@ def register_project_goal(
                     if existing_updated_at is not None
                     else None
                 )
-                legacy_state = (
-                    matching_state.replace(
-                        f"objective: {markdown_frontmatter_string(objective)}\n",
-                        f"objective: {json.dumps(objective, ensure_ascii=False)}\n",
-                        1,
-                    ).replace(
-                        f"## Objective\n\n{markdown_blockquote(objective)}\n",
-                        f"## Objective\n\n{objective}\n",
-                        1,
-                    )
-                    if matching_state is not None else None
-                )
-                if existing_state not in (matching_state, legacy_state):
+                if matching_state is None or not _registration_state_matches(
+                    existing_state, matching_state, objective=objective,
+                ):
                     raise ValueError(
                         f"goal state file conflicts with registration: {state_file}"
                     )
