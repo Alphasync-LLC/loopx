@@ -34,7 +34,12 @@ Configuration does not fabricate `result_hash`, `last_checked_at`,
 `monitor_effect_id`, no-change counts or material-change generations. These
 belong to the observation lifecycle (`quota monitor-poll` / typed
 `MonitorPollObservation`), and raw configuration attempts reject. Historical
-import/create codecs retain their own source-validation contract.
+import/create codecs retain their own source-validation contract; the no-change
+replan threshold stays one of those import/create-owned fields rather than a
+public configuration knob. Mapping identity is not a schedule field: a Monitor
+successor may carry `target_key` as its route identity without becoming a
+Monitor, while cadence, due time, expiry and watch-only require
+`task_class=continuous_monitor`.
 
 Once a Monitor has observation evidence, its target identity cannot be changed
 or cleared by configuration. Create a new independent Monitor for a different
@@ -68,7 +73,10 @@ Monitor 配置修改复用 `todo update`。晋升后由 TS 在同一个 canonica
 旧值，Python API 可用单字段 `None` 明确清除；同一次修改必须保留到期、resume
 条件或 watch-only 中至少一项。单改频率沿用旧语义，从修改时间计算下次检查；要保留指定时间，显式传入 next_due_at。
 观察 hash、时间、effect ID、无变化次数和变化代数由 observation lifecycle 写入，
-普通配置不能伪造。已有观察证据时不能更换／清除 target，新目标应新建独立 Monitor。
+普通配置不能伪造；无变化重规划阈值仍属于 create/import 合同，不作为公开配置项。
+已有观察证据时不能更换／清除 target，新目标应新建独立 Monitor。target 是路由身份
+而非调度字段：Monitor 后继 Todo 可以只带 target 而不成为 Monitor，频率、到期、
+检查时间和 watch-only 仍要求 task_class=continuous_monitor。
 
 已有 claim／exclusion／lease 检查继续生效，lease proof 不会因配置而续期。Chat
 委托 owner 动作和带 lease 的 polling 尚未闭合，文字理由不能替代可信授权。
