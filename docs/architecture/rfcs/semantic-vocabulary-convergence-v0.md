@@ -357,6 +357,50 @@ when a value is added or removed after M0.5; `cross_module` only if promoted
 whose listed symbol is a journal or receipt writer marks the vocabulary
 `persisted`, which is the fact Q2 and Q10 wait on.
 
+### Formal model and proof boundary
+
+The registry is a finite specification of a larger program semantics. Let
+`V` be the set of registered vocabularies, `Val(v)` the admitted values of a
+vocabulary `v`, and `S` the set of source sites. The model records relations,
+not just names:
+
+```text
+D ⊆ S × V                         defines
+P ⊆ S × V × Val(v)                produces
+C ⊆ S × V × Val(v)                consumes or branches on
+I ⊆ S × V × V                     interprets one vocabulary as another
+T ⊆ S × V                         passes through without changing meaning
+G ⊆ V × V × (Val ⇀ Val ∪ {reject}) projects
+R ⊆ S × V × Version               persists a value durably
+```
+
+The minimum semantic obligations are:
+
+1. **Producer closedness:** `Produced(v) ⊆ Val(v)`. A recognised producer
+   cannot write a value outside the registered set.
+2. **Canonical liveness:** `Canonical(v) ⊆ Produced(v) ∪ CompatibilityOnly(v)`.
+   A value that is only compared is dead or compatibility-only, never
+   canonical.
+3. **Consumer domain closedness:** `Accepted(c) ⊆ Val(v)`, unless the consumer
+   explicitly declares an external or partial domain.
+4. **Scope separation:** a name collision is a semantic conflict only when the
+   declared scopes overlap. Spelling alone cannot establish equivalence.
+5. **Projection totality:** for every source value, a projection maps to a
+   target value or explicit `reject`.
+6. **Persistence compatibility:** a persisted vocabulary change preserves all
+   readers or declares a versioned migration.
+
+These are different proof obligations. M0 establishes owner-set equality,
+cross-runtime parity, the declared executable projection, and inventory
+freshness. Fixed literal forms and closed-set carriers provide bounded evidence,
+not whole-program proof. M0.5 adds bounded producer and scope checks. Producer
+discovery over dynamic code, behavioural equivalence of `same_concept`, and
+persisted-reader compatibility remain unproved until their source-to-sink
+edges are modelled. The registry stores this proof boundary in
+`formal_model`; an `unproved` property is an explicit limitation, never an
+implicit pass.
+
+
 ### State model and schema
 
 `loopx/semantics/vocabulary_v0.json`, `schema_version`
@@ -373,6 +417,7 @@ vocabulary key fails the smoke.
 | `vocabularies.<name>.scope` (M0.5) | `global` or `bounded_context`; a `bounded_context` entry lists `contexts`, each with one owner symbol | Closed enumeration; declared bounded-context names are excluded from `multi_value_forks`; an undeclared multi-module name stays a fork (I14) |
 | `vocabularies.<name>.producers` (M0.5) | `path::Symbol` sites that write the field, required for `kernel` | Every site writes registered values only; every value not under `compatibility_only` has at least one site or a variable-sourced entry (I12, I13) |
 | `vocabularies.<name>.compatibility_only` (M0.5) | values kept so readers of persisted records still resolve them | Subset of `values`; zero production sites; each carries a `value_notes` reason and a retirement milestone |
+| `formal_model` | finite universes, role relations, semantic obligations, and established/bounded/unproved claims | Exact schema and invariant ids are checked by the drift smoke; enforcement stages cannot be mistaken for completed proofs |
 | `vocabularies.<name>.value_notes`, `deprecated_values` | per-value review notes; values slated for removal | Names must be registered values |
 | `relations.same_concept` | groups of `vocabulary.value` members | Every member resolves |
 | `relations.shared_field_names` | one field name, its slots and the vocabulary or values each carries | Every slot resolves |
@@ -491,6 +536,7 @@ inventory in the same PR.
 | A producer of an unregistered value fails (M0.5) | Write `effective_action: "brand_new"` in a listed producer site | Fails naming the site and the value even though no consumer compares it | I13; production is stricter than comparison |
 | A bounded-context name leaves the fork budget only by declaration (M0.5) | Declare `SOURCE_SURFACES` with its four contexts; separately, rename one definition without declaring | The declaration lowers `multi_value_forks` to 3; the rename alone does not | I14; the honest fix is a registry edit a reviewer sees, the rename is code without registry change |
 | An upstream merge can stale the committed inventory | Replay the scanner over the first parent and the merge of the last twenty `upstream/main` merge commits | 8 of 20 merges change at least one carrier | Measured cost of committing a snapshot; the handling rule is Section 10 and Section 12 Q9 |
+| The formal model cannot silently lose a proof obligation | Remove an invariant, role, relation, or proof-boundary category from `formal_model` | The drift smoke fails on the exact formal-model shape | The model is a finite contract and proof ledger; it does not prove the listed properties by itself |
 
 Known limits, stated so the check is not over-trusted:
 

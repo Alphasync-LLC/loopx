@@ -294,6 +294,38 @@ M0.5 之后新增或删除值时；`cross_module` 只在晋升后（Q8）。持�
 答的属性：若某个已列生产者符号是 journal 或 receipt 的写方，该词表标为
 `persisted`，这正是 Q2 与 Q10 等待的事实。
 
+### 形式模型与证明边界
+
+注册表是更大程序语义的有限规格。令 `V` 为已注册词表集合，`Val(v)` 为词表
+`v` 允许的值集合，`S` 为源码位点集合。模型记录的是关系，而不只是名称：
+
+```text
+D ⊆ S × V                         定义词表
+P ⊆ S × V × Val(v)                生产值
+C ⊆ S × V × Val(v)                消费或据值分支
+I ⊆ S × V × V                     将一个词表解释为另一个词表
+T ⊆ S × V                         不改变含义地透传
+G ⊆ V × V × (Val ⇀ Val ∪ {reject}) 做投影
+R ⊆ S × V × Version               将值持久化
+```
+
+最低语义义务如下：
+
+1. **生产闭包：** `Produced(v) ⊆ Val(v)`。被识别的生产者不能写入注册集合之外的值。
+2. **规范值存活：** `Canonical(v) ⊆ Produced(v) ∪ CompatibilityOnly(v)`。只被比较、
+   没有生产来源的值是死值或兼容值，不能是 canonical。
+3. **消费者定义域闭包：** `Accepted(c) ⊆ Val(v)`，除非消费者显式声明外部定义域或部分定义域。
+4. **作用域分离：** 只有声明作用域相交时，同名冲突才是语义冲突。拼写本身不能证明等价。
+5. **投影全性：** 每个源值都必须映射到目标值，或显式映射为 `reject`。
+6. **持久化兼容性：** 持久化词表改变时，必须保持所有读者可读，或声明带版本的迁移。
+
+这些是不同的证明义务。M0 已建立 owner 集合相等、跨运行时 parity、声明的可执行投影
+和 inventory 新鲜度。固定字面量形式与闭集载体只提供有界证据，不是全程序证明。M0.5
+增加有界的生产者和作用域检查。动态代码中的完整生产者发现、`same_concept` 的行为等价、
+以及持久化读者兼容性，在建模源码到结果的边之前仍然是未证明状态。注册表通过
+`formal_model` 保存这条证明边界；标记为 `unproved` 的性质是显式局限，不能被当作默认通过。
+
+
 ### 状态模型与 schema
 
 `loopx/semantics/vocabulary_v0.json`，`schema_version` 为
@@ -310,6 +342,7 @@ M0.5 之后新增或删除值时；`cross_module` 只在晋升后（Q8）。持�
 | `vocabularies.<name>.scope`（M0.5） | `global` 或 `bounded_context`；`bounded_context` 条目列出 `contexts`，每个含一个 owner 符号 | 封闭枚举；已声明的有界上下文名字从 `multi_value_forks` 排除；未声明的多模块名字仍是分叉（I14） |
 | `vocabularies.<name>.producers`（M0.5） | 写入该字段的 `path::Symbol` 位点，`kernel` 必填 | 每个位点只写注册值；未列入 `compatibility_only` 的每个值至少有一个位点或一条变量来源条目（I12、I13） |
 | `vocabularies.<name>.compatibility_only`（M0.5） | 为让已持久化记录的读者仍能解析而保留的值 | `values` 的子集；零生产位点；每个值带 `value_notes` 理由与退休里程碑 |
+| `formal_model` | 有限的集合、角色关系、语义义务，以及已建立/有界/未证明的声明 | 漂移 smoke 校验精确 schema 和不变量 ID；属性实施阶段不能冒充已完成证明 |
 | `vocabularies.<name>.value_notes`、`deprecated_values` | 逐值评审备注；计划删除的值 | 名字必须是已注册值 |
 | `relations.same_concept` | `vocabulary.value` 成员组 | 每个成员可解析 |
 | `relations.shared_field_names` | 一个字段名、其槽位及各槽位承载的词表或值 | 每个槽位可解析 |
@@ -411,6 +444,7 @@ PR 中重新生成清单。
 | 有界上下文名字只能靠声明离开分叉预算（M0.5） | 为 `SOURCE_SURFACES` 声明四个上下文；另行只改名其中一处定义而不声明 | 声明把 `multi_value_forks` 降到 3；单独改名不降 | I14；诚实的修法是评审者看得见的注册表修改，改名是不碰注册表的代码改动 |
 
 | 上游合并会让已提交清单过期 | 对 `upstream/main` 最近二十个合并提交，在第一父提交与合并结果之间重放扫描器 | 20 次合并中 8 次至少改变一个载体 | 提交快照的实测成本；处理规则见第 10 节与第 12 节 Q9 |
+| 形式模型不能静默丢失证明义务 | 从 `formal_model` 删除不变量、角色、关系或证明边界分类 | 漂移 smoke 针对形式模型结构失败 | 该模型是有限契约和证明账本，本身不等于这些性质已经被证明 |
 
 已知边界，写明是为了不让这个检查被过度信任：
 
