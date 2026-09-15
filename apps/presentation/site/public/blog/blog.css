@@ -166,3 +166,14 @@ caption { text-align: left; font-size: 12px; margin-bottom: 12px; color: var(--b
   .github { padding: 12px 10px; font-size: 12px; }
   .index-note { flex-direction: column; gap: 8px; }
 }
+
+/* Body-only architecture figures; existing article and opening layout are unchanged. */
+.architecture-map .architecture-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.architecture-map .architecture-lane { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 6px; }
+.architecture-map .architecture-lane-title { margin: 0 0 16px; font-size: 12px; font-weight: 600; color: var(--ink); }
+.architecture-map .architecture-exchange { display: grid; gap: 8px; margin-top: 16px; padding: 16px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); font-size: 13px; line-height: 1.7; }
+.architecture-map .architecture-note { display: grid; gap: 6px; margin-top: 16px; padding: 16px; border: 1px dashed #aaa; border-radius: 6px; font-size: 13px; line-height: 1.7; }
+@media (max-width: 600px) {
+  .architecture-map .architecture-columns, .architecture-map .diagram-pair { grid-template-columns: minmax(0, 1fr); }
+  .architecture-map .architecture-lane { padding: 12px; }
+}
