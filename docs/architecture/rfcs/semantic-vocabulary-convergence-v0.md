@@ -166,9 +166,11 @@ the TypeScript runtime each own one spelling of the same idea.
   lowered in any PR. Each budget is additionally pinned by a `BUDGET_ANCHOR`
   (or `RETIREMENT_ANCHOR`) literal inside the smoke, and each floor by a
   `COVERAGE_ANCHOR`, following the `RFC_MODULE_BUDGETS` anchor pattern in
-  `tests/control_plane/test_m6_quality_gates.py`: the registry may tighten past
-  the anchor and never loosen past it. Raising an anchor requires editing a code
-  literal, where a reviewer sees it beside the JSON.
+  `tests/control_plane/test_m6_quality_gates.py`, with one deliberate
+  difference: the registry value must **equal** the anchor. The precedent
+  compares with `<=`, which lets a budget tightened below the anchor be raised
+  back to the anchor later without any code edit. Equality makes every
+  tightening a two-file diff and every loosening a code edit a reviewer sees.
 - **I6 Same-diff visibility.** A semantic change and its registry edit or
   inventory regeneration land in one reviewable diff.
 - **I7 Deterministic and public-safe.** The check reads tracked sources only,
@@ -188,6 +190,12 @@ the TypeScript runtime each own one spelling of the same idea.
   shared-vocabulary subset only; module-local convention names such as
   `SCHEMA_VERSION`, `COMMAND`, or `*_LABEL` stay visible in the inventory totals
   but are not drift.
+- **I10 On the pull-request path.** The drift smoke runs inside the default
+  `pytest` sweep through `tests/architecture/test_semantic_vocabulary_drift.py`,
+  so it fails closed on every pull request that runs the Python tests. Fleet
+  discovery under `examples/` and the `repo-architecture-budget` premerge
+  profile are additional surfaces, not the obligation: the fleet runs after
+  merge and on a schedule, and premerge selects by changed-path tokens.
 
 ## 3. Scope and non-goals
 
@@ -379,6 +387,9 @@ inventory in the same PR.
 | Conflicting spellings cannot grow | Add a third value for an already-conflicting name, regenerate | Failure names the definitions budget | Same |
 | A multi-value collision cannot grow | Define one closed-set name in two modules with divergent values, or with equal values, and regenerate | `multi_value_forks` or `multi_value_twins` fails naming the new name | Mutation exercise; not a committed test |
 | The registry cannot relax its own ratchet | Lower any `coverage_floor` count, raise any `inventory_ratchets` budget, or raise a retirement budget, in the same diff that removes the coverage it counts | `COVERAGE_ANCHOR`, `BUDGET_ANCHOR`, or `RETIREMENT_ANCHOR` fails naming the anchored value | Mutation exercise; moving an anchor is a code edit a reviewer sees |
+| A tightened budget cannot drift back to a stale anchor | Lower a registry budget without touching the anchor | Failure says the registry value and the anchor differ | Equality, not `<=`; the fix is to lower the anchor in the same diff |
+| The smoke is on the pull-request path | `pytest tests/architecture/test_semantic_vocabulary_drift.py` | pass; the test is collected by the default `pytest -q` sweep in `python-tests.yml` | The fleet and premerge surfaces are not the obligation (I10) |
+| Premerge selects the smoke for a `loopx/` diff | `loopx canary premerge --changed-file loopx/control_plane/turn_driver/loop_controller.py` | the plan lists `examples/semantic-vocabulary-drift-smoke.py` under `repo-architecture-budget` | Selection is by trigger hint; the pytest wrapper is the guarantee |
 | Measurement covers both carrier shapes and filters local naming | `pytest tests/architecture/test_semantic_inventory.py` | pass, including the collision and module-local-convention fixtures | Rules come from this RFC, not from scanner output |
 | No behavior change from the two owner fixes | `pytest tests/test_loopx_turn_transaction.py tests/test_loop_turn_loop_controller.py tests/test_turn_loop_disposition.py tests/test_loopx_turn_managed_step.py tests/control_plane -k authority` and `loopx canary premerge --from-git-diff` | pass | Environment failures already present on `main` are excluded when reproduced on a clean tree |
 | Docs governance accepts the RFC pair | `python3 examples/docs-governance-smoke.py` | pass | Checks mirror, links, index |
@@ -400,13 +411,29 @@ Known limits, stated so the check is not over-trusted:
   and the literal together or restructure the line; the failure text names the
   file so this is visible in review.
 - **Anchors are code, not history.** A PR can still move an anchor; it cannot do
-  so without editing a named literal next to the registry change.
+  so without editing a named literal next to the registry change. Because the
+  check is equality, a stale anchor is impossible, but the anchor also carries
+  no memory of the lowest value ever reached; that history is the git log.
 
 ## 10. Operational contract
 
-The check cannot affect a running system: it executes only in premerge and CI.
-Its operator surface is the failure text. No observability, capacity, or
-on-call contract applies.
+The check cannot affect a running system: it executes only in tests, premerge,
+and CI. Its operator surface is the failure text. No observability, capacity,
+or on-call contract applies.
+
+Where it runs, and which surface is the obligation:
+
+| Surface | Trigger | Selection | Role |
+| --- | --- | --- | --- |
+| `pytest` sweep, `python-tests.yml` | every pull request whose classification runs the Python tests | always collected via `tests/architecture/test_semantic_vocabulary_drift.py` | **The commit-time obligation (I10)** |
+| `loopx canary premerge` | local, before opening a PR | `repo-architecture-budget` profile, trigger hints include `loopx/`, `examples/`, `scripts/`, `refactor` | Early local signal |
+| Full public smoke fleet | push to `main`, daily schedule, manual dispatch | `examples/**/*-smoke.py` discovery | Post-merge confirmation; not a PR-required check by design |
+
+Before this table existed the RFC said the smoke ran "in premerge and CI". On
+the baseline that was true only after merge: premerge did not select the smoke
+for a diff touching `loopx/control_plane/` alone, and the fleet workflow is
+deliberately not a PR-required check. A fleet-discovered smoke is not a
+commit-time check until a required PR job collects it.
 
 ## 11. Normative delivery plan
 
@@ -535,6 +562,32 @@ on-call contract applies.
   `maintainability_ratchet` exception lifecycle" to "share its anchor pattern",
   because this smoke already uses that pattern.
 
+### 2026-09-15 — M0 placed on the pull-request path after a third review
+
+- **Baseline:** `1dc6ad8d8`
+- **Trigger:** a third review asked where the smoke actually runs. A premerge
+  plan for a diff touching only `loop_controller.py` and `turn_envelope.ts`
+  listed 32 commands and not this smoke; `full-public-smokes.yml` triggers on
+  push to `main` and a daily schedule and is documented as intentionally not a
+  PR-required check. The only surface that runs on every pull request is the
+  `pytest` sweep, and the committed test covered the scanner on fixtures only.
+  The RFC's "commit-time" claim therefore held only after merge.
+- **Also found:** every anchor compared with `<=` (or `>=` for floors), copied
+  faithfully from the `RFC_MODULE_BUDGETS` precedent. A budget tightened below
+  its anchor in one PR could be raised back to the anchor in a later PR with no
+  code edit, so the ratchet stalled at whatever value the anchor last held.
+- **Delivered:** `tests/architecture/test_semantic_vocabulary_drift.py` runs
+  the smoke as a subprocess inside the default sweep; the smoke is added to the
+  `repo-architecture-budget` premerge profile beside the maintainability
+  ratchet; all three anchor comparisons become equality; I10 added; Section 10
+  gains the surface table.
+- **Evidence:** Appendix C, E14 to E16.
+- **Known gaps:** the pytest wrapper costs about three seconds per sweep;
+  premerge selection still depends on a trigger hint matching the changed path.
+- **Effect on normative design:** I5 restated as equality with the reason for
+  departing from the precedent; I10 added; Section 9 gains three rows; Section
+  10 rewritten from one sentence to a surface table.
+
 ## Appendix B: Decision log
 
 | Date | Decision | Owner / approval | Alternatives | Normative sections changed |
@@ -557,6 +610,9 @@ on-call contract applies.
 | E5 | Nine drift mutations fail closed (unregistered literal with and without digits, forked constant, TS kind removed, Python enum widened, projection changed, legacy field regrown, dead registry value, new py/ts twin) | `1dc6ad8d8` + local edit, restored after each run | temporary edit then the smoke, run with `python3 -B` | 9/9 exit 1 with the offending value or file named | Local exercise, not a committed test; a same-size same-second edit needs `-B` to defeat stale bytecode |
 | E11 | The registry could relax its own ratchet in one diff | `1dc6ad8d8` + local edit | fourteen registry mutations: lower one floor, lower all floors, lower a floor while dropping the owner it counts, raise every `inventory_ratchets` entry, raise one entry, raise a retirement budget | 7 escaped before the anchors, 0 escape after; each caught failure names the anchored value | Local exercise, not a committed test |
 | E12 | 599 multi-value carriers were listed but never compared | `1dc6ad8d8` | collision rule applied to enums, closed sets, `Literal` aliases, and `as const` arrays | 4 same-name forks (10 definitions) and 19 twins already on the baseline, none budgeted; `SOURCE_SURFACES` alone has four divergent value sets | Name-keyed; a rename removes a name from the comparison |
+| E14 | The smoke was not on the pull-request path | `1dc6ad8d8` + M0 | `loopx canary premerge --changed-file loopx/control_plane/turn_driver/loop_controller.py --changed-file loopx/control_plane/quota/turn_envelope.ts`; `.github/workflows/full-public-smokes.yml` triggers | 32 commands planned, smoke absent; fleet runs on push to `main` and schedule only | Selection by path token; CI wiring read from the workflow files |
+| E15 | A tightened budget could drift back to its anchor | `1dc6ad8d8` + M0 | `ratchets[key] <= BUDGET_ANCHOR[key]` and `floor[key] >= anchored` in the smoke | any value between the tightened budget and the anchor passed | Code reading; the precedent uses the same comparison |
+| E16 | Equality closes the stall and the wrapper reaches the sweep | `1dc6ad8d8` + M0 | lower one `inventory_ratchets` entry with the anchor untouched, then `pytest tests/architecture/test_semantic_vocabulary_drift.py` on the clean tree | the mutation fails naming both values; the wrapper passes in about three seconds | Local exercise plus committed test |
 | E13 | The conflict budget mostly measured local naming | `1dc6ad8d8` | `MODULE_LOCAL_CONVENTION` applied to `conflicting_values` and `same_runtime_forks` names | 16 of 18 conflicts and 7 of 25 forks are module-local conventions; the semantic subsets are 2 and 18 | Classification is a name pattern, documented in the scanner and pinned by a fixture test |
 
 ## Appendix D: Rejected or superseded alternatives
@@ -585,6 +641,13 @@ projection proven to be a bijection after M2.
   the coverage counts, and reject owners that are not `module::Symbol`.
 - A ratchet on names alone lets an already-conflicting name gain a third
   spelling. Budget definitions as well as names.
+- A smoke the fleet discovers is not a commit-time check. Ask on which
+  required PR job it is collected, and plan a diff that touches only the
+  guarded code to see whether selection finds it. If the answer is "after
+  merge", the invariant is a report, not a gate.
+- An anchor compared with `<=` pins only the value it held when written. Every
+  tightening below it is unprotected until someone remembers to move the
+  anchor. Compare with equality so the two values cannot separate.
 - One field name can carry several vocabularies inside one envelope; a scan
   that sees the field cannot see the slot. Record the slots as a relation so
   the ambiguity is a registered fact, not an accident the registry blesses.

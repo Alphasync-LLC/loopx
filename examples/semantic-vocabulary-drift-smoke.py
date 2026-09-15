@@ -53,8 +53,10 @@ STATUSES = {"canonical", "legacy", "merge_candidate"}
 # in the registry so one single-diff edit to ``vocabulary_v0.json`` cannot relax
 # the ratchet that guards it. Same anchor pattern as
 # ``tests/control_plane/test_m6_quality_gates.py::RFC_MODULE_BUDGETS``: the
-# registry may tighten past these values and never loosen past them, and moving
-# one requires editing this literal, where a reviewer sees it next to the JSON.
+# registry value must equal the anchor, so tightening a budget edits this literal
+# and the JSON in one diff, and a later PR cannot raise the JSON back toward a stale
+# anchor. A `<=` comparison would let every tightening below the anchor be undone
+# silently; that is the gap the anchor exists to close.
 COVERAGE_ANCHOR = {
     "vocabularies": 26,
     "owner_symbols": 46,
@@ -186,9 +188,9 @@ def check_coverage_floor(registry: dict[str, Any]) -> str:
     require(set(floor["literal_scan_suffixes"]) <= declared_suffixes, f"literal scans must still cover {floor['literal_scan_suffixes']}; declared {sorted(declared_suffixes)}")
     for key, anchored in COVERAGE_ANCHOR.items():
         require(
-            floor[key] >= anchored,
-            f"coverage_floor.{key} is {floor[key]}, below the anchored minimum {anchored}; "
-            "the registry cannot relax its own floor (see COVERAGE_ANCHOR in this smoke)",
+            floor[key] == anchored,
+            f"coverage_floor.{key} is {floor[key]} but COVERAGE_ANCHOR pins {anchored}; "
+            "the registry and the anchor move together in one diff (see COVERAGE_ANCHOR in this smoke)",
         )
     for suffix in COVERAGE_SUFFIX_ANCHOR:
         require(suffix in set(floor["literal_scan_suffixes"]), f"coverage_floor.literal_scan_suffixes dropped the anchored suffix {suffix}")
@@ -355,9 +357,9 @@ def check_retirement_budgets(registry: dict[str, Any], sources: list[SourceFile]
             actual = sum(1 for file in sources if file.suffix == suffix and field in file.text)
             require(actual <= budgets[key], f"legacy field {field} grew to {actual} {suffix} modules; budget is {budgets[key]}")
             require(
-                budgets[key] <= anchored,
-                f"legacy field {field} {suffix} budget is {budgets[key]}, above the anchored maximum {anchored}; "
-                "the registry cannot relax its own budget (see RETIREMENT_ANCHOR in this smoke)",
+                budgets[key] == anchored,
+                f"legacy field {field} {suffix} budget is {budgets[key]} but RETIREMENT_ANCHOR pins {anchored}; "
+                "the registry and the anchor move together in one diff (see RETIREMENT_ANCHOR in this smoke)",
             )
             report.append(f"{field}{suffix}={actual}/{budgets[key]}")
     return report
@@ -383,9 +385,9 @@ def check_inventory(registry: dict[str, Any], sources: list[SourceFile]) -> tupl
     for key in RATCHET_KEYS:
         require(summary[key] <= ratchets[key], f"inventory {key} grew to {summary[key]}; budget is {ratchets[key]}")
         require(
-            ratchets[key] <= BUDGET_ANCHOR[key],
-            f"inventory {key} budget is {ratchets[key]}, above the anchored maximum {BUDGET_ANCHOR[key]}; "
-            "the registry cannot relax its own budget (see BUDGET_ANCHOR in this smoke)",
+            ratchets[key] == BUDGET_ANCHOR[key],
+            f"inventory {key} budget is {ratchets[key]} but BUDGET_ANCHOR pins {BUDGET_ANCHOR[key]}; "
+            "the registry and the anchor move together in one diff (see BUDGET_ANCHOR in this smoke)",
         )
         parts.append(f"{key}={summary[key]}/{ratchets[key]}")
     return inventory, " ".join(parts)

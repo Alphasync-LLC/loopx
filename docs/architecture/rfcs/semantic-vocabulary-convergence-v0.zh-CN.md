@@ -143,8 +143,9 @@ todos、capabilities 与 TypeScript 运行时各自拥有同一想法的一种�
   里另由一个 `BUDGET_ANCHOR`（或 `RETIREMENT_ANCHOR`）字面量钉住，每个下限由
   一个 `COVERAGE_ANCHOR` 钉住，沿用
   `tests/control_plane/test_m6_quality_gates.py` 的 `RFC_MODULE_BUDGETS` 锚点
-  模式：注册表可以比锚点更紧，永远不能比锚点更松。调高锚点必须改一个代码
-  字面量，评审者会在 JSON 旁边看到它。
+  模式，但有一处刻意的不同：注册表的值必须**等于**锚点。先例用 `<=` 比较，
+  这会让一个已收紧到锚点以下的预算，在之后的 PR 里不改任何代码就涨回锚点。
+  相等性让每次收紧都是两个文件的 diff，每次放松都是评审者可见的代码修改。
 - **I6 同 diff 可见。** 语义变化与其注册表修改或清单再生成落在同一个可评审
   diff 里。
 - **I7 确定性且公开安全。** 检查只读已跟踪源码，不需网络或凭据，失败文本只
@@ -159,6 +160,11 @@ todos、capabilities 与 TypeScript 运行时各自拥有同一想法的一种�
   中被定义，值集相同是孪生，值集不同是分叉。冲突预算只统计共享词表子集；
   `SCHEMA_VERSION`、`COMMAND`、`*_LABEL` 这类模块局部约定名仍保留在清单
   总数中可见，但不算漂移。
+- **I10 在 PR 路径上。** 漂移 smoke 通过
+  `tests/architecture/test_semantic_vocabulary_drift.py` 跑在默认 `pytest`
+  扫描里，因此在每个运行 Python 测试的 PR 上失败即关闭。`examples/` 下的舰队
+  发现与 `repo-architecture-budget` premerge profile 是附加表面，不是义务：
+  舰队在合并后和按日程运行，premerge 按改动路径的 token 选择。
 
 ## 3. 范围与非目标
 
@@ -319,6 +325,9 @@ PR 中重新生成清单。
 | 冲突拼法不能增长 | 为已冲突名字加第三种值，重新生成 | 失败命名定义数预算 | 同上 |
 | 多值冲突不能增长 | 让一个闭集名在两个模块中以不同值集定义，或以相同值集定义，并重新生成 | `multi_value_forks` 或 `multi_value_twins` 失败并命名新名字 | 突变练习；非提交测试 |
 | 注册表不能放松自己的棘轮 | 在同一 diff 中调低任一 `coverage_floor` 计数、调高任一 `inventory_ratchets` 预算或退休预算，同时删掉它所统计的覆盖 | `COVERAGE_ANCHOR`、`BUDGET_ANCHOR` 或 `RETIREMENT_ANCHOR` 失败并命名被锚定的值 | 突变练习；挪动锚点是一次评审者可见的代码修改 |
+| 已收紧的预算不能漂回过期锚点 | 只调低注册表预算而不动锚点 | 失败文本指出注册表值与锚点不等 | 用相等而非 `<=`；修法是同 diff 调低锚点 |
+| smoke 在 PR 路径上 | `pytest tests/architecture/test_semantic_vocabulary_drift.py` | 通过；该测试被 `python-tests.yml` 的默认 `pytest -q` 扫描收集 | 舰队与 premerge 表面不是义务（I10） |
+| premerge 会为 `loopx/` 的 diff 选中该 smoke | `loopx canary premerge --changed-file loopx/control_plane/turn_driver/loop_controller.py` | 计划在 `repo-architecture-budget` 下列出 `examples/semantic-vocabulary-drift-smoke.py` | 选择靠触发词；pytest 包装才是保证 |
 | 度量覆盖两种载体形状并过滤局部命名 | `pytest tests/architecture/test_semantic_inventory.py` | 通过，含冲突与模块局部约定两组夹具 | 规则来自本 RFC 而非扫描输出 |
 | 两处 owner 修正不改变行为 | `pytest tests/test_loopx_turn_transaction.py tests/test_loop_turn_loop_controller.py tests/test_turn_loop_disposition.py tests/test_loopx_turn_managed_step.py tests/control_plane -k authority` 与 `loopx canary premerge --from-git-diff` | 通过 | 在干净树上可复现的 `main` 既有环境失败除外 |
 | 文档治理接受这对 RFC | `python3 examples/docs-governance-smoke.py` | 通过 | 检查镜像、链接、索引 |
@@ -336,12 +345,26 @@ PR 中重新生成清单。
   `effective_action` 的值。为了让失败消失而登记被报告的值会扩宽词表，正确做法
   是同时登记字段名与字面量，或改写该行；失败文本会给出文件，评审时可见。
 - **锚点是代码而非历史。** PR 仍可挪动锚点，但必须修改一个具名字面量，就在
-  注册表改动的旁边。
+  注册表改动的旁边。因为检查是相等性，锚点不可能过期，但它也不记住曾达到的
+  最低值；那段历史在 git log 里。
 
 ## 10. 运维契约
 
-该检查不可能影响运行中的系统：它只在 premerge 与 CI 中执行。其操作者界面就是
-失败文本。不适用可观测性、容量或值班契约。
+该检查不可能影响运行中的系统：它只在测试、premerge 与 CI 中执行。其操作者
+界面就是失败文本。不适用可观测性、容量或值班契约。
+
+它在哪里运行，以及哪个表面是义务：
+
+| 表面 | 触发 | 选择 | 角色 |
+| --- | --- | --- | --- |
+| `pytest` 扫描，`python-tests.yml` | 每个分类为需运行 Python 测试的 PR | 经 `tests/architecture/test_semantic_vocabulary_drift.py` 始终被收集 | **提交时义务（I10）** |
+| `loopx canary premerge` | 本地，开 PR 之前 | `repo-architecture-budget` profile，触发词含 `loopx/`、`examples/`、`scripts/`、`refactor` | 早期本地信号 |
+| 全量公共 smoke 舰队 | push 到 `main`、每日日程、手动触发 | `examples/**/*-smoke.py` 发现 | 合并后确认；按设计不是 PR 必需检查 |
+
+在这张表存在之前，RFC 说 smoke "在 premerge 与 CI 中运行"。在基线上这只在合并
+后成立：premerge 对只改 `loopx/control_plane/` 的 diff 不会选中该 smoke，而舰队
+工作流被刻意设为非 PR 必需检查。舰队能发现的 smoke 不是提交时检查，除非某个
+必需的 PR 作业收集它。
 
 ## 11. 规范性交付计划
 
@@ -448,6 +471,27 @@ PR 中重新生成清单。
 - **被收紧的未决项：** Q7 可能从"采纳 `maintainability_ratchet` 的例外
   生命周期"收敛为"共用它的锚点模式"，因为本 smoke 已经在用该模式。
 
+### 2026-09-15 — 第三次评审后把 M0 放上 PR 路径
+
+- **基线：** `1dc6ad8d8`
+- **触发：** 第三次评审问 smoke 到底在哪里运行。对只改 `loop_controller.py`
+  与 `turn_envelope.ts` 的 diff 做 premerge 规划，得到 32 条命令，不含本
+  smoke；`full-public-smokes.yml` 只在 push 到 `main` 与每日日程触发，且文档
+  写明刻意不作 PR 必需检查。每个 PR 都跑的唯一表面是 `pytest` 扫描，而已提交
+  的测试只覆盖夹具上的扫描器。RFC 的"提交时"声明因此只在合并后成立。
+- **同时发现：** 每个锚点都用 `<=`（下限用 `>=`）比较，忠实复制了
+  `RFC_MODULE_BUDGETS` 先例。一个 PR 把预算收紧到锚点以下后，后续 PR 可以不
+  改代码把它涨回锚点，棘轮停在锚点最后的值上。
+- **交付：** `tests/architecture/test_semantic_vocabulary_drift.py` 在默认扫描
+  里以子进程运行 smoke；smoke 加入 `repo-architecture-budget` premerge
+  profile，与可维护性棘轮并列；三处锚点比较改为相等；新增 I10；第 10 节增加
+  表面表格。
+- **证据：** 附录 C 的 E14 到 E16。
+- **已知缺口：** pytest 包装每次扫描约耗 3 秒；premerge 选择仍依赖触发词匹配
+  改动路径。
+- **对规范设计的影响：** I5 改述为相等并说明偏离先例的理由；新增 I10；第 9 节
+  增三行；第 10 节从一句话改写为表面表格。
+
 ## 附录 B：决策日志
 
 | 日期 | 决策 | Owner / 批准 | 备选 | 变更的规范章节 |
@@ -470,6 +514,9 @@ PR 中重新生成清单。
 | E5 | 九个漂移突变全部失败关闭（含数字与不含数字的未注册字面量、分叉常量、删除 TS 种类、扩宽 Python 枚举、改投影、旧字段回涨、注册表死值、新 py/ts 孪生） | `1dc6ad8d8` + 本地改动，每次运行后恢复 | 临时改动后以 `python3 -B` 运行 smoke | 9/9 退出码 1 并命名违规值或文件 | 本地练习，非提交测试；同尺寸同秒改写需 `-B` 绕过过期字节码 |
 | E11 | 注册表可以在一个 diff 内放松自己的棘轮 | `1dc6ad8d8` + 本地改动 | 十四种注册表突变：调低一个下限、调低全部下限、在删掉它统计的 owner 的同时调低下限、调高全部 `inventory_ratchets` 条目、调高单个条目、调高一个退休预算 | 锚点前 7 种逃逸，锚点后 0 种；每个被捕获的失败都命名被锚定的值 | 本地练习，非提交测试 |
 | E12 | 599 个多值载体只被列出、从未被比较 | `1dc6ad8d8` | 对枚举、闭集、`Literal` 别名与 `as const` 数组应用冲突规则 | 基线上已有 4 个同名分叉（10 个定义）与 19 个孪生，均未入预算；仅 `SOURCE_SURFACES` 就有四套不同值集 | 按名字归组；一次改名会把一个名字移出比较 |
+| E14 | smoke 不在 PR 路径上 | `1dc6ad8d8` + M0 | `loopx canary premerge --changed-file loopx/control_plane/turn_driver/loop_controller.py --changed-file loopx/control_plane/quota/turn_envelope.ts`；`.github/workflows/full-public-smokes.yml` 的触发条件 | 规划 32 条命令，smoke 缺席；舰队只在 push 到 `main` 与日程运行 | 按路径 token 选择；CI 接线读自工作流文件 |
+| E15 | 已收紧的预算可以漂回锚点 | `1dc6ad8d8` + M0 | smoke 中的 `ratchets[key] <= BUDGET_ANCHOR[key]` 与 `floor[key] >= anchored` | 收紧后的预算与锚点之间的任何值都能通过 | 代码阅读；先例用同样的比较 |
+| E16 | 相等性关闭停滞，包装进入扫描 | `1dc6ad8d8` + M0 | 只调低一个 `inventory_ratchets` 条目而不动锚点，然后在干净树上跑 `pytest tests/architecture/test_semantic_vocabulary_drift.py` | 突变失败并同时命名两个值；包装约 3 秒通过 | 本地练习加已提交测试 |
 | E13 | 冲突预算主要在度量局部命名 | `1dc6ad8d8` | 对 `conflicting_values` 与 `same_runtime_forks` 名字应用 `MODULE_LOCAL_CONVENTION` | 18 个冲突中 16 个、25 个分叉中 7 个是模块局部约定；语义子集分别为 2 与 18 | 分类是名字模式，已在扫描器中说明并由夹具测试钉住 |
 
 ## 附录 D：被否决或取代的方案
@@ -491,5 +538,10 @@ PR 中重新生成清单。
 - 当注册表既是规范又是校验器的输入，一次数据修改就能削弱校验器。把识别形式
   留在代码里、给覆盖计数设下限、拒绝不是 `module::Symbol` 的 owner。
 - 只按名字计数的棘轮会放过已冲突名字的第三种拼法。定义数与名字数都要预算。
+- 舰队能发现的 smoke 不是提交时检查。要问它被哪个必需的 PR 作业收集，并用
+  一个只改被守护代码的 diff 做规划，看选择是否找到它。如果答案是"合并后"，
+  这条不变量就是报告，不是门。
+- 用 `<=` 比较的锚点只钉住写下它时的值。之后的每次收紧都无保护，直到有人记得
+  挪锚点。用相等性比较，两个值就分不开。
 - 同一个字段名可以在一个 envelope 里承载多套词表；看得见字段的扫描看不见
   槽位。把槽位记为关系，让歧义成为已登记的事实，而不是注册表背书的意外。
