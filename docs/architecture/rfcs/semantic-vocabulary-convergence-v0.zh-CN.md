@@ -180,10 +180,17 @@ todos、capabilities 与 TypeScript 运行时各自拥有同一想法的一种�
   版本；六个旧 should-run 字段；控制面孪生数量；清单的分叉与冲突预算。
 - 后续里程碑：把 `effective_action` 变成类型化枚举、拆分其三个槽位、通过契约
   发布投影、按现有仓库规则退休旧字段与孪生模块。
+- 扫描根是 `loopx/` 包。本 RFC 说的"全仓库"指 `loopx/` 下两个运行时的全部
+  载体，不是 git 树里的每个文件。清单的 `root` 与每条 `literal_scan.roots`
+  都写 `loopx`，smoke 不读其他目录。
 
 ### 非目标
 
 - 改变任何运行时决策、载荷形状或线上格式。
+- 扫描 `apps/`（基线约 90 个 TypeScript 文件）或 `examples/`（十余处 smoke 里
+  的 `effective_action` 断言）。它们是消费者与测试替身，不是生产者；一个断言
+  了未注册值的 smoke 对 M0 不可见，在某个里程碑扩根之前接受这一点，扩根也会
+  抬高第 10 节的合并序成本。
 - 手工策展每个闭集。清单映射全部闭集；只有跨模块或跨运行时边界并被分发的
   词表才带 owner、值与关系进入策展层。
 - 取代 `turn_transaction_contract.json` 或
@@ -229,6 +236,16 @@ todos、capabilities 与 TypeScript 运行时各自拥有同一想法的一种�
 
 禁止的替代权威：第二份注册表、复述已注册值的模块内列表，或宣称对已注册词表
 具有规范性的散文表格。
+
+**名字的作用域（计划在 M0.5，不在 M0）。** 碰撞规则按名字归组，因此分不清
+"一个分叉"与"四个恰好复用同一标识符的有界上下文"。`SOURCE_SURFACES` 是第一
+个案例：它在 `global_risks.py`、`global_todos.py`、`summary_all.py`、
+`pr_review.py` 的四处定义各自列出那一个 CLI 命令的数据来源，值集本来就该不
+同。它今天被计入 `multi_value_forks`，且不得用改名来"修"，因为改名只让数字
+下降、不改变代码含义。M0.5 给注册表加 `scope` 字段，至少含 `global` 与
+`bounded_context`，允许一个有界上下文名字连同其所属上下文声明一次，并把已
+声明的名字从分叉预算移出。在此之前分叉预算是一个包含这一处已知误分类的上
+限，记在注册表 `inventory_ratchets` 的备注里。
 
 ### 状态模型与 schema
 
@@ -338,6 +355,9 @@ PR 中重新生成清单。
 | 度量覆盖两种载体形状并过滤局部命名 | `pytest tests/architecture/test_semantic_inventory.py` | 通过，含冲突与模块局部约定两组夹具 | 规则来自本 RFC 而非扫描输出 |
 | 两处 owner 修正不改变行为 | `pytest tests/test_loopx_turn_transaction.py tests/test_loop_turn_loop_controller.py tests/test_turn_loop_disposition.py tests/test_loopx_turn_managed_step.py tests/control_plane -k authority` 与 `loopx canary premerge --from-git-diff` | 通过 | 在干净树上可复现的 `main` 既有环境失败除外 |
 | 文档治理接受这对 RFC | `python3 examples/docs-governance-smoke.py` | 通过 | 检查镜像、链接、索引 |
+| 退休预算按子串而非标识符计数 | 分别以 `in file.text` 与 `\bgoal_boundary\b` 统计 `goal_boundary` | 基线上 35 对 30 个 Python 模块 | 已知边界；M3 的零读者门需要标识符计数，见第 12 节 |
+| 模块局部约定过滤器是一次代码修改 | 扩宽 `inventory.py` 的 `MODULE_LOCAL_CONVENTION` 并重新生成 | `*_semantic` 预算下降而别处无代码改动 | 已知边界；正则在代码里，扩宽是可评审的 diff，未过滤总数仍在预算内 |
+| 上游合并会让已提交清单过期 | 对 `upstream/main` 最近二十个合并提交，在第一父提交与合并结果之间重放扫描器 | 20 次合并中 8 次至少改变一个载体 | 提交快照的实测成本；处理规则见第 10 节与第 12 节 Q9 |
 
 已知边界，写明是为了不让这个检查被过度信任：
 
@@ -376,6 +396,22 @@ heartbeat/quota 覆盖。quick 与 deep 档位的上限不变。
 工作流被刻意设为非 PR 必需检查。舰队能发现的 smoke 不是提交时检查，除非某个
 必需的 PR 作业收集它。
 
+**合并序风险。** `inventory_v0.json` 是整个 `loopx/` 树的已提交快照，树与快照
+不一致时 smoke 失败。两个各自新增载体、各自正确再生成清单的 PR，对着它们
+各自基于的 `main` 都是绿的；后合并的那个会让 `main` 的快照缺少先合并者的
+条目，`main` 上的扫描在有人再生成之前是红的。对 `upstream/main` 最近二十次
+合并的重放显示有八次至少改变一个载体，所以这是每周会发生的事，不是边角。
+本分支第一次同步上游就复现了它：合入的十二个提交新增一个枚举与三个闭集，
+检查失败直到重新生成。处理规则是第 12 节 Q9；在其决定之前的规则是：在
+`main` 变红之后合并 PR 的人负责跟一个只改 `inventory_v0.json` 的再生成提交，
+smoke 的失败文本会点名那条命令。
+
+**解释器。** smoke、生成器与扫描器要求项目声明的 Python（`pyproject.toml`
+中 `>=3.11`）；`zip(strict=True)` 在 3.9 上失败。舰队与 premerge 的命令按仓库
+约定写作 `python3`，在 CI 解释器下运行。macOS 系统 `python3` 是 3.9，本地
+premerge 需要 `PATH` 上有 3.11 环境；文档因此把直接命令写成 `python3.11`，
+planner 条目则有意保留 `python3`。
+
 ## 11. 规范性交付计划
 
 | 里程碑 | 交付行为 | 进入门 | 退出证据 | 回滚 |
@@ -385,6 +421,23 @@ heartbeat/quota 覆盖。quick 与 deep 档位的上限不变。
 | M2 | route 到 disposition 的投影、`decide_loop_disposition` 决策表与跨运行时集合通过共享契约发布，生成 Python 与 TypeScript 绑定，效仿协调契约生成器 | M1 合入；Q2 与 Q7 已决 | 生成器 `--check` 与 smoke 绿；`settlement.ts` 与 `transaction.py` 读取生成集合 | 从上一版契约重新生成 |
 | M3 | 逐字段退休旧 should-run 字段，每个 PR 一个字段，预算降到零并删除字段 | 经生产者/读者调研证明该字段外部读者为零 | 按 `AGENTS.md` 的 schema 缩减记录；附录 B 条目 | 从最后一个写方恢复字段 |
 | M4 | 随迁移 RFC 的每次 replacement-first 切换调低孪生预算 | 每个切换 PR | 同 diff 中的预算修改 | 无需；预算跟随代码 |
+
+没有目标的棘轮只是方向，不是计划。下表是本 RFC 完成时的状态；每一行都是一个
+注册表预算或 smoke 可检查的词表属性。标为*未决*的行等待第 12 节的决策，这也
+是计划在那些决策记录之前只是骨架的原因。
+
+| 表面 | 基线（`1dc6ad8d8`） | 本 RFC 关闭时的目标 | 由谁达成 |
+| --- | --- | --- | --- |
+| `effective_action` 取值 | 33 个字面量，无 owner 符号 | 一个枚举 owner；`skip`、`observe_replay`、`block_replay` 与两个 `quota_action_selection_*` 码从判定槽位移出；约 28 值 | M1 |
+| 同一 envelope 里的 `effective_action` 槽位 | 一个字段名下 3 套词表 | 1，或在 Q6 保留字段时为一个已注册并集 | M1（Q6） |
+| Turn 词表 | 3 套、28 值、21 个不同值、7 个冗余拼法 | 保留 3 套；投影与决策表生成并校验；拼法不变，除非 Q10 决定合并 | M2（Q2、Q10 *未决*） |
+| 同运行时分叉（语义） | 18 个名字 | 0 | 基线窄 PR |
+| 冲突值（语义） | 2 个名字 | 0 | 基线窄 PR |
+| 多值分叉 | 4（1 个误分类） | `scope` 声明有界上下文名字后为 0 | M0.5 + 基线窄 PR |
+| 多值孪生 | 19 | 0 | 基线窄 PR |
+| 旧 should-run 字段 | 6 个字段，124 py / 10 ts 模块提及 | 0 个字段 | M3，按标识符计数 |
+| 合并候选组 | 32 组未评审 | 每组已分类；只合并 `same_semantics` 的组 | 分类表 PR，随后逐组 PR |
+| 控制面 py/ts 孪生 | 43 | 跟随 TypeScript 迁移 RFC；本 RFC 不设目标 | M4 |
 
 ## 12. 未决决策
 
@@ -396,7 +449,10 @@ heartbeat/quota 覆盖。quick 与 deep 档位的上限不变。
    投影覆盖全部输入但非单射（`blocked` 与 `wait` 都映到 `wait`），而 `stop`、
    `terminal`、`contract_error` 只在一侧存在。`same_concept` 关系记录了四个共享
    裁决。建议：两者都保留，M2 发布投影，待 managed-step 消费者成熟后再议。
-   M2 前需定。
+   M2 前需定。保留两者的理由是合并会触及已持久化的 Turn 记录；这个前提尚未
+   核实。决定之前应先用生产者检查确认 `turn_route` 是否曾写入 journal 或
+   receipt，还是只在进程内流转；若是后者，合并的代价远低于本 RFC 的假设，
+   适用 Q10。
 3. **`EffectiveAction` 的 owner 模块。** 注册表今天不声明 owner，因为不存在任何
    符号；字面量扫描是唯一检查。选项：`quota/should_run_packet.py`（最大生产者）、
    新建 `quota/effective_action.py`，或按迁移 RFC 以 TypeScript `turn_envelope.ts`
@@ -419,6 +475,22 @@ heartbeat/quota 覆盖。quick 与 deep 档位的上限不变。
 8. **从清单到注册表的晋升规则。** 外部消费者模块不少于三个或存在跨运行时孪生
    的已映射载体是否必须策展。建议：现在作为评审规则采用，待清单积累一个季度
    历史后再由 smoke 强制。Owner：内核维护者。
+9. **跨合并的清单新鲜度。** 两个新增载体的 PR 先后合并时，已提交快照会过期
+   （第 10 节；上游最近二十次合并中八次）。选项：(a) 分支保护要求 PR 与
+   `main` 同步，根除风险但拖慢所有 PR；(b) 合并者负责一个只再生成的后续提交，
+   快照留在 git 历史里，接受 `main` 红几分钟；(c) 清单不入库，CI 只对 PR diff
+   生成，失去对载体的 `git blame`。建议：现在用 (b)，若 `main` 变红超过每周
+   一次则改 (a)。Owner：仓库维护者。这是运维决策不是代码改动；应放在跟踪
+   issue 的决策清单里，而不是任务清单里。
+10. **Turn 词表的终态。** 第 11 节的目标表默认保留三套与七个冗余拼法，因为
+   Q2 建议保留两者。若 Q2 的生产者检查表明 `turn_route` 未被持久化，维护者
+   应在 (a) 三套加生成投影（现行计划）与 (b) 两阶段合并（先双写、后退休）到
+   每个概念一种拼法之间选择。没有这个决定，RFC 对其标题问题只有预算、没有
+   完成定义。Owner：Turn driver owner。M2 关闭前需定。
+11. **退休预算按标识符计数。** 六个旧字段预算用 `field in file.text` 统计；
+   `goal_boundary` 会匹配 `goal_boundary_repair`。M3 的零外部读者门需要词边界
+   计数，这会在一个 diff 里调低全部六个锚点。建议：在第一个 M3 PR 之前做。
+   Owner：内核维护者。
 
 ## 附录 A：执行账本（非规范）
 
@@ -502,6 +574,29 @@ heartbeat/quota 覆盖。quick 与 deep 档位的上限不变。
 - **对规范设计的影响：** I5 改述为相等并说明偏离先例的理由；新增 I10；第 9 节
   增三行；第 10 节从一句话改写为表面表格。
 
+### 2026-09-15 — 第四次评审 M0：范围、合并序、终态
+
+- **基线：** 已合入 `503991dd2`；`upstream/main` 在 `2f84af990`，领先分支十二
+  个提交。
+- **触发：** 第四次评审问守卫的输入依赖什么、"全仓库"覆盖什么。把十二个上游
+  提交合入临时树后清单过期（一个枚举、三个闭集）；对上游最近二十次合并重放
+  扫描器，八次会有同样结果。RFC 写全仓库，而清单根与每条字面量扫描都写
+  `loopx/`；`examples/` 有十余处 `effective_action` 断言，`apps/` 约九十个
+  TypeScript 文件，smoke 从不读取。
+- **同时发现：** `SOURCE_SURFACES` 是四个 CLI 命令各列自己的数据来源，不是分
+  叉；按名归组的规则无法表达这一点。退休预算按子串计数（`goal_boundary` 35
+  对 30 个标识符模块）。计划有预算但没有终态，四个入口决策没有 owner 期限。
+- **交付：** 第 3 节把扫描根固定为 `loopx/` 并把 `apps/` 与 `examples/` 列为
+  非目标；第 5 节预告 M0.5 的 `scope` 字段并以 `SOURCE_SURFACES` 为首例；第 9
+  节增三行已知边界；第 10 节增合并序风险与解释器两段；第 11 节增终态表；第
+  12 节增 Q9 到 Q11 并给 Q2 加核实说明；注册表 `inventory_ratchets` 增一条关于
+  误分类分叉的备注。代码与预算未变。
+- **有意不做：** premerge planner 保留 `python3`，因为舰队所有命令都这样拼写，
+  runner smoke 也断言了这段文本；改为记录解释器要求。
+- **证据：** 附录 C 的 E17 到 E20。
+- **对规范设计的影响：** 第 3 节范围收窄以匹配代码；第 11 节有了完成定义；第
+  12 节增三条决策。
+
 ## 附录 B：决策日志
 
 | 日期 | 决策 | Owner / 批准 | 备选 | 变更的规范章节 |
@@ -527,6 +622,10 @@ heartbeat/quota 覆盖。quick 与 deep 档位的上限不变。
 | E14 | smoke 不在 PR 路径上 | `1dc6ad8d8` + M0 | `loopx canary premerge --changed-file loopx/control_plane/turn_driver/loop_controller.py --changed-file loopx/control_plane/quota/turn_envelope.ts`；`.github/workflows/full-public-smokes.yml` 的触发条件 | 规划 32 条命令，smoke 缺席；舰队只在 push 到 `main` 与日程运行 | 按路径 token 选择；CI 接线读自工作流文件 |
 | E15 | 已收紧的预算可以漂回锚点 | `1dc6ad8d8` + M0 | smoke 中的 `ratchets[key] <= BUDGET_ANCHOR[key]` 与 `floor[key] >= anchored` | 收紧后的预算与锚点之间的任何值都能通过 | 代码阅读；先例用同样的比较 |
 | E16 | 相等性关闭停滞，包装进入扫描 | `1dc6ad8d8` + M0 | 只调低一个 `inventory_ratchets` 条目而不动锚点，然后在干净树上跑 `pytest tests/architecture/test_semantic_vocabulary_drift.py` | 突变失败并同时命名两个值；包装约 3 秒通过 | 本地练习加已提交测试 |
+| E17 | 上游合并会让已提交清单过期 | `upstream/main` `2f84af990`，最近 20 个 first-parent 合并 | 对每个改动的 `loopx/**/*.{py,ts}` 在第一父提交与合并结果之间比较扫描器事实 | 20 次合并中 8 次至少改变一个载体；本分支自己的上游同步新增 1 个枚举与 3 个闭集 | 事实级比较，等价于完整再生成 |
+| E18 | 声明范围超出扫描根 | `503991dd2` + M0 | 从注册表读 `literal_scan.roots` 与清单 `root`；在 `examples/` 下 `grep` `effective_action` 分发字面量；统计 `apps/` 下 `.ts`/`.tsx` | 根只有 `loopx`；`examples/` 12+ 处断言；`apps/` 90 个文件 | 消费者与测试替身，非生产者 |
+| E19 | `SOURCE_SURFACES` 是四个有界上下文，不是分叉 | `503991dd2` | 从清单读出四个 `multi_value_forks` 定义 | 每个模块列出自己 CLI 命令的数据来源，值互不相交 | 读值后的判断；规则本身做不出 |
+| E20 | 退休预算按子串高估 | `503991dd2` | 对 `loopx/**/*.py` 分别用 `'goal_boundary' in text` 与 `\bgoal_boundary\b` | 35 对 30 个模块 | 标识符计数才是 M3 门的度量 |
 | E13 | 冲突预算主要在度量局部命名 | `1dc6ad8d8` | 对 `conflicting_values` 与 `same_runtime_forks` 名字应用 `MODULE_LOCAL_CONVENTION` | 18 个冲突中 16 个、25 个分叉中 7 个是模块局部约定；语义子集分别为 2 与 18 | 分类是名字模式，已在扫描器中说明并由夹具测试钉住 |
 
 ## 附录 D：被否决或取代的方案
@@ -555,3 +654,11 @@ heartbeat/quota 覆盖。quick 与 deep 档位的上限不变。
   挪锚点。用相等性比较，两个值就分不开。
 - 同一个字段名可以在一个 envelope 里承载多套词表；看得见字段的扫描看不见
   槽位。把槽位记为关系，让歧义成为已登记的事实，而不是注册表背书的意外。
+- 整棵树的已提交快照让守卫的输入依赖别人的合并。提交它之前先量一下树在它
+  之下变化的频率，并写下 `main` 变红时由谁再生成。
+- 按名归组的碰撞规则需要一种方式说"这些是共用一个名字的不同东西"。没有它，
+  诚实的修法与不诚实的修法（改名）降低的是同一个数字，评审者分不出来。
+- 文档比代码更快地扩大范围时，两者必须朝更便宜的那个方向对齐，但必须一致。
+  扫描器没有实现的范围声明是一条假不变量。
+- 只降不升的预算描述的是方向。在第二个里程碑之前写出目标表，否则没人能说
+  工作何时完成。
