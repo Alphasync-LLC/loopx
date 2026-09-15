@@ -655,7 +655,7 @@ def _run_host(
             list(argv),
             cwd=project,
             input=json.dumps(request, ensure_ascii=False, separators=(",", ":")),
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             capture_output=True,
             timeout=max(1.0, timeout_seconds),
             check=False,

@@ -397,7 +397,7 @@ def _run_gate_check(
         completed = subprocess.run(
             argv,
             cwd=repo_root,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=max(1.0, timeout_seconds),

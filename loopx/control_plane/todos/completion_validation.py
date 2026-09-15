@@ -102,7 +102,7 @@ def _git_workspace_is_clean(path: Path) -> bool | None:
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=2,
         )
     except (OSError, subprocess.TimeoutExpired):

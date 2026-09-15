@@ -754,7 +754,7 @@ def run_lark_event_collector(
     process = subprocess.Popen(
         _consume_argv(config, command_prefix),
         stdout=subprocess.PIPE,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         bufsize=1,
     )
     callback_process: subprocess.Popen[str] | None = None
@@ -783,7 +783,7 @@ def run_lark_event_collector(
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             bufsize=1,
         )
         _write_operation_callback_status(

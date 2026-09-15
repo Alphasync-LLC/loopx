@@ -44,7 +44,7 @@ def run_archive_installer(
             try:
                 result = subprocess.run(
                     args,
-                    text=True,
+                    text=True, encoding="utf-8", errors="replace",
                     capture_output=True,
                     env=env,
                     timeout=remaining,
@@ -71,7 +71,7 @@ def run_archive_installer(
                     return subprocess.run(
                         ["bash", str(script)],
                         check=False,
-                        text=True,
+                        text=True, encoding="utf-8", errors="replace",
                         capture_output=True,
                         env=env,
                         timeout=remaining,

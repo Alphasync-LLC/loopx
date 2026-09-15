@@ -172,7 +172,7 @@ def _current_builtin_model_catalog(codex_bin: str) -> Iterator[Path]:
                 env=env,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 timeout=15,
                 check=False,
             )

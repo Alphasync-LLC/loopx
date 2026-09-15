@@ -187,7 +187,7 @@ def update_with_prompts(payload: dict, *, registry: Path, runtime_root: str | No
     try:
         # Do not accidentally import a checkout through the parent's PYTHONPATH.
         env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
-        result = subprocess.run(command, capture_output=True, text=True, env=env,
+        result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env,
                                 timeout=timeout_seconds, cwd=directory)
         report = json.loads(result.stdout)
         if not isinstance(report, dict) or "results" not in report:

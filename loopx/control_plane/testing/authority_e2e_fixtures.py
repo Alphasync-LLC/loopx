@@ -421,7 +421,7 @@ def run_cli(
         cwd=REPO_ROOT,
         env=cli_env(workspace),
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         timeout=timeout,
         check=False,
     )
@@ -444,7 +444,7 @@ def spawn_cli(workspace: CliWorkspace, *args: str) -> subprocess.Popen[str]:
         env=cli_env(workspace),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
     )
 
 
@@ -532,7 +532,7 @@ def ts_readback(
         command,
         cwd=REPO_ROOT,
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         timeout=60,
         check=False,
     )
@@ -591,7 +591,7 @@ def tap_summary(
         cwd=cwd,
         env=dict(env) if env is not None else None,
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         timeout=timeout,
         check=False,
     )

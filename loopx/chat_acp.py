@@ -106,7 +106,7 @@ class ACPStdioAdapter:
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 bufsize=1,
             )
         except OSError as exc:

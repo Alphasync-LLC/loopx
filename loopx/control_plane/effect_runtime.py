@@ -269,7 +269,7 @@ def _probe_node() -> tuple[str, str | None, str | None]:
             [executable, "--version"],
             check=False,
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=2,
         )
     except (OSError, subprocess.TimeoutExpired):

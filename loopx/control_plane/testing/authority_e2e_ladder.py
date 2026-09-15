@@ -246,7 +246,7 @@ def _run_live_matrix_script(environ: Mapping[str, str], *, live: bool) -> JsonOb
         cwd=REPO_ROOT,
         env=env,
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         timeout=900,
         check=False,
     )
@@ -437,7 +437,7 @@ def _row_nokv_live_qualification(context: RowContext) -> RowOutcome:
         cwd=REPO_ROOT,
         env=dict(context.environ),
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         timeout=600,
         check=False,
     )
@@ -916,7 +916,7 @@ def _git_output(*arguments: str) -> str | None:
             ["git", *arguments],
             cwd=REPO_ROOT,
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=30,
             check=False,
         )
