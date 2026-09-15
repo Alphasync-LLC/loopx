@@ -18,6 +18,7 @@ from loopx.control_plane.quota.usage_summary import (
     blank_usage_goal,
     build_usage_summary,
 )
+from loopx.quota import goal_quota_with_spend_ledger
 
 
 def _usage(
@@ -308,6 +309,109 @@ def test_aged_out_void_does_not_reduce_a_later_window() -> None:
     assert summary["goals"][0]["quota_spend_slots_24h"] == 0
     # Both runs are inside the 7d window, so the void cancels its spend.
     assert summary["totals"]["quota_spend_slots_7d"] == 0
+
+
+def test_spend_run_without_resolvable_quota_event_counts_no_slot() -> None:
+    now = datetime.now(timezone.utc)
+    history = {
+        "runs": [
+            {
+                "goal_id": "g1",
+                "generated_at": now - timedelta(minutes=30),
+                "classification": "quota_slot_spent",
+            },
+            _slot_run(
+                "g1",
+                generated_at=now - timedelta(minutes=20),
+                classification="quota_slot_spent",
+                slots=2,
+            ),
+        ]
+    }
+
+    summary = build_usage_summary(history, parse_timestamp=_identity_parse)
+
+    # The ledger records no slot for a spend whose event it cannot read, so the
+    # summary must not invent one either. The run still appears as an accounting
+    # event in the event ledger, so the spend is not hidden, only unquantified.
+    assert summary["totals"]["quota_spend_slots_24h"] == 2
+    assert summary["goals"][0]["quota_spend_slots_24h"] == 2
+
+
+def test_window_slot_spend_matches_the_enforcement_ledger() -> None:
+    """The reported 24h spend must equal the spend the ledger enforces."""
+
+    now = datetime.now(timezone.utc)
+    spent = _slot_run(
+        "g1",
+        generated_at=now - timedelta(hours=2),
+        classification="quota_slot_spent",
+        slots=2,
+    )
+    aged_out = _slot_run(
+        "g1",
+        generated_at=now - timedelta(days=2),
+        classification="quota_slot_spent",
+    )
+    mismatch = _slot_run(
+        "g1",
+        generated_at=now - timedelta(hours=3),
+        classification="quota_slot_spent",
+    )
+    mismatch["classification"] = "quota_slot_voided"
+    scenarios = {
+        "spend": [spent],
+        "spend_and_void": [
+            spent,
+            _slot_run(
+                "g1",
+                generated_at=now - timedelta(hours=1),
+                classification="quota_slot_voided",
+                voided_run_generated_at=str(spent["generated_at"]),
+            ),
+        ],
+        "void_of_an_aged_out_spend": [
+            aged_out,
+            _slot_run(
+                "g1",
+                generated_at=now,
+                classification="quota_slot_voided",
+                voided_run_generated_at=str(aged_out["generated_at"]),
+            ),
+        ],
+        "void_of_another_run": [
+            spent,
+            _slot_run(
+                "g1",
+                generated_at=now - timedelta(hours=1),
+                classification="quota_slot_voided",
+                voided_run_generated_at="some-other-run",
+            ),
+        ],
+        "no_resolvable_event": [
+            {
+                "goal_id": "g1",
+                "generated_at": now - timedelta(hours=4),
+                "classification": "quota_slot_spent",
+            }
+        ],
+        "non_positive_slots": [
+            _slot_run(
+                "g1",
+                generated_at=now - timedelta(hours=5),
+                classification="quota_slot_spent",
+                slots=0,
+            )
+        ],
+        "classification_disagrees_with_event_type": [mismatch],
+    }
+
+    for name, runs in scenarios.items():
+        summary = build_usage_summary({"runs": runs}, parse_timestamp=_identity_parse)
+        ledger = goal_quota_with_spend_ledger({"id": "g1"}, runs, now=now)
+
+        assert summary["totals"]["quota_spend_slots_24h"] == ledger["spent_slots"], name
+        assert summary["goals"][0]["quota_spend_slots_24h"] == ledger["spent_slots"], name
 
 
 def test_void_only_cancels_the_spend_it_targets() -> None:
