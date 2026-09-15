@@ -21,9 +21,17 @@ from loopx.claude_goal_mode.scripts import goalmode_cmd
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _text_mode_calls_without_encoding() -> list[str]:
+def _text_mode_calls_without_utf8_encoding(package_root: Path | None = None) -> list[str]:
+    """Locate text-mode subprocess reads that do not pin UTF-8.
+
+    Reporting only a missing `encoding` keyword is too weak: `encoding="latin-1"`
+    reproduces the same locale bug with an explicit codec, so the guard must
+    check the pinned value as well.
+    """
+
+    root = package_root or (REPO_ROOT / "loopx")
     offenders: list[str] = []
-    for path in sorted((REPO_ROOT / "loopx").rglob("*.py")):
+    for path in sorted(root.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if not (
@@ -34,22 +42,56 @@ def _text_mode_calls_without_encoding() -> list[str]:
                 and node.func.value.id == "subprocess"
             ):
                 continue
-            if "encoding" in [kw.arg for kw in node.keywords]:
+            text_mode = any(
+                kw.arg == "text"
+                and isinstance(kw.value, ast.Constant)
+                and kw.value.value is True
+                for kw in node.keywords
+            )
+            if not text_mode:
                 continue
-            for kw in node.keywords:
-                if (
-                    kw.arg == "text"
+            pinned = next(
+                (
+                    kw.value.value
+                    for kw in node.keywords
+                    if kw.arg == "encoding"
                     and isinstance(kw.value, ast.Constant)
-                    and kw.value.value is True
-                ):
-                    offenders.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno}")
+                    and isinstance(kw.value.value, str)
+                ),
+                None,
+            )
+            if pinned == "utf-8":
+                continue
+            offenders.append(f"{path.relative_to(root.parent)}:{node.lineno}")
     return offenders
 
 
 def test_shipped_runtime_pins_utf8_for_every_text_mode_subprocess_call() -> None:
     """A text-mode child read without an explicit codec reopens the #4155 bug."""
 
-    assert _text_mode_calls_without_encoding() == []
+    assert _text_mode_calls_without_utf8_encoding() == []
+
+
+def test_guard_reports_missing_and_non_utf8_codecs(tmp_path: Path) -> None:
+    """The guard covers a wrong explicit codec, not only a missing keyword."""
+
+    package = tmp_path / "loopx"
+    package.mkdir()
+    (package / "sample.py").write_text(
+        "import subprocess\n"
+        "\n"
+        "\n"
+        "def reads() -> None:\n"
+        "    subprocess.run(['a'], text=True)\n"
+        "    subprocess.run(['b'], text=True, encoding='latin-1')\n"
+        "    subprocess.run(['c'], text=True, encoding='utf-8')\n"
+        "    subprocess.run(['d'], capture_output=True)\n",
+        encoding="utf-8",
+    )
+
+    offenders = _text_mode_calls_without_utf8_encoding(package)
+
+    assert [entry.rsplit(":", 1)[-1] for entry in offenders] == ["5", "6"]
 
 
 def test_goal_mode_cli_probe_survives_gbk_host_locale(monkeypatch) -> None:
