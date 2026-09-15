@@ -64,6 +64,7 @@ from .lark_inbox import (
     build_lark_operator_inbox_urgency_projector,
     dispatch_goal_lark_turn_start_hooks,
 )
+from .turn_decision import apply_controller_advisory_primary
 from .turn_dsh_host import build_dsh_host_runner
 from .turn_registration import register_turn_commands as register_turn_commands
 from .turn_inspection import handle_turn_journal_inspection
@@ -71,7 +72,6 @@ from .turn_rendering import (
     render_loopx_turn_execution_markdown as _render_loopx_turn_execution_markdown,
     render_loopx_turn_plan_markdown as _render_loopx_turn_plan_markdown,
 )
-from .turn_selection import turn_controller_advisory_primary
 from .turn_todo_writeback import (
     write_turn_repair_update,
     write_turn_validated_completion,
@@ -183,22 +183,10 @@ def handle_turn_command(
                     goal_id=args.goal_id, agent_id=args.agent_id),),
             )
 
-        decision = build_turn_decision()
-        controller_default = turn_controller_advisory_primary(decision)
-        if controller_default is not None:
-            primary_todo_id, advisory_portfolio = controller_default
-            decision = build_turn_decision(
-                requested_action_todo_id=primary_todo_id,
-            )
-            selected_todo = decision.get("selected_todo")
-            if not isinstance(selected_todo, dict) or (
-                selected_todo.get("todo_id") != primary_todo_id
-            ):
-                raise ValueError(
-                    "Turn controller advisory primary failed current eligibility"
-                )
-            selected_todo["selected_by"] = "turn_controller_advisory_primary"
-            decision["action_portfolio"] = advisory_portfolio
+        # `run-once` and `managed-step` must resolve the same governing decision,
+        # so the advisory-primary rebinding lives in the shared decision owner
+        # instead of being repeated per subcommand.
+        decision = apply_controller_advisory_primary(build_turn_decision)
         resume_identity = {
             "goal_id": args.resume_goal_id,
             "agent_id": args.resume_agent_id,
