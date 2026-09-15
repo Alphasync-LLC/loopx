@@ -205,6 +205,10 @@ node --no-warnings --experimental-sqlite --experimental-strip-types \
   --output .local/sqlite-matched-64k.json
 ```
 
+For an already promoted Goal, [canonical lease renewal](canonical-lease-renew.md)
+uses the selected provider's CAS and original receipt. It is a command-coverage
+slice, not D2 qualification or a provider-default change.
+
 The no-argument default intentionally replaces the former 4 KiB/100k run with
 a small `rehearsal`; full capacity now requires an explicit profile. The default
 `rehearsal` creates 100/1,000 commits and checks runner execution,

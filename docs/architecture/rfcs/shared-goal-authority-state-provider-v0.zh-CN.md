@@ -49,6 +49,20 @@ head 之外。
 第 1.4 节明确边界；[TS 执行卡](typescript-control-plane-migration-v0.zh-CN.md)
 继续负责业务规则收敛及旧 caller 删除。
 
+### Local provider opening 边界（2026-09-13）
+
+Local runtime 现在通过一个 typed provider handle 解析 File、SQLite 与中期
+PostgreSQL profile。没有 selector 时使用明确的 File 默认值；SQLite selector 仍是
+opt-in local profile；PostgreSQL selector 只有在 service-owned factory 提供
+provider-neutral `AuthorityStore` 时才接受。Selector 不包含凭据或 database client，
+并在任何 command 执行前绑定所选 store identity。
+
+这个边界删除了每个 command 各自构造 provider 的重复，并修正了注入 PostgreSQL
+store 时对外 source label 的错误标记。已选择 provider 的失败保留 source 并 fail
+closed，不能回退到 File 或 Markdown。本次重构为 File/SQLite 默认路径与可切换
+PostgreSQL deployment 做准备，不改变 promotion、D2 soak/retention 或 D3 整 Goal
+cutover hold。
+
 ## 文档地图与维护约定
 
 本文将稳定决策与交付证据分开维护：
@@ -1674,11 +1688,12 @@ Live 行按环境门控（`LOOPX_TEST_POSTGRES_URL`；`NOKV_COORDINATION_LIVE=1`
 `summary.privacy_violations` 阻止 green 退出，任何开关都不能放宽。
 
 交付边界：test-only。没有任何生产入口构造任何 store；ladder 不新增产品路径，
-只经保留的 TypeScript store 读取候选。Stage 2C parity 后半段由上述十个
-`s2c2.*` 行执行；仍有两条声明保持 pending。`s2c2.archive_after_leased_completion_parity`
-记录 parity 行暴露的一个 capture 缺口：对持有已释放 lease 记录的 Todo 执行
-`todo archive-completed` 后，候选 head 仍保留该 lease，而 source 投影会丢弃这条
-已成孤儿的 lease，于是有界 qualification 报告 `shadow_projection_drift`。
+只经保留的 TypeScript store 读取候选。Stage 2C parity 后半段由上述十一个
+`s2c2.*` 行执行；只有一条声明保持 pending。`s2c2.archive_after_leased_completion_parity`
+原先是 parity 行暴露的 capture 缺口声明，现已成为可执行的确定性行：parity 后半段
+在对 Todo 分区做折叠时套用与 source 投影同一条当前图规则，因此对持有已释放 lease
+记录的 Todo 执行 `todo archive-completed` 后，候选 head 仍保持 matched，而不再报告
+`shadow_projection_drift`。
 `s2c2.sustained_parity_soak` 是由 7.2 节与车道 L 负责的 >=10 天合成 goal soak，
 有界 qualification 继续报告 `sustained_parity_verdict=not_evaluated`。本小节记录
 的是上述阶段的可执行证据；它不晋升任何 provider，也不完成 Stage 2C promotion。

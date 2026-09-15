@@ -746,6 +746,108 @@ def test_merge_readiness_rejects_red_pending_and_unresolved_remote_gates() -> No
     }.issubset(blocked["blocking_reasons"]), blocked
 
 
+def test_merge_readiness_uses_latest_check_attempt_per_workflow_job() -> None:
+    pr = _merge_ready_pr()
+    pr["statusCheckRollup"] = [
+        {
+            "__typename": "CheckRun",
+            "workflowName": "Python Tests",
+            "name": "merge-gate",
+            "status": "COMPLETED",
+            "conclusion": "CANCELLED",
+            "startedAt": "2026-09-09T11:00:00Z",
+        },
+        {
+            "__typename": "CheckRun",
+            "workflowName": "Python Tests",
+            "name": "merge-gate",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "startedAt": "2026-09-09T11:05:00Z",
+        },
+        {
+            "__typename": "CheckRun",
+            "workflowName": "Security",
+            "name": "merge-gate",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "startedAt": "2026-09-09T11:01:00Z",
+        },
+    ]
+    ready = merge_readiness_module.build_pr_merge_readiness_packet(
+        pull_request=pr,
+        repository="owner/repo",
+        expected_exact_head=f"4110@{HEAD_1}",
+        reviewer_login="maintainer",
+        review_threads=_complete_review_threads(),
+        source="fixture",
+    )
+
+    assert ready["ready"] is True, ready
+    assert ready["checks"] == {
+        "total": 2,
+        "raw_total": 3,
+        "superseded": 1,
+        "counts": {"success": 2},
+        "summary": "2 successful check(s).",
+        "failures": [],
+        "pending": [],
+    }
+
+
+def test_merge_readiness_keeps_latest_pending_and_ambiguous_attempts() -> None:
+    pr = _merge_ready_pr()
+    pr["statusCheckRollup"] = [
+        {
+            "__typename": "CheckRun",
+            "workflowName": "Python Tests",
+            "name": "pytest",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "startedAt": "2026-09-09T11:00:00Z",
+        },
+        {
+            "__typename": "CheckRun",
+            "workflowName": "Python Tests",
+            "name": "pytest",
+            "status": "IN_PROGRESS",
+            "conclusion": "",
+            "startedAt": "2026-09-09T11:05:00Z",
+        },
+        {
+            "name": "legacy-context",
+            "status": "COMPLETED",
+            "conclusion": "FAILURE",
+        },
+        {
+            "name": "legacy-context",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+        },
+    ]
+    blocked = merge_readiness_module.build_pr_merge_readiness_packet(
+        pull_request=pr,
+        repository="owner/repo",
+        expected_exact_head=f"4110@{HEAD_1}",
+        reviewer_login="maintainer",
+        review_threads=_complete_review_threads(),
+        source="fixture",
+    )
+
+    assert blocked["ready"] is False, blocked
+    assert blocked["checks"]["raw_total"] == 4
+    assert blocked["checks"]["total"] == 3
+    assert blocked["checks"]["superseded"] == 1
+    assert blocked["checks"]["counts"] == {
+        "pending": 1,
+        "failure": 1,
+        "success": 1,
+    }
+    assert {"status_checks_failed", "status_checks_pending"}.issubset(
+        blocked["blocking_reasons"]
+    )
+
+
 def test_merge_readiness_accepts_titled_author_owned_approval_only_with_bypass() -> (
     None
 ):

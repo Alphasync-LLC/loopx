@@ -50,6 +50,7 @@ from .authority_e2e_rows_stage2c import (
     row_migration_seeds_new_lineage,
 )
 from .authority_e2e_rows_stage2c2 import (
+    row_archive_after_leased_completion_parity,
     row_drain_idempotent,
     row_event_only_todo_source_holds,
     row_growth_measurement_gate,
@@ -750,16 +751,18 @@ LADDER_ROWS: tuple[LadderRow, ...] = (
         posix_only=False,
         run=row_growth_measurement_gate,
     ),
+    LadderRow(
+        id="s2c2.archive_after_leased_completion_parity",
+        stage="2c2",
+        title="archiving a Todo whose released lease stays on disk keeps the candidate head matched and qualifiable",
+        product_path="real_cli",
+        gate="deterministic",
+        posix_only=False,
+        run=row_archive_after_leased_completion_parity,
+    ),
 )
 
 PENDING_ROWS: tuple[PendingRow, ...] = (
-    PendingRow(
-        "s2c2.archive_after_leased_completion_parity",
-        "2c2",
-        "the archive-completed writer captures the released lease it orphans: archiving a Todo "
-        "that holds a released lease record leaves that lease in the candidate head while the "
-        "source projection drops it, so bounded qualification reports shadow_projection_drift",
-    ),
     PendingRow(
         "s2c2.sustained_parity_soak",
         "2c2",

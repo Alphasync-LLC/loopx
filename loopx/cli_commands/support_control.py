@@ -16,8 +16,8 @@ from ..chat_server import (
     DEFAULT_CHAT_PORT,
     serve_chat,
 )
-from ..control_plane.scheduler.execution_context import SchedulerRuntimeProfile
 from ..control_plane.reward_memory import reward_memory_goal_policy
+from ..control_plane.scheduler.execution_context import SchedulerRuntimeProfile
 from ..dashboard_launcher import launch_dashboard, replace_existing_loopx_chat
 from ..execution_profile import execution_profile_turn_granularity
 from ..heartbeat_prequota import (
@@ -65,10 +65,9 @@ from .support_control_backup import (
     handle_backup_state_command,
     register_backup_state_command,
 )
-from .support_control_agent_runtime import register_agent_runtime_arguments
+from .support_control_chat import register_chat_and_dashboard_commands
 from .support_control_chat_endpoint import (
     handle_chat_endpoint_command,
-    register_chat_endpoint_command,
 )
 from .support_control_heartbeat_registration import (
     register_heartbeat_control_commands,
@@ -106,6 +105,7 @@ SUPPORT_CONTROL_COMMANDS = {
     "registry-boundary",
     "serve-status",
 } | SUPERVISOR_CONTROL_COMMANDS
+
 
 
 def register_support_control_commands(
@@ -316,136 +316,7 @@ def register_support_control_commands(
     serve_status_parser.add_argument(
         "--verbose", action="store_true", help="Print HTTP request logs."
     )
-
-    chat_parser = subparsers.add_parser(
-        "chat",
-        help="Open the local Goal Studio and review Agent-proposed LoopX Todos.",
-    )
-    chat_parser.add_argument(
-        "--goal-id", help="Goal to select when the local workspace opens."
-    )
-    chat_parser.add_argument(
-        "--host", default=DEFAULT_CHAT_HOST, help="Loopback bind host."
-    )
-    chat_parser.add_argument("--port", type=int, default=DEFAULT_CHAT_PORT)
-    register_agent_runtime_arguments(chat_parser, kiro_cli_bin=KIRO_CLI_BIN)
-    chat_parser.add_argument(
-        "--startup-timeout-seconds",
-        type=float,
-        default=30.0,
-        help="Maximum seconds allowed for Codex app-server startup and handshake.",
-    )
-    chat_parser.add_argument(
-        "--idle-timeout-seconds",
-        type=float,
-        default=180.0,
-        help="Maximum seconds without an upstream event before interrupting the active turn.",
-    )
-    chat_parser.add_argument(
-        "--hard-timeout-seconds",
-        type=float,
-        default=900.0,
-        help="Absolute maximum seconds for one Agent turn.",
-    )
-    chat_parser.add_argument(
-        "--assets-dir",
-        help="Optional LoopX Chat web bundle directory. Defaults to packaged assets.",
-    )
-    chat_parser.add_argument(
-        "--scan-root",
-        default=default_public_scan_root(),
-        help="Public files used by the underlying status projection.",
-    )
-    chat_parser.add_argument(
-        "--scan-path",
-        action="append",
-        default=[],
-        help="Specific public file or directory to scan. Repeatable.",
-    )
-    chat_parser.add_argument("--limit", type=int, default=20)
-    chat_parser.add_argument(
-        "--global-registry",
-        action="store_true",
-        help="Use the shared global registry even when the command runs in a project directory.",
-    )
-    chat_parser.add_argument(
-        "--enable-goal-subagent-configuration",
-        action="store_true",
-        help=(
-            "Enable the preview-locked Goal sub-agent configuration API, "
-            "status projection, and dashboard controls."
-        ),
-    )
-    chat_parser.add_argument(
-        "--no-open",
-        action="store_true",
-        help="Start the local server without opening a browser.",
-    )
-    chat_parser.add_argument(
-        "--replace-existing-loopx-chat",
-        action="store_true",
-        help=argparse.SUPPRESS,
-    )
-    chat_parser.add_argument(
-        "--verbose", action="store_true", help="Print HTTP request logs."
-    )
-
-    register_chat_endpoint_command(subparsers, add_subcommand_format)
-
-    dashboard_parser = subparsers.add_parser(
-        "dashboard",
-        help="Start the local LoopX dashboard, status service, and Chat service.",
-    )
-    dashboard_parser.add_argument(
-        "--goal-id", help="Goal to select when the local workspace opens."
-    )
-    dashboard_parser.add_argument(
-        "--host", default=DEFAULT_CHAT_HOST, help="Loopback bind host."
-    )
-    dashboard_parser.add_argument("--port", type=int, default=DEFAULT_CHAT_PORT)
-    register_agent_runtime_arguments(dashboard_parser, kiro_cli_bin=KIRO_CLI_BIN)
-    dashboard_parser.add_argument(
-        "--assets-dir",
-        help="Optional LoopX Chat web bundle directory. Defaults to packaged assets.",
-    )
-    dashboard_parser.add_argument(
-        "--scan-root",
-        default=default_public_scan_root(),
-        help="Public files used by the underlying status projection.",
-    )
-    dashboard_parser.add_argument(
-        "--scan-path",
-        action="append",
-        default=[],
-        help="Specific public file or directory to scan. Repeatable.",
-    )
-    dashboard_parser.add_argument("--limit", type=int, default=20)
-    dashboard_parser.add_argument(
-        "--global-registry",
-        action="store_true",
-        help="Use the shared global registry even when the command runs in a project directory.",
-    )
-    dashboard_parser.add_argument(
-        "--enable-goal-subagent-configuration",
-        action="store_true",
-        help=(
-            "Enable the preview-locked Goal sub-agent configuration API, "
-            "status projection, and dashboard controls."
-        ),
-    )
-    dashboard_parser.add_argument(
-        "--no-open",
-        action="store_true",
-        help="Start the local server without opening a browser.",
-    )
-    dashboard_parser.add_argument(
-        "--dev",
-        action="store_true",
-        help="Prefer the Vite HMR dev launcher if running from a local repository checkout.",
-    )
-    dashboard_parser.add_argument(
-        "--verbose", action="store_true", help="Print HTTP request logs."
-    )
+    register_chat_and_dashboard_commands(subparsers, add_subcommand_format)
 
 
 def handle_support_control_command(
@@ -460,7 +331,7 @@ def handle_support_control_command(
         return None
 
     if args.command == "automation-prompts":
-        from .automation_prompts import run, render
+        from .automation_prompts import render, run
         try:
             payload = run(args, registry_path)
         except Exception as error:
@@ -828,7 +699,9 @@ def handle_support_control_command(
                 if update_action is UpdateAction.APPLY and payload.get("plan", {}).get(
                     "apply_supported"
                 ):
-                    from ..control_plane.heartbeat.installed_prompt_update import update_with_prompts
+                    from ..control_plane.heartbeat.installed_prompt_update import (
+                        update_with_prompts,
+                    )
                     payload = update_with_prompts(
                         payload, registry=(registry_path if registry_was_supplied else explicit_global_registry(args.runtime_root)),
                         runtime_root=args.runtime_root,

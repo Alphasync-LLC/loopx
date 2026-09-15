@@ -129,7 +129,9 @@ def _message_card(value: Mapping[str, Any]) -> Mapping[str, Any] | None:
     return parsed if isinstance(parsed, Mapping) else None
 
 
-def _normalized_card_text(card: Mapping[str, Any]) -> str | None:
+def normalized_card_text(card: Mapping[str, Any]) -> str | None:
+    if card.get("schema") == "2.0":
+        return _normalized_card_v2_text(card)
     header = card.get("header")
     elements = card.get("elements")
     if not isinstance(header, Mapping) or not isinstance(elements, list):
@@ -160,15 +162,129 @@ def _normalized_card_text(card: Mapping[str, Any]) -> str | None:
     return "\n".join(lines)
 
 
-def _message_card_matches(
-    value: Mapping[str, Any], expected: Mapping[str, Any] | None
+def _text_content(value: object) -> str | None:
+    if not isinstance(value, Mapping):
+        return None
+    content = value.get("content")
+    return content if isinstance(content, str) and content else None
+
+
+def _card_v2_element_lines(value: object) -> list[str] | None:
+    if not isinstance(value, Mapping):
+        return None
+    tag = value.get("tag")
+    if tag == "markdown":
+        content = value.get("content")
+        return [content] if isinstance(content, str) and content else None
+    if tag in {"plain_text", "text"}:
+        content = value.get("content") or value.get("text")
+        return [content] if isinstance(content, str) and content else None
+    if tag == "button":
+        label = _text_content(value.get("text"))
+        return [f"[{label}]"] if label else None
+    children: object = None
+    if tag == "column_set":
+        children = value.get("columns")
+    elif tag == "column":
+        children = value.get("elements")
+    if not isinstance(children, list):
+        return None
+    lines: list[str] = []
+    button_labels: list[str] = []
+    for child in children:
+        child_lines = _card_v2_element_lines(child)
+        if child_lines is None:
+            return None
+        if (
+            isinstance(child, Mapping)
+            and child.get("tag") == "column"
+            and all(line.startswith("[") and line.endswith("]") for line in child_lines)
+        ):
+            button_labels.extend(child_lines)
+        else:
+            lines.extend(child_lines)
+    if button_labels:
+        lines.append(" ".join(button_labels))
+    return lines
+
+
+def _normalized_card_v2_text(card: Mapping[str, Any]) -> str | None:
+    header = card.get("header")
+    body = card.get("body")
+    if not isinstance(header, Mapping) or not isinstance(body, Mapping):
+        return None
+    title = _text_content(header.get("title"))
+    subtitle = _text_content(header.get("subtitle"))
+    elements = body.get("elements")
+    tags = header.get("text_tag_list")
+    if not title or not isinstance(elements, list) or not elements:
+        return None
+    attributes = f'title="{title}"'
+    if subtitle:
+        attributes += f' subtitle="{subtitle}"'
+    lines = [f"<card {attributes}>"]
+    if tags is not None:
+        if not isinstance(tags, list):
+            return None
+        for item in tags:
+            if not isinstance(item, Mapping):
+                return None
+            text = _text_content(item.get("text"))
+            if not text:
+                return None
+            lines.append(f"「{text}」")
+    for element in elements:
+        element_lines = _card_v2_element_lines(element)
+        if element_lines is None:
+            return None
+        lines.extend(element_lines)
+    lines.append("</card>")
+    return "\n".join(lines)
+
+
+def card_projection_matches(
+    observed: Mapping[str, Any], expected: Mapping[str, Any]
+) -> bool:
+    """Compare an exact card or its provider-normalized visible projection."""
+
+    if observed == expected:
+        return True
+    observed_text = normalized_card_text(observed)
+    expected_text = normalized_card_text(expected)
+    return (
+        observed_text is not None
+        and expected_text is not None
+        and observed_text == expected_text
+    )
+
+
+def _has_callback_behavior(value: object) -> bool:
+    if isinstance(value, Mapping):
+        if value.get("type") == "callback":
+            return True
+        return any(_has_callback_behavior(child) for child in value.values())
+    if isinstance(value, list):
+        return any(_has_callback_behavior(child) for child in value)
+    return False
+
+
+def message_card_matches(
+    value: Mapping[str, Any],
+    expected: Mapping[str, Any] | None,
+    *,
+    allow_normalized: bool = True,
 ) -> bool:
     if expected is None:
         return False
-    if _message_card(value) == expected:
+    observed = _message_card(value)
+    if isinstance(observed, Mapping) and observed == expected:
+        return True
+    if not allow_normalized:
+        return False
+    if isinstance(observed, Mapping) and card_projection_matches(observed, expected):
         return True
     content = value.get("content")
-    return isinstance(content, str) and content == _normalized_card_text(expected)
+    return isinstance(content, str) and content == normalized_card_text(expected)
 
 
 def _message_sender(value: Mapping[str, Any]) -> tuple[str, str]:
@@ -245,7 +361,14 @@ class GoalChannelMessageDeliverySession:
                 and str(message.get("chat_id") or "") == route["chat_id"]
                 and sender_type == "app"
                 and sender_app_id == route["bot_app_id"]
-                and _message_card_matches(message, card)
+                and message_card_matches(
+                    message,
+                    card,
+                    # Provider-normalized Card 2.0 history omits callback
+                    # values. Visible equality therefore cannot prove that an
+                    # old actionable message carries this operation id/digest.
+                    allow_normalized=not _has_callback_behavior(card),
+                )
             ):
                 return str(message["message_id"])
         if not _history_is_complete(payload):
@@ -390,7 +513,7 @@ class GoalChannelMessageDeliverySession:
             result.get("returncode") == 0
             and message is not None
             and contains_exact_field(message, "chat_id", str(self.route["chat_id"]))
-            and _message_card_matches(message, expected_card)
+            and message_card_matches(message, expected_card)
             and sender_type == "app"
             and sender_app_id == self.route["bot_app_id"]
             and auth_verified(
@@ -419,6 +542,7 @@ class GoalChannelMessageDeliverySession:
 
 __all__ = [
     "GoalChannelMessageDeliverySession",
+    "normalized_card_text",
     "goal_channel_delivery_route",
     "resolve_bound_goal_channel",
 ]

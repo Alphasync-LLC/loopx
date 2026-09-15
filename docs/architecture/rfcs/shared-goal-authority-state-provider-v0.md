@@ -58,6 +58,22 @@ can proceed without provider promotion. Section 1.4 defines their boundary;
 the [TS execution cards](typescript-control-plane-migration-v0.md#execution-cards-after-the-current-stack)
 still own business-rule consolidation and legacy-caller deletion.
 
+### Local provider opening boundary (2026-09-13)
+
+The local runtime now resolves File, SQLite, and the medium-term PostgreSQL
+profile through one typed provider handle. No selector means the explicit File
+default; a SQLite selector remains an opt-in local profile; a PostgreSQL
+selector is accepted only with a service-owned factory that supplies the
+provider-neutral `AuthorityStore`. The selector contains no credentials or
+database client and binds the selected store identity before any command runs.
+
+This boundary removes per-command provider construction and corrects the
+observable source label for injected PostgreSQL stores. A selected-provider
+failure preserves its source and fails closed; it cannot fall back to File or
+Markdown. The refactor prepares the File/SQLite default path and a switchable
+PostgreSQL deployment without changing promotion, D2 soak/retention, or D3
+whole-Goal cutover holds.
+
 ## Document map and maintenance contract
 
 This RFC separates durable decisions from delivery evidence:
@@ -2106,12 +2122,14 @@ relaxes.
 
 Delivery boundary: test-only. No production entry point constructs any store;
 the ladder adds no product path and reads the candidate only through the
-retained TypeScript store. The Stage 2C parity half executes through the ten
-`s2c2.*` rows above; two declarations stay pending.
-`s2c2.archive_after_leased_completion_parity` records a capture gap the parity
-row exposed: `todo archive-completed` on a Todo holding a released lease record
-keeps that lease in the candidate head while the source projection drops the
-orphaned lease, so bounded qualification reports `shadow_projection_drift`.
+retained TypeScript store. The Stage 2C parity half executes through the eleven
+`s2c2.*` rows above; one declaration stays pending.
+`s2c2.archive_after_leased_completion_parity` was declared from the capture gap
+the parity row exposed and is now an executable deterministic row: the parity
+half folds the Todo partition against the same current-graph rule the source
+projection applies, so archiving a Todo that holds a released lease record
+keeps the candidate head matched instead of reporting
+`shadow_projection_drift`.
 `s2c2.sustained_parity_soak` is the >=10-day synthetic-goal soak owned by
 Section 7.2 and lane L, and bounded qualification keeps reporting
 `sustained_parity_verdict=not_evaluated`. This subsection records executable
