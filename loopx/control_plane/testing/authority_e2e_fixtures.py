@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from ...file_lock import exclusive_file_lock
+from ..coordination.authority_core import HandoffMode
 from ..coordination.coordination_state_contract_generated import (
     LOCAL_AUTHORITY_SHADOW_CONFIG_SCHEMA,
 )
@@ -30,7 +31,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 TS_READBACK_PROBE = Path("tests") / "control_plane_ts" / "authority_store_readback_probe.ts"
 DEFAULT_REGISTERED_AGENTS: tuple[str, ...] = ("agent-a", "agent-b")
 RUNTIME_ROOT_BINDINGS: tuple[str, ...] = ("registry", "cli_override", "cli_override_divergent")
-HANDOFF_MODES: tuple[str, ...] = ("legacy", "soft_claim", "hard_lease")
+HANDOFF_MODES: tuple[str, ...] = tuple(mode.value for mode in HandoffMode)
 LOCAL_AUTHORITY_SHADOW_CONFIG = {
     "schema_version": LOCAL_AUTHORITY_SHADOW_CONFIG_SCHEMA,
     "mode": "file_one_way",

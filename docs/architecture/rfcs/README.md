@@ -73,11 +73,15 @@ changes.
 - [Semantic Vocabulary Convergence and Commit-Time Drift Checks v0](semantic-vocabulary-convergence-v0.md)
   ([中文版](semantic-vocabulary-convergence-v0.zh-CN.md))
   - **RFC status:** Draft.
-  - **Delivery on `main`:** M0 registry and drift smoke shipped with the RFC.
-  - **Current boundary:** One registry names the Turn outcome vocabularies,
-    `effective_action`, the route-to-disposition projection, the Turn Envelope
-    schema owner, legacy should-run field budgets, and the py/ts twin budget; a
-    public smoke fails closed on drift. No enum merge, field removal, or code
+  - **Delivery on `main`:** M0 registry, generated inventory, and drift smoke
+    shipped with the RFC.
+  - **Current boundary:** Repository-wide. A curated registry names 26 kernel
+    and cross-runtime vocabularies with `module::Symbol` owners, relations,
+    the route-to-disposition projection, the Turn Envelope schema owner, and
+    ratchets for legacy should-run fields, py/ts twins, and constant forks; a
+    generated inventory maps every other closed-set carrier under `loopx/`; a
+    public smoke fails closed on drift in either runtime and on any narrowing
+    of the registry itself. No enum merge, slot split, field removal, or code
     generation is approved yet.
 - [Shared-goal Online Authority and Pluggable Coordination Provider v0](shared-goal-authority-state-provider-v0.md)
   ([中文版](shared-goal-authority-state-provider-v0.zh-CN.md),
