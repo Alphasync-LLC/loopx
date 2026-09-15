@@ -3,7 +3,7 @@
 - Status: Draft; under maintainer review
 - Tracking issue: [#3836](https://github.com/huangruiteng/loopx/issues/3836)
 - Date: 2026-09-02
-- Last updated: 2026-09-13
+- Last updated: 2026-09-15
 - Scope: peer Agents collaborating around one shared Goal while preserving
   canonical intent, per-Agent execution frontiers, claim/lease ownership, and
   auditable replan/amendment decisions
@@ -305,9 +305,10 @@ The effective path is:
 1. **Propose.** Any authorized proposer submits
    `goal_amendment_proposal_v0`, including the base revision/digest, amendment
    class, retained/changed/stopped intent, evidence references, affected Todos,
-   and linked replan obligation. An optional host-session rendezvous may help
-   discover or review the gap, but only promoted durable evidence enters the
-   proposal.
+   and linked replan obligation. A request-derived proposal also binds the
+   immutable source request id and revision. An optional host-session rendezvous
+   may help discover or review the gap, but only promoted durable evidence enters
+   the proposal.
 2. **Admit.** LoopX validates schema, actor identity, bounded evidence pointers,
    amendment class, and impact scope. A host locator cannot prove actor identity
    or count as evidence. Admission does not approve or apply the proposal.
@@ -323,8 +324,11 @@ The effective path is:
    authorized by a lease.
 5. **Commit.** The `GoalAmendmentAuthority` transaction submits the policy-authorized digest
    with an `operation_id`, expected `base_goal_revision`, and
-   `base_intent_digest`. It revalidates policy and performs one CAS. A stale
-   base fails closed. Routine in-envelope amendments do not wait for a human.
+   `base_intent_digest`, then revalidates policy and performs one CAS. For a
+   request-derived proposal, require the exact source reservation and terminal
+   operation protocol in §5.1; a remote liveness read followed by Goal CAS is
+   insufficient. Stale Goal bases and unreserved superseded source revisions
+   fail closed. Routine in-envelope amendments do not wait for a human.
 6. **Receipt.** The same transaction records the proposal digest, actor,
    authority source, old/new revisions, retained/changed/stopped delta,
    evidence references, affected Todos, lease disposition, and exact replan
@@ -335,6 +339,88 @@ The effective path is:
 
 Only step 5 makes the amendment canonical. Step 6 makes that fact recoverable
 when a response is lost; step 7 makes it operational for all peers.
+
+### 5.1 Source-request reservation and cancellation ordering
+
+This is a proposed qualification requirement for request-derived Stage 3
+commits, not a shipped API or a new distributed transaction. Reuse the
+[collaboration request fence](capable-manager-semantic-handoff-v0.md#510-minimum-contract-and-legal-observations)
+and the qualified amendment owner's operation/receipt transaction. Keep request
+and Goal state under their separate owners.
+
+1. **Reserve at the request owner.** In one request transaction, validate the
+   live source revision and its authority, acquire its exclusive effectful
+   attempt fence, and persist a reservation binding request/revision,
+   attempt/fence epoch, target Goal and authority source, proposal digest,
+   expected Goal basis, actor and `operation_id`. The amendment owner must
+   authenticate this reservation; a caller-supplied token is not authority.
+   Reservation replay returns the same binding; changing any bound input
+   conflicts. Reservation and effective cancellation/supersession use the same
+   request-owner CAS over source revision, lifecycle and fence epoch; whichever
+   wins determines eligibility. Recording a later correction does not revoke
+   the already reserved operation or make its immutable source binding stale.
+2. **Order later control requests.** Once reserved, cancellation or correction
+   can be recorded immediately but cannot revoke that in-flight operation by
+   changing only the request store. Mark it pending settlement, prevent further
+   effects/reassignment, and ask the amendment owner to abort that exact
+   operation. The reservation covers only this immutable operation, never the
+   rest of a superseded request or a replacement proposal. Authorization and
+   policy checks at the actual effect owner still apply. Abort requires a
+   request-owner cancellation/recovery receipt bound to the reservation, reason
+   and operation; knowing an operation ID is insufficient authority.
+3. **Settle at the Goal owner.** An authenticated commit or abort competes for
+   one durable terminal operation record at `GoalAmendmentAuthority`. Commit
+   validates the reservation, current policy and expected Goal basis, then
+   atomically writes the Goal delta and `committed` receipt. Abort atomically
+   writes an `aborted` no-effect receipt only if that operation has not committed.
+   Both use the same operation identity and serialization boundary; abort is a
+   terminal tombstone, not a separate retry identity. A committed operation
+   cannot be undone by abort, and an aborted operation can never commit. Replays
+   read the original outcome; digest/binding drift conflicts. Definitive policy
+   or basis rejection also closes the operation without a Goal mutation. Validate
+   the authenticated binding inside this serialization boundary. A fresh
+   operation ID requires a new reservation and cannot bypass an old tombstone.
+   Terminal receipts discriminate `committed`, `aborted` and `rejected`, carry
+   the reservation/attempt reference, and state whether this operation changed
+   the Goal. No-effect receipts have no resulting Goal revision and say nothing
+   about other external effects in the broader request.
+4. **Recover before releasing.** Link the exact terminal Goal-owner receipt to
+   the immutable request attempt before releasing its fence or acknowledging
+   cancellation. This linking/settlement is a separate idempotent request-owner
+   transaction: settle the exact attempt, apply pending control changes for
+   remaining work, then release. It never rolls back a committed Goal delta.
+   A missing receipt, timeout or expired worker lease proves
+   nothing: read back or race a conditional abort against commit under the same
+   operation identity. If the owner is unavailable, retain pending/unknown and
+   allow unrelated work; do not reassign the effect. Retain the terminal record
+   until stale attempts are provably unable to submit, including after restart
+   or source migration. A delayed worker must hit that durable boundary, not
+   merely a token TTL. Reservations do not expire independently of settlement;
+   deadlines trigger recovery, not permission to forget an unresolved operation.
+   Unsupported profiles cannot commit request-derived
+   amendments; they may still admit proposals and continue independent work.
+
+Reservation CAS orders source eligibility; the Goal-owner terminal transaction
+orders the reserved commit versus abort. These are two explicit local decisions,
+not a claim that a source read and Goal write are atomic. The first Stage 3
+class remains `shared_work_graph`; this protocol adds no amendment permission.
+
+The combined manager A7/A16 fixture must exercise these interleavings through
+both owners, not two independent unit suites:
+
+| Interleaving | Required outcome |
+| --- | --- |
+| Cancellation/correction wins before reservation | No reservation and no Goal mutation from the obsolete proposal |
+| Reservation exists; cancellation's abort wins at Goal owner | One `aborted` receipt; delayed original commit rejected; cancellation can settle |
+| Reserved commit wins before abort | One `committed` receipt; cancellation reports the already committed effect and stops remaining work, without claiming rollback |
+| Crash after reservation/check but before a known Goal outcome | Fence remains; same-operation recovery/conditional abort yields exactly one terminal outcome, even if the old worker resumes |
+| Goal CAS succeeds but its response or request-side linkage is lost | Read back the original committed receipt, attach it to the old attempt, and never reapply the delta |
+| Lease expires or host restarts while outcome is unknown | No replacement effect on timeout alone; terminal abort blocks late commit, or the existing commit is reconciled |
+
+Frontend, Lark and CLI project the same distinction between cancellation
+requested, pending settlement and settled-with/without-an-already-committed
+effect. A timeout must not display “cancelled, no change.” Implementing PRs must
+qualify this path on the selected authority profile before enabling it.
 
 ## 6. Proposed schemas
 
@@ -354,7 +440,8 @@ Illustrative `goal_amendment_proposal_v0`:
   "stopped": [],
   "evidence_refs": ["evidence:..."],
   "affected_todo_ids": ["todo-a", "todo-b"],
-  "replan_obligation_id": "replan:..."
+  "replan_obligation_id": "replan:...",
+  "source_request_ref": {"request_id": "req_...", "revision": 1}
 }
 ```
 
