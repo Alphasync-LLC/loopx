@@ -424,6 +424,10 @@ Known limits, stated so the check is not over-trusted:
 
 ## 10. Operational contract
 
+The standard premerge catalog limit increases from 9 to 10 checks so the new
+vocabulary check does not displace the existing heartbeat/quota coverage. Quick
+and deep tier limits are unchanged.
+
 The check cannot affect a running system: it executes only in tests, premerge,
 and CI. Its operator surface is the failure text. No observability, capacity,
 or on-call contract applies.
