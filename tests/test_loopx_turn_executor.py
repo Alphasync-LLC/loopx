@@ -735,15 +735,27 @@ def test_enabled_host_result_rejects_receipt_local_path() -> None:
 
 
 @pytest.mark.parametrize(
-    ("field", "value"),
+    ("field", "value", "expected_error"),
     [
-        ("worker_ref", "C:/workspace/private/worker.json"),
-        ("evidence_refs", ["file:/tmp/private-result.json"]),
+        # A drive-qualified path is now recognized as a local path, so the
+        # shared public-safety rule reports it before the opaque-shape check.
+        # Both rules reject the value; only the diagnostic differs.
+        (
+            "worker_ref",
+            "C:/workspace/private/worker.json",
+            "contains an absolute local path",
+        ),
+        (
+            "evidence_refs",
+            ["file:/tmp/private-result.json"],
+            "opaque 1-192 character public-safe reference",
+        ),
     ],
 )
 def test_enabled_host_result_rejects_path_shaped_opaque_refs(
     field: str,
     value: object,
+    expected_error: str,
 ) -> None:
     plan = _adaptive_observation_plan()
     result = _host_result(plan)
@@ -754,9 +766,7 @@ def test_enabled_host_result_rejects_path_shaped_opaque_refs(
     rejected = validate_loopx_turn_host_result(plan, result)
 
     assert rejected["ok"] is False
-    assert "opaque 1-192 character public-safe reference" in " ".join(
-        rejected["errors"]
-    )
+    assert expected_error in " ".join(rejected["errors"])
     assert "child_execution_receipts" not in rejected["result"]
     rejected_value = value[0] if isinstance(value, list) else value
     assert rejected_value not in json.dumps(
