@@ -70,6 +70,19 @@ changes.
   - **Current boundary:** Stage 1 and 2A are complete. Stage 2B is cutting over
     whole semantic transactions and retiring Python facades under parity and
     differential gates.
+- [Semantic Vocabulary Convergence and Commit-Time Drift Checks v0](semantic-vocabulary-convergence-v0.md)
+  ([中文版](semantic-vocabulary-convergence-v0.zh-CN.md))
+  - **RFC status:** Draft.
+  - **Delivery on `main`:** M0 registry, generated inventory, and drift smoke
+    shipped with the RFC.
+  - **Current boundary:** Repository-wide. A curated registry names 26 kernel
+    and cross-runtime vocabularies with `module::Symbol` owners, relations,
+    the route-to-disposition projection, the Turn Envelope schema owner, and
+    ratchets for legacy should-run fields, py/ts twins, and constant forks; a
+    generated inventory maps every other closed-set carrier under `loopx/`; a
+    public smoke fails closed on drift in either runtime and on any narrowing
+    of the registry itself. No enum merge, slot split, field removal, or code
+    generation is approved yet.
 - [Shared-goal Online Authority and Pluggable Coordination Provider v0](shared-goal-authority-state-provider-v0.md)
   ([中文版](shared-goal-authority-state-provider-v0.zh-CN.md),
   [validation boundary](shared-goal-authority-state-provider-v0-evidence.zh-CN.md))
@@ -112,6 +125,14 @@ changes.
 
 ## Planning, Research, And Adaptive Intelligence
 
+- [Frontier Science Research Program v0](frontier-science-research-program-v0.md)
+  ([中文版](frontier-science-research-program-v0.zh-CN.md))
+  - **RFC status:** Draft, under maintainer review.
+  - **Delivery on `main`:** Proposal only.
+  - **Current boundary:** Ten cross-disciplinary research tracks, existing-owner
+    routing, evidence limits and staged experiment gates. Prioritizes sequential
+    evidence, decision-preserving continuation and stride shadow evaluation;
+    no runtime treatment, resource commitment or scientific uplift is promoted.
 - [Research Exploration Control Plane v0](research-exploration-control-plane-v0.md)
   ([中文版](research-exploration-control-plane-v0.zh-CN.md))
   - **RFC status:** Draft, under maintainer review.
@@ -205,6 +226,18 @@ changes.
     pieces exist, but the unified execution-frontend/session-ownership contract
     and cross-transport convergence are not accepted as one shipped product
     boundary.
+- [Agent Session Execution Modes v0](agent-session-execution-modes-v0.md)
+  ([中文版](agent-session-execution-modes-v0.zh-CN.md))
+  - **RFC status:** Draft, under maintainer review.
+  - **Delivery on `main`:** Partial; the attached-host binding, broker, and
+    runtime fencing are implemented, while cross-host admission is proposed.
+  - **Current boundary:** Normalizes the attached/managed session-ownership
+    decision into one cross-host admission rule: an explicit persisted mode per
+    binding, one executor per Agent binding, capability-gated delivery that
+    fails closed, and no implicit mode change. Desktop product flows stay with
+    the Desktop frontends RFC, local service lifecycle with the daemon RFC, and
+    continuation with the manager RFC. Optional preview hosts, session
+    rotation, and host promotion remain unapproved.
 - [Goal Channel Collaboration v0](goal-channel-collaboration-v0.md)
   ([中文版](goal-channel-collaboration-v0.zh-CN.md))
   - **RFC status:** Draft.

@@ -38,7 +38,7 @@ def _resolve_python(requested: str) -> Path:
         [requested, "-c", "import sys; print(sys.executable); raise SystemExit(sys.version_info < (3, 11))"],
         check=False,
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
     )
     if result.returncode != 0:
         raise RuntimeError(

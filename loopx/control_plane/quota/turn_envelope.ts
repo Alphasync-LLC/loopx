@@ -5,9 +5,10 @@ import {
   type JsonObject,
 } from "../effect_program.ts";
 import { EffectRuntimeRequestError } from "../effect_runtime_errors.ts";
+import { turnStartPromptBudgetBytes } from "../capability_hooks.ts";
 import { requireJsonObject } from "../runtime_decode.ts";
 import { projectPendingCapabilityIntent } from "../work_items/pending_capability_intent.ts";
-import { measureTurnEnvelope, TURN_ENVELOPE_BUDGET_BYTES } from "./turn_envelope_budget.ts";
+import { measureTurnEnvelope, turnEnvelopeBudgetBytes } from "./turn_envelope_budget.ts";
 export { TURN_ENVELOPE_BUDGET_BYTES } from "./turn_envelope_budget.ts";
 
 export const TURN_ENVELOPE_SCHEMA_VERSION = "loopx_turn_envelope_v0";
@@ -294,9 +295,12 @@ function requiredReads(interaction: JsonObject, payload: JsonObject): JsonObject
   const result: JsonObject[] = [];
   for (const value of raw.slice(0, 5)) {
     const item = object(value);
-    const command = text(item.command, 360);
+    const promptBudget = item.source === "turn_start_capability_hook"
+      ? turnStartPromptBudgetBytes(item.prompt_budget_bytes) : 0;
+    const command = text(item.command, promptBudget || 360);
     if (!command) continue;
     const compact: JsonObject = { command };
+    if (promptBudget) compact.prompt_budget_bytes = promptBudget;
     for (const field of ["kind", "reason", "source"]) {
       const rendered = text(item[field], 240);
       if (rendered) compact[field] = rendered;
@@ -491,6 +495,25 @@ function contractCapsule(
     );
     if (Object.keys(compact).length > 0) capsule[sourceKey] = compact;
   }
+  // Preserve the bounded source diagnosis; the generic capsule list path is
+  // for scalar lists and must not stringify structured component checks.
+  const diagnostics = object(payload.vision_continuation_audit).outcome_checkpoint_diagnostics;
+  if (Array.isArray(diagnostics) && diagnostics.length > 0) {
+    const audit = object(capsule.vision_continuation_audit);
+    audit.outcome_checkpoint_diagnostics = diagnostics.slice(0, 5).map((value) => {
+      const source = object(value);
+      const checks = object(source.component_checks);
+      return {
+        reason_code: text(source.reason_code, 80),
+        resolution_hint: text(source.resolution_hint, 420),
+        component_checks: Object.fromEntries([
+          "checkpoint_satisfied", "checkpoint_fresh", "path_outcome_valid",
+          "evidence_refs_present", "final_outcome_claim_present", "no_reported_outcome_gap",
+        ].filter((key) => typeof checks[key] === "boolean").map((key) => [key, checks[key]])),
+      };
+    });
+    capsule.vision_continuation_audit = audit;
+  }
   const taskScope = text(payload.task_scope, 80);
   if (taskScope) capsule.task_scope = taskScope;
   const workLane = object(payload.work_lane_contract);
@@ -662,7 +685,7 @@ function turnActionProjection(payload: JsonObject, protocolActionFields: JsonObj
   // Guidance must not crowd out the actionable contract. Preserve a signed
   // content reference to the existing full-decision route under budget pressure.
   if (Object.keys(context).length > 0
-    && Buffer.byteLength(JSON.stringify(projection), "utf8") > TURN_ENVELOPE_BUDGET_BYTES - 1_400) {
+    && Buffer.byteLength(JSON.stringify(projection), "utf8") > turnEnvelopeBudgetBytes(projection) - 1_400) {
     projection.agent_context = {
       schema_version: context.schema_version, phase: context.phase, scope: context.scope,
       target: "coordinator", authority: "guidance_only", delivery: "projected",

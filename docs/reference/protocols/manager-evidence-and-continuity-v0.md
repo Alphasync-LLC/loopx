@@ -81,10 +81,43 @@ in a `manager.context` event, and supplies it to the executor. Chat prose is
 never the inventory. Normal manager questions no longer silently use a limited
 frontend projection; explicitly choosing status-only still uses that projection.
 
-For Codex, manager defaults are `gpt-6-astra` with `high` reasoning. Set
+Manager defaults are `gpt-6-astra` with `high` reasoning. Set
 `LOOPX_MANAGER_MODEL` and `LOOPX_MANAGER_REASONING_EFFORT` on the Chat service to
-override them. Thread start, resume and turn start explicitly carry the settings;
-worker configuration is unchanged. Capabilities expose the manager defaults.
+override them; an explicit override always wins. Thread start, resume and turn
+start explicitly carry the settings; worker configuration is unchanged.
+Capabilities expose the manager defaults and their source.
+
+### Steward channel host selection
+
+The steward channel **selects** its executor; nothing discovers it. `codex` is
+the shipped endpoint because it is the only transport that can hold an
+interactive steward session today, and `LOOPX_MANAGER_ENDPOINT` re-points that
+default. A configured operator credential (`DEEPSEEK_API_KEY`, endpoint in
+`DEEPSEEK_BASE_URL`) is never a selection signal: discovering a provider key does
+not move the steward channel onto that provider's executor, and it does not move
+the channel's model either. The model follows the endpoint the operator selected,
+so `gpt-6-astra` stays the default while the channel runs on the CLI endpoint. The
+credential is reported as a fact -- the variable name, never the value -- and only
+for the endpoint that actually authenticates with it.
+
+The managed Turn host (`dsh`) runs one bounded work segment per request and has no
+interactive Chat transport, so a session request that names it fails as the typed
+`managed_host_chat_transport_unsupported` host-tool gate instead of an unknown
+endpoint error, in both the Chat service and Lark routing. Promoting `dsh` to the
+steward default is gated on that transport, not on a credential. The steward still
+**drives** managed work on `dsh`: those bounded Turns are the managed execution
+unit described by the LoopX Turn host selection contract, and they are separate
+from the channel the steward answers on.
+
+The Chat capabilities payload carries this resolution in its `manager` block
+(`channel_binding`): the resolved executor endpoint and its source, its executor
+kind in the same vocabulary as the governed Turn surface (`individual` runs on
+one person's CLI login, `managed` on an operator credential), the resolved model
+and its source, whether an operator credential is configured, and
+`available`/`unavailable_reason` when LoopX can prove the selected endpoint cannot
+serve this channel. `available` is `null` when the projection makes no claim. A
+frontend can show which executor and model the steward channel resolved, and why,
+without re-deriving the rule.
 Legacy managed manager sessions retain their logical identity and bounded chat
 history but start a fresh executor thread in the same Codex home on first
 restore. This removes inherited project instructions without importing sessions

@@ -2495,6 +2495,19 @@ async function replayClosedFenceClose(
   }
 }
 
+/**
+ * Whether a failure is the source-snapshot mismatch the caller retries.
+ *
+ * `revalidateAuthoritySources` re-reads the canonical registry before a write
+ * commits.  The adapter answers this exact code by re-reading the graph and
+ * re-sending the same held fence, so it must stay distinguishable from the
+ * conflicts that genuinely end a fence.
+ */
+function isRetryableAuthoritySourceMismatch(error: unknown): boolean {
+  return error instanceof TaskLeaseAcquireError &&
+    error.code === "authority_source_changed";
+}
+
 async function fenceClose(
   request: LifecycleRequest,
   dependencies: LifecycleDependencies,
@@ -2700,6 +2713,21 @@ async function fenceClose(
       closeRequestDigest: fenceCloseRequestDigest(request),
     });
     return attachRuntimeShadowCapture(response, shadowCapture);
+  } catch (error) {
+    // A changed authority source is a retryable precondition, not a lost
+    // fence: the lease write never ran and the caller still holds this token.
+    // Releasing the lock here would answer the caller's retry with
+    // `fence_token_invalid` and strand the completed Todo's active lease, so
+    // drop only this attempt's claim and leave the fence held.
+    if (claim && isRetryableAuthoritySourceMismatch(error)) {
+      try {
+        await releaseFileMutationLockClaim(claim);
+      } catch {
+        // Claim cleanup is best effort; never replace the original error.
+      }
+      claim = null;
+    }
+    throw error;
   } finally {
     if (claim) {
       await releaseFileMutationLock(

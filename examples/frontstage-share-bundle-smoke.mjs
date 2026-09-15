@@ -35,6 +35,21 @@ function assertExists(path) {
   }
 }
 
+// Relative references in the exported editorial pages point at either another
+// exported page directory or a shipped static asset. Page references must own
+// an index.html; asset references must resolve to the asset file itself.
+const relativeAssetReferencePattern =
+  /\.(?:avif|css|csv|gif|ico|jpe?g|js|json|mjs|mp4|pdf|png|svg|txt|webm|webp|woff2?|xml|zip)$/i;
+const nonBundleReferencePattern = /^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i;
+
+function assertRelativeReferenceExists(pagePath, target) {
+  if (relativeAssetReferencePattern.test(target)) {
+    assertExists(resolve(dirname(pagePath), target));
+    return;
+  }
+  assertExists(resolve(dirname(pagePath), target, "index.html"));
+}
+
 function assertNoLeak(text, label) {
   const forbidden = [
     /\/Users\//,
@@ -123,12 +138,20 @@ for (const locale of ["", "zh/"]) {
     assertExists(resolve(dirname(pagePath), stylesheet[1]));
     for (const match of html.matchAll(/<a[^>]+href="([^"]+)"/g)) {
       const href = match[1];
-      if (/^(https?:|#)/.test(href)) continue;
+      if (nonBundleReferencePattern.test(href)) continue;
       if (href.startsWith("/")) throw new Error("Blog navigation must preserve the hosting base");
       const target = href.split(/[?#]/)[0];
       // MkDocs pages are built later by the publication workflow.
       if (target.includes("docs/")) continue;
-      assertExists(resolve(dirname(pagePath), target, "index.html"));
+      assertRelativeReferenceExists(pagePath, target);
+    }
+    // Embedded diagrams are the primary content of these pages, so their local
+    // sources must ship in the bundle too.
+    for (const match of html.matchAll(/<img[^>]+src="([^"]+)"/g)) {
+      const src = match[1];
+      if (nonBundleReferencePattern.test(src)) continue;
+      if (src.startsWith("/")) throw new Error("Blog images must preserve the hosting base");
+      assertRelativeReferenceExists(pagePath, src.split(/[?#]/)[0]);
     }
   }
 }

@@ -32,11 +32,13 @@ from .chat_status_api import ChatStatusRequestMixin
 from .chat_runtime import ChatRuntimeController, TERMINAL_TURN_STATES
 from .chat_manager import (
     MANAGER_AGENT_GOAL_ID, MANAGER_AGENT_OBJECTIVE, is_manager_channel,
-    manager_workspace, manager_model_config,
+    manager_channel_binding, manager_workspace, manager_model_config,
 )
 from .chat_ssh_source_api import SshSourceRequestMixin
 from .chat_store import ChatSessionStore
 from .capabilities.manager_runtime import manager_runtime_capability_projection
+from .capabilities.manager_context.roundtrip import project_chat_session_snapshot
+from .control_plane.goals.active_state_metadata import active_state_section_text
 from .control_plane.status.ssh_host_catalog import (
     SSH_HOST_CATALOG_PATH,
     ssh_host_catalog_payload,
@@ -64,9 +66,7 @@ from .extensions.lark.goal_channel import (
 from .extensions.lark.goal_topic_connections import list_lark_apps
 from .extensions.lark.goal_topic_runtime import LarkGoalTopicRuntimeService
 from .extensions.lark.manager_routing import authorized_manager_goal_ids
-from .extensions.lark.presentation.kanban import (
-    CommandRunner,
-)
+from .extensions.lark.presentation.kanban import CommandRunner
 from .extensions.runtime import (
     default_extension_state_file,
     resolve_extension_activation,
@@ -124,22 +124,6 @@ def _compact_text(value: Any, *, limit: int = 600) -> str:
     return " ".join(str(value or "").split())[:limit].strip()
 
 
-def _active_state_section(state_text: str, heading: str) -> str:
-    marker = f"## {heading}"
-    start = state_text.find(marker)
-    if start < 0:
-        return ""
-    content_start = start + len(marker)
-    end = state_text.find("\n## ", content_start)
-    section = state_text[content_start : end if end >= 0 else None]
-    lines = [
-        line.strip().removeprefix("- ").strip()
-        for line in section.splitlines()
-        if line.strip() and not line.lstrip().startswith("<!--")
-    ]
-    return _compact_text(" ".join(lines))
-
-
 def _goal_public_context(registry: dict[str, Any], goal: dict[str, Any]) -> dict[str, Any]:
     goal_id = str(goal.get("id") or "")
     project = Path(str(goal.get("repo") or ".")).expanduser().resolve()
@@ -149,7 +133,7 @@ def _goal_public_context(registry: dict[str, Any], goal: dict[str, Any]) -> dict
     if state_path is not None and state_path.exists():
         try:
             state_text = state_path.read_text(encoding="utf-8")
-            objective = _active_state_section(state_text, "Objective")
+            objective = _compact_text(active_state_section_text(state_text, "Objective"))
             title_line = next(
                 (line[2:].strip() for line in state_text.splitlines() if line.startswith("# ")),
                 "",
@@ -758,7 +742,8 @@ class ChatRequestHandler(
 
     def _session_snapshot(self, session_id: str) -> None:
         try:
-            self._send_json(self.server.chat_store.session_snapshot(session_id))
+            self._send_json(project_chat_session_snapshot(
+                self.server.runtime_root, self.server.chat_store, session_id))
         except KeyError:
             self._send_error("chat session was not found", status=404)
 
@@ -1269,8 +1254,8 @@ class ChatRequestHandler(
                 "ok": True,
                 "schema_version": "loopx_chat_capabilities_v1",
                 "manager": manager_runtime_capability_projection(
-                    self.server.runtime_controller, manager_model_config()
-                ),
+                    self.server.runtime_controller, manager_model_config(),
+                    channel_binding=manager_channel_binding()),
                 "runtime_identity": release_runtime_identity(),
                 "agent_backend": "multi_adapter",
                 "sandbox": "read-only",

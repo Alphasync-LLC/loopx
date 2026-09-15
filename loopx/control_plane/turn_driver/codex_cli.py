@@ -761,7 +761,7 @@ def run_codex_cli_host(
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             start_new_session=True,
         )
         observed_session: list[str] = []

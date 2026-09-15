@@ -100,7 +100,7 @@ def _listener_pids(port: int) -> list[int]:
         result = subprocess.run(
             ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=5,
         )
     except (OSError, subprocess.SubprocessError) as exc:
@@ -125,7 +125,7 @@ def _is_same_user_loopx_chat_process(pid: int) -> bool:
         result = subprocess.run(
             ["ps", "-ww", "-p", str(pid), "-o", "uid=", "-o", "command="],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=5,
         )
     except (OSError, subprocess.SubprocessError):

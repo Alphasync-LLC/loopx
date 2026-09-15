@@ -664,6 +664,15 @@ def render_quota_should_run_markdown(payload: dict[str, Any]) -> str:
             f"trigger_count={replan_obligation.get('trigger_count')} "
             f"triggers={','.join(trigger_kinds)}"
         )
+        for trigger in as_list(replan_obligation.get("triggers")):
+            if not isinstance(trigger, dict) or not trigger.get("reason_code"):
+                continue
+            lines.append(f"  - reason_code: {trigger['reason_code']}")
+            checks = as_dict(trigger.get("component_checks"))
+            lines.append("  - component_checks: " + ", ".join(
+                f"{key}={'pass' if passed else 'fail'}" for key, passed in checks.items()
+            ))
+            lines.append(f"  - resolution: {trigger.get('resolution_hint')}")
     required_reads = as_list(payload.get("required_reads"))
     for read in required_reads[:3]:
         if not isinstance(read, dict):

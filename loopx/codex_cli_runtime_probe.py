@@ -222,7 +222,7 @@ def probe_human_input_idle_seconds(*, timeout_seconds: float = DEFAULT_TIMEOUT_S
             ["ioreg", "-c", "IOHIDSystem"],
             check=False,
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=timeout_seconds,
         )
     except FileNotFoundError:
@@ -275,7 +275,7 @@ def run_codex_cli_session_probe(
                 [codex_bin, *extra_args],
                 check=False,
                 capture_output=True,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 timeout=timeout_seconds,
             )
         except FileNotFoundError:

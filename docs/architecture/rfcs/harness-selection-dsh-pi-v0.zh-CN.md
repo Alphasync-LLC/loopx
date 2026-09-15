@@ -12,6 +12,99 @@ Pi 保留为 managed runtime 候选。前者利用已存在的被动 observer �
 必须证明生命周期、provider、崩溃恢复和真实结果，插件事件 fixture 不能替代这些证据。
 本评估不提供缺乏测量依据的评分或性能排名。
 
+本文区分 DSH 的两个角色，二者不可混同：**托管有界 Turn 宿主**（LoopX 为一次受治理
+Turn 选择的适配器）是出货默认值，宿主由配置显式选择、从不由凭据推断，该选择随下文
+记录的托管栈落地，而不是今天的 `main`；**L1 事件源与会话归属 runtime** 角色仍是
+opt-in，不因前者被晋级，仍需本文 C0、C1、开销、保留与 Mode B 各行。
+
+## 托管执行面（2026-09-15）
+
+选型受仓库今天实际交付的能力约束，而不只取决于上游 harness 能做什么。托管的单次执行
+单元是有界 Turn：
+
+- `loopx turn run-once` 接受 `--host codex-cli|dsh|generic-cli` 与
+  `--execution-mode isolated-headless`：LoopX 决定，宿主适配器调用 agent CLI，独立
+  validator 证明后置条件，只有通过的结果才会被提交；
+- `loopx host-mode-plan` 只有在宿主声明 `typed_host_adapter` 时，才为
+  `continue_without_ui` 意图选择 `isolated_headless_turn`；缺少该声明时报该模式未就绪，
+  并指出缺失的能力；
+- 会话归属（`managed_runtime` 与 `attached_host`）不在本文决定，属于
+  [Agent 会话执行模式](./agent-session-execution-modes-v0.zh-CN.md)，该文档同时拥有
+  M1-M4 接入里程碑与跨前端投影行。
+
+下文区分三种证据状态，不可互相套用；该列表以 2026-09-15 为准，并计划与托管栈一起
+落地：
+
+- **2026-09-15 已在 `main` 上**：`loopx turn run-once --host
+  codex-cli|dsh|generic-cli`、`dsh` 宿主适配器、上面的 `host-mode-plan` 门槛，以及
+  `main` 固定的 `deepseek-harness-sdk==0.1.2a3`；
+- **2026-09-15 尚未进入 `main`、计划随本文落地**：显式选择宿主的默认值
+  （`loopx/control_plane/turn_driver/host_binding.py`，PR #4443）与 `0.1.5rc1` 的 dsh
+  固定版本（PR #4420）。后续读者若看到这两个 PR 已合并，可把这两行读作已交付；
+  否则只能按栈内状态理解；
+- **本地真实验证，不是仓库门禁**：下文标注为本地证据的行。它们需要 operator 凭据
+  才能复现，CI 不做断言。
+
+| 角色 | 来源 | 当前选型 | 晋级门槛 |
+| --- | --- | --- | --- |
+| 默认托管执行宿主 | LoopX Turn 加 `dsh` 宿主适配器，并绑定到运维方提供的模型端点 | 出货默认值：托管有界 Turn 走 `dsh`，与环境无关；`LOOPX_TURN_HOST` 可改指，显式 `--host` 优先；在托管栈中（PR #4443），尚未进入 `main` | 保持类型化 host request/result、独立验证与凭据归属运维方的边界；没有同等或更强的契约不替换 |
+| 管家通道执行器 | 管家回答所依赖的交互式 Chat 传输 | 出货默认值：`codex`；`LOOPX_MANAGER_ENDPOINT` 可改指；在托管栈中（PR #4446），尚未进入 `main` | 托管宿主具备交互式 Chat 传输，管家通道才能选择它；凭据的存在从不是晋级信号 |
+| 受支持的替代 Turn 宿主 | LoopX Turn 加 `codex-cli` 适配器 | 可显式选择；它属于 `individual` 执行器类型，账落在某个人的 CLI 登录上 | 任何托管通道都不得静默依赖某个人的 CLI 订阅；个人通道必须被显式选择，而不是默认走到 |
+| L1 事件源与会话归属 runtime 候选 | DSH | opt-in，未晋级；有界 Turn 宿主角色见上一行默认值 | 本文 C0、C1、开销、保留与 Mode B 各行被真实执行并通过评审 |
+| 可选的可见宿主循环 | Pi | 不是 managed runtime | 先声明按绑定持久化且可回读的会话模式，证明重启下的单执行器行为、"对话不是回执"、宿主本地状态非权威，并提供一条真实宿主重启行 |
+
+### 托管宿主绑定与真实环境验证（2026-09-15）
+
+一个托管宿主绑定要说明四件事：宿主适配器、provider、模型，以及凭据来自哪里。
+DSH 绑定是 DSH Turn 宿主 + provider `deepseek-official` + 模型 `deepseek-flash`
+（DeepSeek V4.1 Flash），端点取自运维方环境（`DEEPSEEK_BASE_URL`），凭据取自
+运维方环境（`DEEPSEEK_API_KEY`）。
+
+LoopX **选择**托管有界 Turn 的默认宿主，而从不由环境推断
+（`loopx/control_plane/turn_driver/host_binding.py`）：出货默认值是 `dsh`，
+`LOOPX_TURN_HOST` 可改指，显式 `--host` 优先于两者。operator 凭据不是选型输入。
+这个区分正是该绑定的意义：发现一把 key 不等于决定换运行位置；一个按环境解析宿主的
+面，会让"选定的配置"和"偶然生效的配置"无法区分。因此被选到 DSH 宿主的通道不会依赖
+某个开发者本机 CLI 订阅是否可用、是否还有额度或是否已登录。
+
+管家通道是**另一个**面，默认值也不同。它的出货执行器是 `codex`，因为这是今天唯一
+能承载交互式管家会话的传输；`LOOPX_MANAGER_ENDPOINT` 可改指，凭据不能改指。它的
+模型跟随它所选择的执行器而不是跟随环境，因此配置了 operator 凭据不会在端点仍是
+CLI 的情况下把管家悄悄换成 operator 模型。
+
+该绑定的证据按来源区分：
+
+- 仓库覆盖、无需任何 provider 调用：出货默认值是 `dsh`，显式 `LOOPX_TURN_HOST`
+  可改指，显式 `--host` 仍然优先，且配置凭据不改变以上任何一项选择
+  （PR #4443 的测试，尚未进入 `main`）；
+- 本地真实验证：在真实 SDK 与 runtime（`deepseek-harness-sdk==0.1.5rc1`，即 PR
+  #4420 提出的固定版本；`main` 今天仍固定在 `0.1.2a3`，同一对路径在那里也通过）下，
+  进程内 `--host dsh` 路径与 `generic-cli` 子进程路径均通过；
+- 本地真实验证：一次托管 Turn 达到 `validated_progress`，宿主执行有界动作，独立
+  validator 证明后置条件，随后才发生写回与配额扣减；
+- 本地真实验证：一次后置条件未被证明的 Turn 反向失败关闭，没有写回，配额槽消耗计数
+  保持为 0。
+
+在该绑定成为正式默认值之前仍存在的缺口：
+
+- `deepseek-harness-runtime-bin==0.1.5rc1` 捆绑的 runtime 快照无法按原样启动
+  `headless` profile：其中一行会拉起
+  `@deepseek-ai/dsh-session-title-first-prompt-llm`，该包 import 了未被收录的
+  `@deepseek-ai/dsh-session-title-llm`；解析发生在打包快照内部，因此把该包装进
+  profile 目录不会改变结果。当前本地做法是用一条绑定 overlay 关闭受影响的行。
+  托管宿主路径不受影响：它不选择 `headless` profile，默认 `sdk` profile 能正常
+  启动并干净退出；
+- LoopX 的 DSH Turn 组合必须显式列出托管动作所需的工具行
+  （`@deepseek-ai/dsh-tool-fs`、`@deepseek-ai/dsh-tool-bash`）。缺少它们时，真实模型
+  只能作答而无法动手，Turn 会以验证失败而不是产出工作结束。
+- 宿主模式计划仍把无人值守意图映射到兼容路径：`isolated_headless_turn` 的
+  `turn_host` 取 `generic-cli`（`loopx/host_mode_planner.py`），因此它打印的
+  `loopx turn plan` 命令写的是 `--host generic-cli`，而不是上文记录的已选 `dsh`
+  默认值；作为回滚路径本身没错，但没有被标注为回滚路径。该计划的
+  `--host-identity` 列表只覆盖可见宿主是有意为之——像
+  `dsh` 这种仅 headless 的宿主无法拥有可见会话；但无人值守映射本身仍需在"写出解析
+  后的默认值 / 提供 `dsh` 变体 / 把该命令标注为回滚路径"之间做出决定。
+
 ## 证据基线
 
 LoopX 检查基线为 `bf217e1e01bec79f357c9ecbd580cf2dfa73db8b`：
@@ -26,6 +119,13 @@ LoopX 检查基线为 `bf217e1e01bec79f357c9ecbd580cf2dfa73db8b`：
   行为的可见宿主集成，不是被动 observer。
 - `apps/desktop/loopx-control-plane/src-tauri/src/services.rs`：已有服务进程管理不等于
   RFC 所要求的完整 managed Agent 生命周期。
+
+dsh 固定版本经历了两步，理解本文需要同时知道这两个状态：今天的 `main` 固定
+`deepseek-harness-sdk==0.1.2a3`；托管栈把该固定版本升到最新发布通道，而不是未发布的
+tag：PyPI 上的 `deepseek-harness-sdk==0.1.5rc1` /
+`deepseek-harness-runtime-bin==0.1.5rc1`（PR #4420），与 npm `@deepseek-ai/dsh` 的
+`latest` 一致（2026-09-15 核对）。上游 `next` 与 `alpha` tag 比该通道更新，这里不
+采纳。
 
 2026-09-06 独立检查的上游版本，不等同于 LoopX 已验证的安装版本：
 
@@ -55,6 +155,14 @@ LoopX 检查基线为 `bf217e1e01bec79f357c9ecbd580cf2dfa73db8b`：
 
 这是接入成本和合同差异，不是说 Pi 没有事件，或 DSH 不能使用其他模型。
 两个 harness 都有控制 API；“被动”是具体 adapter 和实际加载依赖的性质。
+
+依赖 dsh 的两个 LoopX 面并不一起移动：有界 Turn 宿主使用上文记录的 Python
+SDK/runtime 固定版本（`0.1.5rc1`，已发布通道）；而 dsh 侧插件
+（`packages/dsh-loopx-plugin`）的开发与客户端面仍构建在 `0.1.1-rc.2` 上，尽管其
+clean-Docker smoke 已断言 `dsh --version == 0.1.5-rc.1`。0.1.5 线不再发布
+`@deepseek-ai/dsh-client-runtime`（最后发布版本为 `0.1.1-rc.2`），客户端 runner 改为
+`@deepseek-ai/dsh-cordis-client-runner`。该升级作为独立的 pin 项跟踪，不改变上文的
+L1 observer 契约。
 
 ## 数据流与权限
 
@@ -114,6 +222,12 @@ goal ledger 不得被标成当前 session 健康。输出只供操作者，不�
 原始日志、凭据留在 owner-local；公共材料只保留通用方法、固定版本、聚合结果和
 安全引用。本文件不授权真实模型执行或删除现有记录。
 
+里程碑归属仍由
+[Agent 会话执行模式](./agent-session-execution-modes-v0.zh-CN.md) 决定：本文负责
+L1 observer 这条臂的 C0、C1、开销与保留证据，以及上面针对会话归属 runtime 的 Mode B
+验收；M1-M4 接入里程碑与跨前端投影行仍归该文档，本文不定义模式推断，也不定义第二个
+执行器。
+
 ## 后续交付次序
 
 先评审对比结论和 CLI 读取增量；Mode B 面板必须先具备精确 session 读取与有界刷新，
@@ -121,3 +235,50 @@ goal ledger 不得被标成当前 session 健康。输出只供操作者，不�
 提交仓库。删除功能等 retention profile 决定后再做。若 Pi 在相同隔离及生命周期
 验收下具有更低的实测接入／运维成本，或 DSH 无法通过，再调整偏好。
 不得为了让 L1 实验通过而加入 L2 建议、重试权限或新 scheduler。
+
+## 管家通道的会话传输（2026-09-15）
+
+受治理的 Turn 面与管家（manager）会话通道各自**显式选择**宿主，互不推断；但两者需要
+的宿主形态不同：Turn 是一次有界工作片段，现有 DSH adapter 已支持；管家通道还需要一个
+能持有交互会话的传输，而现有 DSH 面明确不承诺跨 turn 的 DSH 会话连续性。
+
+托管栈中的行为（PR #4446，尚未进入 `main`）：管家通道把 `codex` 作为出货执行器，并
+保持厂商默认模型，operator 凭据不改指其中任何一项——它只作为事实被回报
+（`operator_credential_configured`，仅变量名），并且只为真正跑在 operator provider 上
+的那个端点提供认证。若为该通道选择托管宿主，解析结果给出 `available: false` 与 typed
+`managed_host_chat_transport_unsupported`；针对该宿主的会话请求以同一个 typed
+host-tool gate 失败，不会静默回落到个人
+CLI 登录。
+
+| 路线 | 形态 | 代价与风险 |
+| --- | --- | --- |
+| A. turn-backed 管家传输（优先） | 每个管家 chat turn 在托管宿主上执行一次受治理 Turn（`loopx turn run-once --host dsh`，`isolated-headless`），把有界会话历史作为上下文 | 无双工流式、无跨 turn 宿主会话，每个 turn 都是新 segment；上线前需要明确的工具／沙箱权威与单 turn 成本上限 |
+| B. ACP 或 stdio 适配 | 当托管宿主暴露此类接口时，复用 ACP stdio 适配路径（Kiro CLI chat 端点已走此路） | 传输成本最低，但依赖上游接口，目前没有已交付证据 |
+| C. codex 端点绑定 operator provider | 让 Codex app-server 直接以 operator provider 启动，保留现有传输与工具面 | 保留流式，但必须证明会话不再以个人登录认证；provider 配置成为宿主状态权威，需要单独 gate |
+
+选型规则：优先 A，因为它复用 LoopX 已经验证过的 Turn 权威、typed host failure、
+journal 与配额语义；B 作为上游接口出现时的低成本替代；只有在管家体验确需双工
+流式时才评估 C。无论采用哪条路线，都必须证明「一次管家会话的模型工作落在
+operator 凭据上，且不存在任何默认指向个人订阅的路径」。本文件不授权为此新增
+scheduler、重试权限或第二套监控子系统。
+
+## 按里程碑看管家通道的就绪度（2026-09-15）
+
+管家通道同时消费本文的宿主选型与
+[管家语义交接](./capable-manager-semantic-handoff-v0.zh-CN.md) 中的管家里程碑。
+本节记录这些里程碑当前可以依赖管家通道的哪些行为、哪些仍未验证。这里只写产品
+契约，不写会话内容：不记录真实会话原文、受众身份、带日期的具体事故，或 operator
+本机路径。
+
+| 里程碑 | 管家通道在范围内的契约 | 2026-09-15 的证据状态 |
+| --- | --- | --- |
+| 管家 M1 — 可用的宿主 agent | 通道解析并回报其生效执行器、模型与来源，执行器选型不跟随凭据；没有 chat 传输的宿主以 typed reason 失败，而不是静默回落到个人登录 | 仅存在于托管栈（PR #4446，配套 Turn 侧读取见 PR #4443）：带来源的已选端点与模型、`executor_kind`、`channel_binding` 读取，以及被 gate 的 `managed_host_chat_transport_unsupported` 请求。上游**会话身份**尚未投影到通道，因此通道回答还无法证明是哪一次会话给出的 |
+| 管家 M2 — 语义续接 | 跨所有已注册运行中 lane 的接收者解析；按来源的 typed 覆盖与新鲜度；报告可以先用目标级里程碑开头，而不是先给覆盖免责声明 | 未实现。委托只按传入的委托目录解析，因此拥有该事项的 lane 不在目录中时会被拒绝或投给无关 lane；provider 读取失败以原始错误文本出现在回答里，而不是 typed 来源行；管家上下文只提供交付与覆盖，没有可综合的目标级里程碑字段 |
+| 管家 M3 — 自动完成一次交流 | 超出或违反通道出站文本契约的已保存回答，按稳定答案身份分片重发；含糊或失败的发送要协调而不是用本地提示替代；回传路径要能跨传输重启存活；富文本要渲染成结构化文本 | 部分缓解。`loopx/extensions/lark/outbound.py` 在超限或载荷不合法时 fail closed，通道只回报这个本地失败、不重新投递已保存的回答；一条回答没有幂等身份，重试可能重复发送；结构化渲染没有保证 |
+| 宿主模式 M0-M1 | 通道的执行器选型与其有界单段执行 | 选型由 PR #4446 覆盖，Turn 侧选型由 PR #4443 覆盖；有界单段执行由上面的 Mode B 验收覆盖。管家通道本身仍跑在交互式 CLI 传输上，因此托管宿主自己的单段执行尚未能从通道抵达 |
+| 宿主模式 M2-M3 | attached-host 对齐、typed 不可用，以及不做模式推断、不引入第二执行器的模式感知投影 | 通道尚未实现；外部受众仍降级为 `restricted`，通道既不投影模式也不投影会话状态 |
+
+五行的两条边界固定不变：通道始终是同一个 manager Session 的入口与投影，不拥有
+profile、权限状态、第二执行器或工作权威，因此更丰富的回答契约不得扩大通道可读或
+可改的范围；本文也不提升任何一行的状态——M1-M4 接入里程碑与跨前端投影行仍归
+[Agent 会话执行模式](./agent-session-execution-modes-v0.zh-CN.md)。

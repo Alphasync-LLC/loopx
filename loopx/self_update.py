@@ -884,7 +884,7 @@ def restart_managed_loopx_services() -> list[str]:
         result = subprocess.run(
             ["launchctl", "kickstart", "-k", f"gui/{uid}/{label}"],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=30,
         )
         if result.returncode == 0:
@@ -952,7 +952,7 @@ def _execute_python_distribution_update(
     results: dict[str, subprocess.CompletedProcess[str]] = {}
     results["install"] = subprocess.run(
         commands["install"],
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         capture_output=True,
         timeout=timeout_seconds,
     )
@@ -960,7 +960,7 @@ def _execute_python_distribution_update(
         for step in ("workflow_skills", "slash_commands", "doctor"):
             results[step] = subprocess.run(
                 commands[step],
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 capture_output=True,
                 timeout=timeout_seconds,
             )
@@ -970,7 +970,7 @@ def _execute_python_distribution_update(
         ):
             results["extension_doctor"] = subprocess.run(
                 commands["extension_doctor"],
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 capture_output=True,
                 timeout=timeout_seconds,
             )
@@ -1100,7 +1100,7 @@ def execute_update_plan(
     loopx_bin = Path.home() / ".local" / "bin" / "loopx"
     doctor_result = subprocess.run(
         [str(loopx_bin), "--format", "json", "doctor"],
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         capture_output=True,
         env=env,
         timeout=timeout_seconds,
@@ -1126,7 +1126,7 @@ def execute_update_plan(
                 "--all-enabled",
                 "--execute",
             ],
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             capture_output=True,
             env=env,
             timeout=timeout_seconds,
@@ -1218,7 +1218,7 @@ def execute_rollback_plan(
         os.replace(temp_link, loopx_bin)
         doctor_result = subprocess.run(
             [str(loopx_bin), "--format", "json", "doctor"],
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             capture_output=True,
             timeout=timeout_seconds,
         )
@@ -1240,7 +1240,7 @@ def execute_rollback_plan(
                     "--all-enabled",
                     "--execute",
                 ],
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 capture_output=True,
                 timeout=timeout_seconds,
             )

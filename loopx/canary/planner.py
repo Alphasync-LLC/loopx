@@ -384,6 +384,14 @@ CURRENT_REPO_PROFILES: tuple[dict[str, Any], ...] = (
                     "underlying debt has been retired"
                 ),
             },
+            {
+                "command": "python3 examples/semantic-vocabulary-drift-smoke.py",
+                "tier": "default",
+                "reason": (
+                    "fails on an unregistered vocabulary value, a forked owner symbol, "
+                    "a stale semantic inventory, or a raised collision or retirement budget"
+                ),
+            },
         ],
     },
     *CONTROL_PLANE_QUALIFICATION_PROFILES,

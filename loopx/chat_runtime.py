@@ -20,7 +20,7 @@ from .capabilities.manager_runtime import (
     load_effective_manager_runtime_profile, manager_runtime_session_fields,
 )
 from .chat_acp import ACPStdioAdapter
-from .chat_agent import CodexChatAgentError, CodexChatAgentSession, CodexChatTimeoutError
+from .chat_agent import CodexChatAgentError, CodexChatAgentSession, CodexChatTimeoutError, agent_endpoint_error
 from .chat_endpoints import AgentEndpointRegistry
 from .kiro_cli_goal_mode import (
     KIRO_CLI_BIN,
@@ -167,9 +167,8 @@ class _TurnEventBuffer:
             try:
                 self.store.flush_events(self.session_id, self.turn_id)
             except Exception:
-                # Pending rows remain queued. The owning Turn retries during close,
-                # where a persistent failure is handled by the normal runtime path.
-                return
+                # Pending rows remain queued; retry after the normal flush interval.
+                continue
 
     def _checkpoint_locked(self, *, force: bool = False) -> None:
         if not self.metadata_dirty:
@@ -525,7 +524,7 @@ class ChatRuntimeController:
                 if latest is not None and latest.get("session_mode") == CHAT_SESSION_MODE_ATTACHED:
                     return latest, True
             if capability is None:
-                raise ValueError(f"unknown Agent endpoint: {agent_id}")
+                raise agent_endpoint_error(agent_id)
             if not capability["available"]:
                 raise ValueError(f"Agent endpoint is unavailable: {agent_id}")
             if latest is not None:
@@ -1399,14 +1398,16 @@ class ChatRuntimeController:
 
     def wait_for_turn(self, *, session_id: str, turn_id: str, timeout_sec: float = 920.0) -> dict[str, Any]:
         deadline = time.monotonic() + timeout_sec
-        while time.monotonic() < deadline:
-            turn = self.store.load_turn(session_id, turn_id)
-            if turn is None:
+        while True:
+            if (turn := self.store.load_turn(session_id, turn_id)) is None:
                 raise KeyError("chat turn was not found")
             if turn.get("status") in TERMINAL_TURN_STATES:
                 return turn
-            time.sleep(0.02)
-        raise TimeoutError("chat turn wait timed out")
+            if (remaining := deadline - time.monotonic()) <= 0:
+                raise TimeoutError("chat turn wait timed out")
+            with self.lock:
+                done_event = self.turn_done_events.get((session_id, turn_id))
+            (done_event.wait if done_event else time.sleep)(remaining if done_event else min(0.02, remaining))
 
     def close_session(self, session_id: str) -> bool:
         with self._session_adapter_lock(session_id):

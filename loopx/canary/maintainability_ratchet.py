@@ -208,7 +208,7 @@ def tracked_python_paths(repository_root: Path) -> set[Path]:
         ["git", "ls-files", "*.py"],
         cwd=repository_root,
         check=True,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         stdout=subprocess.PIPE,
     )
     return {

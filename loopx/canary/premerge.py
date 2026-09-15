@@ -397,7 +397,7 @@ def _run_gate_check(
         completed = subprocess.run(
             argv,
             cwd=repo_root,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=max(1.0, timeout_seconds),
@@ -754,7 +754,9 @@ def _tier_limits(tier: str) -> dict[str, int | bool]:
         return {"catalog_limit": 3, "profile_limit": 0, "deep": False}
     if normalized == "deep":
         return {"catalog_limit": 0, "profile_limit": 0, "deep": True}
-    return {"catalog_limit": 9, "profile_limit": 8, "deep": False}
+    # Reserve the added vocabulary check without displacing the existing
+    # state-machine and heartbeat/quota checks in the standard catalog slice.
+    return {"catalog_limit": 10, "profile_limit": 8, "deep": False}
 
 
 def build_premerge_validation_gate(

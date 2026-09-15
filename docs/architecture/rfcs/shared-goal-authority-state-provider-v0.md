@@ -1231,18 +1231,29 @@ is gated by evidence below, not by calendar dates or this PR's merge status.
 | New-Goal default decision (F) | Maintainers accept the qualified profile and canary results, operational diagnostics, backup/restore procedure, release instructions and default-disable path. Ship the default change in a separate disclosed release change. | Apply only to newly created eligible local Goals. Existing explicit file selections remain pinned. Unsupported runtimes/filesystems require an explicit supported choice; no silent backend switch on open failure. |
 | Existing-Goal migration and file retirement | Migrate opt-in cohorts using the reviewed fenced workflow; reconcile receipts, history, projections and rollback after each cohort. Inventory the last file-primary callers and compatibility windows before removing any path. | Each Goal needs explicit migration authority. Retire file as the ordinary primary only after that evidence; retain reference/import/export support until its own callers and retention duties end. |
 
-**Current evidence position (rechecked 2026-09-13).** #4121 merged as
+**Current evidence position (rechecked 2026-09-15).** #4121 merged as
 `bde1632bb6f29aeb9a8b4ac23ead3e98ba2f2f55`, delivering the first candidate
-milestone. It remains subject to profile qualification and promotion; it is
-not completion of lane L. Its head pointer is bounded and
-operation/cursor lookups are indexed, but it retains full historical projections
-and counts a covering index for continuity. That count grows with history;
-current/accessed-row digests are checked, not every historical payload per read.
-The qualification entrypoint now separates a small rehearsal from an explicit
-64-KiB 10k/100k storage axis, with p99/counts, cold CLI, RSS and a
-passed/failed/missing ledger. Unavailable logical/WAL traffic, full-domain,
-large-history recovery and elapsed-soak evidence remain holds; runner completion
-cannot claim the <=2 growth budget or ten-day qualification. See the
+milestone. The bounded retained-storage half of lane L now has a reviewed
+candidate: `loopx_sqlite_authority_store_v2` keeps one checkpoint per 64-commit
+window plus one exact state delta per commit instead of one full projection copy
+per row, proves the live head from the head row, its retained transaction and
+the cursor bounds, rebuilds at most one window per historical read, and proves
+the complete delta chain through `verifyAuthorityHistory`. Cursors, operation
+IDs, commit digests, provider revisions, receipts, events and scan pages are
+unchanged, and the shipped version-1 databases migrate through the reviewed
+`examples/coordination/sqlite-authority-migration.ts` entry point. Rehearsal
+evidence at 1,000 commits/64 KiB now reports 16 checkpoints, a 63-commit replay
+budget, one checkpoint history read and 1,048,576 retained projection bytes plus
+126,714 delta bytes against 65,536,000 bytes for one copy per commit.
+
+This is still not completion of lane L. File and NoKV continue to retain and
+decode their complete journal on every load, so bounded recovery is a property
+of the embedded candidate rather than cross-provider parity; the SQLite profile
+also still retains receipts and events without pruning. Unavailable logical/WAL
+traffic and the <=15x cumulative write-growth budget, 1 MiB and 300k headroom,
+full-domain workload, large-history recovery, fenced backup/restore, supported
+upgrade/rollback, OS/runtime coverage and the >=10-day elapsed soak remain
+holds, and runner completion cannot claim them. See the
 [SQLite qualification commands](../../reference/sqlite-authority-store.md#reproduce-validation).
 The public minimum remains Node 22.18 for File; SQLite additionally requires
 synchronous finalization and the WAL-reset fix, with Node 22.22.3/SQLite 3.51.3
@@ -2917,6 +2928,11 @@ an equal-byte retry syncs file and directory before reporting `current`. Narrati
 canonical records stay intact. This converges the retained Python presentation/legacy
 input adapter; it adds no RPC or business state machine and does not change TS authority
 transactions, provider defaults, SQLite D2 or D3 promotion requirements.
+Objective examples are now isolated by both document producers, and display
+readback shares the Goal codec. Canonical Todo reads remain independent of
+malformed display; Objective narrative is not added to the Todo store or its
+recovery scope. This is a bounded D1 adapter correction, not D1–D3 qualification.
+See the [document boundary](../../reference/protocols/active-state-structured-projection-v0.md#markdown-ownership-boundary).
 Canonical handoff-mode show/set no longer depend on Markdown frontmatter or local lease files. One TS transaction binds quiescence, mode and durable operation replay to the same revision, including sealed no-op intents. This adds a provider-neutral command boundary, not a provider default or whole-Goal cutover; frontmatter remains outside the Todo-section renderer. See [operation and recovery](../../reference/handoff-mode.md).
 
 T2 now commits a lease-free native Monitor observation and its independent
@@ -2984,30 +3000,68 @@ independent legacy three-arm comparison or D2 soak.
 
 #### Execution handoff and integration order
 
-| Ready condition | Next action | What it does not authorize |
+**Local-default delivery program (2026-09-14).** The outcome is a new local
+Goal whose normal CLI, Turn and operator actions use one TS-owned canonical
+transaction path, with Markdown as a permanent projection. An omitted selector
+resolving to File is not this outcome: existing Goals still have a legacy
+writer until an explicit whole-Goal cutover.
+
+Qualify **one** long-lived local default profile. SQLite is the current D2
+candidate; File remains the real reference/explicit profile and migration
+rehearsal backend. Do not publish two ambiguous defaults, declare the current
+File history layout long-horizon-qualified, or silently fall back from a
+selected SQLite store. The final profile decision must cite its D2 evidence.
+PostgreSQL shares the TS semantic contracts but has independent service,
+tenant, restore and capacity qualification; its deployment must not delay the
+local profile's work.
+
+The reconciled baseline includes #4286 (command receipts/archive), #4289
+(typed work/ownership intent), #4292 (declarative decision metadata), and #4304
+(canonical handoff mode). Candidate #4316 closes Goal Channel observation;
+#4317 unifies provider opening; #4348 adds canonical renew; #4328 is the first
+SQLite D2 measurement/recovery batch. They are review candidates, not merged
+prerequisites or proof of the full cards. #4334 is the independent PostgreSQL
+service-admission candidate. Re-read actual heads before composing work; do
+not carry their already-merged ancestors as new changes.
+
+The identifiers below are **planned PR packages**, not reserved GitHub numbers.
+A package may split at a real effect/compatibility boundary; changing languages
+or moving a helper is not by itself a package exit.
+
+| Wave / package | Reviewable delivery and TS ownership payoff | Dependencies and exit evidence |
 | --- | --- | --- |
-| Current refactor stack is reconciled | T1; D1 and D2 may proceed independently | Default provider changes or another generic migration framework |
-| T1 closes field semantics | T2; close T3 consumers as their contracts become available | Per-command split authority within one Goal |
-| T1–T3 and D1/D2 plus capture qualify | D3 rehearsal, then explicit promotion request | Skipping soak, bypassing failed evidence, or production promotion by the agent |
-| Approved cutover and legacy window finish | T4 full-writer retirement | Deleting permanent Markdown presentation or historical receipts still needed for replay |
+| A / L1: Monitor configuration (this slice) | Existing `todo update` config enters the TS planner/CAS/receipt; delete Python's duplicate intent field catalog. Separate authoring from observed hashes, times and generations. | Ordinary CLI/API, clear/omission, active lease proof, no-op/replay, failed display delivery, complete fixture and real providers. This does not complete delegated Chat or leased polling. |
+| A / L2: Complete public mutation admission | Inventory actual CLI/Turn/Chat callers; close remaining effect-owned user decisions, delegated owner actions and Monitor lifecycle transitions with validated actor/grant facts. | Build on merged T1 owners, not a generic raw patch. Prove permission rejection and exact caller response; remove replaced Python admission and name every remaining unsupported command. |
+| A / L3: Canonical lease lifecycle | Reconcile #4348 renew; close transfer/release and their CLI consumers through the same typed lease rules, atomic head/event/receipt and replay. | One canonical Todo/lease revision; lost replies, stale versions, competing owners, expired/released history and cleanup proofs. Receipt replay is never a fresh execution grant. |
+| B / L4: Leased Monitor poll and settlement | Compose observation, generation and independent successors with the current lease fence. Reuse the existing quota settlement protocol and exact business receipt. | L2/L3; real polling failure, duplicate/no-change observations, crash between business and quota settlement, and competing writers. Do not pretend separate authorities share a database transaction. |
+| B / L5: Consumer and display closure | Reconcile #4316, audit Turn/quota/Dashboard/Chat source reads, and finish D1 freshness/recovery through the existing projection outbox. | CLI, Lark/Chat and packaged frontend read back their affected interactions; absent/stale display, empty canonical state, pending projection and data beyond UI limits. Delete post-promotion legacy fallbacks with each consumer. |
+| A–C / L6: Local durability qualification | Continue contributor-owned #4224/#4328 on the selected SQLite profile; reuse File/NoKV references and complete 7.2's ledger. | Capacity, real process/crash/restore/upgrade, retained receipts/scans, consumer lag, supported runtimes/OS and the separately authorized >=10-day synthetic soak. Missing measurements remain holds. |
+| A–C / L7: Capture continuity | Resolve #4315 with source-correlated archive retirement and identical lease membership at bootstrap and later writers; activate its row/mutant and complete the mixed-writer/event-source matrix. | Real CLI/File capture, history retained, partial drain unqualified, crash/replay and a new lease after archive/rebootstrap. Keep the legacy migration window provable; T4 cannot be used to skip this row. |
+| C / L8: Whole-Goal rehearsal and cohort migration | Integrate one exact revision/profile after L2–L7; drain capture, fence old writers, verify canonical readback and projection, then rehearse fenced export/rollback. | D3 evidence packet binds lineage, cursor, source digest, command coverage and profile. Existing Goal migration requires explicit cohort approval; no per-command split authority or stale Markdown revival. |
+| D / L9: New-Goal default and bounded retirement | A dedicated default-change PR makes new-Goal creation/onboarding choose the qualified local profile, including settings/readback, installer and packaged clients. Retire old business writers only as their final callers and migration window close. | L8's integrated product/rollback qualification; distinguish new Goal default from existing Goal migration. Publish compatibility/disable guidance, keep explicit provider choice, permanent rendering and validated import/export. T4 can continue after the default ships. |
 
-Expect roughly **five to seven cohesive implementation/qualification batches**
-after reconciling the current stack, not a fixed PR quota: T1, T2, T3, D1, D2,
-D3 and T4 can share a PR only when their dependencies, review and rollback
-remain clear. Semantic deletion starts in T1; full legacy-writer deletion waits
-for D3/T4. Elapsed-time soak is separate and is not shortened by splitting PRs.
+**Cadence is evidence-based.** First reconcile the active stack, then deliver A
+packages as complete operations while L6/L7 progress independently. B integrates
+those contracts into complete user flows; C has one reproducible qualification
+checkpoint; D changes the default in its own reviewable PR. This is roughly
+nine cohesive packages at this checkpoint, not a line-count target or a promise
+of nine merges. Avoid concurrent edits to the same transaction owner; share
+fixture/contracts early and rebase after the owner lands.
 
-For each handoff, record the exact base/head, selected card, actual callers
-removed, changed authority/observable semantics, real-backend results, remaining
-holds and one next executable action. If an earlier stage already landed,
-verify its evidence and skip its implementation; if prerequisites fail, stop
-that dependent stage. Do not turn hypothetical post-merge readiness into an
-automatic promotion, automation, merge or release permission.
+There is no defensible calendar completion date before the L2/L3 command
+inventory and L6 missing-evidence ledger close. The >=10-day soak is a real
+elapsed-time lower bound **after the measured profile is ready**, not ten days
+from this plan. It may overlap compatible work after explicit launch approval;
+changes to the qualified durability semantics require an impact-based rerun.
+Accelerated fixtures cannot replace elapsed time. Native TS CLI/distribution
+cleanup, removal of every Python adapter, and PostgreSQL service deployment are
+not prerequisites for this local default.
 
-The current default and Appendix C promotion holds remain unchanged. This plan
-does not declare the whole Todo family, long-goal profile, or shared deployment
-production-ready. Providers keep CAS/transactions durable; they never own a
-second Todo state machine.
+Every package records actual caller/owner deletion, added bridge LOC and its
+exit, request/response counts, real-backend results, baseline parity and disclosed
+semantic corrections. A green unit suite, a canonical selector, or a new config
+field alone cannot advance a package to default readiness. Planned integration,
+soak, release, merge and live promotion retain their respective authorization.
 
 ### Parallel delivery plan
 

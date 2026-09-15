@@ -1,0 +1,425 @@
+#!/usr/bin/env python3
+"""Guard the repository's registered vocabularies against silent drift.
+
+``loopx/semantics/vocabulary_v0.json`` names each kernel and cross-runtime
+vocabulary, the exact ``module::Symbol`` allowed to define it, how vocabularies
+relate, and the budgets the repository ratchets down. ``inventory_v0.json`` is
+the generated map of every closed-set carrier under ``loopx/``. This smoke
+checks code against both so a PR that widens a vocabulary, forks a constant,
+adds an unmapped carrier, or weakens the registry itself must show that change
+in the same diff. It reads tracked sources only and prints no private data.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import sys
+from pathlib import Path
+from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from loopx.semantics.inventory import (  # noqa: E402
+    INVENTORY_SCHEMA_VERSION,
+    SourceFile,
+    build_inventory,
+    collect_string_constants,
+    load_sources,
+    python_facts,
+    render_inventory,
+    string_constant_definitions,
+    typescript_facts,
+)
+
+REGISTRY_PATH = REPO_ROOT / "loopx" / "semantics" / "vocabulary_v0.json"
+REGISTRY_SCHEMA_VERSION = "loopx_semantic_vocabulary_v0"
+VALUE_SHAPE = re.compile(r"^[a-z][a-z0-9_]*$")
+OWNER_SHAPE = re.compile(r"^[A-Za-z0-9_./-]+\.(py|ts)::[A-Za-z_][A-Za-z0-9_]*$")
+QUOTED = re.compile(r'''["']([^"']*)["']''')
+
+REGISTRY_KEYS = {
+    "schema_version", "rfc", "inventory", "policy", "coverage_floor", "vocabularies", "relations",
+    "projections", "schema_versions", "retirement_ledger", "dual_runtime_twins", "inventory_ratchets",
+}
+VOCABULARY_KEYS = {"meaning", "tier", "status", "owners", "values"}
+VOCABULARY_OPTIONAL_KEYS = {"literal_scan", "variable_sourced_values", "value_notes", "deprecated_values"}
+TIERS = {"kernel", "cross_runtime", "cross_module"}
+STATUSES = {"canonical", "legacy", "merge_candidate"}
+
+# Hard ceiling on the registry's own floors and budgets, kept in code rather than
+# in the registry so one single-diff edit to ``vocabulary_v0.json`` cannot relax
+# the ratchet that guards it. Same anchor pattern as
+# ``tests/control_plane/test_m6_quality_gates.py::RFC_MODULE_BUDGETS``: the
+# registry value must equal the anchor, so tightening a budget edits this literal
+# and the JSON in one diff, and a later PR cannot raise the JSON back toward a stale
+# anchor. A `<=` comparison would let every tightening below the anchor be undone
+# silently; that is the gap the anchor exists to close.
+COVERAGE_ANCHOR = {
+    "vocabularies": 26,
+    "owner_symbols": 46,
+    "literal_scan_fields": 1,
+    "projections": 1,
+    "relations": 9,
+    "schema_versions": 1,
+}
+COVERAGE_SUFFIX_ANCHOR = (".py", ".ts")
+LITERAL_SCAN_ROOTS = ["loopx"]
+TWIN_ROOT_ANCHOR = "loopx/control_plane"
+TWIN_BUDGET_ANCHOR = 43
+BUDGET_ANCHOR = {
+    "same_runtime_forks": 25,
+    "same_runtime_fork_definitions": 58,
+    "conflicting_values": 18,
+    "conflicting_definitions": 59,
+    "schema_version_same_runtime_forks": 7,
+    "multi_value_twins": 19,
+    "multi_value_forks": 4,
+    "multi_value_fork_definitions": 10,
+    "same_runtime_forks_semantic": 18,
+    "conflicting_values_semantic": 2,
+}
+# Budgets for the legacy should-run decision fields, anchored the same way so a
+# single diff cannot widen a retirement budget to keep a field alive.
+RETIREMENT_ANCHOR = {
+    "execution_obligation": (21, 1),
+    "heartbeat_recommendation": (18, 1),
+    "work_lane_contract": (32, 3),
+    "external_evidence_observation": (11, 1),
+    "goal_boundary": (35, 2),
+    "protocol_action_packet": (7, 2),
+}
+RATCHET_KEYS = (
+    "same_runtime_forks",
+    "same_runtime_fork_definitions",
+    "conflicting_values",
+    "conflicting_definitions",
+    "schema_version_same_runtime_forks",
+    "multi_value_twins",
+    "multi_value_forks",
+    "multi_value_fork_definitions",
+    "same_runtime_forks_semantic",
+    "conflicting_values_semantic",
+)
+
+# Dispatch forms the literal scan recognises. Fixed here, not in the registry, so
+# the registry cannot narrow what the scan sees. ``{f}`` is the field name.
+DISPATCH_FORMS = (
+    # Python/TypeScript comparisons, including wrapped field reads.
+    r"""{f}\b[^\n]*?(?:===|!==|==|!=)\s*["']([^"']*)["']""",
+    # Assignment or object/dict key.
+    r"""{f}["\'\]\)]*\s*(?::|=|\bis)\s*["']([^"']*)["']""",
+    # TypeScript conditional expression.
+    r"""{f}\b[^"\n]*?\?\s*["']([^"']*)["']\s*:\s*["']([^"']*)["']""",
+    # Membership in an inline collection.
+    r"""{f}["\'\]\)]*[^"\n]*?\bin\s*[\(\[\{{]([^\)\]\}}]*)[\)\]\}}]""",
+    # Python conditional expression.
+    r"""{f}\b[^"\n]*?=\s*["']([^"']*)["']\s+if\b[^"\n]*?\belse\s+["']([^"']*)["']""",
+)
+MEMBERSHIP_FORM_INDEX = 3
+
+
+class Drift(AssertionError):
+    pass
+
+
+def require(condition: bool, message: str) -> None:
+    if not condition:
+        raise Drift(message)
+
+
+# --- registry shape -----------------------------------------------------------------
+
+
+def load_registry() -> dict[str, Any]:
+    registry = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
+    require(set(registry) == REGISTRY_KEYS, f"registry keys must be exactly {sorted(REGISTRY_KEYS)}")
+    require(registry["schema_version"] == REGISTRY_SCHEMA_VERSION, f"registry schema_version must be {REGISTRY_SCHEMA_VERSION}")
+    require((REPO_ROOT / registry["rfc"]).is_file(), f"registry must point at an existing RFC: {registry['rfc']}")
+    require((REPO_ROOT / registry["inventory"]).is_file(), f"registry must point at an existing inventory: {registry['inventory']}")
+    for name, vocabulary in registry["vocabularies"].items():
+        require(VALUE_SHAPE.match(name) is not None, f"vocabulary name must be lower snake_case: {name}")
+        keys = set(vocabulary)
+        require(VOCABULARY_KEYS <= keys <= VOCABULARY_KEYS | VOCABULARY_OPTIONAL_KEYS, f"{name}: unexpected keys {sorted(keys ^ VOCABULARY_KEYS)}")
+        require(vocabulary["tier"] in TIERS, f"{name}: tier must be one of {sorted(TIERS)}")
+        require(vocabulary["status"] in STATUSES, f"{name}: status must be one of {sorted(STATUSES)}")
+        owners = vocabulary["owners"]
+        require(set(owners) == {"python", "typescript"}, f"{name}: owners must name python and typescript, each module::Symbol or null")
+        for runtime, owner in owners.items():
+            if owner is None:
+                continue
+            require(OWNER_SHAPE.match(owner) is not None, f"{name}: {runtime} owner must be module::Symbol, got {owner!r}")
+            require(owner.endswith(".py::" + owner.split("::")[1]) if runtime == "python" else owner.split("::")[0].endswith(".ts"), f"{name}: {runtime} owner has the wrong suffix: {owner}")
+            require((REPO_ROOT / owner.split("::")[0]).is_file(), f"{name}: owner module does not exist: {owner}")
+        require(any(owners.values()) or "literal_scan" in vocabulary, f"{name}: a vocabulary with no owner symbol must declare a literal_scan")
+        values = vocabulary["values"]
+        require(isinstance(values, list) and values, f"{name}: values must be a non-empty list")
+        require(len(values) == len(set(values)), f"{name}: values repeat")
+        malformed = [value for value in values if not VALUE_SHAPE.match(value)]
+        require(not malformed, f"{name}: values must be lower snake_case: {malformed}")
+        for key in ("value_notes", "variable_sourced_values"):
+            extra = set(vocabulary.get(key, {})) - set(values)
+            require(not extra, f"{name}: {key} names unregistered values {sorted(extra)}")
+        require(set(vocabulary.get("deprecated_values", [])) <= set(values), f"{name}: deprecated_values must be a subset of values")
+        scan = vocabulary.get("literal_scan")
+        if scan is not None:
+            require(set(scan) == {"field", "roots", "suffixes"}, f"{name}: literal_scan keys must be field, roots, suffixes")
+            require(VALUE_SHAPE.match(scan["field"]) is not None, f"{name}: literal_scan.field must be an identifier")
+    return registry
+
+
+def check_coverage_floor(registry: dict[str, Any]) -> str:
+    for vocabulary in registry["vocabularies"].values():
+        if scan := vocabulary.get("literal_scan"):
+            require(scan["roots"] == LITERAL_SCAN_ROOTS, "literal_scan roots must cover loopx")
+            require(set(scan["suffixes"]) == set(COVERAGE_SUFFIX_ANCHOR), "literal_scan must cover both Python and TypeScript")
+    floor = registry["coverage_floor"]
+    actual = {
+        "vocabularies": len(registry["vocabularies"]),
+        "owner_symbols": sum(1 for v in registry["vocabularies"].values() for o in v["owners"].values() if o),
+        "literal_scan_fields": sum(1 for v in registry["vocabularies"].values() if "literal_scan" in v),
+        "projections": len(registry["projections"]),
+        "relations": sum(len(group) for group in registry["relations"].values()),
+        "schema_versions": len(registry["schema_versions"]),
+    }
+    for key, count in actual.items():
+        require(count >= floor[key], f"coverage_floor.{key} is {floor[key]} but the registry now has {count}; coverage may only grow")
+    declared_suffixes = {s for v in registry["vocabularies"].values() for s in v.get("literal_scan", {}).get("suffixes", [])}
+    require(set(floor["literal_scan_suffixes"]) <= declared_suffixes, f"literal scans must still cover {floor['literal_scan_suffixes']}; declared {sorted(declared_suffixes)}")
+    for key, anchored in COVERAGE_ANCHOR.items():
+        require(
+            floor[key] == anchored,
+            f"coverage_floor.{key} is {floor[key]} but COVERAGE_ANCHOR pins {anchored}; "
+            "the registry and the anchor move together in one diff (see COVERAGE_ANCHOR in this smoke)",
+        )
+    for suffix in COVERAGE_SUFFIX_ANCHOR:
+        require(suffix in set(floor["literal_scan_suffixes"]), f"coverage_floor.literal_scan_suffixes dropped the anchored suffix {suffix}")
+    return "coverage=" + ",".join(f"{key}:{count}/{floor[key]}" for key, count in actual.items())
+
+
+# --- owners and closed sets -----------------------------------------------------------
+
+
+def source(path: str) -> SourceFile:
+    file = REPO_ROOT / path
+    return SourceFile(path=path, suffix=file.suffix, text=file.read_text(encoding="utf-8", errors="replace"))
+
+
+def owner_values(owner: str) -> list[str]:
+    module, symbol = owner.split("::")
+    facts = python_facts(source(module)) if module.endswith(".py") else typescript_facts(source(module))
+    sections = ("enums", "closed_sets", "literal_aliases") if module.endswith(".py") else ("const_arrays",)
+    for section in sections:
+        for entry in facts[section]:
+            if entry["name"] == symbol:
+                return list(entry["values"])
+    raise Drift(f"{module} does not define a string enum, closed set, Literal alias, or as-const array named {symbol}")
+
+
+def assert_closed_set(label: str, actual: list[str], expected: list[str]) -> None:
+    require(len(actual) == len(set(actual)), f"{label} repeats a value: {actual}")
+    missing = sorted(set(expected) - set(actual))
+    unregistered = sorted(set(actual) - set(expected))
+    require(not missing and not unregistered, f"{label} drifted from the registry; missing={missing} unregistered={unregistered}")
+
+
+def check_owned_vocabularies(registry: dict[str, Any], inventory: dict[str, Any]) -> None:
+    defined_in: dict[str, set[str]] = {}
+    for section in ("python_enums", "python_closed_sets", "python_literal_aliases", "typescript_const_arrays"):
+        for entry in inventory[section]:
+            defined_in.setdefault(entry["name"], set()).add(entry["module"])
+    problems: list[str] = []
+    for name, vocabulary in registry["vocabularies"].items():
+        owners = [owner for owner in vocabulary["owners"].values() if owner]
+        for owner in owners:
+            try:
+                assert_closed_set(f"{name} owner {owner}", owner_values(owner), vocabulary["values"])
+            except Drift as error:
+                problems.append(str(error))
+        # I1: a registered symbol name is defined only in its owner modules.
+        for owner in owners:
+            _module, symbol = owner.split("::")
+            others = sorted(defined_in.get(symbol, set()) - {o.split("::")[0] for o in owners})
+            if others:
+                problems.append(f"{name}: {symbol} is also defined in {others}; only the registered owners may define it")
+    require(not problems, "owned vocabularies drifted:\n  " + "\n  ".join(problems))
+
+
+# --- literal scan -------------------------------------------------------------------
+
+
+def scan_literals(field: str, roots: list[str], suffixes: list[str], sources: list[SourceFile]) -> dict[str, set[str]]:
+    observed: dict[str, set[str]] = {}
+    forms = [re.compile(form.format(f=re.escape(field))) for form in DISPATCH_FORMS]
+    for root in roots:
+        for file in sources:
+            if file.suffix not in suffixes or not file.path.startswith(root.rstrip("/") + "/"):
+                continue
+            for index, form in enumerate(forms):
+                for match in form.finditer(file.text):
+                    tokens = QUOTED.findall(match.group(1)) if index == MEMBERSHIP_FORM_INDEX else list(match.groups())
+                    for token in tokens:
+                        if token == "":
+                            continue  # ``?? ""`` and ``or ""`` clear the field; not a value
+                        observed.setdefault(token, set()).add(file.path)
+    return observed
+
+
+def check_literal_vocabularies(registry: dict[str, Any], sources: list[SourceFile]) -> None:
+    for name, vocabulary in registry["vocabularies"].items():
+        scan = vocabulary.get("literal_scan")
+        if not scan:
+            continue
+        observed = scan_literals(scan["field"], scan["roots"], scan["suffixes"], sources)
+        expected = set(vocabulary["values"])
+        unregistered = {value: sorted(files) for value, files in observed.items() if value not in expected}
+        require(not unregistered, f"{name}: literals not in the registry (register them or use a registered value): {unregistered}")
+        variable_sourced = vocabulary.get("variable_sourced_values", {})
+        for value, producer in variable_sourced.items():
+            text = (REPO_ROOT / producer).read_text(encoding="utf-8", errors="replace")
+            require(f'"{value}"' in text, f"{name}: variable-sourced value {value} is no longer produced by {producer}")
+        unused = sorted(expected - set(observed) - set(variable_sourced))
+        require(not unused, f"{name}: registry lists values no module carries: {unused}")
+
+
+# --- relations, projections, schema versions ----------------------------------------
+
+
+def check_relations(registry: dict[str, Any]) -> None:
+    vocabularies = registry["vocabularies"]
+
+    def resolve(member: str) -> None:
+        vocabulary, _, value = member.partition(".")
+        require(vocabulary in vocabularies, f"relation member names unknown vocabulary: {member}")
+        require(value in vocabularies[vocabulary]["values"], f"relation member does not resolve: {member}")
+
+    for group in registry["relations"]["same_concept"]:
+        require(len(group["members"]) >= 2, f"same_concept {group['concept']} needs two members")
+        for member in group["members"]:
+            resolve(member)
+    for shared in registry["relations"]["shared_field_names"]:
+        for slot in shared["slots"]:
+            if "vocabulary" in slot:
+                require(slot["vocabulary"] in vocabularies, f"shared field slot names unknown vocabulary {slot['vocabulary']}")
+            else:
+                for value in slot["values"]:
+                    resolve(f"{shared['field']}.{value}")
+    for subset in registry["relations"]["subsets"]:
+        require(subset["superset"] in vocabularies, f"subset {subset['name']} names unknown superset {subset['superset']}")
+        superset = set(vocabularies[subset["superset"]]["values"])
+        expected = superset - set(subset["excluded"])
+        require(set(subset["excluded"]) <= superset, f"subset {subset['name']} excludes values outside {subset['superset']}")
+        for owner in subset["owners"].values():
+            if owner:
+                assert_closed_set(f"subset {subset['name']} owner {owner}", owner_values(owner), sorted(expected))
+
+
+def check_projections(registry: dict[str, Any]) -> None:
+    projection = registry["projections"]["turn_route_to_loop_disposition"]
+    from loopx.control_plane.turn_driver.driver import LoopXTurnRoute
+    from loopx.control_plane.turn_driver.loop_controller import LoopDisposition, _route_to_disposition
+
+    mapping = projection["mapping"]
+    routes = registry["vocabularies"]["turn_route"]["values"]
+    require(sorted(mapping) == sorted(routes), "projection must name every turn_route exactly once")
+    for route, expected in mapping.items():
+        try:
+            actual = _route_to_disposition(LoopXTurnRoute(route))
+        except KeyError:
+            require(expected is None, f"route {route} is rejected by the controller but the registry maps it to {expected}")
+            continue
+        require(expected is not None, f"route {route} is registered as rejected but projects {actual.value}")
+        require(actual is LoopDisposition(expected), f"route {route} projects {actual.value}, registry says {expected}")
+
+
+def check_schema_version_owners(registry: dict[str, Any], sources: list[SourceFile]) -> None:
+    definitions = string_constant_definitions(collect_string_constants(sources))
+    for name, entry in registry["schema_versions"].items():
+        defining = definitions.get(entry["constant"], [])
+        modules = sorted(item["module"] for item in defining)
+        require(modules == sorted(entry["owner_modules"]), f"schema version {name} is defined in {modules}; registry owners are {entry['owner_modules']}")
+        values = {item["value"] for item in defining}
+        require(values == {entry["value"]}, f"schema version {name} carries {sorted(values)}; registry says {entry['value']}")
+
+
+# --- ratchets -----------------------------------------------------------------------
+
+
+def check_retirement_budgets(registry: dict[str, Any], sources: list[SourceFile]) -> list[str]:
+    report: list[str] = []
+    ledger = registry["retirement_ledger"]["should_run_legacy_decision_fields"]["fields"]
+    require(set(ledger) == set(RETIREMENT_ANCHOR), f"retirement ledger fields are {sorted(ledger)}; the anchored set is {sorted(RETIREMENT_ANCHOR)}")
+    for field, budgets in ledger.items():
+        for suffix, key, anchored in (
+            (".py", "python_module_budget", RETIREMENT_ANCHOR[field][0]),
+            (".ts", "typescript_module_budget", RETIREMENT_ANCHOR[field][1]),
+        ):
+            actual = sum(1 for file in sources if file.suffix == suffix and field in file.text)
+            require(actual <= budgets[key], f"legacy field {field} grew to {actual} {suffix} modules; budget is {budgets[key]}")
+            require(
+                budgets[key] == anchored,
+                f"legacy field {field} {suffix} budget is {budgets[key]} but RETIREMENT_ANCHOR pins {anchored}; "
+                "the registry and the anchor move together in one diff (see RETIREMENT_ANCHOR in this smoke)",
+            )
+            report.append(f"{field}{suffix}={actual}/{budgets[key]}")
+    return report
+
+
+def check_dual_runtime_twins(registry: dict[str, Any]) -> str:
+    entry = registry["dual_runtime_twins"]
+    require(entry["root"] == TWIN_ROOT_ANCHOR, "dual_runtime_twins root differs from TWIN_ROOT_ANCHOR")
+    require(entry["module_budget"] == TWIN_BUDGET_ANCHOR, "dual_runtime_twins budget differs from TWIN_BUDGET_ANCHOR")
+    paths = {file.path for file in load_sources(REPO_ROOT, entry["root"])}
+    twins = sorted(path for path in paths if path.endswith(".py") and not path.endswith("/__init__.py") and path[:-3] + ".ts" in paths)
+    require(len(twins) <= entry["module_budget"], f"{len(twins)} py/ts twin modules under {entry['root']}; budget is {entry['module_budget']}")
+    return f"twins={len(twins)}/{entry['module_budget']}"
+
+
+def check_inventory(registry: dict[str, Any], sources: list[SourceFile]) -> tuple[dict[str, Any], str]:
+    inventory_path = REPO_ROOT / registry["inventory"]
+    committed = inventory_path.read_text(encoding="utf-8")
+    inventory = build_inventory(REPO_ROOT, sources=sources)
+    require(inventory["schema_version"] == INVENTORY_SCHEMA_VERSION, "inventory schema drift")
+    require(render_inventory(inventory) == committed, f"{registry['inventory']} is stale; run python3.11 scripts/generate_semantic_inventory.py and commit the result")
+    ratchets = registry["inventory_ratchets"]
+    summary = inventory["summary"]
+    parts = []
+    for key in RATCHET_KEYS:
+        require(summary[key] <= ratchets[key], f"inventory {key} grew to {summary[key]}; budget is {ratchets[key]}")
+        require(
+            ratchets[key] == BUDGET_ANCHOR[key],
+            f"inventory {key} budget is {ratchets[key]} but BUDGET_ANCHOR pins {BUDGET_ANCHOR[key]}; "
+            "the registry and the anchor move together in one diff (see BUDGET_ANCHOR in this smoke)",
+        )
+        parts.append(f"{key}={summary[key]}/{ratchets[key]}")
+    return inventory, " ".join(parts)
+
+
+def main() -> int:
+    registry = load_registry()
+    coverage = check_coverage_floor(registry)
+    sources = load_sources(REPO_ROOT)
+    inventory, ratchets = check_inventory(registry, sources)
+    check_owned_vocabularies(registry, inventory)
+    check_literal_vocabularies(registry, sources)
+    check_relations(registry)
+    check_projections(registry)
+    check_schema_version_owners(registry, sources)
+    budgets = check_retirement_budgets(registry, sources)
+    twins = check_dual_runtime_twins(registry)
+    print("semantic-vocabulary-drift-smoke: ok")
+    print("  " + coverage)
+    print("  " + ratchets)
+    print("  " + " ".join(budgets))
+    print("  " + twins)
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except Drift as error:
+        print(f"semantic-vocabulary-drift-smoke: FAIL\n  {error}", file=sys.stderr)
+        raise SystemExit(1)

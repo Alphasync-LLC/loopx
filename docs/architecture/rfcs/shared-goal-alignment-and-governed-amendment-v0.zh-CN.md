@@ -3,7 +3,7 @@
 - 状态：草案；维护者评审中
 - 跟踪 Issue：[#3836](https://github.com/huangruiteng/loopx/issues/3836)
 - 日期：2026-09-02
-- 最后更新：2026-09-13
+- 最后更新：2026-09-15
 - 范围：多个对等 Agent 围绕同一个共享 Goal 协作，同时保留 canonical
   intent、每个 Agent 的执行 frontier、claim/lease 所有权，以及可审计的
   replan/amendment 决策
@@ -277,8 +277,9 @@ committing --CAS success--> committed + receipt -> frontier reconciliation
 1. **Propose。** 任一有 proposal 权限的 actor 提交
    `goal_amendment_proposal_v0`，其中包含 base revision/digest、amendment
    class、retained/changed/stopped intent、evidence references、affected Todos
-   与关联的 replan obligation。可选的 host-session rendezvous 可以帮助发现或审阅
-   gap，但只有经过提升的 durable evidence 才能进入 proposal。
+   与关联的 replan obligation。由请求派生的 proposal 还必须绑定不可变的来源
+   request id 与 revision。可选的 host-session rendezvous 可以帮助发现或审阅 gap，
+   但只有经过提升的 durable evidence 才能进入 proposal。
 2. **Admit。** LoopX 校验 schema、actor identity、有界 evidence pointer、
    amendment class 与影响范围。Host locator 不能证明 actor identity，也不能充当
    evidence。Admission 不等于 approve 或 apply。
@@ -291,8 +292,10 @@ committing --CAS success--> committed + receipt -> frontier reconciliation
    policy 阻塞。Semantic amendment 不能静默使 lease 已授权的工作失效。
 5. **Commit。** `GoalAmendmentAuthority` transaction 带 `operation_id`、期望的
    `base_goal_revision` 与 `base_intent_digest` 提交 policy-authorized digest，
-   再次校验 policy 并执行一次 CAS。Base 过期时 fail closed。日常 in-envelope
-   amendment 不等待人。
+   再次校验 policy 并执行一次 CAS。对于 request-derived proposal，必须使用第 5.1 节
+   的精确来源 reservation 与 operation 终局协议；远端读一次有效性再做 Goal CAS 不够。
+   Goal 基线过期，或来源 revision 已被替代且没有 reservation，均 fail closed。
+   日常 in-envelope amendment 不等待人。
 6. **Receipt。** 同一事务记录 proposal digest、actor、authority source、旧/新
    revision、retained/changed/stopped delta、evidence references、affected Todos、
    lease disposition 与精确 replan obligation settlement。
@@ -302,6 +305,64 @@ committing --CAS success--> committed + receipt -> frontier reconciliation
 
 只有第 5 步会让 amendment 成为 canonical。第 6 步保证响应丢失时仍能恢复这一事实；
 第 7 步让它对所有 peer 真正产生运行时影响。
+
+### 5.1 来源请求预留与取消顺序
+
+这是 request-derived Stage 3 commit 的拟议验收要求，不是已交付 API，也不是新分布式事务。
+复用[协作请求 fence](capable-manager-semantic-handoff-v0.zh-CN.md#510-最小契约与合法-observation)
+和已验收 amendment owner 的 operation/receipt 事务；请求与 Goal 仍由各自 owner 管理。
+
+1. **在请求 owner 预留。** 同一请求事务校验来源 revision 当前有效及其权限，取得独占
+   effectful attempt fence，并持久化 reservation，绑定 request/revision、attempt/fence epoch、
+   目标 Goal 与 authority source、proposal digest、预期 Goal 基线、actor 和 `operation_id`。
+   Amendment owner 必须认证该 reservation；调用方自填 token 不构成权限。
+   预留重放返回同一绑定，任何绑定输入改变均冲突。预留与生效的取消/替代使用同一
+   请求 owner 的 CAS，检查来源 revision、lifecycle 和 fence epoch，先胜出者决定资格。
+   记录后来的纠正不会撤销已预留 operation，也不会使其不可变来源绑定失效。
+2. **排序后来的控制请求。** 预留后仍立即记录取消或纠正，但不能只改请求 store 就撤销
+   该在途 operation。将其标为待结算，阻止后续效果/改派，并要求 amendment owner 中止
+   这一次精确 operation。Reservation 只覆盖该不可变 operation，不覆盖被替代请求的其他
+   工作或新 proposal。实际 effect owner 的权限与 policy 校验仍必须满足。Abort 需要
+   请求 owner 出具的取消/恢复回执，绑定 reservation、原因与 operation；只知道 operation ID 没有此权限。
+3. **在 Goal owner 结算。** 已认证的 commit 与 abort 在 `GoalAmendmentAuthority` 竞争
+   同一个持久终局 operation record。Commit 校验 reservation、当前 policy 和预期 Goal
+   基线，原子写入 Goal delta 与 `committed` 回执。Abort 仅在尚未提交时原子写入
+   `aborted` 无效果回执。两者使用相同 operation identity 和串行化边界；abort 是终局
+   tombstone，不是另起重试身份。已提交不可被 abort 撤销，已中止永远不能再 commit。
+   重放读回原结果，digest/绑定漂移冲突。确定的 policy 或基线拒绝也以无 Goal 修改关闭 operation。
+   在此串行化边界内校验已认证绑定；新 operation ID 必须重新取得 reservation，不能绕过旧
+   tombstone。终局回执区分 `committed`、`aborted`、`rejected`，携带 reservation/attempt 引用，
+   明确本 operation 是否修改 Goal。无效果回执没有产生的新 Goal revision，也不代表整个请求
+   的其他外部效果不存在。
+4. **恢复后才释放。** 将 Goal owner 的精确终局回执关联到不可变请求 attempt 后，才能
+   释放 fence 或确认取消结果。该关联/结算是请求 owner 的独立幂等事务：结算精确 attempt，
+   对剩余工作应用待处理控制变化，再释放；绝不回滚已提交的 Goal delta。
+   回执缺失、超时或 worker lease 过期均不能证明无效果：
+   在相同 operation identity 下读回，或让条件 abort 与 commit 竞争。Owner 不可用时
+   保持 pending/unknown，允许无关工作，但不改派该效果。终局记录必须保留到可证明旧
+   attempt 不可能再提交，包括重启或来源迁移之后。晚到 worker 必须命中此持久边界，
+   不能仅靠 token TTL。Reservation 不独立于结算自行过期；deadline 触发恢复，不授权遗忘
+   未决 operation。未支持该协议的 profile 不能提交 request-derived amendment；
+   仍可准入 proposal 并继续独立工作。
+
+Reservation CAS 决定来源资格先后；Goal owner 的终局事务决定已预留 commit 与 abort
+的胜负。这是两个明确的本地决定，不声称来源读取和 Goal 写入原子。首个 Stage 3 class
+仍限于 `shared_work_graph`；该协议不扩大 amendment 权限。
+
+管家 A7/A16 联合 fixture 必须经过两个 owner 验证以下交错，不能用两套独立单测替代：
+
+| 交错 | 必须结果 |
+| --- | --- |
+| 取消/纠正在预留前胜出 | 没有 reservation，旧 proposal 不修改 Goal |
+| 已预留；取消的 abort 在 Goal owner 胜出 | 只有一份 `aborted` 回执；晚到原 commit 被拒绝；取消可以结算 |
+| 已预留 commit 先于 abort 胜出 | 只有一份 `committed` 回执；取消报告已提交效果并停止剩余工作，不声称回滚 |
+| 预留/校验后崩溃，尚不知 Goal 结果 | 保留 fence；同 operation 恢复/条件 abort 产生唯一终局，即使旧 worker 恢复也如此 |
+| Goal CAS 成功，但响应或请求侧关联丢失 | 读回原 committed 回执，关联旧 attempt，绝不重复应用 delta |
+| 结果未知时 lease 过期或宿主重启 | 不因超时启动替代效果；终局 abort 拦住晚到 commit，或对账既有 commit |
+
+前端、飞书、CLI 共用投影，区分已请求取消、待结算、已结算且有/无既有提交效果。
+超时不能显示“已取消、没有修改”。实现 PR 必须先在选定 authority profile 验收该路径，
+再启用它。
 
 ## 6. 提议的 schema
 
@@ -321,7 +382,8 @@ committing --CAS success--> committed + receipt -> frontier reconciliation
   "stopped": [],
   "evidence_refs": ["evidence:..."],
   "affected_todo_ids": ["todo-a", "todo-b"],
-  "replan_obligation_id": "replan:..."
+  "replan_obligation_id": "replan:...",
+  "source_request_ref": {"request_id": "req_...", "revision": 1}
 }
 ```
 

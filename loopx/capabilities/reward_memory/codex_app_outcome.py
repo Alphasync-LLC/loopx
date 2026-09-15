@@ -207,7 +207,7 @@ def _run_reflection_validator(
                 sort_keys=True,
                 separators=(",", ":"),
             ),
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             timeout=timeout_seconds,

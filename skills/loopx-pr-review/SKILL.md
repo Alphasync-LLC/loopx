@@ -14,7 +14,8 @@ replace them with a host-specific checklist.
 
 Use this skill for `/loopx-pr-review`, explicit PR reviews, or review queues by
 state or time window. Route approval, merge, self-merge, and admin bypass to
-`loopx-pr-merge` after the evidence review is complete.
+`loopx-pr-merge` (optional repo-kept workflow, not installed by default) after
+the evidence review is complete; it never replaces this skill's exact-head gate.
 
 Run `loopx --format json pr-review --state all` before ad hoc GitHub reads.
 
@@ -25,15 +26,15 @@ Translate only explicit filters:
 - `--state open|merged|all`
 - `--limit N`
 - `--review-priority other-developers-first|owner-first` (default `other-developers-first`; use `owner-first` to opt into owner priority)
-When omitted, the CLI resolves `pull_request_review` from the standard machine capability editor; an absent namespace keeps the default `other-developers-first`. Words such as `today`, `open`, or `merged` are filters, not permission to
-return a table only. Stats-only output requires an explicit opt-out such as
-`只统计`, `只列出`, `stats only`, or `不要 review`.
+When omitted, the CLI resolves `pull_request_review` from the standard machine
+capability editor; an absent namespace keeps the default `other-developers-first`.
+Words such as `today`, `open`, or `merged` are filters, not permission to return a
+table only; stats-only output needs an explicit opt-out such as `只统计` or `stats only`.
 
 ## Preserve The Packet
 
 Save the full first JSON packet before printing a compact projection. Keep all
-paths named by `agent_response_contract.required_packet_fields_to_preserve`,
-especially:
+paths named by `agent_response_contract.required_packet_fields_to_preserve`:
 
 - `agent_response_contract.review_execution_contract`
 - `result_completeness` and `scheduling_policy`
@@ -47,12 +48,19 @@ Do not pipe the only copy through `jq`. When an exhaustive request has
 reviewing.
 
 Require execution `policy_revision == 3`; a schema name alone is insufficient.
-If missing or unequal, do not publish APPROVE. A conservative REQUEST_CHANGES
-may be published only when it explicitly names the incompatible-policy evidence
-gap; regenerate with current installed LoopX before any later approval. Do not retain
-expired temporary worktree overrides. Honor explicit runtime pins, but
-report incompatible policy instead of silently downgrading the review. The repository
-smoke binds this number to the canonical revision; this is not a freshness claim.
+If missing or unequal, do not publish APPROVE; a conservative REQUEST_CHANGES is
+allowed only when it names the incompatible-policy evidence gap. Do not retain
+expired temporary worktree overrides. Honor explicit runtime pins, but report
+incompatible policy instead of silently downgrading the review.
+
+## Read The Review Frame First
+
+Read the PR's existing comments and cited documents first: a maintainer comment
+names the contract the change is judged against.
+
+- Review inside that frame; cite the document and check its rows, gates, or exit criteria one by one at the exact head, attaching each finding to its row.
+- Name unsatisfied rows as missing frame items with their own evidence, and keep the declared boundary (preview versus promotion, milestone entry versus merge).
+- Publish the frame-aligned conclusion as a PR comment citing that guidance, since a published review body cannot be edited.
 
 ## Execute One Review Plan
 
@@ -74,12 +82,10 @@ When `review_action_kind` is null, the row stays in `pull_requests` inventory bu
    ```
 
    Fix contradictory verdicts, not evidence labels to obtain a pass. This local
-   check cannot verify evidence truth, architecture judgment, or remote freshness.
-   Preserve the template's `review_policy_revision`; do not relabel an old result
-   without executing the current evidence plan. Verified rows must fill their
-   declared structured fields; validation rows bind typed `case_id` coverage, and a generic “reviewed” note is insufficient.
-   Missing material evidence needs a concrete hold/request-changes explanation,
-   not an invented bug or approval inherited from the previous round.
+   check cannot verify evidence truth, architecture judgment, remote freshness, or
+   an old result relabeled without executing the current plan. Verified rows fill
+   their declared fields; validation rows bind typed `case_id` coverage, and
+   missing material evidence needs a concrete request-changes reason.
 4. Render the verified result through `review_template`. The five sections are
    output structure, while the execution contract is the evidence authority.
 5. Re-read the remote head immediately before verdict and publication. Restart
@@ -88,21 +94,18 @@ When `review_action_kind` is null, the row stays in `pull_requests` inventory bu
 Each PR gets an independent evidence pass and standalone card; a queue table is
 only a preface. Finish fewer complete cards rather than metadata-only reviews.
 
-## Publish And Read Back
+For managed review, pass `--goal-id GOAL` and follow the packet’s resolved `wait_for_ci`: false means never fetch, poll, or wait for CI; true retains CI validation. Required local failures/skips always block. Configure one Goal with `configure-goal --goal-id GOAL --no-pr-review-wait-for-ci --execute`; clear with `--clear-pr-review-configuration --execute`.
 
-For an open PR, publish validated actionable findings by default unless the
-user explicitly requested local-only/dry-run output or the finding contains
-private or security-sensitive material.
+## Publish And Read Back
+For an open PR, publish validated actionable findings by default unless the user
+requested local-only/dry-run output or the finding is private or security-sensitive.
 
 - Remaining blocker: formal `REQUEST_CHANGES`; for an author-owned PR, use a
   `COMMENTED` review titled `Request changes conclusion (author-owned PR; GitHub blocks formal self-review)`.
-- Non-blocking finding with no blockers: formal `APPROVE`, not a bare comment.
-  When the GitHub account is the PR author and GitHub rejects self-approval,
-  record the same approval conclusion as a `COMMENTED` review
-  titled `Approval conclusion (author-owned PR; GitHub blocks formal self-approval)`
-  so the verdict remains public and machine-visible.
-- Non-blocking finding with only P2 suggestions: still `APPROVE`; keep the P2
-  items in the review body rather than downgrading the verdict.
+- Non-blocking finding with no blockers: formal `APPROVE`, not a bare comment;
+  when the account is the author and self-approval is rejected, record the same
+  conclusion as a `COMMENTED` review titled `Approval conclusion (author-owned PR; GitHub blocks formal self-approval)`.
+- Non-blocking P2 suggestions: still `APPROVE`; keep them in the body.
 - Merged PR: publish a post-merge audit comment only for a new actionable
   finding; avoid duplicating an equivalent exact-head result.
 
@@ -113,17 +116,15 @@ still routes through `loopx-pr-merge`; an `APPROVE` is not merge authority.
 Do not leave a public blocker only in chat.
 
 Immediately before every merge, run `loopx --format json pr-review --repo
-OWNER/REPO --check-merge-readiness NUMBER@HEAD_OID`. Merge only when it returns
-`ready=true` for that unchanged head. A rebase/update restarts review; admin
-bypass never overrides this gate. Author-owned fallback still needs explicit
-user merge authority.
+OWNER/REPO --check-merge-readiness NUMBER@HEAD_OID`; merge only when it returns
+`ready=true` for that unchanged head. A rebase/update restarts review, admin
+bypass never overrides this gate, and author-owned fallback needs user authority.
 
 ## Full PR Review And Bilingual Format
 
-Every review must cover the whole PR, not only the top finding. Read the full
-diff/checks, then explain motivation, architecture, changed files/symbols,
-positive and negative paths, risk across the whole diff, validation, and
-overall judgment. A findings-only or blocker-only body is incomplete.
+Every review must cover the whole PR, not only the top finding: read the full
+diff/local validation, then explain motivation, architecture, changed symbols, both paths,
+whole-diff risk, validation, and judgment. A findings-only or blocker-only body is incomplete.
 
 Publish two artifacts:
 
@@ -163,8 +164,8 @@ necessary but not enough.
 
 For recurring observation, keep one ignored checkpoint and use `loopx --format
 json pr-review --repo owner/repo --state open --autonomous-observation
---observation-state-file .local/pr-review-monitor.json` with the projected or
-handled exact-head flags when their corresponding durable receipts exist.
+--observation-state-file .local/pr-review-monitor.json` with the projected or handled
+exact-head flags when those durable receipts exist.
 
 Treat `candidate` as a preview, not a durable projection. Follow this order: durable
 Todo target-key readback -> `--projected-exact-head` -> exact-head review/comment
