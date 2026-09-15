@@ -20,7 +20,7 @@ from .capabilities.manager_runtime import (
     load_effective_manager_runtime_profile, manager_runtime_session_fields,
 )
 from .chat_acp import ACPStdioAdapter
-from .chat_agent import CodexChatAgentError, CodexChatAgentSession, CodexChatTimeoutError
+from .chat_agent import CodexChatAgentError, CodexChatAgentSession, CodexChatTimeoutError, agent_endpoint_error
 from .chat_endpoints import AgentEndpointRegistry
 from .kiro_cli_goal_mode import (
     KIRO_CLI_BIN,
@@ -524,7 +524,7 @@ class ChatRuntimeController:
                 if latest is not None and latest.get("session_mode") == CHAT_SESSION_MODE_ATTACHED:
                     return latest, True
             if capability is None:
-                raise ValueError(f"unknown Agent endpoint: {agent_id}")
+                raise agent_endpoint_error(agent_id)
             if not capability["available"]:
                 raise ValueError(f"Agent endpoint is unavailable: {agent_id}")
             if latest is not None:
