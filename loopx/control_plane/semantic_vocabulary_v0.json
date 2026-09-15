@@ -1,0 +1,173 @@
+{
+  "schema_version": "loopx_semantic_vocabulary_v0",
+  "rfc": "docs/architecture/rfcs/semantic-vocabulary-convergence-v0.md",
+  "policy": {
+    "closed_sets": "Every value a registered vocabulary may carry is listed here. Adding, renaming, or removing a value is a registry edit reviewed with the code change; an unregistered literal fails the drift smoke.",
+    "owner_exclusivity": "A registered constant or enum has exactly the listed defining modules. Any other module imports it instead of redefining the literal.",
+    "budgets_only_decrease": "Retirement and twin budgets are ratchets. Lowering a budget is a routine edit; raising one needs the maintainer approval recorded in the RFC decision log.",
+    "value_shape": "Registered values are lower snake_case tokens (^[a-z][a-z0-9_]*$). The literal scan captures any quoted string so a malformed or versioned spelling is reported, not skipped."
+  },
+  "vocabularies": {
+    "turn_result_kind": {
+      "meaning": "Typed public outcome of one executed Turn as settled by the Turn Journal.",
+      "owners": {
+        "python": "loopx/control_plane/turn_driver/transaction.py::LoopXTurnResultKind",
+        "typescript": "loopx/control_plane/turn_driver/settlement.ts::TURN_RESULT_KINDS"
+      },
+      "values": [
+        "validated_progress",
+        "validated_completion",
+        "repair_required",
+        "replan_required",
+        "user_action_required",
+        "wait",
+        "iteration_failed",
+        "host_failure",
+        "validation_failed",
+        "writeback_failed",
+        "quota_spend_failed",
+        "terminal_closeout_failed"
+      ]
+    },
+    "turn_route": {
+      "meaning": "Typed delivery route derived from a fresh should-run decision before a Host is engaged.",
+      "owners": {
+        "python": "loopx/control_plane/turn_driver/driver.py::LoopXTurnRoute"
+      },
+      "values": [
+        "ready_for_host",
+        "capability_action_required",
+        "repair_required",
+        "replan_required",
+        "user_action_required",
+        "wait",
+        "blocked",
+        "contract_error"
+      ]
+    },
+    "loop_disposition": {
+      "meaning": "Pure controller verdict for the outer loop after combining the last Turn receipt with the fresh route.",
+      "owners": {
+        "python": "loopx/control_plane/turn_driver/loop_controller.py::LoopDisposition"
+      },
+      "values": [
+        "run_now",
+        "capability_action_required",
+        "wait",
+        "stop",
+        "user_action_required",
+        "repair",
+        "replan",
+        "terminal"
+      ]
+    },
+    "effective_action": {
+      "meaning": "Compacted should-run verdict carried by status/should-run payloads and the Turn Envelope; consumers dispatch on it.",
+      "owners": {
+        "python": "loopx/control_plane/quota/should_run_packet.py"
+      },
+      "literal_scan": {
+        "roots": [
+          "loopx"
+        ],
+        "suffixes": [
+          ".py",
+          ".ts"
+        ],
+        "pattern": "effective_action[\"\\]\\)]*\\s*(?:==|!=|:|=|is|in)\\s*\"([^\"]+)\""
+      },
+      "values": [
+        "agent_monitor_only",
+        "agent_workspace_repair",
+        "automation_prompt_upgrade_required",
+        "autonomous_replan_required",
+        "boundary_projection_repair",
+        "capability_bridge_repair",
+        "control_plane_health_repair",
+        "control_plane_projection_repair",
+        "coordinate_task_bundle",
+        "external_evidence_observe",
+        "governed_capability_intent",
+        "heartbeat_receipt_write_failed",
+        "heartbeat_settled_skip",
+        "lark_inbox_reply_due",
+        "monitor_due",
+        "monitor_quiet_skip",
+        "normal_run",
+        "operator_gate",
+        "operator_inbox_material_review_due",
+        "outcome_floor_recovery",
+        "peer_coordination_blocked",
+        "quota_skip",
+        "runtime_user_gate_projection_repair",
+        "scoped_user_gate_fallback",
+        "state_projection_gap_repair",
+        "terminal_no_followup",
+        "todo_decision_scope_projection_repair",
+        "unsettled_host_turn_recovery"
+      ]
+    }
+  },
+  "projections": {
+    "turn_route_to_loop_disposition": {
+      "meaning": "Total mapping the pure controller applies to a typed route; null means the route is rejected before projection.",
+      "owner": "loopx/control_plane/turn_driver/loop_controller.py::_route_to_disposition",
+      "mapping": {
+        "ready_for_host": "run_now",
+        "capability_action_required": "capability_action_required",
+        "replan_required": "replan",
+        "repair_required": "repair",
+        "user_action_required": "user_action_required",
+        "wait": "wait",
+        "blocked": "wait",
+        "contract_error": null
+      }
+    }
+  },
+  "schema_versions": {
+    "turn_envelope": {
+      "constant": "TURN_ENVELOPE_SCHEMA_VERSION",
+      "value": "loopx_turn_envelope_v0",
+      "owner_modules": [
+        "loopx/control_plane/quota/turn_envelope.py",
+        "loopx/control_plane/quota/turn_envelope.ts"
+      ]
+    }
+  },
+  "retirement_ledger": {
+    "should_run_legacy_decision_fields": {
+      "meaning": "Decision fields the should-run documentation already calls legacy. Budgets count modules under loopx/ that still mention the field.",
+      "fields": {
+        "execution_obligation": {
+          "python_module_budget": 21,
+          "typescript_module_budget": 1
+        },
+        "heartbeat_recommendation": {
+          "python_module_budget": 18,
+          "typescript_module_budget": 1
+        },
+        "work_lane_contract": {
+          "python_module_budget": 32,
+          "typescript_module_budget": 3
+        },
+        "external_evidence_observation": {
+          "python_module_budget": 11,
+          "typescript_module_budget": 1
+        },
+        "goal_boundary": {
+          "python_module_budget": 35,
+          "typescript_module_budget": 2
+        },
+        "protocol_action_packet": {
+          "python_module_budget": 7,
+          "typescript_module_budget": 2
+        }
+      }
+    }
+  },
+  "dual_runtime_twins": {
+    "meaning": "Same-basename .py/.ts module pairs under the control plane. The TypeScript migration RFC is replacement-first, so this count may only fall.",
+    "root": "loopx/control_plane",
+    "module_budget": 43
+  }
+}
