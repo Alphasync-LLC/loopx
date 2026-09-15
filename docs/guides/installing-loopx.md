@@ -158,6 +158,17 @@ loopx --format json slash-commands --surface codex --install
 ```
 
 Read the reconciliation result and resolve preserved conflicts explicitly.
+
+If duplicates return after successful reconciliation, inspect the host's
+external-agent import history. Importing Claude Code skills can recreate
+LoopX command facades in the shared `.agents/skills` root after installation,
+including legacy aliases. Exclude LoopX from subsequent imports when its
+Codex skills are already installed, then rerun the repair above. LoopX's
+installer does not control a host's later import jobs or import settings.
+Generated Codex entries include `agents/openai.yaml` with the `LoopX` display
+name and explicit-invocation policy; `workflow-skills --install` also repairs
+missing managed entry metadata while preserving user-owned metadata.
+
 A running session may retain its original skill catalog; reload the host or
 open a new task before checking discovery again. Installation cannot rewrite
 instructions already loaded into a conversation.
