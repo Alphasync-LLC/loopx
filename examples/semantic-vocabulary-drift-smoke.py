@@ -49,7 +49,10 @@ VOCABULARY_KEYS = {"meaning", "tier", "status", "owners", "values"}
 VOCABULARY_OPTIONAL_KEYS = {"literal_scan", "variable_sourced_values", "value_notes", "deprecated_values"}
 TIERS = {"kernel", "cross_runtime", "cross_module"}
 STATUSES = {"canonical", "legacy", "merge_candidate"}
-FORMAL_MODEL_KEYS = {"schema_version", "universes", "roles", "relations", "invariants", "proof_boundary"}
+FORMAL_MODEL_KEYS = {
+    "schema_version", "universes", "roles", "relations", "invariants", "proof_boundary",
+    "enforcement_policy",
+}
 FORMAL_MODEL_SCHEMA_VERSION = "loopx_semantic_formal_model_v0"
 FORMAL_UNIVERSE_KEYS = {"vocabularies", "values", "sites", "scopes", "roles"}
 FORMAL_ROLES = {"owner", "producer", "interpreter", "pass_through"}
@@ -63,6 +66,7 @@ FORMAL_INVARIANTS = {
     "F6_persistence_version_compatibility",
 }
 FORMAL_ENFORCEMENT = {"m0", "m0_5", "m1", "advisory", "unproved"}
+FORMAL_POLICY_KEYS = {"blocking_now", "blocking_next", "advisory", "unproved"}
 
 # Hard ceiling on the registry's own floors and budgets, kept in code rather than
 # in the registry so one single-diff edit to ``vocabulary_v0.json`` cannot relax
@@ -208,6 +212,22 @@ def check_formal_model(model: dict[str, Any]) -> None:
                 f"formal invariant {item['id']} has unknown enforcement stage")
         require(item["statement"].strip() and item["evidence"].strip(),
                 f"formal invariant {item['id']} needs a statement and evidence boundary")
+    policy = model["enforcement_policy"]
+    require(set(policy) == FORMAL_POLICY_KEYS,
+            "formal_model enforcement_policy must separate current, next, advisory, and unproved checks")
+    policy_ids = [item_id for ids in policy.values() for item_id in ids]
+    require(set(policy_ids) == FORMAL_INVARIANTS and len(policy_ids) == len(set(policy_ids)),
+            "formal_model enforcement_policy must partition all invariants exactly once")
+    stage_for_policy = {
+        "blocking_now": "m0",
+        "blocking_next": "m0_5",
+        "advisory": "advisory",
+        "unproved": "unproved",
+    }
+    stages = {item["id"]: item["enforcement"] for item in invariants}
+    for policy_name, ids in policy.items():
+        require(all(stages[item_id] == stage_for_policy[policy_name] for item_id in ids),
+                f"formal_model policy lane {policy_name} disagrees with invariant enforcement stage")
     boundary = model["proof_boundary"]
     require(set(boundary) == {"established", "bounded", "unproved"},
             "formal_model proof_boundary must separate established, bounded, and unproved claims")

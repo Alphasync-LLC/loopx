@@ -26,6 +26,12 @@
       "interpreter",
       "pass_through"
     ],
+    "enforcement_policy": {
+      "blocking_now": ["F5_projection_totality"],
+      "blocking_next": ["F1_producer_closedness", "F2_canonical_value_liveness", "F4_scope_separation"],
+      "advisory": ["F3_consumer_domain_closedness"],
+      "unproved": ["F6_persistence_version_compatibility"]
+    },
     "relations": {
       "defines": "D ⊆ S × V: a site defines a vocabulary carrier",
       "produces": "P ⊆ S × V × Val: a site writes or returns a vocabulary value",

@@ -418,6 +418,7 @@ vocabulary key fails the smoke.
 | `vocabularies.<name>.producers` (M0.5) | `path::Symbol` sites that write the field, required for `kernel` | Every site writes registered values only; every value not under `compatibility_only` has at least one site or a variable-sourced entry (I12, I13) |
 | `vocabularies.<name>.compatibility_only` (M0.5) | values kept so readers of persisted records still resolve them | Subset of `values`; zero production sites; each carries a `value_notes` reason and a retirement milestone |
 | `formal_model` | finite universes, role relations, semantic obligations, and established/bounded/unproved claims | Exact schema and invariant ids are checked by the drift smoke; enforcement stages cannot be mistaken for completed proofs |
+| `formal_model.enforcement_policy` | blocking-now, blocking-next, advisory, and unproved lanes | Every formal invariant appears exactly once and its lane agrees with its enforcement stage |
 | `vocabularies.<name>.value_notes`, `deprecated_values` | per-value review notes; values slated for removal | Names must be registered values |
 | `relations.same_concept` | groups of `vocabulary.value` members | Every member resolves |
 | `relations.shared_field_names` | one field name, its slots and the vocabulary or values each carries | Every slot resolves |
@@ -633,6 +634,60 @@ vocabulary property the smoke can check. Rows marked *open* wait on a Section
 | Legacy should-run fields | 6 fields, 124 py / 10 ts module mentions | 0 fields | M3, identifier-counted |
 | Merge-candidate groups | 32 unreviewed | every group classified; only `same_semantics` groups merged | classification PR, then per-group PRs |
 | Control-plane py/ts twins | 43 | follows the TypeScript migration RFC; no target here | M4 |
+
+### Two-track execution and enforcement lanes
+
+The roadmap separates repairing existing semantic debt from improving the
+measuring apparatus. Track A can proceed without waiting for a design decision:
+remove real forks, conflicts, twins, and legacy readers one narrow PR at a time.
+Track B improves what the guard can know: scope declarations, bounded producer
+analysis, identifier counting, and merge-order handling. Track A reduces the
+measured debt; Track B makes that measurement more faithful. M1 and later depend
+on Track B where the current measurement is known to be incomplete.
+
+```text
+Track A: baseline debt repairs ───────────────────────────────┐
+                                                               ├─> M1 typed slots
+Track B: scope + producer model + metric boundaries ──────────┘       │
+                                                                      ├─> M2 generated projections
+                                                                      ├─> M3 legacy retirement
+                                                                      └─> M4 runtime twin migration
+```
+
+The formal model uses four enforcement lanes so a difficult property does not
+become an accidental merge blocker:
+
+| Lane | Properties | Current meaning |
+| --- | --- | --- |
+| `blocking_now` | F5 projection totality | Enforced by the M0 smoke today |
+| `blocking_next` | F1 producer closedness, F2 canonical liveness, F4 scope separation | Planned blocking checks after M0.5; not claimed by M0 |
+| `advisory` | F3 consumer domain closedness | Reported evidence; it does not block ordinary consumer edits |
+| `unproved` | F6 persistence/version compatibility | An explicit proof gap; it cannot be reported as passed |
+
+The exit condition for a phase is its evidence row, not the existence of a
+formula or a registry entry. A property moves from `unproved` to `advisory` only
+when a bounded source-to-sink analysis exists, and moves to a blocking lane only
+after its false-negative boundary is documented and mutation tests cover the
+recognised forms. This keeps the contract strict about silent corruption while
+allowing incomplete analyses to remain useful without blocking unrelated work.
+
+The phases are therefore:
+
+1. **M0:** keep the current structural guard and make its proof boundary
+   explicit.
+2. **M0.5:** implement `scope`, producer forms for the four Turn kernel
+   vocabularies, and identifier-based retirement counts.
+3. **M1:** split the overloaded `effective_action` slots and introduce one typed
+   owner after Q3 and Q6 are decided.
+4. **M2:** publish the full decision table and both projection hops through a
+   generated cross-runtime contract.
+5. **M3/M4:** retire legacy fields and reduce Python/TypeScript twins only when
+   their reader and migration evidence is complete.
+
+This roadmap is normative for dependencies and exit evidence. Issue #4447 may
+carry owners, suggested dates, and operational checklists, but it must not
+introduce a competing target state.
+
 
 ## 12. Open decisions
 
