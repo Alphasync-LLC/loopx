@@ -96,7 +96,7 @@ def materialize_review_execution(
             else "Fill the five-block review template after reading the PR body and diff."
         ),
         "evidence_commands": [
-            f"gh pr view {number} --json title,body,files,commits,statusCheckRollup,headRefOid,updatedAt",
+            f"gh pr view {number} --json title,body,files,commits,headRefOid,updatedAt",
             f"gh pr diff {number} --name-only",
             f"gh pr diff {number} --patch",
             f"gh pr view {number} --json headRefOid,updatedAt",

@@ -106,7 +106,7 @@ def register_pr_review_command(
         metavar="NUMBER@HEAD_OID",
         help=(
             "Re-read one open PR and fail closed unless this exact reviewed head, "
-            "its checks, and review threads are ready immediately before merge."
+            "its approval, and review threads are ready immediately before merge; CI is not consulted."
         ),
     )
     parser.add_argument(

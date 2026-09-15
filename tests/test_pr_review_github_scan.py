@@ -115,18 +115,11 @@ def test_pr_list_keeps_nested_details_in_bounded_per_pr_reads(monkeypatch) -> No
 
     rows = scan["pull_requests"]
     assert len(rows) == 2
-    assert rows[0]["statusCheckRollup"] == [
-        {"name": "pytest", "status": "COMPLETED", "conclusion": "SUCCESS"},
-        {"name": "lint", "status": "COMPLETED", "conclusion": "FAILURE"},
-    ]
-    assert rows[1]["statusCheckRollup"] == [
-        {"name": "build", "status": "IN_PROGRESS", "conclusion": ""},
-    ]
     detail_calls = [args for args in calls if args[:2] == ["pr", "view"]]
     assert sorted(args[2] for args in detail_calls) == ["1", "2"]
     assert all(
         args[args.index("--json") + 1]
-        == "body,files,reviewDecision,mergeStateStatus,createdAt,commits,reviews,statusCheckRollup"
+        == "body,files,reviewDecision,mergeStateStatus,createdAt,commits,reviews"
         for args in detail_calls
     )
     assert rows[0]["body"] == "Body for PR 1"
@@ -302,7 +295,7 @@ def test_agent_instruction_surface_gets_behavior_risk_and_review_depth() -> None
         }
     ]
 
-    hint = pr_review_module._metadata_risk_hint({}, files, {"total": 1})
+    hint = pr_review_module._metadata_risk_hint({}, files)
     analysis = pr_review_module._main_regression_analysis({}, files)
 
     assert hint["level"] == "medium"
@@ -674,7 +667,7 @@ def test_review_thread_summary_fails_closed_on_incomplete_readback(
     assert summary["failure_code"] == "github_review_thread_read_failed"
 
 
-def test_merge_readiness_binds_review_body_checks_and_threads_to_exact_head() -> None:
+def test_merge_readiness_binds_review_body_and_threads_to_exact_head() -> None:
     ready = merge_readiness_module.build_pr_merge_readiness_packet(
         pull_request=_merge_ready_pr(),
         repository="owner/repo",
@@ -714,7 +707,7 @@ def test_merge_readiness_rejects_review_text_for_pre_update_head() -> None:
     )
 
 
-def test_merge_readiness_rejects_red_pending_and_unresolved_remote_gates() -> None:
+def test_merge_readiness_rejects_unresolved_threads_without_consulting_ci() -> None:
     pr = _merge_ready_pr()
     pr["statusCheckRollup"] = [
         {
@@ -738,12 +731,8 @@ def test_merge_readiness_rejects_red_pending_and_unresolved_remote_gates() -> No
     )
 
     assert blocked["ready"] is False, blocked
-    assert {
-        "status_checks_failed",
-        "status_checks_pending",
-        "status_checks_incomplete",
-        "unresolved_review_threads",
-    }.issubset(blocked["blocking_reasons"]), blocked
+    assert blocked["blocking_reasons"] == ["unresolved_review_threads"]
+
 
 
 def test_merge_readiness_uses_latest_check_attempt_per_workflow_job() -> None:
@@ -795,7 +784,7 @@ def test_merge_readiness_uses_latest_check_attempt_per_workflow_job() -> None:
     }
 
 
-def test_merge_readiness_keeps_latest_pending_and_ambiguous_attempts() -> None:
+def test_merge_readiness_retains_legacy_check_diagnostics_without_blocking() -> None:
     pr = _merge_ready_pr()
     pr["statusCheckRollup"] = [
         {
@@ -834,7 +823,7 @@ def test_merge_readiness_keeps_latest_pending_and_ambiguous_attempts() -> None:
         source="fixture",
     )
 
-    assert blocked["ready"] is False, blocked
+    assert blocked["ready"] is True, blocked
     assert blocked["checks"]["raw_total"] == 4
     assert blocked["checks"]["total"] == 3
     assert blocked["checks"]["superseded"] == 1
@@ -843,9 +832,7 @@ def test_merge_readiness_keeps_latest_pending_and_ambiguous_attempts() -> None:
         "failure": 1,
         "success": 1,
     }
-    assert {"status_checks_failed", "status_checks_pending"}.issubset(
-        blocked["blocking_reasons"]
-    )
+    assert blocked["blocking_reasons"] == []
 
 
 def test_merge_readiness_accepts_titled_author_owned_approval_only_with_bypass() -> (
@@ -1568,3 +1555,63 @@ def test_github_transport_replaces_malformed_utf8(monkeypatch):
     assert pr_review_module._run_gh_json(["pr", "view", "1"]) == {
         "title": "broken\ufffd"
     }
+
+
+def test_merge_readiness_ci_states_do_not_change_authorized_local_decision() -> None:
+    for checks in (None, [], [{"name": "test", "status": "QUEUED"}],
+                   [{"name": "test", "conclusion": "FAILURE"}]):
+        pr = _merge_ready_pr()
+        pr["statusCheckRollup"] = checks
+        pr["mergeStateStatus"] = "BLOCKED"
+        ready = merge_readiness_module.build_pr_merge_readiness_packet(
+            pull_request=pr, repository="owner/repo",
+            expected_exact_head=f"4110@{HEAD_1}", reviewer_login="maintainer",
+            review_threads=_complete_review_threads(), source="fixture",
+        )
+        assert ready["ready"] is True, ready
+        assert ready["admin_bypass_required"] is True
+        assert ready["ci_policy"] == "not_consulted"
+        assert ready["authority"]["grants_merge_authority"] is False
+
+
+def test_live_review_adapters_never_request_ci(monkeypatch) -> None:
+    calls = []
+    def fake(args, cwd=None):
+        calls.append(args)
+        return {"number": 4110}
+    monkeypatch.setattr(merge_readiness_module, "_run_gh_json", fake)
+    merge_readiness_module.fetch_github_pull_request(repo="owner/repo", number=4110)
+    assert "statusCheckRollup" not in calls[0][calls[0].index("--json") + 1]
+    assert "statusCheckRollup" not in github_source_module.DETAIL_FIELDS
+
+
+def test_review_risk_and_instructions_are_independent_of_legacy_ci() -> None:
+    observations = []
+    for checks in ([], [{"conclusion": "SUCCESS"}], [{"status": "QUEUED"}],
+                   [{"conclusion": "FAILURE"}]):
+        pr = _merge_ready_pr()
+        pr["statusCheckRollup"] = checks
+        packet = pr_review_module.build_pr_review_packet(
+            pull_requests=[pr], repository="owner/repo", limit=10,
+            source="fixture", state_filter="open", reviewer_login="maintainer",
+        )
+        row = packet["pull_requests"][0]
+        observations.append(tuple(row[k] for k in (
+            "metadata_risk_hint", "main_regression_analysis", "risk_notes", "evidence_commands"
+        )))
+        assert "statusCheckRollup" not in str(row["evidence_commands"])
+    assert all(value == observations[0] for value in observations)
+
+
+def test_ci_independence_preserves_merge_conflict_and_unknown_gates() -> None:
+    for state in ("DIRTY", "BEHIND", "UNKNOWN"):
+        pr = _merge_ready_pr()
+        pr["statusCheckRollup"] = []
+        pr["mergeStateStatus"] = state
+        result = merge_readiness_module.build_pr_merge_readiness_packet(
+            pull_request=pr, repository="owner/repo",
+            expected_exact_head=f"4110@{HEAD_1}", reviewer_login="maintainer",
+            review_threads=_complete_review_threads(), source="fixture",
+        )
+        assert result["ready"] is False, result
+        assert all(not reason.startswith("status_checks") for reason in result["blocking_reasons"])

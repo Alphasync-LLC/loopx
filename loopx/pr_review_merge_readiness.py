@@ -28,7 +28,7 @@ def fetch_github_pull_request(
         "number,title,url,state,isDraft,reviewDecision,mergeStateStatus,"
         "headRefName,headRefOid,baseRefName,author,createdAt,updatedAt,"
         "closedAt,mergedAt,mergeCommit,body,files,changedFiles,additions,"
-        "deletions,commits,reviews,statusCheckRollup"
+        "deletions,commits,reviews"
     )
     payload = _run_gh_json(
         ["pr", "view", str(number), "--json", fields, "--repo", repo],

@@ -562,7 +562,7 @@ absolute paths, private source bodies, or hidden CI artifacts.
       },
       "risk_notes": [],
       "evidence_commands": [
-        "gh pr view 773 --json title,body,files,commits,statusCheckRollup,headRefOid,updatedAt",
+        "gh pr view 773 --json title,body,files,commits,headRefOid,updatedAt",
         "gh pr diff 773 --name-only",
         "gh pr diff 773 --patch",
         "gh pr view 773 --json headRefOid,updatedAt"
@@ -782,3 +782,9 @@ A first implementation is acceptable when:
 - live GitHub reads and fixture-based smokes share the same schema;
 - no raw logs, private payloads, credentials, local paths, or private source
   bodies are recorded.
+
+## CI-independent review and merge readiness
+
+Review approval and merge readiness use exact-head code evidence and repository-native local validation. The GitHub adapters and projected evidence commands do not request CI. Missing, pending, or failed remote CI does not block these decisions; required local validation failures or skips still do. This changes the previous default that waited for all status checks. Legacy supplied check summaries remain diagnostic only. A GitHub `BLOCKED` aggregate reports `admin_bypass_required` without granting permission; explicit owner authorization, a valid current-head approval, resolved review threads, and a mergeable head remain required.
+
+评审批准和合并就绪以确切提交的代码证据与仓库本地验证为依据，不查询或等待 CI。这替换了旧版等待全部状态检查的默认行为；本地必需验证失败或跳过仍阻塞批准。旧输入中的检查摘要仅作兼容信息。GitHub `BLOCKED` 仅提示需另行授权的管理员合并，不授予权限，也不替代当前提交评审、评论解决和可合并性检查。

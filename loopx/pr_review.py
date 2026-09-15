@@ -520,7 +520,7 @@ def _check_brief_phrase(checks: dict[str, Any]) -> str:
     return str(checks.get("summary") or "unknown")
 
 
-def _metadata_risk_hint(pr: dict[str, Any], files: list[dict[str, Any]], checks: dict[str, Any]) -> dict[str, Any]:
+def _metadata_risk_hint(pr: dict[str, Any], files: list[dict[str, Any]]) -> dict[str, Any]:
     areas = _area_counts(files)
     changed = int(pr.get("changedFiles") or len(files) or 0)
     additions = int(pr.get("additions") or 0)
@@ -536,9 +536,9 @@ def _metadata_risk_hint(pr: dict[str, Any], files: list[dict[str, Any]], checks:
         }
         for item in files
     )
-    if checks.get("failures") or changed >= 12 or additions + deletions >= 800:
+    if changed >= 12 or additions + deletions >= 800:
         level = "high"
-    elif has_runtime or checks.get("pending") or not checks.get("total"):
+    elif has_runtime:
         level = "medium"
     else:
         level = "low"
@@ -548,7 +548,6 @@ def _metadata_risk_hint(pr: dict[str, Any], files: list[dict[str, Any]], checks:
         "basis": [
             f"areas={_area_phrase(areas)}",
             f"scale={changed} files +{additions}/-{deletions}",
-            f"checks={_check_brief_phrase(checks)}",
         ],
         "disclaimer": "Metadata-only hint for queue ordering; agentloop must read the PR diff before judging main risk.",
     }
@@ -556,7 +555,6 @@ def _metadata_risk_hint(pr: dict[str, Any], files: list[dict[str, Any]], checks:
 
 def _main_regression_analysis(pr: dict[str, Any], files: list[dict[str, Any]]) -> dict[str, Any]:
     areas = _area_counts(files)
-    checks = _checks(pr)
     state = str(pr.get("state") or "").upper()
     changed = int(pr.get("changedFiles") or len(files) or 0)
     additions = int(pr.get("additions") or 0)
@@ -615,16 +613,6 @@ def _main_regression_analysis(pr: dict[str, Any], files: list[dict[str, Any]]) -
         bug_risks.append("Unclassified files may still affect generated assets, packaging, or reviewer workflow assumptions.")
         verification_focus.append("Review the diff for the top changed files and run the nearest project smoke.")
 
-    if checks.get("failures"):
-        bug_risks.insert(0, "Failing status checks indicate the branch may already break a required validation surface.")
-        verification_focus.insert(0, "Inspect failing checks before merge and rerun them after fixes.")
-    elif checks.get("pending"):
-        bug_risks.append("Pending checks leave merge readiness uncertain.")
-        verification_focus.append("Wait for pending checks or run the equivalent local smoke before merge.")
-    elif not checks.get("total"):
-        bug_risks.append("No status-check rollup was available, so validation coverage must be inferred from local evidence.")
-        verification_focus.append("Run at least one focused local validation command before approving.")
-
     has_sensitive_area = bool(
         area_names
         & {
@@ -635,9 +623,9 @@ def _main_regression_analysis(pr: dict[str, Any], files: list[dict[str, Any]]) -
             "agent_instruction_surface",
         }
     )
-    if checks.get("failures") or changed >= 12 or churn >= 800 or (state == "MERGED" and has_sensitive_area):
+    if changed >= 12 or churn >= 800 or (state == "MERGED" and has_sensitive_area):
         level = "high"
-    elif has_sensitive_area or checks.get("pending") or not checks.get("total"):
+    elif has_sensitive_area:
         level = "medium"
     else:
         level = "low"
@@ -647,7 +635,7 @@ def _main_regression_analysis(pr: dict[str, Any], files: list[dict[str, Any]]) -
         "risk_level": level,
         "risk_summary": (
             f"{RISK_LEVEL_LABELS.get(level, level)} main regression risk across {_area_phrase(areas)}; "
-            f"{changed} file(s), +{additions}/-{deletions}; checks={_check_brief_phrase(checks)}."
+            f"{changed} file(s), +{additions}/-{deletions}."
         ),
         "potential_regressions": potential_regressions[:5],
         "bug_risks": bug_risks[:5],
@@ -736,9 +724,6 @@ def _risk_notes(pr: dict[str, Any], files: list[dict[str, Any]]) -> list[str]:
     deletions = int(pr.get("deletions") or 0)
     if changed >= 12 or additions + deletions >= 800:
         notes.append("Large review surface; split the review by area before approving.")
-    checks = _checks(pr)
-    if checks.get("failures"):
-        notes.append("Failing status checks block a clean merge decision.")
     return notes
 
 
@@ -998,7 +983,7 @@ def _normalize_pr(
         "checks": checks,
         "review_depth": _review_depth(files),
         "risk_notes": _risk_notes(pr, files),
-        "metadata_risk_hint": _metadata_risk_hint(pr, files, checks),
+        "metadata_risk_hint": _metadata_risk_hint(pr, files),
         "main_regression_analysis": _main_regression_analysis(pr, files),
     }
     item.update(

@@ -19,7 +19,6 @@ DETAIL_FIELDS = (
     "createdAt",
     "commits",
     "reviews",
-    "statusCheckRollup",
 )
 
 

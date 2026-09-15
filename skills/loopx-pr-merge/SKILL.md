@@ -36,10 +36,19 @@ A rebase or head update restarts review, and admin bypass never overrides this
 gate: it needs explicit owner authorization and never substitutes for the
 evidence.
 
+## Local Validation, Without CI Waiting
+
+The capability does not fetch, poll, or wait for GitHub CI for approval or
+merge readiness. `repository_required_checks` means repository-native local
+validation for the exact reviewed head. Failed or skipped required local
+validation still blocks approval. Missing or pending CI is not an evidence gap.
+A GitHub `BLOCKED` aggregate requires separately authorized admin bypass; it
+does not grant that authority or override exact-head review and thread gates.
+
 ## Decision Workflow
 
 1. Read the repository `AGENTS.md`, the pull-request diff, the changed paths, the
-   checks, and the latest comments.
+   local validation results, and the latest comments.
 2. Confirm that the repository's own self-merge policy covers the changed
    surfaces. The usual LoopX shape is single-purpose and validated work with no
    private state, no public evidence-policy change, no destructive git action,

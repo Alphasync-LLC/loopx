@@ -32,7 +32,6 @@ def build_merge_readiness(
     observed_exact_head = f"{number}@{head_oid}" if number and head_oid else None
     conclusion = _mapping(item.get("review_conclusion"))
     checks = _mapping(item.get("checks"))
-    check_counts = _mapping(checks.get("counts"))
     thread_complete = review_threads.get("complete") is True
     unresolved_threads = review_threads.get("unresolved_count")
     blockers: list[str] = []
@@ -59,18 +58,6 @@ def build_merge_readiness(
     if review_decision != "APPROVED" and not author_owned_fallback:
         blockers.append("github_review_decision_not_approved")
 
-    total_checks = checks.get("total")
-    successful_checks = check_counts.get("success", 0)
-    if type(total_checks) is not int or total_checks <= 0:
-        blockers.append("status_checks_missing")
-    else:
-        if check_counts.get("failure", 0):
-            blockers.append("status_checks_failed")
-        if check_counts.get("pending", 0):
-            blockers.append("status_checks_pending")
-        if successful_checks != total_checks:
-            blockers.append("status_checks_incomplete")
-
     if not thread_complete:
         blockers.append("review_threads_incomplete")
     elif type(unresolved_threads) is not int:
@@ -83,8 +70,6 @@ def build_merge_readiness(
         blockers.append("merge_state_requires_update")
     elif merge_state in {"", "UNKNOWN"}:
         blockers.append("merge_state_unverified")
-    elif merge_state == "BLOCKED" and not author_owned_fallback:
-        blockers.append("repository_merge_state_blocked")
 
     blockers = list(dict.fromkeys(blockers))
     return {
@@ -103,9 +88,9 @@ def build_merge_readiness(
         "checks": dict(checks),
         "review_threads": dict(review_threads),
         "author_owned_commented_approval": author_owned_fallback,
-        "admin_bypass_required": bool(
-            author_owned_fallback and merge_state == "BLOCKED"
-        ),
+        # BLOCKED is an opaque GitHub protection aggregate, not local evidence.
+        "admin_bypass_required": merge_state == "BLOCKED",
+        "ci_policy": "not_consulted",
         "blocking_reasons": blockers,
         "authority": {
             "grants_merge_authority": False,

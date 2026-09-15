@@ -509,6 +509,13 @@ def build_review_execution_contract() -> dict[str, Any]:
             },
             {
                 "evidence_id": "validation_matrix",
+                "ci_policy": "not_consulted",
+                "validation_source": (
+                    "Repository-native local validation at the reviewed head. "
+                    "Do not fetch, poll, or wait for GitHub CI. Missing, pending, "
+                    "or failed remote CI is not a review evidence gap. Local "
+                    "required validation failures and skips remain blocking."
+                ),
                 "required_when": "always",
                 "items_field": "items",
                 "item_fields": [
@@ -1051,6 +1058,7 @@ def build_agent_response_contract() -> dict[str, Any]:
             "Before evidence commands, obey pull_requests[].review_action_kind. A null action stays in pull_requests inventory but is excluded from review_sequence, carries no execution artifacts, and remains readback-only; generic re-review wording selects the PR but does not force duplicate evidence for an already concluded or merged no-action row.",
             "Execute each non-null pull_requests[].review_plan against the shared review_execution_contract before drafting prose.",
             "Do not infer verified evidence from title, labels, changed-file counts, metadata_risk_hint, or green CI alone.",
+            "Do not fetch, poll, or wait for CI for approval or merge readiness. repository_required_checks means repository-native local validation; missing required local evidence remains blocking.",
             "Recheck the exact remote head before verdict and publication.",
             "Render the verified result through a non-null pull_requests[].review_template; host skills must not maintain a competing depth checklist.",
         ],

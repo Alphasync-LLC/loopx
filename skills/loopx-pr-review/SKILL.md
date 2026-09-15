@@ -94,8 +94,9 @@ When `review_action_kind` is null, the row stays in `pull_requests` inventory bu
 Each PR gets an independent evidence pass and standalone card; a queue table is
 only a preface. Finish fewer complete cards rather than metadata-only reviews.
 
-## Publish And Read Back
+CI is not fetched, polled, or awaited. `repository_required_checks` means exact-head repository-native local validation; required local failures/skips still block approval. GitHub `BLOCKED` requires separately authorized admin bypass, never replacing review or thread gates.
 
+## Publish And Read Back
 For an open PR, publish validated actionable findings by default unless the user
 requested local-only/dry-run output or the finding is private or security-sensitive.
 
@@ -122,7 +123,7 @@ bypass never overrides this gate, and author-owned fallback needs user authority
 ## Full PR Review And Bilingual Format
 
 Every review must cover the whole PR, not only the top finding: read the full
-diff/checks, then explain motivation, architecture, changed symbols, both paths,
+diff/local validation, then explain motivation, architecture, changed symbols, both paths,
 whole-diff risk, validation, and judgment. A findings-only or blocker-only body is incomplete.
 
 Publish two artifacts:
