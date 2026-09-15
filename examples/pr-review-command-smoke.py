@@ -364,19 +364,6 @@ def main() -> int:
         assert ready["ready"] is True, ready
         assert ready["blocking_reasons"] == [], ready
 
-        # Remote CI must not change an otherwise complete local-evidence decision.
-        for conclusion in ("FAILURE", ""):
-            merge_fixture["pull_requests"][0]["statusCheckRollup"][0].update(
-                conclusion=conclusion, status="IN_PROGRESS" if not conclusion else "COMPLETED"
-            )
-            merge_fixture_path.write_text(json.dumps(merge_fixture), encoding="utf-8")
-            ci_independent = json.loads(run_cli(
-                "--format", "json", "pr-review", "--fixture", str(merge_fixture_path),
-                "--check-merge-readiness", f"4110@{merge_head}",
-            ).stdout)
-            assert ci_independent["ready"] is True, ci_independent
-            assert ci_independent["ci_policy"] == "not_consulted"
-
         merge_fixture["pull_requests"][0]["reviews"][0]["body"] = merge_fixture[
             "pull_requests"
         ][0]["reviews"][0]["body"].replace(merge_head, "d" * 40)
@@ -399,7 +386,7 @@ def main() -> int:
         assert (
             "current_head_review_missing_or_invalid" in blocked["blocking_reasons"]
         ), blocked
-        assert "status_checks_failed" not in blocked["blocking_reasons"], blocked
+        assert "status_checks_failed" in blocked["blocking_reasons"], blocked
     assert sequence[0]["risk_hint_level"] == "medium", sequence[0]
     assert sequence[0]["main_risk_level"] == "medium", sequence[0]
     merged_sequence = next(item for item in sequence if item["number"] == 770)

@@ -94,7 +94,7 @@ When `review_action_kind` is null, the row stays in `pull_requests` inventory bu
 Each PR gets an independent evidence pass and standalone card; a queue table is
 only a preface. Finish fewer complete cards rather than metadata-only reviews.
 
-CI is not fetched, polled, or awaited. `repository_required_checks` means exact-head repository-native local validation; required local failures/skips still block approval. GitHub `BLOCKED` requires separately authorized admin bypass, never replacing review or thread gates.
+For managed review, pass `--goal-id GOAL` and follow the packet’s resolved `wait_for_ci`: false means never fetch, poll, or wait for CI; true retains CI validation. Required local failures/skips always block. Configure one Goal with `configure-goal --goal-id GOAL --no-pr-review-wait-for-ci --execute`; clear with `--clear-pr-review-configuration --execute`.
 
 ## Publish And Read Back
 For an open PR, publish validated actionable findings by default unless the user

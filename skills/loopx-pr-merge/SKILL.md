@@ -36,14 +36,12 @@ A rebase or head update restarts review, and admin bypass never overrides this
 gate: it needs explicit owner authorization and never substitutes for the
 evidence.
 
-## Local Validation, Without CI Waiting
+## Configured CI Waiting
 
-The capability does not fetch, poll, or wait for GitHub CI for approval or
-merge readiness. `repository_required_checks` means repository-native local
-validation for the exact reviewed head. Failed or skipped required local
-validation still blocks approval. Missing or pending CI is not an evidence gap.
-A GitHub `BLOCKED` aggregate requires separately authorized admin bypass; it
-does not grant that authority or override exact-head review and thread gates.
+Pass `--goal-id GOAL` for managed merges and follow resolved `wait_for_ci`.
+The default is true. When false, do not query, poll, or wait for CI; complete
+required local validation and exact-head review/thread checks. GitHub `BLOCKED`
+then reports separately authorized admin bypass, never permission to merge.
 
 ## Decision Workflow
 
