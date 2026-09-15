@@ -590,6 +590,35 @@ source references with the typed observation.
 
 ## Write / Correction Mechanism
 
+After a material milestone, `vision_outcome_checkpoint_required` remains a
+completion guard. When the checkpoint is satisfied and current, the path outcome
+is `continue`, `no_change`, or `replan`, evidence refs are present, and no
+`outcome_gap` was reported, an absent or blank `vision_patch.acceptance_summary`
+is diagnosed as `final_outcome_claim_missing`. Add or restore a bounded claim
+supported by those evidence refs; a learning milestone alone does not prove
+the final outcome. Keep the valid route and evidence in the correction. The
+existing durable-field write gate still requires `path_delta.outcome=replan`
+when changing the claim against an open replan obligation; record that bounded
+claim correction rather than repeating a generic path investigation.
+
+The gap and replan trigger carry `reason_code`, `component_checks`, and
+`resolution_hint`. The same diagnostic appears in the compact CLI audit,
+managed Turn contract capsule, Goal acceptance observations, and Lark projection
+rows. Component checks distinguish checkpoint satisfaction and freshness, path
+validity, evidence presence, claim presence, and reported outcome gaps. Other
+incomplete combinations retain the guard and use
+`final_outcome_checkpoint_incomplete`. Diagnostics are read-only: retrying
+`quota should-run` neither spends quota nor supplies acceptance evidence, and
+the added explanation does not change the obligation's identity.
+
+Synthetic Goal acceptance views (read-only fixture, no connected execution
+service) show the missing-claim diagnosis and passed/failed components:
+
+| View | Before | After |
+| --- | --- | --- |
+| Desktop, Chinese | [Before](../../assets/personal-workspace/final-outcome-claim-before-desktop.png) | [After](../../assets/personal-workspace/final-outcome-claim-after-desktop.png) |
+| Mobile, English | [Before](../../assets/personal-workspace/final-outcome-claim-before-mobile.png) | [After](../../assets/personal-workspace/final-outcome-claim-after-mobile.png) |
+
 Vision correction is a normal state-machine transition, not only a
 self-repair fallback. Agents should write a bounded vision patch when:
 

@@ -84,7 +84,10 @@ def project_replan_writeback_rejection(
     compact_triggers = [
         {
             key: trigger.get(key)
-            for key in ("kind", "todo_id", "completion_turn_key")
+            for key in (
+                "kind", "todo_id", "completion_turn_key",
+                "reason_code", "component_checks", "resolution_hint",
+            )
             if trigger.get(key) is not None
         }
         for trigger in obligation.get("triggers") or []
