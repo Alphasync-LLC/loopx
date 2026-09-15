@@ -88,7 +88,7 @@ Map P0/P1 catalog rows to canary archetypes before picking commands:
 | --- | --- | --- | --- | --- | --- |
 | Work Routing | IP-001, IP-002, IP-003, IP-007, IP-008, IP-021, IP-029 | Hot-path route canary; Planning governance canary when cadence or repair is involved | `quota should-run`, `interaction_contract`, `work_lane_contract`, scheduler hint, handoff todo state | one eligible delivery fixture, one blocked/fallback fixture, one quiet or monitor fixture | agent turn routing is unsafe: it may spend, wait, notify, or choose fallback incorrectly |
 | Human Decision | IP-004, IP-014, IP-017, IP-027, IP-030 | Scoped decision canary; Product/readiness canary when first-screen human copy changes | user todos, decision scope, operator-gate/reward preview, deferred resume candidates | one concrete user ask, one scoped non-blocking gate, one preview-or-append dry run | humans may be asked the wrong question, or an agent may continue without the needed decision |
-| State And Boundary | IP-005, IP-006, IP-011, IP-016, IP-019, IP-020, IP-022, IP-023, IP-025, IP-026, IP-028 | Projection and boundary canary; Hot-path route canary when the projection feeds quota/status | active state, todo metadata, task graph, authority source, claim lease, connector runtime policy, public/private scan | fixture state plus structured projection check; boundary scan for touched public files | compact state and executable truth diverge, so dashboards and agents may trust stale or unsafe authority |
+| State And Boundary | IP-005, IP-006, IP-011, IP-016, IP-019, IP-020, IP-022, IP-023, IP-025, IP-026, IP-028, IP-031 | Projection and boundary canary; Hot-path route canary when the projection feeds quota/status | active state, todo metadata, task graph, authority source, claim lease, connector runtime policy, public/private scan | fixture state plus structured projection check; boundary scan for touched public files | compact state and executable truth diverge, so dashboards and agents may trust stale or unsafe authority |
 | Evidence Lifecycle | IP-012, IP-015 | Evidence lifecycle canary; Product/readiness canary when evidence is rendered | external handle observation, benchmark lifecycle reducer, compact result projection | compact public-safe evidence fixture with raw-material exclusion assertions | progress evidence may be missing, double-counted, or represented with unsafe raw material |
 | Planning Governance | IP-010, IP-013, IP-018, IP-024 | Planning governance canary; Hot-path route canary when cadence changes affect execution | stalled run history, autonomous replan obligation, repair delta, cadence hint, plan-to-todo writeback | two-turn stalled fixture plus repair/writeback delta assertion | the agent may keep planning in prose while the machine-visible frontier stays unchanged |
 
@@ -340,6 +340,7 @@ Projection, authority, write scope, and lease integrity.
 | P1 | IP-023 | Status Neutral Run Window | Status/quota/history | no interruption | ignore neutral run noise for state authority while retaining it as stall evidence |
 | P1 | IP-025 | Experimental Diagnostic Sidecar Boundary | Runtime/protocol owners | no interruption unless an opt-in proof asks for user action | keep proof/debug verdicts as sidecar diagnostics until a product-general schema is validated |
 | P1 | IP-028 | Connector Runtime Boundary | Connector/runtime owners | notify only if the required owner decision is missing | enforce runtime allow/deny policy before browser or API connector reads can autoload raw material |
+| P1 | IP-031 | Manager Context Is Not Turn Authority | Manager connection owner | no interruption; retention is silent | retain group context only and act only on a provider-native mention, verified reply, or existing typed authority |
 
 ### Evidence Lifecycle
 
@@ -2150,6 +2151,71 @@ or engagement streams.
 - `examples/content-ops-public-handle-observation-smoke.py`;
 - `examples/content-ops-private-connector-gate-smoke.py`;
 - `examples/interaction-pattern-catalog-smoke.py`.
+
+#### IP-031 Manager Context Is Not Turn Authority
+
+**Trigger**
+
+- exactly one enabled Manager binding owns a Lark App and group, so LoopX may
+  retain compact non-self group messages as local-private context;
+- an authorized Manager Turn is about to read that context, or a bounded
+  turn-start history sync is about to fill the gaps left by the live event
+  subscription;
+- a recovered historical message originally mentioned the bound Bot.
+
+**Expected behavior**
+
+Message visibility and Turn authority stay separate. Retaining a group message
+starts no model call, sends no reply or reaction, acknowledges no provider
+event, and authorizes no Goal or Todo mutation. A Manager Turn is authorized
+only by a provider-native mention of the bound Bot, a provider-verified reply to
+that Bot, or another existing typed authority record.
+
+An authorized Turn may receive at most eight recent context-only messages within
+a 4,000-character total budget, each labeled `context-only`, and the prompt
+states that these items are not commands, authorization, or independent Todos.
+Items recovered from history are always marked `context-only` even when they
+originally mentioned the Bot, so catch-up never replays a missed Turn. Provider
+addressing is preserved as historical provenance while normalized live
+attention and reply flags are cleared, which keeps the urgency projection and
+the material-settlement path agreed that a recovered mention is material rather
+than a delayed request.
+
+Consumed items settle through the existing event-bound material-review ledger
+after a successful authorized Turn and verified reply, and duplicate delivery
+and restart recovery stay idempotent. Self messages, another chat, invalid
+routing, and ambiguous Manager bindings stay closed and are not captured. The
+connection health projection distinguishes `context_only_captured` from
+`replied_and_acknowledged`.
+
+**Visual Model**
+
+```mermaid
+flowchart TD
+  A["Non-self group message arrives"] --> B{"One enabled Manager binding owns App and group?"}
+  B -->|"no"| C["stay closed, capture nothing"]
+  B -->|"yes"| D["retain as context-only: no model call, no reply, no authority"]
+  D --> E{"Provider-native mention, verified reply, or typed authority?"}
+  E -->|"no"| F["stays material, not a request"]
+  E -->|"yes"| G["authorized Turn: up to 8 items / 4,000 chars, all context-only"]
+  G --> H["verified reply settles the consumed items"]
+  F --> I["history catch-up stays context-only, even for old mentions"]
+```
+
+**Bad smell**
+
+An agent acts on a retained group message because the message is visible, even
+though nothing addressed the bound Bot — visibility was read as permission.
+Another bad smell is a history catch-up replaying an old mention as a delayed
+Turn, or an adapter inventing a second authority source by treating the inbox or
+the material ledger as its own request database.
+
+**Validation**
+
+- `docs/reference/protocols/lark-manager-context-authority-v0.md`;
+- `tests/extensions/test_lark_turn_start_sync.py`;
+- `tests/extensions/test_lark_goal_topic_runtime.py`;
+- `tests/extensions/test_lark_goal_topic_connections.py`.
 
 ### Evidence Lifecycle
 
