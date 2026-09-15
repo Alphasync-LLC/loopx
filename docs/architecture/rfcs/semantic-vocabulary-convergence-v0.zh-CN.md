@@ -268,15 +268,17 @@ todos、capabilities 与 TypeScript 运行时各自拥有同一想法的一种�
 
 ### 词表的角色
 
-提及一个值的模块不是它的 owner，一个词表也不止一种参与者。注册表区分四种角
-色，因为对每种角色有意义的检查不同：
+提及一个值的模块不是它的 owner，一个词表也不止一种参与者。消费者是读取或接受
+值的上位角色，解释者和透传者是它的两个受跟踪子角色。注册表区分这些角色，因为
+对每种角色有意义的检查不同：
 
 | 角色 | 做什么 | 是否登记 | 检查 |
 | --- | --- | --- | --- |
 | Owner | 以每个运行时一个 `module::Symbol` 定义闭集 | 是，自 M0 | I1 到 I3 |
 | 生产者 | 把值写入字段：赋值、dict 或对象字面量、构造函数关键字、在已登记判定函数内 `return` 字面量、访问 owner 枚举成员 | `kernel` 词表必须，自 M0.5 | I12、I13 |
-| 解释者 | 据值分支：`if`、`match`、`switch`、成员测试 | 否；由分发扫描发现，`--report` 排序 | I2，不得比较未注册值 |
-| 透传者 | 序列化、持久化、转发或展示值而不据其分支 | 否 | 无；透传者永不成为 owner |
+| 消费者 | 读取或接受词表值；解释者和透传者都属于这个上位角色 | 通常不登记；只报告关系，不做策展 | F3 |
+| 解释者 | 消费者的一种，据值分支或映射：`if`、`match`、`switch`、成员测试 | 否；由分发扫描发现，`--report` 排序 | I2、F3 |
+| 透传者 | 消费者的一种，序列化、持久化、转发或展示值而不改变其含义 | 否 | F3；涉及持久化时还需 F6 证据 |
 
 由此得到两条规则。没有生产者的值是死值或兼容值：`skip` 在 `todos/user_gate.py`
 被比较却无处写入，M0 放过它，M0.5 让它失败，直到被删除或列入
@@ -342,7 +344,7 @@ R ⊆ S × V × Version               将值持久化
 | `vocabularies.<name>.scope`（M0.5） | `global` 或 `bounded_context`；`bounded_context` 条目列出 `contexts`，每个含一个 owner 符号 | 封闭枚举；已声明的有界上下文名字从 `multi_value_forks` 排除；未声明的多模块名字仍是分叉（I14） |
 | `vocabularies.<name>.producers`（M0.5） | 写入该字段的 `path::Symbol` 位点，`kernel` 必填 | 每个位点只写注册值；未列入 `compatibility_only` 的每个值至少有一个位点或一条变量来源条目（I12、I13） |
 | `vocabularies.<name>.compatibility_only`（M0.5） | 为让已持久化记录的读者仍能解析而保留的值 | `values` 的子集；零生产位点；每个值带 `value_notes` 理由与退休里程碑 |
-| `formal_model` | 有限的集合、角色关系、语义义务，以及已建立/有界/未证明的声明 | 漂移 smoke 校验精确 schema 和不变量 ID；属性实施阶段不能冒充已完成证明 |
+| `formal_model` | 有限的集合、角色关系与层次、语义义务，以及已建立/有界/未证明的声明 | 漂移 smoke 校验精确 schema、角色层次和不变量 ID；属性实施阶段不能冒充已完成证明 |
 | `formal_model.enforcement_policy` | 当前阻断、下一阶段阻断、建议性和未证明层级 | 每个形式不变量恰好出现一次，且层级与其实施阶段一致 |
 | `vocabularies.<name>.value_notes`、`deprecated_values` | 逐值评审备注；计划删除的值 | 名字必须是已注册值 |
 | `relations.same_concept` | `vocabulary.value` 成员组 | 每个成员可解析 |

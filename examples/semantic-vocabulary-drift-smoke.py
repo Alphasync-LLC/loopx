@@ -50,12 +50,12 @@ VOCABULARY_OPTIONAL_KEYS = {"literal_scan", "variable_sourced_values", "value_no
 TIERS = {"kernel", "cross_runtime", "cross_module"}
 STATUSES = {"canonical", "legacy", "merge_candidate"}
 FORMAL_MODEL_KEYS = {
-    "schema_version", "universes", "roles", "relations", "invariants", "proof_boundary",
+    "schema_version", "universes", "roles", "role_hierarchy", "relations", "invariants", "proof_boundary",
     "enforcement_policy",
 }
 FORMAL_MODEL_SCHEMA_VERSION = "loopx_semantic_formal_model_v0"
 FORMAL_UNIVERSE_KEYS = {"vocabularies", "values", "sites", "scopes", "roles"}
-FORMAL_ROLES = {"owner", "producer", "interpreter", "pass_through"}
+FORMAL_ROLES = {"owner", "producer", "consumer", "interpreter", "pass_through"}
 FORMAL_RELATIONS = {"defines", "produces", "consumes", "interprets", "passes_through", "projects", "persists"}
 FORMAL_INVARIANTS = {
     "F1_producer_closedness",
@@ -200,7 +200,9 @@ def check_formal_model(model: dict[str, Any]) -> None:
     require(set(model) == FORMAL_MODEL_KEYS, f"formal_model keys must be exactly {sorted(FORMAL_MODEL_KEYS)}")
     require(model["schema_version"] == FORMAL_MODEL_SCHEMA_VERSION, "formal_model schema_version drift")
     require(set(model["universes"]) == FORMAL_UNIVERSE_KEYS, "formal_model universes must name the declared sets")
-    require(set(model["roles"]) == FORMAL_ROLES, "formal_model roles must be the four vocabulary roles")
+    require(set(model["roles"]) == FORMAL_ROLES, "formal_model roles must include the consumer role and its subroles")
+    require(model["role_hierarchy"] == {"consumer": ["interpreter", "pass_through"]},
+            "formal_model role_hierarchy must classify interpreter and pass_through as consumers")
     require(set(model["relations"]) == FORMAL_RELATIONS, "formal_model relations must be the declared edge kinds")
     invariants = model["invariants"]
     require(isinstance(invariants, list) and {item.get("id") for item in invariants} == FORMAL_INVARIANTS,

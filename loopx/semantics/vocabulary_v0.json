@@ -23,9 +23,13 @@
     "roles": [
       "owner",
       "producer",
+      "consumer",
       "interpreter",
       "pass_through"
     ],
+    "role_hierarchy": {
+      "consumer": ["interpreter", "pass_through"]
+    },
     "enforcement_policy": {
       "blocking_now": ["F5_projection_totality"],
       "blocking_next": ["F1_producer_closedness", "F2_canonical_value_liveness", "F4_scope_separation"],

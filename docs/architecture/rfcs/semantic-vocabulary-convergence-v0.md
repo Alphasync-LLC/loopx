@@ -325,15 +325,18 @@ misclassification, recorded in the registry's `inventory_ratchets` note.
 ### Roles of a vocabulary
 
 A module that mentions a value is not its owner, and a vocabulary has more
-than one kind of participant. The registry distinguishes four roles because
-the check that makes sense differs by role:
+than one kind of participant. Consumer is the umbrella role for code that reads
+or accepts a value; interpreter and pass-through are its two tracked subroles.
+The registry distinguishes these roles because the check that makes sense differs
+by role:
 
 | Role | What it does | Registered | Check |
 | --- | --- | --- | --- |
 | Owner | Defines the closed set as one `module::Symbol` per runtime | Yes, since M0 | I1 to I3 |
 | Producer | Writes a value into the field: assignment, dict or object literal, constructor keyword, `return` of a literal inside a listed deciding function, enum member on the owner | Yes for `kernel` vocabularies, from M0.5 | I12, I13 |
-| Interpreter | Branches on the value: `if`, `match`, `switch`, membership test | No; found by the dispatch scan, ranked by `--report` | I2, no unregistered comparison |
-| Pass-through | Serializes, persists, forwards, or displays the value without branching on it | No | None; a pass-through never becomes an owner |
+| Consumer | Reads or accepts a vocabulary value; this is the umbrella role for interpreters and pass-throughs | Usually no; relation is reported rather than curated | F3 |
+| Interpreter | Consumer that branches on or maps the value: `if`, `match`, `switch`, membership test | No; found by the dispatch scan, ranked by `--report` | I2, F3 |
+| Pass-through | Consumer that serializes, persists, forwards, or displays the value without changing its meaning | No | F3; persistence also needs F6 evidence |
 
 Two rules follow. A value with no producer is dead or compatibility-only:
 `skip` is compared in `todos/user_gate.py` and written nowhere, so M0 passes
@@ -417,7 +420,7 @@ vocabulary key fails the smoke.
 | `vocabularies.<name>.scope` (M0.5) | `global` or `bounded_context`; a `bounded_context` entry lists `contexts`, each with one owner symbol | Closed enumeration; declared bounded-context names are excluded from `multi_value_forks`; an undeclared multi-module name stays a fork (I14) |
 | `vocabularies.<name>.producers` (M0.5) | `path::Symbol` sites that write the field, required for `kernel` | Every site writes registered values only; every value not under `compatibility_only` has at least one site or a variable-sourced entry (I12, I13) |
 | `vocabularies.<name>.compatibility_only` (M0.5) | values kept so readers of persisted records still resolve them | Subset of `values`; zero production sites; each carries a `value_notes` reason and a retirement milestone |
-| `formal_model` | finite universes, role relations, semantic obligations, and established/bounded/unproved claims | Exact schema and invariant ids are checked by the drift smoke; enforcement stages cannot be mistaken for completed proofs |
+| `formal_model` | finite universes, role relations and hierarchy, semantic obligations, and established/bounded/unproved claims | Exact schema, role hierarchy, and invariant ids are checked by the drift smoke; enforcement stages cannot be mistaken for completed proofs |
 | `formal_model.enforcement_policy` | blocking-now, blocking-next, advisory, and unproved lanes | Every formal invariant appears exactly once and its lane agrees with its enforcement stage |
 | `vocabularies.<name>.value_notes`, `deprecated_values` | per-value review notes; values slated for removal | Names must be registered values |
 | `relations.same_concept` | groups of `vocabulary.value` members | Every member resolves |
