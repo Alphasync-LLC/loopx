@@ -66,13 +66,16 @@ test("CLI latency improvement is retained as a signed difference", () => {
   assert.equal(row?.status, "passed");
 });
 
-test("small capacity entrypoint exercises real SQLite and never claims a full qualification", {timeout: 60000}, async t => {
+// Budget: the bounded state log proves every encoded delta and audits the
+// retained chain, so the rehearsal costs more than the version-1 layout did
+// (about 27 s here, roughly twice that on a shared CI runner).
+test("small capacity entrypoint exercises real SQLite and never claims a full qualification", {timeout: 180000}, async t => {
   const directory = await mkdtemp(join(tmpdir(), "sqlite-capacity-report-"));
   t.after(() => rm(directory, {recursive: true, force: true}));
   const output = join(directory, "report.json");
   const child = spawnSync(process.execPath, ["--no-warnings", "--experimental-sqlite", "--experimental-strip-types",
     fileURLToPath(new URL("../../examples/coordination/sqlite-capacity.ts", import.meta.url)),
-    "--profile", "rehearsal", "--output", output], {encoding: "utf8", timeout: 55000});
+    "--profile", "rehearsal", "--output", output], {encoding: "utf8", timeout: 150000});
   assert.equal(child.status, 0, child.stderr);
   const report = JSON.parse(await readFile(output, "utf8"));
   assert.equal(report.full_d2_qualified, false);
