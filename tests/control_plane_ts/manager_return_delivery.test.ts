@@ -1,0 +1,65 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  classifyManagerReturnVerification,
+  normalizeManagerReturnDeliveryAttempt,
+} from "../../loopx/control_plane/collaboration/return_delivery.ts";
+
+const attempt = {
+  schema_version: "manager_return_delivery_attempt_v0",
+  provider: "lark",
+  message_ref: "om_provider_reply",
+  intent_digest: `sha256:${"a".repeat(64)}`,
+  provider_receipt: `sha256:${"b".repeat(64)}`,
+};
+
+test("normalizes the exact provider-neutral delivery attempt", () => {
+  assert.deepEqual(normalizeManagerReturnDeliveryAttempt(attempt), attempt);
+  assert.throws(
+    () => normalizeManagerReturnDeliveryAttempt({ ...attempt, private_payload: "no" }),
+    /unsupported or missing fields/,
+  );
+  assert.throws(
+    () => normalizeManagerReturnDeliveryAttempt({ ...attempt, message_ref: "bad ref" }),
+    /message_ref is invalid/,
+  );
+});
+
+test("classifies verification without exposing provider prose", () => {
+  assert.deepEqual(
+    classifyManagerReturnVerification({
+      verification_performed: true,
+      reply_verified: true,
+    }),
+    {
+      status: "delivered",
+      error: null,
+      verification: "reconciled_after_restart",
+    },
+  );
+  assert.deepEqual(
+    classifyManagerReturnVerification({
+      verification_performed: false,
+      reply_verified: false,
+      blocker: "private provider outage detail",
+    }),
+    {
+      status: "verification_required",
+      error: "provider_verification_unavailable",
+      verification: null,
+    },
+  );
+  assert.deepEqual(
+    classifyManagerReturnVerification({
+      verification_performed: true,
+      reply_verified: false,
+      blocker: "private provider mismatch detail",
+    }),
+    {
+      status: "explicit_unverified",
+      error: "provider_delivery_mismatch",
+      verification: null,
+    },
+  );
+});

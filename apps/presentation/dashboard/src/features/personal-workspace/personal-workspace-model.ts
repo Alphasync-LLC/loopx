@@ -241,9 +241,16 @@ export type WorkspaceMessage = {
   attachments?: WorkspaceImageAttachment[];
   id: string;
   pending?: boolean;
+  returnDelivery?: WorkspaceReturnDelivery;
   role: "assistant" | "user" | "system";
   text: string;
   time?: string;
+};
+
+export type WorkspaceReturnDelivery = {
+  error?: string | null;
+  status: string;
+  verification?: "reconciled_after_restart";
 };
 
 export type WorkspaceImageAttachment = {

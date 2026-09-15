@@ -56,6 +56,7 @@ import {
   type ChatSessionSnapshot,
   type ChatSessionSummary,
   type ChatImageAttachment,
+  type ChatVisibleMessage,
   type ManagerRuntimeSessionReadback,
   type ProtectedActionProposal,
   type TodoProposal,
@@ -506,6 +507,7 @@ type PersonalManagerMessage = {
   id: number;
   lines: string[];
   pending?: boolean;
+  returnDelivery?: ChatVisibleMessage["return_delivery"];
   reconnect?: boolean;
   role: "assistant" | "user";
   sourceLabel?: string;
@@ -1588,11 +1590,24 @@ function PersonalGoalHome({
           const previous = current[contextId] ?? [];
           const seen = new Set(previous.map((row) => row.sourceMessageId));
           const fresh = replies.filter((row) => !seen.has(row.message_id));
-          if (!fresh.length) return current;
-          return { ...current, [contextId]: [...previous, ...fresh.map((row) => ({
+          const deliveryByMessage = new Map(
+            replies.map((row) => [row.message_id, row.return_delivery]),
+          );
+          let deliveryChanged = false;
+          const updated = previous.map((row) => {
+            const delivery = row.sourceMessageId
+              ? deliveryByMessage.get(row.sourceMessageId)
+              : undefined;
+            if (JSON.stringify(delivery) === JSON.stringify(row.returnDelivery)) return row;
+            deliveryChanged = true;
+            return { ...row, returnDelivery: delivery };
+          });
+          if (!fresh.length && !deliveryChanged) return current;
+          return { ...current, [contextId]: [...updated, ...fresh.map((row) => ({
             id: managerMessageId.current++, sourceMessageId: row.message_id,
             role: "assistant" as const, agentLabel: selectedAgent.label,
             sourceLabel: "管家交接回执", text: visibleAgentMessage(row.text), lines: [],
+            returnDelivery: row.return_delivery,
           }))] };
         });
       } catch {
@@ -1689,6 +1704,7 @@ function PersonalGoalHome({
               id: managerMessageId.current++,
               lines: [],
               role: message.role === "user" ? "user" : "assistant",
+              returnDelivery: message.return_delivery,
               sourceLabel: message.role === "user"
                 ? undefined
                 : message.role === "error"
@@ -2554,6 +2570,7 @@ function PersonalGoalHome({
           attachments: message.attachments,
         id: String(message.id),
         pending: message.pending,
+        returnDelivery: message.returnDelivery,
         role: message.role,
         text: message.text || (message.pending ? "Agent 正在处理…" : message.lines.join("\n")),
       },

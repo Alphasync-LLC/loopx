@@ -6,6 +6,7 @@ import { OutputRow } from "./cards/output-row";
 import { RunRow } from "./cards/run-row";
 import { ScheduleRow } from "./cards/schedule-row";
 import { useWorkspaceI18n } from "./i18n";
+import { ReturnDeliveryStatus } from "./return-delivery-status";
 import type { WorkspaceDrawerSelection, WorkspaceGoal, WorkspaceTimelineItem } from "./personal-workspace-model";
 
 export function ChannelTimeline({
@@ -76,6 +77,7 @@ export function ChannelTimeline({
           {item.message.attachments?.length ? <div className="personal-message-images">{item.message.attachments.map((attachment) => <img alt={attachment.name} key={attachment.id} src={attachment.dataUrl} />)}</div> : null}
           {item.message.role === "user" ? <p>{item.message.text}</p> : <MarkdownText text={item.message.text} />}
           {item.message.pending ? <span className="personal-message-pending">{t("timeline.pending")}</span> : null}
+          <ReturnDeliveryStatus delivery={item.message.returnDelivery} />
         </div>
       </article>
     );

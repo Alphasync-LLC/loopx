@@ -31,6 +31,7 @@ import { GoalSidebar } from "./goal-sidebar";
 import { GoalTasksView } from "./goal-tasks-view";
 import { localizedGoalState, localizedSessionStatus, useWorkspaceI18n, type WorkspaceTranslate } from "./i18n";
 import { MarkdownText } from "./markdown";
+import { ReturnDeliveryStatus } from "./return-delivery-status";
 import type {
   PersonalWorkspaceCallbacks,
   WorkspaceAgentOption,
@@ -289,6 +290,7 @@ function ManagerConversationTray({
             <div className="personal-manager-conversation-bubble">
               {message.role === "user" ? <p>{message.text}</p> : <MarkdownText text={message.text} />}
               {message.pending ? <small>{t("conversation.agentPending")}</small> : null}
+              <ReturnDeliveryStatus delivery={message.returnDelivery} />
             </div>
           </article>
         ))}

@@ -584,6 +584,15 @@ export type ChatVisibleMessage = {
   role: string;
   text: string;
   created_at: string;
+  return_delivery?: {
+    schema_version: "manager_return_delivery_status_v0";
+    phase: "decision" | "conclusion";
+    status: string;
+    created_at?: string | null;
+    delivered_at?: string | null;
+    error?: string | null;
+    verification?: "reconciled_after_restart";
+  };
 };
 
 export type ChatImageAttachment = {

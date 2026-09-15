@@ -37,6 +37,7 @@ from .chat_manager import (
 from .chat_ssh_source_api import SshSourceRequestMixin
 from .chat_store import ChatSessionStore
 from .capabilities.manager_runtime import manager_runtime_capability_projection
+from .capabilities.manager_context.roundtrip import project_chat_session_snapshot
 from .control_plane.status.ssh_host_catalog import (
     SSH_HOST_CATALOG_PATH,
     ssh_host_catalog_payload,
@@ -64,9 +65,7 @@ from .extensions.lark.goal_channel import (
 from .extensions.lark.goal_topic_connections import list_lark_apps
 from .extensions.lark.goal_topic_runtime import LarkGoalTopicRuntimeService
 from .extensions.lark.manager_routing import authorized_manager_goal_ids
-from .extensions.lark.presentation.kanban import (
-    CommandRunner,
-)
+from .extensions.lark.presentation.kanban import CommandRunner
 from .extensions.runtime import (
     default_extension_state_file,
     resolve_extension_activation,
@@ -758,7 +757,8 @@ class ChatRequestHandler(
 
     def _session_snapshot(self, session_id: str) -> None:
         try:
-            self._send_json(self.server.chat_store.session_snapshot(session_id))
+            self._send_json(project_chat_session_snapshot(
+                self.server.runtime_root, self.server.chat_store, session_id))
         except KeyError:
             self._send_error("chat session was not found", status=404)
 
