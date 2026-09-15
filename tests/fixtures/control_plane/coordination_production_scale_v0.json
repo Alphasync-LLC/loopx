@@ -20,6 +20,20 @@
   "linked_decision_count": 12,
   "completion_target_index": 160,
   "supersede_target_index": 161,
+  "history": {
+    "commit_count": 192,
+    "parity_commit_count": 12,
+    "scan_page_size": 7,
+    "expected_scan_pages": 28,
+    "observation_source": "continuous_monitor",
+    "projection_scope": {"agent_todos": 24, "user_todos": 8, "leases": 8}
+  },
+  "provider_matrix": {
+    "default": "file",
+    "local_profiles": ["file", "sqlite"],
+    "service_profiles": ["postgresql"],
+    "service_requires_factory": true
+  },
   "semantic_cases": {
     "title_only_monitor": {
       "todo_id": "todo_fixture_title_monitor",

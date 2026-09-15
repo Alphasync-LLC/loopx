@@ -97,6 +97,45 @@ terminal failures reach the Turn Journal. The module/subprocess invocation with
 `--host generic-cli` remains the compatibility and rollback path.
 See [DeepSeek Harness connector](../../integrations/deepseek-harness-connector.md).
 
+### Host Selection
+
+The Turn host is **selected, never inferred**. `loopx turn plan` and
+`loopx turn run-once` default to the managed `dsh` host, the operator may
+re-point that default with `LOOPX_TURN_HOST` or one explicit `--host`, and a
+configured operator credential only *authenticates* the host that was already
+selected. Discovering `DEEPSEEK_API_KEY` must never re-point a Turn by itself.
+
+| surface | value |
+| --- | --- |
+| shipped default host | `dsh` (managed executor) |
+| explicit default selector | `LOOPX_TURN_HOST` |
+| per-command override | `--host codex-cli\|claude-code\|dsh\|generic-cli` (plan), `codex-cli\|dsh\|generic-cli` (run-once) |
+| authenticating credential | `DEEPSEEK_API_KEY`, optional endpoint `DEEPSEEK_BASE_URL` |
+
+This is a default behavior change for the affected lanes: `run-once` moved from
+`generic-cli` to `dsh`, and `plan` from `codex-cli` to `dsh`. `--host
+generic-cli` and `--host codex-cli` remain the explicit compatibility and
+rollback paths, and a machine that wants the former default should set
+`LOOPX_TURN_HOST=generic-cli` (or `codex-cli`) once instead of relying on the
+ambient environment.
+
+`plan` and `run-once` payloads carry the executor readback `managed_executor`
+(`managed_executor_binding_v0`): the executor and its kind (`managed`,
+`individual`, `generic`), the credential env var *name* (never its value), the
+endpoint env var name, whether the executor is operator-credential-bound, and
+whether it can launch here. When it cannot, `available` is `false` and
+`unavailable_reason` names the missing fact:
+
+| `unavailable_reason` | meaning | remediation |
+| --- | --- | --- |
+| `dsh_runtime_unavailable` | the DeepSeek Harness runtime is not importable and no explicit runner hook was supplied | install the released runtime, pass its runner hook, or select `--host codex-cli` |
+| `operator_credential_unconfigured` | the managed host is selected but no operator credential or runner hook would authenticate it | set `DEEPSEEK_API_KEY`, or select `--host codex-cli` explicitly |
+
+`run-once --execute` fails closed on that verdict: status `unavailable`, no host
+invocation, no Journal write, and no quota slot spend. An explicitly selected
+individual host (`--host codex-cli`, `--host claude-code`) is billed to that
+individual CLI login and makes no launchability claim (`available: null`).
+
 ### Five Questions For Any Agent CLI
 
 Before wiring Trae CLI, Codex CLI, or another host, answer these five questions:

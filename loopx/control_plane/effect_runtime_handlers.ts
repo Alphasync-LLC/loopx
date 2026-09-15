@@ -1,5 +1,7 @@
 import {planHandoffMode} from "./coordination/handoff_mode_policy.ts";
 import {setLocalHandoffMode} from "./coordination/handoff_mode_runtime.ts";
+import {projectOwnershipObservation} from "./coordination/ownership_observation.ts";
+import {observeLocalCoordinationOwnership} from "./coordination/local_authority_runtime.ts";
 import {evaluateTaskLeaseOwnerEligibility} from "./work_items/task_lease_eligibility.ts";
 import { evaluateSubagentContext, describeSubagentContext } from "./subagent_context.ts";
 import {
@@ -90,6 +92,7 @@ import { buildVisionCheckpoint } from "./goals/vision_checkpoint.ts";
 import { projectVisionWaitCoverage } from "./goals/vision_wait_coverage.ts";
 import { admitGoalAmendmentProposal } from "./goals/goal_amendment_proposal.ts";
 import { projectSharedGoalAlignment } from "./goals/shared_goal_alignment.ts";
+import { projectGoalOperatorActions } from "./goals/operator_actions.ts";
 import {
   evaluateDeliveryRoute,
 } from "./turn_driver/delivery_continuity.ts";
@@ -173,6 +176,10 @@ import {
 } from "./capability_hooks.ts";
 import { evaluatePostWritebackHookTransaction } from "./post_writeback_hook_transaction.ts";
 import { compileActionReviewPlan } from "./presentation/action_review_plan.ts";
+import {
+  classifyManagerReturnVerification,
+  normalizeManagerReturnDeliveryAttempt,
+} from "./collaboration/return_delivery.ts";
 
 type EffectRuntimeHandler = (params: JsonObject) => unknown | Promise<unknown>;
 
@@ -446,6 +453,7 @@ export function createEffectRuntimeHandlers(
     ["goal.vision_checkpoint.evaluate", buildVisionCheckpoint],
     ["goal.vision_wait.coverage", projectVisionWaitCoverage],
     ["goal.shared_goal_alignment.project", projectSharedGoalAlignment],
+    ["goal.operator_actions.project", projectGoalOperatorActions],
     ["goal.amendment_proposal.admit", admitGoalAmendmentProposal],
     ["agent.delivery_workspace.evaluate", evaluateDeliveryWorkspace],
     [
@@ -484,6 +492,8 @@ export function createEffectRuntimeHandlers(
     ["coordination.local_authority.todo_compatibility_edit", editLocalCoordinationTodo],
     ["coordination.local_authority.mutate", mutateLocalCoordinationAuthority],
     ["coordination.local_authority.todo_read", readLocalCoordinationTodo],
+    ["coordination.ownership_observation", projectOwnershipObservation],
+    ["coordination.local_authority.ownership_observation", observeLocalCoordinationOwnership],
     ["coordination.local_authority.todo_list", listLocalCoordinationTodos],
     [
       "coordination.local_authority.legacy_writer_fence.engage",
@@ -593,6 +603,14 @@ export function createEffectRuntimeHandlers(
     [
       "capability_hook.post_writeback.transaction",
       evaluatePostWritebackHookTransaction,
+    ],
+    [
+      "manager.return_delivery.normalize_attempt",
+      (params) => normalizeManagerReturnDeliveryAttempt(params.attempt),
+    ],
+    [
+      "manager.return_delivery.classify_verification",
+      (params) => classifyManagerReturnVerification(params.outcome),
     ],
     [
       "settlement.identity",

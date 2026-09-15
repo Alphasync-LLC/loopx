@@ -6,7 +6,7 @@ import { useWorkspaceI18n } from "./i18n";
 import { LarkSettingsPage } from "./lark-settings-page";
 import { GoalCapabilitySettings } from "./goal-capability-settings";
 import { MachineConfigurationSettings } from "./machine-configuration-settings";
-import type { WorkspaceGoal } from "./personal-workspace-model";
+import type { PersonalWorkspaceCallbacks, WorkspaceGoal, WorkspaceGoalNotification } from "./personal-workspace-model";
 import type { WorkspaceTheme } from "./workspace-theme";
 
 type WorkspaceSettingsTab = "machine" | "capabilities" | "lark" | "appearance" | "language";
@@ -20,19 +20,23 @@ const tabIcons: Record<WorkspaceSettingsTab, typeof Settings2> = {
 };
 
 export function WorkspaceSettingsPage({
+  callbacks,
   focusGoalConnection = false,
   goals,
   initialGoalId,
   initialTab = "lark",
+  goalNotifications,
   onChanged,
   onClose,
   onThemeChange,
   theme,
 }: {
+  callbacks: PersonalWorkspaceCallbacks;
   focusGoalConnection?: boolean;
   goals: WorkspaceGoal[];
   initialGoalId?: string | null;
   initialTab?: WorkspaceSettingsTab;
+  goalNotifications: WorkspaceGoalNotification[];
   onChanged: () => void;
   onClose: () => void;
   onThemeChange: (theme: WorkspaceTheme) => void;
@@ -120,7 +124,14 @@ export function WorkspaceSettingsPage({
         ) : null}
 
         {tab === "machine" ? <MachineConfigurationSettings /> : null}
-        {tab === "capabilities" ? <GoalCapabilitySettings goalId={initialGoalId} /> : null}
+        {tab === "capabilities" ? (
+          <GoalCapabilitySettings
+            callbacks={callbacks}
+            goalId={initialGoalId}
+            notification={goalNotifications.find((row) => row.goalId === initialGoalId)}
+            onChanged={onChanged}
+          />
+        ) : null}
 
         {tab === "appearance" ? (
           <section className="personal-detail-card personal-appearance-settings">

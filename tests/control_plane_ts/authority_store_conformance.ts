@@ -1,6 +1,8 @@
+import {registerMonitorConfigurationConformance} from "./monitor_configuration_conformance.ts";
 import {registerAuthorityScanConformance} from "./authority_scan_conformance.ts";
 import {executeCoordinationTodoArchiveCompleted} from "../../loopx/control_plane/coordination/todo_archive.ts";
 import {registerHandoffModeConformance} from "./handoff_mode_conformance.ts";
+import {registerOwnershipObservationConformance} from "./ownership_observation_conformance.ts";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
@@ -208,7 +210,9 @@ export function registerAuthorityStoreConformance(
   factory: AuthorityStoreConformanceFactory,
 ): void {
   registerAuthorityScanConformance(providerName, factory);
+  registerOwnershipObservationConformance(providerName, factory);
   registerNativePlanningUpdateConformance(providerName, factory);
+  registerMonitorConfigurationConformance(providerName, factory);
   registerCoordinationReceiptConformance(providerName, factory);
   registerHandoffModeConformance(providerName, factory);
   for (const native of [false, true]) test(`${providerName} conformance: standing revocation survives canonical ordering and archive (${native ? "native" : "legacy"})`, async (t) => {

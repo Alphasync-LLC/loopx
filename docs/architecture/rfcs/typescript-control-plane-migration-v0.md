@@ -103,6 +103,23 @@ native creation, archival, receipt replay, and store reopen are tested without
 Markdown metadata. Python only adapts the typed read result to the compatibility
 summary. This is a contract checkpoint, not a completed CLI lifecycle cutover.
 
+### Local provider opening boundary (2026-09-13)
+
+The provider-first runtime now has one typed local opening seam. An absent
+selector resolves explicitly to the File profile (`source_authority=file_v0`);
+the same handle reports SQLite when the qualified local selector is present and
+can report PostgreSQL only through a service-owned factory. Runtime commands no
+longer repeat provider construction or infer a PostgreSQL store as File from an
+`AuthorityStore` implementation.
+
+The selector carries only provider, goal, tenant, and store-incarnation facts.
+It never carries credentials or a database client. Selected-provider failures
+retain their provider source and fail closed; they do not silently fall back to
+File or Markdown. This is the default provider boundary and TypeScript
+ownership refactor, not a SQLite promotion, a whole-Goal cutover, or a
+PostgreSQL service claim. Existing promotion, soak, retention, and writer-fence
+holds remain unchanged.
+
 Provider-first `todo update --text/--note` preserves claim-neutral correction:
 a registered, non-excluded actor may edit an unclaimed active, non-completed
 agent Todo, subject to its agent binding. It must not introduce `claimed_by`.
@@ -531,7 +548,7 @@ atomic follow-up are not fully closed. Lease-edit PR #4152 is merged; bounded
 planning updates now reuse that fence and the existing CAS/receipt transaction.
 Continue with the remaining field/effect inventory, not another update engine.
 
-Work-requirement editing is now closed for non-Monitor Agent Todos without a
+Work-requirement editing was first closed for non-Monitor Agent Todos without a
 retained lease: `action_kind`, `task_domain`, `task_repository`,
 `required_write_scopes`, `required_capabilities`, `target_capabilities` and
 `explore_result_node_refs` use the existing v1 planning transaction. Public
@@ -580,6 +597,26 @@ part of T1 without granting approval, lease, completion, or promotion authority.
   metadata, other-owner/lease rejection, no-op, invalid-input no-write,
   competing revisions, retry and lost-response recovery through the public
   command and affected real providers.
+
+Monitor configuration now uses the existing native planning transaction as well
+as the public legacy planner. A typed authoring codec owns target/cadence/due/
+expiry/watch-only fields; observation hashes, timestamps, effect identities and
+generations stay with the polling lifecycle. The Python duplicate field allowlist
+and blanket native Monitor exclusion are removed. Configuration preserves
+observation history and cannot retarget an already observed Monitor. The lower
+import/observation codec retains its callers and is not exposed as a raw update.
+Ordinary CLI/API edits, explicit clears, receipt recovery and the existing active
+lease proof are covered; owner-confirmed Chat delegation and leased Monitor
+polling remain separate incomplete paths. No configuration prose grants authority.
+
+The local-default program is maintained once in the shared RFC's
+[execution sequence](shared-goal-authority-state-provider-v0.md#execution-handoff-and-integration-order).
+L1–L4 close mutation semantics before L5 consumer integration; L6/L7 cover
+storage and capture; L8 qualifies whole-Goal migration; L9 changes new-Goal
+creation defaults. Each package must remove duplicate decisions with its new
+owner. A full TS launcher is not required: a bounded Python input/effect adapter
+is acceptable while one coarse TS request owns the transaction. Do not turn
+these packages into repeated leaf-RPC additions or bypass a retained caller.
 
 **T2 — close monitor writeback and its atomic follow-up.**
 
@@ -631,6 +668,8 @@ delivery. This does not finish all T2 commands or authorize whole-Goal promotion
 
 **T3 — close remaining structured consumers, then remove their old reads.**
 
+Goal Channel ownership observation now reads a complete canonical Todo/lease revision and shares one TS batch policy with the legacy adapter. It retires display-layer lease time/generation/conflict decisions and local-file reads after promotion. Empty, unavailable and truncated observations remain distinct; see [coordination observation](../../reference/coordination-observation.md). This closes the Goal Channel ownership reader, not other channel panels or whole-Goal promotion.
+
 The D1 document-ownership slice gives readers, editors and projection one visible-region
 and Todo-block boundary. It fixes fenced examples becoming real tasks, narrative after
 an archive end marker entering history, and sparse imported ordinals or archived
@@ -664,7 +703,7 @@ derived inside acquire from the supplied owner/claim/exclusion/registration fact
 not from the old caller-provided `effective` hint. Other-Todo overlap facts still
 come from the existing complete execution snapshot; release retains its separate
 key/version cleanup fence. This closes one T3 reader and shared rule boundary,
-not the remaining Goal-channel lease display, T1/T2 transactions or promotion.
+not the remaining T1/T2 transactions or promotion. Goal Channel ownership display closes in the separate ownership-observation slice.
 
 Capability resolution now shares `agents/capability_gate.ts`: missing prerequisites,
 repair outputs, owner/agent resolution and blocked-Todo bindings have one typed

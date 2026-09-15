@@ -62,6 +62,14 @@ templates enter the model context:
 loopx --format json pr-review --state all [--repo owner/repo] [--since ISO]
 ```
 
+The live source scan keeps the list query lightweight and enriches each PR's
+nested commits, reviews, and checks with a bounded pool of concurrent
+`gh pr view` reads (at most eight at a time). Results are reassembled in list
+order, and a failed detail read still remains visible as an incomplete source
+scan, so the latency improvement does not change queue ordering or freshness
+semantics. The scan does not use a stale cache: rerunning the command always
+re-reads the requested GitHub window.
+
 For an autonomous maintainer monitor, request the complete open queue while
 persisting its compact cursor in an ignored local checkpoint:
 
@@ -382,8 +390,11 @@ reports a typed verdict and invalid-reason codes.
 re-reads the named PR instead of trusting a saved review packet. In particular,
 GitHub may retain or reassociate an approval after an update-from-base commit;
 the gate still requires the public review body to name the observed exact head.
-It also rejects missing, pending, failed, or unknown checks and incomplete or
-unresolved review threads. An admin bypass may satisfy GitHub's author-owned
+For check-runs with a reliable workflow/job identity and start time, it evaluates
+only the latest attempt and reports raw and superseded counts; ambiguous rows are
+retained so the gate fails closed. It also rejects missing, pending, failed, or
+unknown effective checks and incomplete or unresolved review threads. An admin
+bypass may satisfy GitHub's author-owned
 self-review limitation, but it never overrides this capability gate or supplies
 user merge authority.
 

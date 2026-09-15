@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 import hashlib
 import html
 import json
@@ -24,6 +25,9 @@ from .goal_channel_delivery_contract import (
 )
 from .goal_channel_message_delivery import (
     GoalChannelMessageDeliverySession,
+    card_projection_matches,
+    message_card_matches,
+    normalized_card_text,
     resolve_bound_goal_channel,
 )
 from .goal_channel_transport import call, json_payload, lark_args
@@ -163,7 +167,6 @@ def build_goal_channel_operation_card(
                             "width": "weighted",
                             "weight": 1,
                             "background_style": "orange-50",
-                            "corner_radius": "8px",
                             "padding": "12px",
                             "vertical_spacing": "2px",
                             "elements": [
@@ -187,7 +190,6 @@ def build_goal_channel_operation_card(
                             "width": "weighted",
                             "weight": 1,
                             "background_style": "grey-50",
-                            "corner_radius": "8px",
                             "padding": "12px",
                             "vertical_spacing": "4px",
                             "elements": [
@@ -208,7 +210,6 @@ def build_goal_channel_operation_card(
                             "width": "weighted",
                             "weight": 1,
                             "background_style": "red-50",
-                            "corner_radius": "8px",
                             "padding": "12px",
                             "elements": [
                                 {
@@ -236,7 +237,7 @@ def build_goal_channel_operation_card(
                                         "tag": "plain_text",
                                         "content": "确认模拟执行"
                                         if simulated
-                                        else "确认执行",
+                                        else "继续并二次确认",
                                     },
                                     "type": "primary_filled",
                                     "width": "fill",
@@ -249,16 +250,25 @@ def build_goal_channel_operation_card(
                                             },
                                         }
                                     ],
-                                    "confirm": {
-                                        "title": {
-                                            "tag": "plain_text",
-                                            "content": "确认这个精确请求？",
-                                        },
-                                        "text": {
-                                            "tag": "plain_text",
-                                            "content": "修改任何条款都需要创建新请求。",
-                                        },
-                                    },
+                                    **(
+                                        {}
+                                        if simulated
+                                        else {
+                                            "confirm": {
+                                                "title": {
+                                                    "tag": "plain_text",
+                                                    "content": "确认这个精确请求？",
+                                                },
+                                                "text": {
+                                                    "tag": "plain_text",
+                                                    "content": (
+                                                        "这是第二步确认；提交后修改任何条款"
+                                                        "都需要创建新请求。"
+                                                    ),
+                                                },
+                                            }
+                                        }
+                                    ),
                                 }
                             ],
                         },
@@ -287,6 +297,22 @@ def build_goal_channel_operation_card(
             ],
         },
     }
+
+
+def _submitted_confirmation_card(proposal: Mapping[str, Any]) -> dict[str, Any]:
+    """Rebuild the immutable submitted card after the operation has advanced."""
+
+    operation = proposal.get("operation")
+    if not isinstance(operation, Mapping):
+        raise ValueError("typed operation envelope is unavailable")
+    if operation.get("lifecycle_state") == "awaiting_confirmation":
+        return build_goal_channel_operation_card(proposal)
+    replay = deepcopy(dict(proposal))
+    replay_operation = replay.get("operation")
+    if not isinstance(replay_operation, dict):
+        raise ValueError("typed operation envelope is unavailable")
+    replay_operation["lifecycle_state"] = "awaiting_confirmation"
+    return build_goal_channel_operation_card(replay)
 
 
 def build_goal_channel_operation_result_card(
@@ -342,7 +368,6 @@ def build_goal_channel_operation_result_card(
                             "width": "weighted",
                             "weight": 1,
                             "background_style": f"{template}-50",
-                            "corner_radius": "8px",
                             "padding": "12px",
                             "elements": [
                                 {
@@ -362,7 +387,6 @@ def build_goal_channel_operation_result_card(
                             "width": "weighted",
                             "weight": 1,
                             "background_style": "grey-50",
-                            "corner_radius": "8px",
                             "padding": "12px",
                             "elements": [
                                 {
@@ -496,6 +520,10 @@ def deliver_goal_channel_operation_card(
             "delivered_at": datetime.now(timezone.utc).isoformat(),
         },
     )
+    store.record_operation_delivery_snapshot(
+        proposal_id,
+        submitted_card=card,
+    )
     return operation_packet(
         ok=True,
         goal_id=goal_id,
@@ -544,16 +572,156 @@ def _callback_action(event: Mapping[str, Any]) -> dict[str, str]:
 
 def _callback_timestamp(value: object) -> str:
     token = str(value or "").strip()
-    if not token.isdigit() or len(token) > 16:
+    precision = {
+        13: 1_000,
+        16: 1_000_000,
+    }.get(len(token))
+    if not token.isdigit() or precision is None:
         raise ValueError("operation callback timestamp is invalid")
+    seconds, remainder = divmod(int(token), precision)
     return (
-        datetime.fromtimestamp(
-            int(token) / 1000,
-            tz=timezone.utc,
+        (
+            datetime.fromtimestamp(seconds, tz=timezone.utc)
+            + timedelta(microseconds=remainder * (1_000_000 // precision))
         )
         .isoformat()
         .replace("+00:00", "Z")
     )
+
+
+def _lark_card_v2_fallback_matches(
+    observed: Mapping[str, Any], expected: Mapping[str, Any]
+) -> bool:
+    """Recognize Lark's message-get fallback for a Card 2.0 payload.
+
+    The provider exposes Card 2.0 through message-get as a title plus an
+    upgrade-client placeholder. ``card.action.trigger`` consumers hydrate
+    ``card_content`` from that endpoint, so its digest cannot equal the
+    submitted Card 2.0 JSON. The exact message, route, app, action digest, and
+    recorded submitted-card digest are checked independently by the caller.
+    """
+
+    if expected.get("schema") != "2.0":
+        return False
+    header = expected.get("header")
+    if not isinstance(header, Mapping):
+        return False
+    title_value = header.get("title")
+    subtitle_value = header.get("subtitle")
+    title = title_value.get("content") if isinstance(title_value, Mapping) else None
+    subtitle = (
+        subtitle_value.get("content") if isinstance(subtitle_value, Mapping) else None
+    )
+    expected_title = "\n".join(
+        item for item in (title, subtitle) if isinstance(item, str) and item
+    )
+    return _lark_card_v2_fallback_matches_title(observed, expected_title)
+
+
+def _lark_card_v2_fallback_matches_title(
+    observed: Mapping[str, Any], expected_title: str
+) -> bool:
+    if set(observed) != {"title", "elements"}:
+        return False
+    elements = observed.get("elements")
+    if observed.get("title") != expected_title or not isinstance(elements, list):
+        return False
+    leaves: list[Mapping[str, Any]] = []
+
+    def collect(value: object) -> bool:
+        if isinstance(value, list):
+            return bool(value) and all(collect(item) for item in value)
+        if not isinstance(value, Mapping) or value.get("tag") not in {"img", "text"}:
+            return False
+        leaves.append(value)
+        return True
+
+    return collect(elements) and any(item.get("tag") == "img" for item in leaves)
+
+
+def _callback_card_content_matches(value: object, expected: Mapping[str, Any]) -> bool:
+    """Verify either provider JSON or the documented userDSL callback shape."""
+
+    observed: object = value
+    if isinstance(value, str):
+        if not value:
+            return False
+        try:
+            observed = json.loads(value)
+        except json.JSONDecodeError:
+            return value == normalized_card_text(expected)
+    return bool(
+        isinstance(observed, Mapping)
+        and (
+            card_projection_matches(observed, expected)
+            or _lark_card_v2_fallback_matches(observed, expected)
+        )
+    )
+
+
+def _read_callback_card_content(
+    *,
+    runner: CommandRunner,
+    cli_bin: str,
+    profile: str,
+    message_id: str,
+    chat_id: str,
+    app_id: str,
+) -> object:
+    """Retry the CLI's best-effort callback hydration through exact readback."""
+
+    result = call(
+        runner,
+        lark_args(
+            cli_bin=cli_bin,
+            profile=profile,
+            tail=[
+                "api",
+                "GET",
+                f"/open-apis/im/v1/messages/{message_id}",
+                "--params",
+                json.dumps({"card_msg_content_type": "user_card_content"}),
+                "--as",
+                "bot",
+            ],
+        ),
+    )
+    if result.get("returncode") != 0:
+        return None
+    message = _find_message(json_payload(result), message_id)
+    sender = message.get("sender") if isinstance(message, Mapping) else None
+    if (
+        not isinstance(message, Mapping)
+        or str(message.get("chat_id") or "") != chat_id
+        or not isinstance(sender, Mapping)
+        or sender.get("sender_type") != "app"
+        or sender.get("id") != app_id
+    ):
+        return None
+    body = message.get("body") if isinstance(message, Mapping) else None
+    return body.get("content") if isinstance(body, Mapping) else None
+
+
+def _callback_replays_confirmation(
+    *,
+    confirmation: object,
+    action: Mapping[str, str],
+    event: Mapping[str, Any],
+    operator_principal: str,
+    profile_app_id: str,
+) -> bool:
+    if not isinstance(confirmation, Mapping):
+        return False
+    expected = {
+        "event_id": str(event["event_id"]),
+        "principal": operator_principal,
+        "message_id": str(event["message_id"]),
+        "chat_id": str(event["chat_id"]),
+        "app_id": profile_app_id,
+        "confirmation_digest": action["confirmation_digest"],
+        "decision": action["decision"],
+    }
+    return all(confirmation.get(key) == value for key, value in expected.items())
 
 
 def _operator_membership_verified(
@@ -722,16 +890,6 @@ def _find_message(value: object, message_id: str) -> Mapping[str, Any] | None:
     return None
 
 
-def _message_card(value: Mapping[str, Any]) -> Mapping[str, Any] | None:
-    body = value.get("body")
-    raw = body.get("content") if isinstance(body, Mapping) else value.get("content")
-    try:
-        card = json.loads(raw) if isinstance(raw, str) else raw
-    except json.JSONDecodeError:
-        return None
-    return card if isinstance(card, Mapping) else None
-
-
 def _result_card_readback_verified(
     payload: Mapping[str, Any],
     *,
@@ -742,7 +900,6 @@ def _result_card_readback_verified(
 ) -> bool:
     message = _find_message(payload, message_id)
     sender = message.get("sender") if isinstance(message, Mapping) else None
-    observed_card = _message_card(message) if isinstance(message, Mapping) else None
     return bool(
         payload.get("ok") is True
         and isinstance(message, Mapping)
@@ -750,8 +907,7 @@ def _result_card_readback_verified(
         and isinstance(sender, Mapping)
         and sender.get("sender_type") == "app"
         and sender.get("id") == app_id
-        and isinstance(observed_card, Mapping)
-        and _digest(observed_card) == _digest(card)
+        and message_card_matches(message, card)
     )
 
 
@@ -1067,13 +1223,6 @@ def handle_goal_channel_operation_callback(
             raise ValueError(f"operation callback {field} is invalid")
     if str(event.get("host") or "") != "im_message":
         raise ValueError("operation callback host is unsupported")
-    card_content = event.get("card_content")
-    try:
-        card = json.loads(card_content) if isinstance(card_content, str) else None
-    except json.JSONDecodeError as exc:
-        raise ValueError("operation callback card_content is invalid") from exc
-    if not isinstance(card, Mapping):
-        raise ValueError("operation callback requires exact card_content")
     store = ChatActionStore(action_store_root)
     proposal = store.load(action["operation_id"])
     if proposal is None:
@@ -1084,8 +1233,6 @@ def handle_goal_channel_operation_callback(
         raise ActionConflictError("operation card delivery was not recorded")
     if action["confirmation_digest"] != operation.get("confirmation_digest"):
         raise ActionConflictError("operation callback digest drifted")
-    if _digest(card) != delivery.get("card_digest"):
-        raise ActionConflictError("operation callback card content drifted")
     if profile_app_id != delivery.get("app_id"):
         raise ActionConflictError("operation callback app identity drifted")
     operator_id = str(event["operator_id"])
@@ -1093,6 +1240,35 @@ def handle_goal_channel_operation_callback(
     chat_id = str(event["chat_id"])
     if operator_principal not in set(parameters.get("authorized_principals") or []):
         raise ActionConflictError("principal is not authorized for this operation")
+    if not _callback_replays_confirmation(
+        confirmation=operation.get("confirmation"),
+        action=action,
+        event=event,
+        operator_principal=operator_principal,
+        profile_app_id=profile_app_id,
+    ):
+        submitted_card = delivery.get("submitted_card")
+        expected_card = (
+            dict(submitted_card)
+            if isinstance(submitted_card, Mapping)
+            else _submitted_confirmation_card(proposal)
+        )
+        if _digest(expected_card) != delivery.get("card_digest"):
+            raise ActionConflictError("recorded operation card digest drifted")
+        card_content = event.get("card_content")
+        if card_content is None or card_content == "":
+            card_content = _read_callback_card_content(
+                runner=runner,
+                cli_bin=cli_bin,
+                profile=profile,
+                message_id=str(event["message_id"]),
+                chat_id=chat_id,
+                app_id=profile_app_id,
+            )
+        if card_content is None or card_content == "":
+            raise ValueError("operation callback card content is unavailable")
+        if not _callback_card_content_matches(card_content, expected_card):
+            raise ActionConflictError("operation callback card content drifted")
     if not _operator_membership_verified(
         runner=runner,
         cli_bin=cli_bin,

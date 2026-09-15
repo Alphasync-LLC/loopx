@@ -24,6 +24,31 @@ def recovery_cli_actions(
         if turn_instance_id
         else " --turn-instance-id <current-turn-id>"
     )
+    if recovery.get("binding_task_class") == "continuous_monitor":
+        prior_turn_id = str(
+            recovery.get("prior_turn_instance_id") or "<prior-turn-id>"
+        )
+        target_key = str(recovery.get("binding_target_key") or "").strip()
+        target_arg = (
+            f" --target-key {shlex.quote(target_key)}" if target_key else ""
+        )
+        cadence = str(recovery.get("binding_cadence") or "").strip()
+        cadence_arg = f" --cadence {shlex.quote(cadence)}" if cadence else ""
+        return [
+            (
+                "inspect the monitor target and record its exact prior-turn "
+                "observation; never infer external state from Todo prose, and add "
+                "--material-change plus a runnable successor only for a real change"
+            ),
+            (
+                f"{command_prefix} quota monitor-poll --goal-id {goal_id}"
+                f"{lifecycle_actor_args} --todo-id {shlex.quote(prior_todo_id)}"
+                f"{target_arg} --result-hash '<public-safe-result-hash>'"
+                f"{cadence_arg} --turn-instance-id {shlex.quote(prior_turn_id)} "
+                "--execute"
+            ),
+            f"{typed_quota_guard}{current_turn_arg}",
+        ]
     return [
         (
             "inspect unsettled_host_turn_recovery and supply a typed host "

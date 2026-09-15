@@ -5,8 +5,16 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable
 
+from ..control_plane.turn_driver.host_binding import (
+    MANAGED_TURN_HOST,
+    resolve_default_turn_host,
+)
 from ..paths import default_public_scan_root
 
+# Explicit host choices stay per-command: planning may name any host the Turn
+# driver routes, while run-once only ships built-in adapters for these three.
+PLANNED_TURN_HOST_CHOICES = ["codex-cli", "claude-code", "dsh", "generic-cli"]
+RUN_ONCE_TURN_HOST_CHOICES = ["codex-cli", "dsh", "generic-cli"]
 
 AddFormat = Callable[[argparse.ArgumentParser], None]
 
@@ -42,7 +50,21 @@ def register_turn_commands(
         help="Build one typed read-only host decision without launching or writing.",
     )
     add_subcommand_format(plan)
-    _add_turn_decision_arguments(plan, default_host="codex-cli")
+    # The default host and the default execution mode are one decision: the
+    # selected managed host runs bounded headless Turns, so pairing it with a
+    # visible interactive mode would produce a default plan that cannot be
+    # scheduled. The mode follows the *selected* host, never the environment.
+    resolved_default_host = resolve_default_turn_host()
+    _add_turn_decision_arguments(
+        plan,
+        default_host=resolved_default_host,
+        host_choices=list(PLANNED_TURN_HOST_CHOICES),
+        default_execution_mode=(
+            "isolated-headless"
+            if resolved_default_host == MANAGED_TURN_HOST
+            else "interactive-visible"
+        ),
+    )
     plan.add_argument(
         "--include-transaction-detail",
         action="store_true",
@@ -84,8 +106,8 @@ def register_turn_commands(
     add_subcommand_format(run_once)
     _add_turn_decision_arguments(
         run_once,
-        default_host="generic-cli",
-        host_choices=["codex-cli", "dsh", "generic-cli"],
+        default_host=resolve_default_turn_host(),
+        host_choices=list(RUN_ONCE_TURN_HOST_CHOICES),
         execution_mode_choices=["isolated-headless"],
         default_execution_mode="isolated-headless",
     )

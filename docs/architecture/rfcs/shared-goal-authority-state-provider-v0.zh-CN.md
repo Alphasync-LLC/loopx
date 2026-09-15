@@ -49,6 +49,20 @@ head 之外。
 第 1.4 节明确边界；[TS 执行卡](typescript-control-plane-migration-v0.zh-CN.md)
 继续负责业务规则收敛及旧 caller 删除。
 
+### Local provider opening 边界（2026-09-13）
+
+Local runtime 现在通过一个 typed provider handle 解析 File、SQLite 与中期
+PostgreSQL profile。没有 selector 时使用明确的 File 默认值；SQLite selector 仍是
+opt-in local profile；PostgreSQL selector 只有在 service-owned factory 提供
+provider-neutral `AuthorityStore` 时才接受。Selector 不包含凭据或 database client，
+并在任何 command 执行前绑定所选 store identity。
+
+这个边界删除了每个 command 各自构造 provider 的重复，并修正了注入 PostgreSQL
+store 时对外 source label 的错误标记。已选择 provider 的失败保留 source 并 fail
+closed，不能回退到 File 或 Markdown。本次重构为 File/SQLite 默认路径与可切换
+PostgreSQL deployment 做准备，不改变 promotion、D2 soak/retention 或 D3 整 Goal
+cutover hold。
+
 ## 文档地图与维护约定
 
 本文将稳定决策与交付证据分开维护：
@@ -956,15 +970,23 @@ fencing/export 演练与 maintainer review 都通过才可晋升。发布紧凑�
 | 新 Goal 默认决策（F） | 维护者接受合格 profile、canary 结果、运维诊断、backup/restore 流程、发布操作说明和关闭默认的路径；在独立且明确披露的发布改动中切默认。 | 仅适用于新建且符合条件的本地 Goal；已有显式 file 选择保持固定。不受支持的 runtime/filesystem 需显式选择支持方案，打开失败不能静默切 backend。 |
 | 已有 Goal 迁移与 file 退役 | 按已评审的 fenced workflow 逐批 opt-in 迁移，每批核对 receipt、历史、投影和回滚；删除路径前列清最后的 file-primary caller 与兼容窗口。 | 每个 Goal 需要明确迁移权限；证据满足后才退役常规 primary 角色。参考／导入／导出支持保留到其 caller 与保留责任分别结束。 |
 
-**当前证据位置（2026-09-13 复核）。** #4121 已合并为
-`bde1632bb6f29aeb9a8b4ac23ead3e98ba2f2f55`，交付第一个候选节点；
-仍需 profile 资格化与晋级，不代表 lane L 完成。
-其 head pointer 有界，operation/cursor 查询有索引，但保留完整历史 projection，连续性
-校验还会统计覆盖索引，因此该成本随历史增长。它验证当前及访问到的 row digest，
-不是每次读取都审计全部历史 payload。资格入口现在区分小型 rehearsal 与显式
-64 KiB 10k/100k 存储轴，记录 p99/样本数、cold CLI、RSS 和 passed/failed/missing
-账本。逻辑/WAL 流量、完整领域负载、大历史恢复和自然时间 soak 的缺口仍阻止晋升，
-工具跑完不等于通过 <=2 增长预算或十天资格。参见
+**当前证据位置（2026-09-15 复核）。** #4121 已合并为
+`bde1632bb6f29aeb9a8b4ac23ead3e98ba2f2f55`，交付第一个候选节点。
+Lane L 中“保留存储有界”的那一半现在有可评审候选：`loopx_sqlite_authority_store_v2`
+改为每 64 次提交一个 checkpoint、每次提交一条精确 delta，不再为每一行保留一份完整
+projection；活跃头由 head 行、对应保留事务和游标连续性自证；单次历史读取最多重建一个
+窗口；完整 delta 链由 `verifyAuthorityHistory` 线性证明。cursor、operation id、commit
+digest、provider revision、receipt、event 与 scan 页面字节均未改变，已发布的版本 1
+数据库通过评审过的 `examples/coordination/sqlite-authority-migration.ts` 入口迁移。
+rehearsal 证据（1000 次提交／64 KiB）现为 16 个 checkpoint、63 次 replay 预算、
+单次历史读取最多重建一个 64 次提交窗口，保留 1,048,576 字节 projection 与
+126,714 字节 delta，而“每提交一份完整拷贝”为 65,536,000 字节。
+
+这仍不代表 lane L 完成。File 与 NoKV 依旧在每次 load 时保留并解码完整 journal，
+因此“有界恢复”是内嵌候选 provider 的性质，不是跨 provider 等价；SQLite profile
+也仍不裁剪 receipt 与 event。逻辑/WAL 流量与 <=15x 累计写入预算、1 MiB 与 300k
+headroom、完整领域负载、大历史恢复、fenced backup/restore、受支持升级/回滚、
+OS/runtime 覆盖和 >=10 天自然时间 soak 仍是 hold，工具跑完不能声称已满足。参见
 [SQLite 验证命令](../../reference/sqlite-authority-store.md#reproduce-validation)。
 公开 Node 最低版本 22.18 继续用于 File；SQLite 另需同步 finalization 与 WAL-reset
 修复，参考组合为 Node 22.22.3／SQLite 3.51.3。Node 24 主 runtime 与 Node 26
@@ -1674,11 +1696,12 @@ Live 行按环境门控（`LOOPX_TEST_POSTGRES_URL`；`NOKV_COORDINATION_LIVE=1`
 `summary.privacy_violations` 阻止 green 退出，任何开关都不能放宽。
 
 交付边界：test-only。没有任何生产入口构造任何 store；ladder 不新增产品路径，
-只经保留的 TypeScript store 读取候选。Stage 2C parity 后半段由上述十个
-`s2c2.*` 行执行；仍有两条声明保持 pending。`s2c2.archive_after_leased_completion_parity`
-记录 parity 行暴露的一个 capture 缺口：对持有已释放 lease 记录的 Todo 执行
-`todo archive-completed` 后，候选 head 仍保留该 lease，而 source 投影会丢弃这条
-已成孤儿的 lease，于是有界 qualification 报告 `shadow_projection_drift`。
+只经保留的 TypeScript store 读取候选。Stage 2C parity 后半段由上述十一个
+`s2c2.*` 行执行；只有一条声明保持 pending。`s2c2.archive_after_leased_completion_parity`
+原先是 parity 行暴露的 capture 缺口声明，现已成为可执行的确定性行：parity 后半段
+在对 Todo 分区做折叠时套用与 source 投影同一条当前图规则，因此对持有已释放 lease
+记录的 Todo 执行 `todo archive-completed` 后，候选 head 仍保持 matched，而不再报告
+`shadow_projection_drift`。
 `s2c2.sustained_parity_soak` 是由 7.2 节与车道 L 负责的 >=10 天合成 goal soak，
 有界 qualification 继续报告 `sustained_parity_verdict=not_evaluated`。本小节记录
 的是上述阶段的可执行证据；它不晋升任何 provider，也不完成 Stage 2C promotion。
@@ -2286,6 +2309,8 @@ Scoped fallback 的选择与门禁关系也已复用同一 TS decision owner，�
 
 **D1 — 资格化永久投影交付，可与 T1/T2 重叠推进。**
 
+Goal Channel 所有权观察先读取完整 provider revision，再限制展示；不修复 Markdown、不复活旧本地 lease，明确披露失败与截断。这是共用 TS 解释规则的 T3 读链路闭合，不完成 D1/D2 或 D3 切换，见 [coordination observation](../../reference/coordination-observation.md)。
+
 D1 的文档归属切片把读取、编辑与投影放到同一可见区域／Todo 行解码边界，修复
 fenced 示例被当成真实任务、归档 end marker 后叙述进入历史、稀疏历史行号及归档
 优先级阻塞读回的问题。投影复用普通状态的耐久原子写入；相同字节的重试仍完成
@@ -2349,26 +2374,54 @@ route planner 本身仍不授予权限。CLI 将已提交回执交给既有 jour
 
 #### 执行交接与汇合顺序
 
-| 就绪条件 | 下一动作 | 不授予的权限 |
+**本地默认化交付计划（2026-09-14）。** 目标是新建本地 Goal 后，日常 CLI、Turn 和
+操作者动作都通过 TS 拥有的 canonical 事务运行，Markdown 永久作为展示投影。
+“未指定 selector 时选择 File”不等于达成目标：已有 Goal 在明确的整 Goal cutover
+之前，仍有 legacy writer。
+
+长程默认应选定**一个**合格本地 profile。SQLite 是当前 D2 候选；File 保留为真实
+对照、显式可选 profile 和迁移演练后端。不能发布两个含混的默认项，不能把现有 File
+历史布局直接称为长程合格，也不能从选定 SQLite 静默回退。最终选择必须引用 D2
+证据。PostgreSQL 复用 TS 语义合同，但 service、tenant、restore 和 capacity 单独
+资格化；其部署不阻塞本地路线。
+
+核对基线：#4286（命令回执／归档）、#4289（typed 工作／归属 intent）、#4292
+（声明式 decision metadata）、#4304（canonical handoff mode）已合并。#4316
+是 Goal Channel observation 候选，#4317 是 provider opening 候选，#4348 是
+canonical renew 候选，#4328 是 SQLite D2 首批测量／恢复候选；它们尚不能算作已
+合并前提或完整执行卡证据。#4334 是独立 PostgreSQL service admission 候选。
+组合前重读实际 head，不能把已合并祖先再次算成新变化。
+
+下表编号表示**计划 PR 包**，不是预留 GitHub 编号。可沿真实 effect／兼容边界拆分；
+仅换语言或移动 helper 不构成一个包的退出条件。
+
+| 波次／PR 包 | 完整交付内容与 TS 归属收益 | 依赖与退出证据 |
 | --- | --- | --- |
-| 当前 refactor stack 已核对 | T1；D1、D2 可独立推进 | 修改默认 provider 或新增通用迁移框架 |
-| T1 字段语义闭合 | T2；所需合同就绪后推进 T3 consumer | 同一 Goal 按命令拆分 authority |
-| T1–T3、D1/D2 和 capture 均合格 | D3 演练，再请求 promotion 批准 | 跳过 soak、绕过失败证据或自行生产晋升 |
-| 批准的 cutover 和 legacy 窗口结束 | T4 完整 writer 退役 | 删除永久 Markdown 展示或 replay 仍需的历史 receipt |
+| A／L1：Monitor 配置（本切片） | 现有 `todo update` 配置进入 TS planner／CAS／receipt，删除 Python 重复 intent 字段表；区分配置与观察 hash、时间、代数。 | 普通 CLI/API、清除／省略、active lease proof、no-op／replay、展示失败恢复、完整 fixture 和真实 provider。不宣称完成委托 Chat 或 leased polling。 |
+| A／L2：公共 mutation admission 闭合 | 盘点 CLI／Turn／Chat 实际 caller；以可信 actor／grant 事实闭合剩余 effect-owned 用户决策、委托 owner 动作和 Monitor lifecycle。 | 复用已合并 T1 owner，不开通通用 raw patch；验证权限拒绝和 caller 响应，删除替代的 Python admission，列全未支持命令。 |
+| A／L3：canonical lease 生命周期 | 核对 #4348 renew，继续 transfer／release 及 CLI consumer；复用 typed lease 规则和原子 head／event／receipt。 | 同一 canonical Todo／lease revision；丢回复、旧版本、owner 竞争、过期／释放历史和清理凭据。旧回执 replay 不是新执行权。 |
+| B／L4：leased Monitor poll 与 settlement | 组合观察、变化代数、独立 successor 和现有 lease fence；复用 quota settlement 与精确业务回执。 | L2/L3；真实 polling 失败、重复／无变化、业务提交到 quota settlement 间崩溃和并发。不能假装不同 authority 共享一个数据库事务。 |
+| B／L5：consumer 与展示闭合 | 核对 #4316，审计 Turn／quota／Dashboard／Chat 的来源，复用 projection outbox 完成 D1 新鲜度和恢复。 | 验证 CLI、Lark／Chat、打包 frontend 的受影响交互；缺失／陈旧展示、权威空状态、pending 投影及超过 UI 上限的数据。逐个删除晋升后的 legacy fallback。 |
+| A–C／L6：本地持久化资格 | 延续 contributor 认领的 #4224／#4328，在选定 SQLite profile 上补齐第 7.2 节 ledger，复用 File／NoKV 对照。 | capacity、真实进程／crash／restore／upgrade、历史 receipt／scan、consumer lag、支持的 runtime／OS，以及另行授权的 >=10 天合成 soak。缺项继续 hold。 |
+| A–C／L7：capture 连续性 | 修复 #4315：归档的源事务明确退休 lease 引用，bootstrap 与后续 writer 使用一致成员范围；执行 row／mutant 和 mixed-writer／event-source 矩阵。 | 真实 CLI／File capture、保留历史、半完成 drain 不合格、crash／replay，以及归档／rebootstrap 后再申请 lease。不能借 T4 跳过迁移窗口证明。 |
+| C／L8：整 Goal 演练与分组迁移 | L2–L7 后汇合一个精确 revision／profile；drain capture、fence 旧 writer、回读 canonical 与投影、演练 fenced export／rollback。 | D3 包绑定 lineage、cursor、source digest、命令覆盖和 profile；已有 Goal 分组迁移需明确批准，不能按命令拆 authority 或复活旧 Markdown。 |
+| D／L9：新 Goal 默认与有界退役 | 单独 default-change PR 让新建／onboarding 选择合格本地 profile，配齐 settings／readback、installer 和打包客户端；最后 caller 与迁移窗口退出才删除旧业务 writer。 | L8 整体产品／回滚资格；区分新 Goal 默认和已有 Goal 迁移。发布兼容／停用说明，保留显式 provider、永久 renderer 和合法 import/export。T4 可在默认启用后继续收尾。 |
 
-核对当前 stack 后，预估还需**五到七个完整实现／资格化批次**，不是固定 PR 配额：
-T1、T2、T3、D1、D2、D3、T4 仅在依赖、评审和回滚清晰时可同 PR 交付。
-T1 就开始删除重复语义；完整 legacy writer 删除等待 D3/T4。Soak 的真实经过时间
-独立计算，不能靠拆 PR 缩短。
+**开发节奏以证据推进。** 先核对在途 stack，再按完整操作交付 A；L6/L7 可独立推进。
+B 汇合为完整用户流程，C 形成一次可复现资格检查点，D 用独立 PR 修改默认。此时约
+九个完整包，不是代码行数指标，也不承诺恰好九次 merge。同一 transaction owner
+避免并发重写，先共享 fixture／合同，owner 合入后再 rebase。
 
-每次交接记录精确 base/head、执行卡、实际删除的 caller、authority／可观察语义变化、
-真实 backend 结果、剩余 hold 和一个可执行的下一动作。前序已合入则验证证据后跳过
-重复实现；前提不满足就暂停依赖阶段。不能把“假设合并后”的就绪状态当成自动
-promotion、automation、merge 或 release 授权。
+L2/L3 命令盘点与 L6 缺失证据未闭合前，不给虚假的日历承诺。>=10 天 soak 是
+**被测 profile 就绪之后**的真实时间下限，不是从写计划当天计时；明确授权后可与
+兼容工作重叠，涉及持久化语义的后续变化须按影响重新验证。加速 fixture 不能替代
+真实经过时间。本地默认不依赖完整 TS CLI／distribution 清理、删除所有 Python
+adapter，也不依赖 PostgreSQL service 部署。
 
-当前默认和附录 C promotion hold 均不改变。这份计划不宣称完整 Todo 命令族、长程
-profile 或 shared deployment 已生产就绪。provider 负责 durable CAS/transaction，
-不拥有第二份 Todo 状态机。
+每包记录实际 caller／owner 删除、bridge LOC 与退出条件、跨运行时次数、真实后端、
+基线 parity 和公开的语义纠正。单元测试绿、canonical selector 或新增配置字段，均
+不能单独代表默认化就绪。计划中的 integration、soak、release、merge 和生产晋升
+仍分别保留授权边界。
 
 ### 并行交付计划
 

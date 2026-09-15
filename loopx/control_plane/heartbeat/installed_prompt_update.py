@@ -123,6 +123,9 @@ def reconcile(*, before: dict, registry: Path, home: Path,
                             "notificationPolicy": manifest.get("notification_policy"),
                             "prompt": now["desired_prompt"]}})
         results.append(result)
+    from .prompt_upgrade_hook import record_deferred_upgrades
+    record_deferred_upgrades(registry=registry, home=home, runtime_root=runtime_root,
+        cli_bin=cli_bin, entries=current, results=results)
     pending = any(result["status"] not in {"current", "updated", "unmanaged", "missing"} for result in results)
     return {"ok": not pending, "status": "attention_required" if pending else "current", "results": results,
             "api_updates": api_updates,

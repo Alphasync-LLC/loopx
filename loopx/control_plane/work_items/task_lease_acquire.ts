@@ -1353,6 +1353,7 @@ async function commitAcquire(
       operation_id: request.idempotency_key,
       previous_lease: existing,
       planned_lease: lease,
+      active_todo_ids: [...request.authority.todos.keys()],
     });
   if (shadowCapture?.failure && await requireShadowPrimaryWriteAllowed(request.runtime_root, request.goal_id) !== null) {
     throw new ShadowManagementError("shadow_capture_prepare_failed", "durable shadow preparation failed; the primary lease was not changed");

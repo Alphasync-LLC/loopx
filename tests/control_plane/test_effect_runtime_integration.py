@@ -765,6 +765,68 @@ def test_managed_runtime_releases_memory_after_idle_timeout(
     )
 
 
+@pytest.mark.parametrize(
+    "raw_idle_ms",
+    [
+        "",
+        "not-a-number",
+        "0",
+        "-1",
+        "1.5",
+        "1e3",
+        "0x10",
+        " 150",
+        "150 ",
+        "2147483648",
+        "9007199254740993",
+    ],
+)
+def test_invalid_idle_timeout_configuration_fails_closed(
+    tmp_path: Path,
+    monkeypatch,
+    raw_idle_ms: str,
+) -> None:
+    runtime_dir = tmp_path / "runtime"
+    monkeypatch.setattr(effect_runtime, "_runtime_dir", lambda: runtime_dir)
+    monkeypatch.setenv("LOOPX_EFFECT_RUNTIME_IDLE_MS", raw_idle_ms)
+
+    with pytest.raises(
+        effect_runtime.EffectRuntimeStartupError,
+        match="LOOPX_EFFECT_RUNTIME_IDLE_MS",
+    ) as exc_info:
+        effect_runtime.effect_runtime_result("runtime.ping", {})
+
+    assert exc_info.value.diagnostic_code == "invalid_idle_timeout"
+    assert list(runtime_dir.glob("runtime-*.json")) == []
+
+
+@pytest.mark.parametrize("raw_idle_ms", [None, "150", "2147483647"])
+def test_valid_idle_timeout_configuration_serves_requests(
+    tmp_path: Path,
+    monkeypatch,
+    raw_idle_ms: str | None,
+) -> None:
+    runtime_dir = tmp_path / "runtime"
+    monkeypatch.setattr(effect_runtime, "_runtime_dir", lambda: runtime_dir)
+    if raw_idle_ms is None:
+        monkeypatch.delenv("LOOPX_EFFECT_RUNTIME_IDLE_MS", raising=False)
+    else:
+        monkeypatch.setenv("LOOPX_EFFECT_RUNTIME_IDLE_MS", raw_idle_ms)
+
+    try:
+        result = effect_runtime.effect_runtime_result("runtime.ping", {})
+        assert int(result["pid"]) > 0
+    finally:
+        try:
+            effect_runtime.effect_runtime_result(
+                "runtime.shutdown",
+                {},
+                retry_safe=False,
+            )
+        except Exception:
+            pass
+
+
 def test_oversized_request_is_rejected_before_runtime_dispatch(
     tmp_path: Path,
     monkeypatch,

@@ -83,8 +83,15 @@ export const chatRecoveryScenario = {
         message_id: "handoff.browser-fixture", turn_id: "original-delegation",
         role: "agent", origin: "manager_followup", text: `${returnText}\n\n- **已完成**：核验新约束\n- 下一步：继续现有计划\n\n1. 核对证据\n2. 汇报结论`,
         created_at: "2026-08-13T01:00:03Z",
+        return_delivery: {
+          schema_version: "manager_return_delivery_status_v0",
+          phase: "conclusion",
+          status: "verification_required",
+          error: "provider_delivery_unverified",
+        },
       });
       await page.getByText(returnText, { exact: true }).waitFor({ state: "visible", timeout: 10_000 });
+      await page.getByText("正在核验送达，不会重复发送", { exact: true }).waitFor({ state: "visible" });
       const richConclusion = page.locator(".personal-channel-timeline .personal-message").filter({ hasText: returnText });
       if (await richConclusion.locator("ul > li").count() !== 2
         || await richConclusion.locator(".personal-md strong").innerText() !== "已完成") {
@@ -100,6 +107,15 @@ export const chatRecoveryScenario = {
       }
       await richConclusion.scrollIntoViewIfNeeded();
       await page.screenshot({ path: resolve(outputDir, "manager-automatic-conclusion.png"), fullPage: false, animations: "disabled" });
+      const returnedMessage = page.__loopxRuntime.messages.get(returnSessionId)
+        .find((message) => message.message_id === "handoff.browser-fixture");
+      returnedMessage.return_delivery = {
+        schema_version: "manager_return_delivery_status_v0",
+        phase: "conclusion",
+        status: "delivered",
+        verification: "reconciled_after_restart",
+      };
+      await page.getByText("恢复后已核验送达", { exact: true }).waitFor({ state: "visible", timeout: 10_000 });
       await page.setViewportSize({ width: 390, height: 844 });
       await page.getByText(returnText, { exact: true }).waitFor({ state: "visible" });
       await richConclusion.scrollIntoViewIfNeeded();

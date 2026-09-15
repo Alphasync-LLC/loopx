@@ -54,19 +54,21 @@ suites rather than in the pytest shards.
 | `s2c2.event_only_todo_source_holds` | 2c2 | real_cli | deterministic | an event-only Todo appended to the goal's state event log makes `inspect`, `qualify` and `read-candidate` fail closed with `event_log_writer_not_bound`, `status` stays readable, a Markdown write still commits with its capture held, the event log is untouched; removing the event source does not requalify, and rollback plus rebootstrap recovers |
 | `s2c2.migration_seeds_and_drains` | 2c2 | real_cli | deterministic | `migrate-state` previews an actively captured goal without writing, refuses `--execute` with `shadow_source_replacement_requires_rebootstrap` (also when capture is merely disabled), and executes only after `rollback`; the migrated goal carries its disabled capture configuration, plans no observation seed, requires its own `bootstrap`, then captures a write to cursor `2` and qualifies on it while the legacy archive is retained |
 | `s2c2.growth_measurement_gate` | 2c2 | real_cli | deterministic | ten fixed-size `todo add` writes: the cursor advances by one each time, `store_bytes` grows monotonically, the per-transaction delta accelerates by at most 2048 bytes (one live record), every retained transaction carries its complete projection, `retention_pressure` stays false; the report carries final and cumulative publication bytes and claims no capacity horizon (`capacity_verdict=not_evaluated`) |
+| `s2c2.archive_after_leased_completion_parity` | 2c2 | real_cli | deterministic | a leased Todo is completed through its fence and then archived by `todo archive-completed`: the archive retires the Todo from the current graph while its released lease file stays on disk as audit history, and `inspect` still reports `matched` with `parity_matches=true`, no drift reason, a qualified bounded read of a co-resident open Todo, and a `qualify` that requires the archive event kind; the released lease file remains on disk |
 
 Pending rows are declared in the report as `pending`, never counted as pass,
-and they block a green exit unless `--allow-pending` is passed. Two
-declarations remain. `s2c2.archive_after_leased_completion_parity` records a
-capture gap found while building the parity row: `todo archive-completed` on a
-Todo that holds a released lease record leaves that lease in the candidate
-head while the source projection drops the now-orphaned lease, so `inspect`
-reports `shadow_projection_drift`; the parity row therefore archives nothing
-and the gap stays visible until the archive writer captures the lease it
-orphans. `s2c2.sustained_parity_soak` is the >=10-day synthetic-goal soak of
-the selected local profile owned by RFC Section 7.2 (lane L). Bounded
+and they block a green exit unless `--allow-pending` is passed. One
+declaration remains: `s2c2.sustained_parity_soak`, the >=10-day synthetic-goal
+soak of the selected local profile owned by RFC Section 7.2 (lane L). Bounded
 qualification reports `sustained_parity_verdict=not_evaluated`, and no
 `s2c2.*` row promotes a provider or completes the Stage 2C promotion.
+
+The former `s2c2.archive_after_leased_completion_parity` declaration is now an
+executable row. The gap it recorded is closed at the fold: a Todo partition
+carries the published Todo read records, and the candidate head now keeps a
+lease edge only for Todos still in the current graph
+(`archive_state === "active"`), matching the rule the source projection and the
+TypeScript source verification already apply.
 
 The `s2c2.*` rows use two scheduling-only seams outside every product decision:
 holding the stable maintenance lock, which makes a writer report

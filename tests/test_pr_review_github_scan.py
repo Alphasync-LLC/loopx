@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
 import loopx.cli_commands.pr_review as pr_review_cli_module
 import loopx.pr_review as pr_review_module
 import loopx.pr_review_merge_readiness as merge_readiness_module
+import loopx.capabilities.pr_review_queue.github_source as github_source_module
 import pytest
 from loopx.capabilities.machine_configuration.builtins import (
     build_builtin_machine_configuration_registry,
@@ -26,6 +29,7 @@ def _rows() -> list[dict[str, object]]:
             "number": 1,
             "title": "one",
             "state": "OPEN",
+            "changedFiles": 1,
             "headRefOid": HEAD_1,
             "updatedAt": "2026-08-12T00:00:00Z",
         },
@@ -33,6 +37,7 @@ def _rows() -> list[dict[str, object]]:
             "number": 2,
             "title": "two",
             "state": "OPEN",
+            "changedFiles": 1,
             "headRefOid": HEAD_2,
             "updatedAt": "2026-08-12T00:00:00Z",
         },
@@ -61,6 +66,16 @@ def _fake_run_gh_json(args: list[str], *, cwd: Path | None = None):
             ]
         )
         return {
+            "body": f"Body for PR {number}",
+            "files": [
+                {
+                    "path": f"src/pr_{number}.py",
+                    "additions": int(number),
+                    "deletions": 0,
+                }
+            ],
+            "reviewDecision": "REVIEW_REQUIRED",
+            "mergeStateStatus": "CLEAN",
             "createdAt": "2026-08-11T00:00:00Z",
             "commits": [
                 {
@@ -91,6 +106,10 @@ def test_pr_list_keeps_nested_details_in_bounded_per_pr_reads(monkeypatch) -> No
     list_call = next(args for args in calls if args[0] == "pr" and args[1] == "list")
     json_fields = list_call[list_call.index("--json") + 1].split(",")
     assert "statusCheckRollup" not in json_fields
+    assert "body" not in json_fields
+    assert "files" not in json_fields
+    assert "reviewDecision" not in json_fields
+    assert "mergeStateStatus" not in json_fields
     assert "createdAt" in json_fields
     assert {"commits", "reviews"}.isdisjoint(json_fields)
 
@@ -104,13 +123,75 @@ def test_pr_list_keeps_nested_details_in_bounded_per_pr_reads(monkeypatch) -> No
         {"name": "build", "status": "IN_PROGRESS", "conclusion": ""},
     ]
     detail_calls = [args for args in calls if args[:2] == ["pr", "view"]]
-    assert [args[2] for args in detail_calls] == ["1", "2"]
+    assert sorted(args[2] for args in detail_calls) == ["1", "2"]
     assert all(
-        args[args.index("--json") + 1] == "createdAt,commits,reviews,statusCheckRollup"
+        args[args.index("--json") + 1]
+        == "body,files,reviewDecision,mergeStateStatus,createdAt,commits,reviews,statusCheckRollup"
         for args in detail_calls
     )
+    assert rows[0]["body"] == "Body for PR 1"
+    assert rows[0]["files"] == [
+        {"path": "src/pr_1.py", "additions": 1, "deletions": 0}
+    ]
+    assert rows[0]["reviewDecision"] == "REVIEW_REQUIRED"
+    assert rows[0]["mergeStateStatus"] == "CLEAN"
     assert rows[0]["commits"][0]["committedDate"] == "2026-08-12T00:00:00Z"
     assert rows[0]["reviews"] == []
+
+
+def test_pr_list_detail_reads_are_bounded_and_keep_queue_order(monkeypatch) -> None:
+    active = 0
+    peak = 0
+    lock = threading.Lock()
+
+    def fake_list(args: list[str], *, cwd: Path | None = None):
+        if args[0:2] == ["pr", "list"]:
+            return [
+                {
+                    "number": number,
+                    "title": f"PR {number}",
+                    "state": "OPEN",
+                    "updatedAt": "2026-08-12T00:00:00Z",
+                }
+                for number in range(1, 13)
+            ]
+        raise AssertionError(f"unexpected gh invocation: {args}")
+
+    def fake_details(
+        row: dict[str, object],
+        *,
+        repository: str | None,
+        cwd: Path | None = None,
+        run_gh_json=None,
+    ) -> bool:
+        nonlocal active, peak
+        with lock:
+            active += 1
+            peak = max(peak, active)
+        time.sleep(0.01)
+        with lock:
+            active -= 1
+        row["createdAt"] = "2026-08-11T00:00:00Z"
+        row["commits"] = []
+        row["reviews"] = []
+        row["statusCheckRollup"] = []
+        return True
+
+    monkeypatch.setattr(pr_review_module, "_run_gh_json", fake_list)
+    monkeypatch.setattr(
+        pr_review_module, "_attach_pr_review_details", fake_details
+    )
+
+    scan = pr_review_module.scan_github_pull_requests(
+        repo="huangruiteng/loopx",
+        limit=20,
+        state_filter="open",
+    )
+
+    assert [row["number"] for row in scan["pull_requests"]] == list(range(1, 13))
+    assert peak > 1
+    assert peak <= github_source_module.PR_REVIEW_DETAIL_MAX_WORKERS
+    assert scan["states"][0]["detail_read_failures"] == 0
 
 
 def test_pr_list_failed_check_lookup_leaves_rollup_absent(monkeypatch) -> None:
@@ -130,6 +211,69 @@ def test_pr_list_failed_check_lookup_leaves_rollup_absent(monkeypatch) -> None:
     assert scan["complete"] is False
     assert scan["states"][0]["detail_read_failures"] == 2
     assert scan["states"][0]["source_read_valid"] is False
+
+
+def test_pr_list_paginates_files_when_graphql_detail_is_truncated(monkeypatch) -> None:
+    row = _rows()[0]
+    row["changedFiles"] = 101
+    rest_files = [
+        {"filename": f"src/file_{index}.py", "additions": index, "deletions": 0}
+        for index in range(101)
+    ]
+    calls: list[list[str]] = []
+
+    def fake(args: list[str], *, cwd: Path | None = None):
+        calls.append(args)
+        if args[:2] == ["pr", "list"]:
+            return [row]
+        if args[:2] == ["pr", "view"]:
+            details = _fake_run_gh_json(args, cwd=cwd)
+            details["files"] = details["files"] * 100
+            return details
+        if args[:3] == ["api", "--paginate", "--slurp"]:
+            return [rest_files[:100], rest_files[100:]]
+        raise AssertionError(args)
+
+    monkeypatch.setattr(pr_review_module, "_run_gh_json", fake)
+    scan = pr_review_module.scan_github_pull_requests(
+        repo="huangruiteng/loopx",
+        limit=10,
+        state_filter="open",
+    )
+
+    assert scan["states"][0]["source_read_valid"] is True
+    assert len(scan["pull_requests"][0]["files"]) == 101
+    assert scan["pull_requests"][0]["files"][-1]["path"] == "src/file_100.py"
+    assert ["api", "--paginate", "--slurp"] in [call[:3] for call in calls]
+
+
+def test_pr_list_marks_source_incomplete_when_rest_files_are_still_truncated(
+    monkeypatch,
+) -> None:
+    row = _rows()[0]
+    row["changedFiles"] = 101
+
+    def fake(args: list[str], *, cwd: Path | None = None):
+        if args[:2] == ["pr", "list"]:
+            return [row]
+        if args[:2] == ["pr", "view"]:
+            details = _fake_run_gh_json(args, cwd=cwd)
+            details["files"] = details["files"] * 100
+            return details
+        if args[:3] == ["api", "--paginate", "--slurp"]:
+            return [[{"filename": f"src/file_{index}.py"} for index in range(100)]]
+        raise AssertionError(args)
+
+    monkeypatch.setattr(pr_review_module, "_run_gh_json", fake)
+    scan = pr_review_module.scan_github_pull_requests(
+        repo="huangruiteng/loopx",
+        limit=10,
+        state_filter="open",
+    )
+
+    assert scan["complete"] is False
+    assert scan["states"][0]["detail_read_failures"] == 1
+    assert "files" not in scan["pull_requests"][0]
 
 
 def test_security_policy_keeps_public_entry_classification_after_move() -> None:
@@ -600,6 +744,108 @@ def test_merge_readiness_rejects_red_pending_and_unresolved_remote_gates() -> No
         "status_checks_incomplete",
         "unresolved_review_threads",
     }.issubset(blocked["blocking_reasons"]), blocked
+
+
+def test_merge_readiness_uses_latest_check_attempt_per_workflow_job() -> None:
+    pr = _merge_ready_pr()
+    pr["statusCheckRollup"] = [
+        {
+            "__typename": "CheckRun",
+            "workflowName": "Python Tests",
+            "name": "merge-gate",
+            "status": "COMPLETED",
+            "conclusion": "CANCELLED",
+            "startedAt": "2026-09-09T11:00:00Z",
+        },
+        {
+            "__typename": "CheckRun",
+            "workflowName": "Python Tests",
+            "name": "merge-gate",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "startedAt": "2026-09-09T11:05:00Z",
+        },
+        {
+            "__typename": "CheckRun",
+            "workflowName": "Security",
+            "name": "merge-gate",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "startedAt": "2026-09-09T11:01:00Z",
+        },
+    ]
+    ready = merge_readiness_module.build_pr_merge_readiness_packet(
+        pull_request=pr,
+        repository="owner/repo",
+        expected_exact_head=f"4110@{HEAD_1}",
+        reviewer_login="maintainer",
+        review_threads=_complete_review_threads(),
+        source="fixture",
+    )
+
+    assert ready["ready"] is True, ready
+    assert ready["checks"] == {
+        "total": 2,
+        "raw_total": 3,
+        "superseded": 1,
+        "counts": {"success": 2},
+        "summary": "2 successful check(s).",
+        "failures": [],
+        "pending": [],
+    }
+
+
+def test_merge_readiness_keeps_latest_pending_and_ambiguous_attempts() -> None:
+    pr = _merge_ready_pr()
+    pr["statusCheckRollup"] = [
+        {
+            "__typename": "CheckRun",
+            "workflowName": "Python Tests",
+            "name": "pytest",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "startedAt": "2026-09-09T11:00:00Z",
+        },
+        {
+            "__typename": "CheckRun",
+            "workflowName": "Python Tests",
+            "name": "pytest",
+            "status": "IN_PROGRESS",
+            "conclusion": "",
+            "startedAt": "2026-09-09T11:05:00Z",
+        },
+        {
+            "name": "legacy-context",
+            "status": "COMPLETED",
+            "conclusion": "FAILURE",
+        },
+        {
+            "name": "legacy-context",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+        },
+    ]
+    blocked = merge_readiness_module.build_pr_merge_readiness_packet(
+        pull_request=pr,
+        repository="owner/repo",
+        expected_exact_head=f"4110@{HEAD_1}",
+        reviewer_login="maintainer",
+        review_threads=_complete_review_threads(),
+        source="fixture",
+    )
+
+    assert blocked["ready"] is False, blocked
+    assert blocked["checks"]["raw_total"] == 4
+    assert blocked["checks"]["total"] == 3
+    assert blocked["checks"]["superseded"] == 1
+    assert blocked["checks"]["counts"] == {
+        "pending": 1,
+        "failure": 1,
+        "success": 1,
+    }
+    assert {"status_checks_failed", "status_checks_pending"}.issubset(
+        blocked["blocking_reasons"]
+    )
 
 
 def test_merge_readiness_accepts_titled_author_owned_approval_only_with_bypass() -> (
@@ -1259,7 +1505,9 @@ def test_github_transport_preserves_utf8_under_gbk_locale(monkeypatch):
 
     monkeypatch.setattr(subprocess, "_text_encoding", lambda: "gbk")
     monkeypatch.setattr(
-        pr_review_module, "subprocess", SimpleNamespace(run=child, PIPE=subprocess.PIPE)
+        github_source_module,
+        "subprocess",
+        SimpleNamespace(run=child, PIPE=subprocess.PIPE),
     )
     assert pr_review_module._run_gh_json(["pr", "view", "1"]) == payload
 
@@ -1280,7 +1528,9 @@ def test_github_transport_keeps_json_and_process_failures(monkeypatch):
 
     monkeypatch.setattr(subprocess, "_text_encoding", lambda: "gbk")
     monkeypatch.setattr(
-        pr_review_module, "subprocess", SimpleNamespace(run=child, PIPE=subprocess.PIPE)
+        github_source_module,
+        "subprocess",
+        SimpleNamespace(run=child, PIPE=subprocess.PIPE),
     )
     with pytest.raises(json.JSONDecodeError):
         pr_review_module._run_gh_json(["pr", "view", "1"])
@@ -1311,7 +1561,9 @@ def test_github_transport_replaces_malformed_utf8(monkeypatch):
         )
 
     monkeypatch.setattr(
-        pr_review_module, "subprocess", SimpleNamespace(run=child, PIPE=subprocess.PIPE)
+        github_source_module,
+        "subprocess",
+        SimpleNamespace(run=child, PIPE=subprocess.PIPE),
     )
     assert pr_review_module._run_gh_json(["pr", "view", "1"]) == {
         "title": "broken\ufffd"
