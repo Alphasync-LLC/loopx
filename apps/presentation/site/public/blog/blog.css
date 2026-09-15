@@ -167,13 +167,12 @@ caption { text-align: left; font-size: 12px; margin-bottom: 12px; color: var(--b
   .index-note { flex-direction: column; gap: 8px; }
 }
 
-/* Body-only architecture figures; existing article and opening layout are unchanged. */
-.architecture-map .architecture-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.architecture-map .architecture-lane { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 6px; }
-.architecture-map .architecture-lane-title { margin: 0 0 16px; font-size: 12px; font-weight: 600; color: var(--ink); }
-.architecture-map .architecture-exchange { display: grid; gap: 8px; margin-top: 16px; padding: 16px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); font-size: 13px; line-height: 1.7; }
-.architecture-map .architecture-note { display: grid; gap: 6px; margin-top: 16px; padding: 16px; border: 1px dashed #aaa; border-radius: 6px; font-size: 13px; line-height: 1.7; }
+/* Approved vector figures: native-size reading on narrow screens. */
+.architecture-viewport { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; background: #fff; }
+.architecture-viewport a { display: block; }
+.architecture-viewport img { display: block; width: 100%; height: auto; }
+.architecture-viewport:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+.architecture-hint { display: block; margin-top: 6px; }
 @media (max-width: 600px) {
-  .architecture-map .architecture-columns, .architecture-map .diagram-pair { grid-template-columns: minmax(0, 1fr); }
-  .architecture-map .architecture-lane { padding: 12px; }
+  .architecture-viewport a { min-width: 960px; }
 }

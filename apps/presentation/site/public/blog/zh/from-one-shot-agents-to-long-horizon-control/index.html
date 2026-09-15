@@ -77,12 +77,10 @@
 <p>模型的工作上下文有限。压缩和 Subagent 可以缓解上下文压力，但一段总结无法可靠地执行所有权、并发、权限和幂等规则。跨 Session 的项目需要持续回答：</p>
 <ul><li>当前目标是什么，怎样才算验收通过？</li><li>哪些事实和人类决策仍然有效？</li><li>每项工作由谁负责，哪些动作已获得授权？</li><li>某个外部操作究竟有没有发生？</li><li>下一轮是否值得继续消耗资源，结束后又该做什么？</li></ul>
 <p>这些问题定义了 Semantic Control Plane。它拥有的是持久化的边界、授权、验收和状态迁移，而不是把所有领域判断都从模型手里收回。把 Agent Stack 按恢复对象分成四层，可以看清它的位置。</p>
-<figure class="stack"><ol>
-<li><b>04 · 语义控制面</b><span>目标、证据、权限、验收、重新规划</span></li>
-<li><b>03 · 工作协作</b><span>Todo、Claim、Lease、Handoff</span></li>
-<li><b>02 · 持久化工作流</b><span>步骤、重试、等待、恢复</span></li>
-<li><b>01 · 执行底座</b><span>进程、容器、会话、工作区</span></li>
-</ol><figcaption>每层保存不同的工作状态，可以组合使用。</figcaption></figure>
+<figure class="architecture-figure" id="architecture-position" aria-labelledby="position-caption">
+<div class="architecture-viewport" role="region" aria-label="LoopX 在 Agentic Software 中的位置" tabindex="0"><a href="../../images/long-horizon-control/position-zh.svg" target="_blank" rel="noopener"><img src="../../images/long-horizon-control/position-zh.svg" alt="LoopX 在 Agentic Software 中的位置" loading="lazy" decoding="async" width="1280" height="850" /></a></div>
+<figcaption id="position-caption"><b>A / LoopX 在 Agentic Software 中的位置</b> — LoopX 与 Agent/Harness 双向交换边界和证据；工作流与运行环境恢复不同层次的状态。 <a href="../../images/long-horizon-control/position-zh.svg" target="_blank" rel="noopener">打开原图 ↗</a><span class="architecture-hint">窄屏可横向滑动；打开原图放大查看。</span></figcaption>
+</figure>
 <p>Runtime 恢复运行环境；LoopX 保存 Agent 正在做什么、为什么做、已经证明了什么，以及下一步是否合法。Codex Thread、Claude Code Session 和 CLI Runner 都可以成为这块共同事实面周围可替换的 Worker。这里的 Worker 只描述执行边界，不表示模型只是没有判断力的执行器：模型仍在边界内负责理解、假设和路线选择。</p>
 <p>四个概念有助于精确描述进展：</p>
 <pre><code>Turn       = 一次有界执行窗口
@@ -103,31 +101,6 @@ Progress   = 与验收相关的持久状态迁移</code></pre>
 <tr><td>共同闭环</td><td>根据验证结果接受或拒绝状态变化，并让下一轮继承</td><td>把判断提交为可验证的 Proposal，并根据新事实修正路线</td></tr>
 </tbody></table></div>
 <p>因此，Accepted Transition 不是 Kernel 重新发明了模型的判断，而是把经过能力验证、权限检查和身份核对的 Proposal 纳入持久事实；洞察本身仍来自模型、领域工具和人的判断。</p>
-<figure class="diagram architecture-map" id="architecture-responsibilities" aria-labelledby="responsibilities-caption">
-<p class="diagram-label">架构 A / 模型与控制面怎样配合</p>
-<div class="diagram-node"><b>Human / Operator</b><span>定义目标与验收，提供有范围的授权和反馈</span></div>
-<div class="connector">↓ 持久记录边界，供后续轮次继承</div>
-<div class="architecture-columns">
-<div class="architecture-lane">
-<p class="architecture-lane-title">推理与执行 / Host</p>
-<div class="diagram-node"><b>Model + Harness</b><span>理解目标、比较假设、选择路线<br>在当前边界内调用工具</span></div>
-<div class="connector">↓ 请求有界操作</div>
-<div class="diagram-node"><b>Capability → Provider</b><span>结果契约 → 具体实现<br>调用本地或外部系统，回读结果</span></div>
-</div>
-<div class="architecture-lane">
-<p class="architecture-lane-title">状态与约束 / LoopX</p>
-<div class="diagram-node"><b>Python CLI / Host 适配</b><span>解析输入、连接宿主<br>传递请求与展示结果</span></div>
-<div class="connector">↓ 已迁移的领域命令</div>
-<div class="diagram-node kernel"><b>TypeScript 领域规则</b><span>核对身份、范围与迁移条件<br>接受或拒绝持久状态变化</span></div>
-</div>
-</div>
-<div class="architecture-exchange">
-<span><b>LoopX → Host</b>　当前事实、执行边界与下一步契约</span>
-<span><b>Host → LoopX</b>　Proposal、验证证据与操作回读</span>
-</div>
-<div class="return-path">↳ 接受的迁移进入持久状态；下一次唤醒重新读取，继续推理。</div>
-<figcaption id="responsibilities-caption">图中按职责分组，双向交换组成闭环。TS 重构逐域推进，尚非所有规则都已迁入 TS；Host 也保留自身的工具执行能力。参见<a href="https://github.com/huangruiteng/loopx/blob/503991dd216211db6427047dc0c958d411128771/docs/architecture.md">系统架构</a>与<a href="https://github.com/huangruiteng/loopx/blob/503991dd216211db6427047dc0c958d411128771/loopx/control_plane/todos/provider_update.py">已迁移的 Todo 更新入口</a>。</figcaption>
-</figure>
 <p>因此，“有状态的分布式作业系统”是一个有用的比喻，但它描述的是生命周期、恢复和结算边界，不是一个替模型思考的中央 Planner。模型不是可以修改权威状态的唯一主人，也不是只能照单执行的哑 Worker；它是共同决策闭环中的语义提议者。</p>
 
 </section>
@@ -145,40 +118,11 @@ Progress   = 与验收相关的持久状态迁移</code></pre>
   → Quota 与当前可执行 Frontier</code></pre>
 <p>人的决策也进入同一套持久模型。“等我 Review”“这条路线可以继续”都有具体范围。<a href="https://github.com/huangruiteng/loopx/blob/41a35880fc63ed8b51696e08ec1f17b5369b1a4b/docs/reference/protocols/decision-scope-v0.md">Decision Scope 契约</a>将权限绑定到 Action、Lane、Goal 或 Project。一条路径等待时，不依赖该决策且已经获得授权的工作仍可继续。</p>
 <p>完成同样需要明确边界。关闭 Todo 只是一个局部工作的证据，不会自动满足整个 Goal。如果可执行 Frontier 已经耗尽，Acceptance 仍然开放，系统需要新的路线，或者有证据支持的 No-follow-up 结论。</p>
-<figure class="diagram" aria-labelledby="truth-caption">
-<p class="diagram-label">01 / 共同事实面</p>
-<div class="diagram-node"><b>人的目标与判断</b><span>验收条件 · 有范围的决策</span></div>
-<div class="connector" aria-hidden="true">↓</div>
-<div class="diagram-node kernel"><b>Canonical State / 状态内核</b><span>目标 · 证据 · 权限 · 当前有效路线</span></div>
-<div class="diagram-branch"><span>↓ 选择与授权</span><span>↓ 只读投影</span></div>
-<div class="diagram-pair"><div class="diagram-node"><b>Quota → Agent → Capability</b><span>执行有界工作，获得 Provider 回读</span></div><div class="diagram-node"><b>Status / Dashboard</b><span>展示事实，不自行授予权限</span></div></div>
-<div class="return-path">↳ 观察 → 验证 Proposal → Kernel 接受迁移 ↺</div>
-<figcaption id="truth-caption">工作结果必须回到共同事实面。看板上的“完成”和 Agent 的叙述，都不能代替已接受的迁移。</figcaption></figure>
-
-<figure class="diagram architecture-map" id="architecture-authority" aria-labelledby="authority-caption">
-<p class="diagram-label">架构 B / 持久状态究竟以谁为准</p>
-<div class="architecture-columns">
-<div class="architecture-lane">
-<p class="architecture-lane-title">未晋升 / 旧路径</p>
-<div class="diagram-node"><b>Legacy Writer</b><span>沿兼容路径更新 Todo</span></div>
-<div class="connector">↓ 写入</div>
-<div class="diagram-node kernel"><b>Active-state Markdown</b><span>对应 Todo 区域仍是事实来源</span></div>
-<div class="connector">↓ 读取与派生</div>
-<div class="diagram-node"><b>Status / 工作视图</b><span>展示当前任务与可执行状态</span></div>
-</div>
-<div class="architecture-lane">
-<p class="architecture-lane-title">显式晋升后 / 本地 Authority</p>
-<div class="diagram-node"><b>TypeScript 协调命令</b><span>验证状态迁移，提交事务</span></div>
-<div class="connector">↓ 通过统一 Store 契约</div>
-<div class="diagram-node kernel"><b>选定 File 或 SQLite</b><span>状态、事件与 Receipt 一起提交</span></div>
-<div class="connector">↓ 提交成功后派生</div>
-<div class="diagram-node"><b>Markdown / 工作视图</b><span>变为投影，交付失败可重新生成</span></div>
-</div>
-</div>
-<div class="architecture-exchange"><span><b>切换边界</b>　同一协调域选定一个写入来源；晋升后封住旧 Writer，Provider 不可用时拒绝写入。</span></div>
-<div class="architecture-note"><b>PostgreSQL / 后续接入</b><span>已有 TS Store 实现；公共 CLI 的本地来源选择仍限定 File / SQLite，完整切换与服务化仍需闭环。</span></div>
-<figcaption id="authority-caption">两列是迁移前后的模式，不是双写架构。图示限于已迁移的 Todo / Lease 协调域；Registry、Quota 等仍有各自的状态归属。实现依据：<a href="https://github.com/huangruiteng/loopx/blob/503991dd216211db6427047dc0c958d411128771/loopx/control_plane/coordination/local_authority.py">本地来源与 Writer Fence</a>、<a href="https://github.com/huangruiteng/loopx/blob/503991dd216211db6427047dc0c958d411128771/loopx/control_plane/todos/provider_projection.py">提交后的投影交付</a>、<a href="https://github.com/huangruiteng/loopx/blob/503991dd216211db6427047dc0c958d411128771/loopx/control_plane/coordination/postgresql_authority_store.ts">PostgreSQL Store</a>。</figcaption>
+<figure class="architecture-figure" id="architecture-components" aria-labelledby="components-caption">
+<div class="architecture-viewport" role="region" aria-label="语义控制面的组件与反馈" tabindex="0"><a href="../../images/long-horizon-control/components-zh.svg" target="_blank" rel="noopener"><img src="../../images/long-horizon-control/components-zh.svg" alt="语义控制面的组件与反馈" loading="lazy" decoding="async" width="1200" height="1020" /></a></div>
+<figcaption id="components-caption"><b>B / 语义控制面的组件与反馈</b> — 目标、范围、预算与工作协作约束执行；证据经验证后才能支持迁移。图中连线表示职责与信息流，各域保留自己的状态所有权。 <a href="../../images/long-horizon-control/components-zh.svg" target="_blank" rel="noopener">打开原图 ↗</a><span class="architecture-hint">窄屏可横向滑动；打开原图放大查看。</span></figcaption>
 </figure>
+
 <p>回到推理加速，“发布前等我确认”的范围是 Release，不会抹去分析 Profile 或验证兼容性的授权。一个有用的投影可以同时展示：内核候选通过局部检查、服务级延迟目标尚未证实、发布等待决策。一个“Blocked”会藏起可推进的分析，一个“Done”又会藏起尚未关闭的验收缺口。</p>
 
 </section>
@@ -239,6 +183,10 @@ Progress   = 与验收相关的持久状态迁移</code></pre>
 <h2>6. 何时执行、等待与重新规划</h2>
 <h3>Quota 编译 Interaction Contract，而不是完整领域计划</h3>
 <p><code>quota should-run</code> 在算力预算之前，先处理健康与安全、Operator Gate、Evidence Wait 和 Focus Wait，再结合当前工作、Capability、Workspace 与 Scheduler 状态生成 Interaction Contract。它判断现在能不能做、是否要等、是否需要人、是否需要修复，并限制本轮执行边界；它不替模型决定应该采用哪一个技术假设或完整路线。详见 <a href="https://github.com/huangruiteng/loopx/blob/41a35880fc63ed8b51696e08ec1f17b5369b1a4b/docs/quota-allocation.md">Quota Allocation</a>。</p>
+<figure class="architecture-figure" id="architecture-controller" aria-labelledby="controller-caption">
+<div class="architecture-viewport" role="region" aria-label="长程推进的决策回路" tabindex="0"><a href="../../images/long-horizon-control/controller-zh.svg" target="_blank" rel="noopener"><img src="../../images/long-horizon-control/controller-zh.svg" alt="长程推进的决策回路" loading="lazy" decoding="async" width="1280" height="1190" /></a></div>
+<figcaption id="controller-caption"><b>C / 长程推进的决策回路</b> — 每轮用有效回执与新鲜决策重新选择路由。停止一次迭代不等于 Goal 终止，虚线表示外层处理后重新评估。 <a href="../../images/long-horizon-control/controller-zh.svg" target="_blank" rel="noopener">打开原图 ↗</a><span class="architecture-hint">窄屏可横向滑动；打开原图放大查看。</span></figcaption>
+</figure>
 <p>经过验证的持久写回先于 Quota Spend。Quiet Skip、Preflight Failure 和 Dry-run 不计为 Delivery Spend。即使 Refresh 已经选出下一项动作，Spend Record 仍应归因到刚完成的工作。</p>
 <h3>围绕当前任务的有界 Planning Horizon</h3>
 <p>Typed Planning Inventory 支撑多个视图。Action Portfolio 给出少量当前候选；Planning Horizon 展示附近的 Successor、依赖、Resume 关系和 Acceptance Gap；按需 Todo Detail 展开冷路径；Task Graph 提供诊断视图。</p>
@@ -281,24 +229,6 @@ Progress   = 与验收相关的持久状态迁移</code></pre>
 <p>生命周期权威不等于语义判断权威。拥有 Lease 的 Agent 可以执行有界工作，但不会因此获得修改 Goal 方向或绕过验收的权力。</p>
 <p>跨 Host 后，这些区别更重要。Shared Goal Authority 将语义迁移规则与存储分开：Authority 层拥有 Revision、Lease Epoch、Receipt 和冲突判断；Storage Provider 提供 Load、Compare-and-put 与 Durability。Storage Generation、Authority Revision 与 Lease Epoch 描述不同事实，需要分别标识。</p>
 <p><a href="https://github.com/huangruiteng/loopx/blob/41a35880fc63ed8b51696e08ec1f17b5369b1a4b/docs/architecture/rfcs/shared-goal-authority-state-provider-v0.zh-CN.md">Shared Goal Authority RFC</a> 与 <a href="https://github.com/huangruiteng/loopx/blob/41a35880fc63ed8b51696e08ec1f17b5369b1a4b/loopx/control_plane/coordination/authority_store.ts">Authority Store 实现</a>记录了这项工作。跨 Host 产品化仍在持续验证；接口存在，不代表任意分布式数字团队已经成为开箱即用的产品。</p>
-<figure class="diagram architecture-map" id="architecture-concurrency" aria-labelledby="concurrency-caption">
-<p class="diagram-label">架构 C / 两个 Peer 同时更新会怎样</p>
-<div class="diagram-pair">
-<div class="diagram-node"><b>Peer A / Todo A</b><span>拥有对应权限与有效 Lease<br>读取当前版本 r40 → 提议 A</span></div>
-<div class="diagram-node"><b>Peer B / Todo B</b><span>拥有对应权限与有效 Lease<br>读取当前版本 r40 → 提议 B</span></div>
-</div>
-<div class="connector">↓ 各自携带操作身份与预期版本，提交请求</div>
-<div class="diagram-node kernel"><b>TypeScript / 检查迁移是否合法</b><span>身份、Scope、目标 Todo 与 Lease 分别核对</span></div>
-<div class="connector">↓ Store / 原子比较版本并提交</div>
-<div class="diagram-node"><b>只有预期版本仍匹配，提交才能生效</b><span>假设 A 先提交：r40 → r41，状态、事件与回执一起落盘</span></div>
-<div class="connector">↓ 两份请求得到不同结果</div>
-<div class="diagram-pair">
-<div class="diagram-node"><b>A / 已提交</b><span>返回原操作的持久回执<br>响应丢失时，按同一身份恢复</span></div>
-<div class="diagram-node"><b>B / 版本冲突</b><span>旧提议不能覆盖 r41<br>重新读取事实，再验证与提交</span></div>
-</div>
-<div class="return-path">↳ 重试 A 必须保持操作身份和请求内容一致；历史回执不授予新权限，也不续租。</div>
-<figcaption id="concurrency-caption">这是同一 Goal 内两个不同 Todo 的竞争示例；r40 / r41 是版本示意，不是实际 Token 格式。TS 拥有业务规则，Store 保证原子提交，Receipt 保存已发生的决定。参见<a href="https://github.com/huangruiteng/loopx/blob/503991dd216211db6427047dc0c958d411128771/loopx/control_plane/coordination/todo_update.ts">Todo 更新与版本检查</a>、<a href="https://github.com/huangruiteng/loopx/blob/503991dd216211db6427047dc0c958d411128771/loopx/control_plane/coordination/command_receipt.ts">命令回执与恢复</a>。</figcaption>
-</figure>
 <figure class="diagram" aria-labelledby="handoff-caption"><p class="diagram-label">04 / 交接产物与边界</p><div class="diagram-pair"><div class="diagram-node"><b>Peer A / 内核仓库</b><span>固定内核修订 · 数值边界 · 性能结果清单</span></div><div class="diagram-node"><b>Peer B / Serving 仓库</b><span>检查接口兼容性 · 回放并发负载</span></div></div><div class="connector" aria-hidden="true">↓</div><div class="diagram-node kernel"><b>共同目标 / 接受证据</b><span>身份、Claim 与有范围的生命周期权限分别检查</span></div><div class="connector" aria-hidden="true">↓</div><div class="diagram-node"><b>Release / 仍需对应授权</b></div><figcaption id="handoff-caption">消费方返回兼容性与负载证据。交接不会赋予完成 Peer 任务或发布版本的额外权限。</figcaption></figure>
 <p>好的 Handoff 是工作边界之间的接口。跨仓库变更中，它可以是一份 API 契约和固定修订，再由消费方完成兼容性验证。把整段对话转给另一 Agent，让它猜哪些决定仍然有效，交接成本会很高。应优先在验收边界可分离的地方并行；紧密耦合的修改，交给同一位 Worker 可能更省。</p>
 
