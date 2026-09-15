@@ -2318,6 +2318,10 @@ fenced 示例被当成真实任务、归档 end marker 后叙述进入历史、�
 这是永久 Python 展示／legacy 输入适配层的收敛：TS authority transaction、provider
 默认值、SQLite D2 与 D3 promotion 合同不变，不增加 RPC 或另一份业务状态机。
 Canonical handoff-mode show/set 不再依赖 Markdown frontmatter 或本地 lease；一笔 TS 事务把空闲检查、mode 与耐久操作回执绑定到同一 revision，包括未改值请求的回执。该命令边界不切换默认 provider、不晋升整 Goal；frontmatter 仍不属于 Todo-section renderer。操作与恢复见 [handoff-mode](../../reference/handoff-mode.md)。
+两个文档生成入口现在隔离 Objective 示例，展示读回复用 Goal codec。Canonical Todo
+读取仍独立于畸形展示；Objective 叙述不进入 Todo store，也不扩大其恢复范围。
+这是有界 D1 适配层修正，不代表 D1–D3 资格化。
+见[文档边界](../../reference/protocols/active-state-structured-projection-v0.md#markdown-ownership-boundary)。
 
 能力缺口 consumer 在 legacy/canonical 输入上共用 TS requirement/resolution owner，
 包括 quota 的 Monitor 能力分流。删除 Python missing-set 与 owner/repair 决策 builder，

@@ -2928,6 +2928,11 @@ an equal-byte retry syncs file and directory before reporting `current`. Narrati
 canonical records stay intact. This converges the retained Python presentation/legacy
 input adapter; it adds no RPC or business state machine and does not change TS authority
 transactions, provider defaults, SQLite D2 or D3 promotion requirements.
+Objective examples are now isolated by both document producers, and display
+readback shares the Goal codec. Canonical Todo reads remain independent of
+malformed display; Objective narrative is not added to the Todo store or its
+recovery scope. This is a bounded D1 adapter correction, not D1–D3 qualification.
+See the [document boundary](../../reference/protocols/active-state-structured-projection-v0.md#markdown-ownership-boundary).
 Canonical handoff-mode show/set no longer depend on Markdown frontmatter or local lease files. One TS transaction binds quiescence, mode and durable operation replay to the same revision, including sealed no-op intents. This adds a provider-neutral command boundary, not a provider default or whole-Goal cutover; frontmatter remains outside the Todo-section renderer. See [operation and recovery](../../reference/handoff-mode.md).
 
 T2 now commits a lease-free native Monitor observation and its independent

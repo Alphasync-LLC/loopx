@@ -121,12 +121,22 @@ Directly editing a projection is not a state transition.
 
 New bootstrap and project-registration documents quote each Objective line and
 escape HTML metacharacters. Fences, comments, headings, and Todo markers in the
-objective therefore remain content rather than document structure. The
-frontmatter stores the objective as a JSON string with Unicode line separators
-escaped. Chat context readback removes the generated quotation and decodes the
-text. Existing project registrations remain idempotent without rewriting their
-state. This changes objective presentation, not Todo authority or transitions;
-existing malformed documents are not automatically repaired.
+objective remain content rather than document structure. Frontmatter string
+encoding and readback share JSON semantics, including escaped Unicode line
+separators; only complete delimiter lines terminate frontmatter. Objective
+readback composes the existing section reader and decodes generated quotation.
+Registration compares metadata values and exact remaining narrative, accepting
+legacy Objective presentation without rewriting it; changed content still conflicts.
+
+This is the permanent Python presentation/legacy-input adapter described by the
+[TypeScript RFC](../../architecture/rfcs/typescript-control-plane-migration-v0.md#next-delivery-sequence)
+and [shared-authority RFC](../../architecture/rfcs/shared-goal-authority-state-provider-v0.md#next-delivery-and-parallel-provider-work).
+It adds no business rule, RPC, provider, or authority write. Post-cutover Todo
+consumers still read canonical state when Markdown is absent or malformed;
+rendering never imports Objective examples into that state. Before cutover,
+the existing legacy writer remains subject to its normal fence. Objective is
+independent Goal narrative, outside the Todo store and Todo-section recovery.
+Existing malformed documents are not automatically repaired.
 
 Markdown is not one undifferentiated database row. Agents generate and maintain
 both its structured sections and narrative through LoopX. The distinction is
