@@ -3,7 +3,7 @@
 - **RFC 状态：** Draft，待维护者审阅
 - **交付成熟度：** 提案；已有基础见第 4 节
 - **作者 / 责任人：** LoopX 维护者、管家工程负责人
-- **创建 / 最近规范修订：** 2026-09-13
+- **创建 / 最近规范修订：** 2026-09-13 / 2026-09-15
 - **实现基线：** `7eb4b7bb1661bd5eff63a8725a33169792d5964b`
 - **语言镜像：** [English](capable-manager-semantic-handoff-v0.md)
 - **相关契约：** [Effect interpreter](agent-loop-effect-interpreter-v0.zh-CN.md)、[管家连续性](../../reference/protocols/manager-evidence-and-continuity-v0.md)、[Goal Vision/Replan](../../reference/protocols/goal-vision-replan-contract-v0.md)、[桌面入口](desktop-execution-frontends-v0.zh-CN.md)、[共享权威](shared-goal-authority-state-provider-v0.zh-CN.md)、[共享目标对齐/修订](shared-goal-alignment-and-governed-amendment-v0.zh-CN.md)、[TS 迁移](typescript-control-plane-migration-v0.zh-CN.md)
@@ -361,6 +361,8 @@ Observation {
 
 **真实权威边界内原子提交，跨边界对账。** 请求转移及其自身回执由所属事务原子发布。Todo/lease 修改保留既有锁或晋级 authority 的 state/event/receipt CAS。采纳请求还要改工作状态时，先持久化 effect intent，调用该 owner，再关联它的确切回执；两次提交间崩溃，留下可恢复的 pending 关系。不能虚构跨独立 store 的 request+Todo 原子提交。跨 Goal 交接同样保留各 Goal 基线和回执，明确部分结果，不引入分布式事务或合成共享版本。复用已有 effect interpreter、journal 和恢复路径，不新增工作流引擎。
 
+**通过既有 owner 排序 request-derived amendment 的取消。** 遵循[alignment 第 5.1 节](shared-goal-alignment-and-governed-amendment-v0.zh-CN.md#51-来源请求预留与取消顺序)：请求 owner 的 CAS 在请求 fence 下预留一次精确效果；已验收的 Goal amendment owner 将该 operation 原子结算为 committed 或 aborted。后来的纠正/取消阻止新工作，但对已预留效果保持 pending，直到关联终局回执。先读来源有效性再独立做 Goal CAS 不构成取消 fence。回执缺失或 lease 过期不能释放 reservation；条件 abort 必须持久阻止晚到的原 commit。这只是既有 request fence 与 amendment operation receipt 的有界扩展，不是第二个 Goal writer 或通用分布式事务。前端、飞书、CLI 一致呈现待取消与已提交效果。选定 profile 验收该协议前，request-derived amendment 仅允许准入。
+
 **遵循每个 Goal 已选的权威来源。** 晋级前仍由现有 legacy 命令写入；晋级后走所选 canonical authority，空结果保持为空，provider 失败不能回退到旧 Markdown 或 lease 文件。Markdown 是永久可读投影，不是要删的界面，也不是第二 writer。SSH 传输可达与 shared provider 采用独立。消息送达不授予新 claim，也不允许越过过期 fence 计算。provider 离线时，可继续已授权的独立读取；受控写入遵守 authority 契约。
 
 **一次迁移完整语义事务。** 每个变更的公共路径按 TS T0–T3：一个当前 source snapshot、typed 校验/决策、所属效果、持久结果，再由 adapter 投影。仅在契约确实适用时复用 `AuthorityStore` 与事务解码器，不拿 Todo aggregate 当万能容器。不按 handoff 字段新增 Python→TS 调用，不保留第二份 Python 策略校验，不恢复已退役 facade。实现 PR 提交 [TS §5](typescript-control-plane-migration-v0.zh-CN.md#5-兑现阶段-pr-合同) 定义的 **migration economics receipt**。这是实现 PR 作者负责、写入 PR 正文和验证评论、绑定 base/head 的审阅工件，不是持久化产品回执、新 schema 或运行时 writer。字段覆盖旧/新 owner、删掉的语义代码、新 bridge、成功/恢复路径往返数、产品净代码量、剩余 caller 与删除条件。完整旧 writer 退役等待适用的 T4/D3 条件；替换 manager request writer 不授权 Goal 全量切换。
@@ -440,7 +442,7 @@ M0 盘点真实字段和 producer；以下是迁移验收底线，不代表已�
 | A4 | 活跃 worker 不在便捷 profile 内 | 发现当前注册职责，选对已授权接收方，默认不选停止目标 |
 | A5 | 三条关联消息，包括纠正和已排除方案 | 接收方能说明变化、保留约束及真实 Todo/Vision 影响，不让用户重讲背景 |
 | A6 | 管家→worker、worker→worker 运行同一 handoff fixture | 两条路径使用相同的身份构造与不变量，而不是让不同请求复用同一字面 ID；revision、判断、状态关联和回传语义一致，含无初始 Todo 的跨 Goal 咨询、同 Todo 第二轮 review；没有第二套任务库 |
-| A7 | 重复 ingress；纠正/取消与迟到回执及 request-derived amendment commit 竞态；有副作用 pre-Todo 改派；并发 claim；同 Todo 重复 review；非 Core 效果后崩溃 | 已授权旧 attempt 可在 request head 前进后补录其精确回执，但不能授权新工作；没有重复有副作用 attempt 执行；已被替代/撤销的来源请求不能提交 amendment；不悄悄改优先级/归属 |
+| A7 | 重复 ingress；纠正/取消与迟到回执及 request-derived amendment commit 竞态；有副作用 pre-Todo 改派；并发 claim；同 Todo 重复 review；非 Core 效果后崩溃 | 已授权旧 attempt 可在 request head 前进后补录其精确回执，但不能授权新工作；没有重复有副作用 attempt 执行；未预留且已失效的来源不能提交；已预留 commit/abort 按 alignment 第 5.1 节竞争，覆盖崩溃、响应丢失和晚到 executor；不虚报取消，不悄悄改优先级/归属 |
 | A8 | worker 完成时管家/传输重启 | 结果不丢，原受众自动收到；不确定发送先对账再重试 |
 | A9 | 长回复、协议尾部截断 | 完整有效答案可恢复，不泄漏协议、不丢义务、不重放操作 |
 | A10 | 主人前端与授权飞书 | 请求事实一致；排队/判断/结果/送达真实；不同受众隔离 |
@@ -449,7 +451,7 @@ M0 盘点真实字段和 producer；以下是迁移验收底线，不代表已�
 | A13 | 工作跨两天；已接受计划、否决路线、收到后续纠正后，更换执行 session | 接收方从 canonical 状态/上下文恢复当前承诺与未结义务；刷新时效证据；解释实际计划变化并自动回报，不悄悄重走否决路线、不要求原始 transcript |
 | A14 | 已授权交接带影响决策的图片/文档，经纯文本入口到另一已配置主机；同一 fixture 另有拒绝与不可用用例 | 正例证明远端读取/提取、工件版本及其对接收方义务或计划的具体影响。负例记录精确未读原因，不伪造回执、不泄漏私人信息、不依赖发送方本地路径 |
 | A15 | 同一交接 fixture 对比未晋级与显式配置的已晋级 Goal source；provider 离线、请求/工作提交间崩溃 | 唯一所选工作状态 writer；canonical 空/失败不回退；恢复并关联原工作回执、不重复效果；请求 pending 关系与工作已提交分开 |
-| A16 | 接收方路线重规划与共享 amendment、过期基线、同伴持有工作；来源请求纠正/取消与 commit 竞态 | 路线修改不越意图/权限；提案准入不改 Goal；未支持的 commit 明确。已支持 amendment 需要单独验收的 commit class、精确回执及 peer rebase/lease 处置；request-derived proposal 还要求其来源 request revision 在 commit 时仍有效，不能只凭管家或 verifier 文本 |
+| A16 | 接收方路线重规划与共享 amendment、过期基线、同伴持有工作；来源请求纠正/取消与 commit 竞态 | 路线修改不越意图/权限；提案准入不改 Goal；未支持的 commit 明确。已支持 amendment 需要单独验收的 commit class、精确回执及 peer rebase/lease 处置；request-derived proposal 还必须有 alignment 第 5.1 节的精确来源 reservation 与 Goal owner 终局回执；跨两个 owner 重跑其 A7 竞态矩阵，包括同 operation abort/恢复，不能只凭管家或 verifier 文本 |
 | A17 | 新 brief 保存前突然退出；无 recall provider 下更换同 Agent session，存在结果不确定的外部动作 | 同 Agent/新 session fixture 保留工作 owner，不伪造跨 Agent transfer grant、不仅为恢复上下文修改 note；读回实际 claim/lease 处置。明确最后持久上下文和缺失区间；对账不确定效果，执行有根据的下一步，无旧 session 仍回原路径汇报 |
 | A18 | 旧 session 仍活跃或后来恢复；并发替换、取消和迟到纠正 | 替换后让旧执行者真实尝试冲突 Core 及外部效果：在所属可强制边界拒绝；若 fencing 失败/不支持，则不得启动替换者的冲突执行。对账已提交效果，覆盖迟到恢复/纠正/取消，读回 binding/claim；不重复效果、不误报取消 |
 | A19 | 同 Agent 替换与跨 Agent 的决策缺口召回；provider 关闭、索引旧、超时、零命中 | Stage 1 不自动调用；Stage 2 需已验收准入/读回；越 scope 返回行拒绝。另一 Agent 只收明确授权的来源撰写上下文，不收原始私有 provider 命中或 archive 权限。不冒充来源；零命中保留未知；无 provider 续接可用；采用历史事实前重核 |
