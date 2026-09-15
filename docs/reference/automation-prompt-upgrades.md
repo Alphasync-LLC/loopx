@@ -68,21 +68,30 @@ read-only preview, not the upgrade executor. Do not infer a manual-only policy
 from its `adoption_required` status. Custom or inconsistent entries still need
 review; automatic prompt migration never grants scheduler or thread authority.
 
-## Deferred adoption obligations
+## Deferred upgrade hint
 
-Reconciliation cannot write while the App runs, and a completed report cannot
-carry an unapplied migration into the next turn. An entry that is reviewable but
-not written is therefore recorded per lane in the runtime root's
-`app-automation-prompt-adoptions.json`, holding the reviewed prompt-only
-`automation_update` request, both prompt digests, and the host that was read.
-`quota should-run` projects that record as
-`scheduler_hint.app_automation.prompt_adoption` with
-`host_action=adopt_managed_bootstrap` and the no-spend policy, so the obligation
-survives the update that discovered it. The turn applies the request once
-through `automation_update`, reads the automation back, and spends no quota.
-The projection is not adoption authority and not delivery permission: it names
-only an entry this host already reviewed, it disappears as soon as the exact
-body is installed, and nothing re-classifies installed automations per turn.
+When an automatically eligible migration is deferred, reconciliation records
+only its identity, old prompt digest and CLI route under the private runtime root's
+`automation-prompt-upgrades/` directory. Records are scoped to the registry and
+Codex home; they contain no prompt body or saved host update request.
+
+Codex App heartbeat decisions load a fixed, read-only turn-start hook from the
+existing heartbeat lifecycle. It uses the existing typed capability-hook
+observation and required-read contracts, without adding a standalone capability,
+provider package, prompt template or scheduler action. For one unambiguous pending
+entry whose old prompt and thread still match both host stores, the hook inserts
+an `automation-prompts plan --automation-id ...` read into the existing Agent/CLI
+channel. Read that fresh plan, review the prompt-only adoption through the App,
+and read back the result. Repair alone spends no quota; normal work keeps its
+existing decision and permission boundaries.
+
+No pending entry, an adopted prompt, customization, a changed thread, ambiguous
+identity or unavailable host evidence produces no adoption hint. With no pending receipt
+the hook does not open the host database or dispatch a capability call.
+An unrelated RRULE change does not hide a pending prompt. The next reconciliation
+removes resolved records; the turn never needs a new ACK or state write.
+Detection remains update-time: edits made outside LoopX between updates are not
+new migration candidates. Re-run `automation-prompts plan` for explicit review.
 
 On the qualified macOS heartbeat schema, direct migration requires the App
 closed. The adapter holds a SQLite writer transaction through TOML delivery,
@@ -219,12 +228,18 @@ gh 登录，仍失败则明确要求已核验 SHA，不切换分支或静默覆�
 不支持的存储仍需原生 API；运行中的本轮不热切换。普通测试不消耗模型 token，
 真实模型发布资格仍需独立评测，不能由迁移成功推断。
 
-App 运行中对账无法写入，而一次性报告也带不走未应用的迁移。因此可审阅但未写入的
-条目会按 lane 记录到 runtime root 的 `app-automation-prompt-adoptions.json`，保存
-已审阅的、仅改 prompt 的 `automation_update` 请求、两个 prompt 摘要以及读取来源。
-`quota should-run` 将该记录投影为
-`scheduler_hint.app_automation.prompt_adoption`，携带
-`host_action=adopt_managed_bootstrap` 与 no-spend 策略，使义务不被一次性报告带走；
-turn 通过 `automation_update` 应用一次并读回，不消耗额度。该投影不是采纳权威、
-也不授予交付权限：它只描述本 host 已审阅过的条目，目标 body 一旦安装即自动消失，
-且不按轮重新分类已安装的 automation。
+自动升级候选未能应用时，对账只在 runtime root 的
+`automation-prompt-upgrades/` 中记录按 registry 和 Codex home 隔离的身份、
+prompt 摘要与 CLI 路由，不保存 prompt 正文或宿主更新请求。Codex App heartbeat
+固定加载现有 heartbeat 生命周期内的只读 turn-start hook，复用已有的类型化
+capability-hook 观察与 required-read 契约，不新增独立 capability、provider 包、
+prompt 模板或 scheduler action。只有唯一未完成项的旧 prompt 和线程仍与两个
+宿主存储一致时，才在现有 Agent/CLI 通道插入指定 automation 的最新 plan 读取提示。
+按最新计划审阅、通过 App 仅更新 prompt 并读回；修复本身不消耗额度，正常工作仍按
+原有决策和权限执行。
+
+无未完成项、已升级、自定义修改、线程变化、身份歧义或无法核验时不注入采纳提示；
+无未完成记录时不打开宿主数据库、不调用 capability 分发器。单独的 RRULE 变化不影响提示。
+完成升级即停止提示，下次对账清除记录，无需新的 ACK 或按轮状态写入。发现仍发生在
+升级时；两次升级之间的外部修改不会自动成为迁移候选，可显式运行
+`automation-prompts plan` 审阅。
