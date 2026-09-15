@@ -5,8 +5,16 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable
 
+from ..control_plane.turn_driver.host_binding import (
+    MANAGED_TURN_HOST,
+    resolve_default_turn_host,
+)
 from ..paths import default_public_scan_root
 
+# Explicit host choices stay per-command: planning may name any host the Turn
+# driver routes, while run-once only ships built-in adapters for these three.
+PLANNED_TURN_HOST_CHOICES = ["codex-cli", "claude-code", "dsh", "generic-cli"]
+RUN_ONCE_TURN_HOST_CHOICES = ["codex-cli", "dsh", "generic-cli"]
 
 AddFormat = Callable[[argparse.ArgumentParser], None]
 
@@ -42,7 +50,21 @@ def register_turn_commands(
         help="Build one typed read-only host decision without launching or writing.",
     )
     add_subcommand_format(plan)
-    _add_turn_decision_arguments(plan, default_host="codex-cli")
+    # The default host and the default execution mode are one decision: the
+    # selected managed host runs bounded headless Turns, so pairing it with a
+    # visible interactive mode would produce a default plan that cannot be
+    # scheduled. The mode follows the *selected* host, never the environment.
+    resolved_default_host = resolve_default_turn_host()
+    _add_turn_decision_arguments(
+        plan,
+        default_host=resolved_default_host,
+        host_choices=list(PLANNED_TURN_HOST_CHOICES),
+        default_execution_mode=(
+            "isolated-headless"
+            if resolved_default_host == MANAGED_TURN_HOST
+            else "interactive-visible"
+        ),
+    )
     plan.add_argument(
         "--include-transaction-detail",
         action="store_true",
@@ -60,62 +82,6 @@ def register_turn_commands(
         help="Specific public file or directory to scan. Repeatable.",
     )
     plan.add_argument("--limit", type=int, default=5)
-
-    managed_step = command_sub.add_parser(
-        "managed-step",
-        help=(
-            "Decide one bounded same-Turn continuation for a failed Turn "
-            "without executing it."
-        ),
-        description=(
-            "Read one canonical Turn journal, rebuild its validated receipt, "
-            "and ask the pure Turn Loop Controller for a disposition against "
-            "the current decision. Grants no execution authority: it never "
-            "launches a host, writes state, or spends quota. The Turn journal "
-            "remains the authority for the attempt count and retry budget."
-        ),
-    )
-    add_subcommand_format(managed_step)
-    _add_turn_decision_arguments(
-        managed_step,
-        default_host="dsh",
-        host_choices=["codex-cli", "dsh", "generic-cli"],
-        execution_mode_choices=["isolated-headless"],
-        default_execution_mode="isolated-headless",
-    )
-    managed_step.add_argument(
-        "--turn-key",
-        required=True,
-        help="Exact sha256 Turn key of the failed Turn to decide about.",
-    )
-    managed_step.add_argument(
-        "--observed-attempt",
-        type=int,
-        help=(
-            "Caller's observed attempt count, reconciled against the Turn "
-            "journal. A disagreement is refused rather than adopted."
-        ),
-    )
-    managed_step.add_argument(
-        "--observed-max-attempts",
-        type=int,
-        help=(
-            "Caller's observed retry ceiling, reconciled against the Turn "
-            "journal retry policy."
-        ),
-    )
-    managed_step.add_argument(
-        "--scan-root",
-        default=default_public_scan_root(),
-        help="Public files to scan for obvious private material.",
-    )
-    managed_step.add_argument(
-        "--scan-path",
-        action="append",
-        default=[],
-        help="Specific public file or directory to scan. Repeatable.",
-    )
-    managed_step.add_argument("--limit", type=int, default=5)
 
     run_once = command_sub.add_parser(
         "run-once",
@@ -140,8 +106,8 @@ def register_turn_commands(
     add_subcommand_format(run_once)
     _add_turn_decision_arguments(
         run_once,
-        default_host="generic-cli",
-        host_choices=["codex-cli", "dsh", "generic-cli"],
+        default_host=resolve_default_turn_host(),
+        host_choices=list(RUN_ONCE_TURN_HOST_CHOICES),
         execution_mode_choices=["isolated-headless"],
         default_execution_mode="isolated-headless",
     )

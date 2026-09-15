@@ -131,6 +131,46 @@ continuity or an outer wake/timer. See the adapter README for the home and
 classification precedence, plus the hermetic verification smoke
 (`examples/loopx-turn-dsh-builtin-host-e2e-smoke.py`).
 
+## Host Selection And Managed Executor Readback
+
+The Turn host is **selected, never inferred**. `dsh` is the shipped default
+because it is the managed execution unit the steward drives; `LOOPX_TURN_HOST`
+re-points that default, and an explicit `--host` (or `--host-adapter-command-json`)
+wins over both. A configured `DEEPSEEK_API_KEY` only *authenticates* the selected
+host: discovering a credential never changes where a Turn runs.
+
+Both `loopx turn plan` and `loopx turn run-once` report a `managed_executor`
+block, so a caller reads the planned executor instead of inferring it from a
+host id:
+
+```json
+{
+  "schema_version": "managed_executor_binding_v0",
+  "executor": "dsh",
+  "executor_kind": "managed",
+  "credential_env": "DEEPSEEK_API_KEY",
+  "endpoint_env": "DEEPSEEK_BASE_URL",
+  "operator_credential_bound": true,
+  "available": true,
+  "unavailable_reason": null
+}
+```
+
+`executor_kind` names where the Turn's model work is billed and bounded:
+`managed` for a host bound to an operator credential, `individual` for a host
+that runs on one person's own CLI login, and `generic` for a caller-supplied
+adapter command. `operator_credential_bound` is the narrower claim: it is `true`
+only when the operator credential or an explicit injected runner hook is
+configured. `available` is `false` only when LoopX can prove the planned host
+cannot launch here, and `null` for executors this projection does not probe
+rather than an unproven claim. Only the credential variable *name* is reported;
+the value is never read back.
+
+`run-once --execute` fails closed on that verdict: status `unavailable`, no host
+invocation, no journal write, and no quota spend, with
+`dsh_runtime_unavailable` or `operator_credential_unconfigured` naming the
+missing fact. `plan` reports the same verdict without refusing.
+
 ## Boundaries
 
 - LoopX keeps the durable goal, todo, claim, gate, quota, evidence, and
