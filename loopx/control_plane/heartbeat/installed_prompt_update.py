@@ -6,7 +6,6 @@ The App remains the preferred writer while running.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -14,116 +13,9 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
-import tomllib
-from typing import Any
 
-from .automation_upgrade import (
-    SCHEMA,
-    _atomic,
-    apply_offline,
-    automation_update_request,
-    bootstrap_binding,
-    build_plan,
-    digest,
-)
+from .automation_upgrade import SCHEMA, _atomic, apply_offline, bootstrap_binding, build_plan
 from .bootstrap_prompt import host_bootstrap_binding
-
-PENDING_SCHEMA_VERSION = "loopx_automation_prompt_adoption_pending_v0"
-PENDING_HOST_ACTION = "adopt_managed_bootstrap"
-PENDING_HOST_ACTION_CONTRACT = "codex_app_automation_prompt_adoption"
-PENDING_SPEND_POLICY = "no_spend_for_automation_prompt_adoption"
-PENDING_STORE_FILENAME = "app-automation-prompt-adoptions.json"
-
-
-def pending_store_path(runtime_root: str | Path) -> Path:
-    return Path(runtime_root).expanduser().resolve() / PENDING_STORE_FILENAME
-
-
-def _read_pending_store(runtime_root: str | Path) -> dict[str, dict[str, Any]]:
-    try:
-        payload = json.loads(pending_store_path(runtime_root).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    entries = payload.get("entries") if isinstance(payload, dict) else None
-    if not isinstance(entries, dict):
-        return {}
-    return {str(key): dict(value) for key, value in entries.items() if isinstance(value, dict)}
-
-
-def update_pending_adoptions(*, runtime_root: str | Path, codex_home: str,
-                             pending: list[dict[str, Any]], resolved: list[str]) -> Path | None:
-    """Replace the adoptions this reconciliation left pending, per automation.
-
-    The store records an update-time observation, never adoption authority: it
-    only names entries this run already reviewed, so a later turn can apply the
-    reviewed prompt-only request instead of re-classifying the host store.
-    One runtime root can front several Codex homes, so only this home's records
-    are resolved; another home's pending obligations are left alone.
-    """
-    path = pending_store_path(runtime_root)
-    entries = _read_pending_store(runtime_root)
-    for automation_id in resolved:
-        if str(entries.get(automation_id, {}).get("codex_home") or "") == codex_home:
-            entries.pop(automation_id, None)
-    for record in pending:
-        entries[str(record["automation_id"])] = record
-    if not entries:
-        if path.is_file():
-            path.unlink()
-        return None
-    _atomic(path, json.dumps({"schema_version": PENDING_SCHEMA_VERSION, "entries": entries},
-        ensure_ascii=False, indent=2) + "\n")
-    return path
-
-
-def load_pending_adoption(*, runtime_root: str | Path | None, goal_id: str,
-                          agent_id: str | None) -> dict[str, Any] | None:
-    """Project this lane's recorded adoption, or None once the host already applied it.
-
-    The record was reviewed at update time; this read only checks that its
-    expected body is still not installed, so a satisfied obligation stops
-    projecting itself without re-classifying any lane.
-    """
-    if not runtime_root or not agent_id:
-        return None
-    records = [record for record in _read_pending_store(runtime_root).values()
-               if record.get("goal_id") == goal_id and record.get("agent_id") == agent_id]
-    if len(records) != 1:
-        # No record, or several lanes sharing one identifier, is not a lane
-        # obligation this turn may act on.
-        return None
-    record = records[0]
-    request = record.get("api_update_request")
-    if not isinstance(request, dict) or not record.get("desired_sha256"):
-        return None
-    if _installed_prompt_matches_digest(record):
-        return None
-    return {"schema_version": PENDING_SCHEMA_VERSION, "status": "adoption_required",
-        "goal_id": goal_id, "agent_id": agent_id,
-        "automation_id": str(record.get("automation_id") or ""),
-        "automation_status": record.get("automation_status"),
-        "host_action": PENDING_HOST_ACTION, "host_action_contract": PENDING_HOST_ACTION_CONTRACT,
-        "spend_policy": PENDING_SPEND_POLICY,
-        "expected_prompt_sha256": record.get("expected_prompt_sha256"),
-        "desired_sha256": record.get("desired_sha256"),
-        "source": record.get("source"), "recorded_at": record.get("recorded_at"),
-        "reason": "the installed automation body is not the current managed loader; "
-            "review this prompt-only request through the App",
-        "api_update_request": request}
-
-
-def _installed_prompt_matches_digest(record: dict[str, Any]) -> bool:
-    """True only when this exact automation now carries the desired body."""
-    codex_home = str(record.get("codex_home") or "").strip()
-    automation_id = str(record.get("automation_id") or "")
-    if not codex_home or not automation_id:
-        return False
-    try:
-        manifest = tomllib.loads((Path(codex_home) / "automations" / automation_id
-            / "automation.toml").read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, tomllib.TOMLDecodeError):
-        return False
-    return digest(str(manifest.get("prompt") or "")) == record.get("desired_sha256")
 
 
 def require_closed_app() -> None:
@@ -188,14 +80,10 @@ def reconcile(*, before: dict, registry: Path, home: Path,
                build_plan(registry=registry, home=home, runtime_root=runtime_root, cli_bin=cli_bin)["entries"]}
     results = []
     api_updates = []
-    pending_records = []
-    resolved = []
-    recorded_at = datetime.now(timezone.utc).isoformat()
     for old in before["entries"]:
         identifier = old["automation_id"]
         now = current.get(identifier)
         result = {"automation_id": identifier, "status": "review_required"}
-        pending_here = False
         if now is None:
             result["status"] = "missing"
         elif now["status"] in {"current", "unmanaged", "blocked"}:
@@ -219,38 +107,25 @@ def reconcile(*, before: dict, registry: Path, home: Path,
                 result.update(status="deferred", reason=str(error))
                 # The CLI cannot call an in-App tool itself. Give its host a
                 # complete prompt-only request, plus a precondition to re-view.
+                import tomllib
                 try:
                     manifest = tomllib.loads((home / "automations" / identifier / "automation.toml").read_text())
                 except (OSError, ValueError):
                     manifest = {}
                 required = {"name", "status", "rrule", "target_thread_id"}
                 if required <= manifest.keys() and manifest.get("prompt") == now["current_prompt"]:
-                    request = automation_update_request(automation_id=identifier,
-                        manifest=manifest, expected_prompt_sha256=now["prompt_sha256"],
-                        desired_prompt=now["desired_prompt"])
-                    api_updates.append(request)
-                    # A completed report cannot carry the obligation into the
-                    # next turn, and nothing else re-observes the installed
-                    # body, so record what the host still has to adopt.
-                    pending_here = True
-                    pending_records.append({"automation_id": identifier,
-                        "goal_id": now["goal_id"], "agent_id": now["agent_id"],
-                        "automation_status": manifest["status"], "codex_home": str(home),
+                    api_updates.append({"tool": "automation_update",
                         "expected_prompt_sha256": now["prompt_sha256"],
-                        "desired_sha256": now["desired_sha256"], "recorded_at": recorded_at,
-                        "source": "update_time_reconciliation",
-                        "api_update_request": request})
-        if not pending_here:
-            resolved.append(identifier)
+                        "precondition": "View the same automation; verify this prompt hash and all preserved fields before update; read back afterward.",
+                        "arguments": {"mode": "update", "id": identifier, "kind": "heartbeat",
+                            "name": manifest["name"], "status": manifest["status"],
+                            "rrule": manifest["rrule"], "targetThreadId": manifest["target_thread_id"],
+                            "notificationPolicy": manifest.get("notification_policy"),
+                            "prompt": now["desired_prompt"]}})
         results.append(result)
-    if pending_records or resolved:
-        from loopx.control_plane.coordination.local_authority_shadow_adapter import (
-            effective_runtime_root,
-        )
-        update_pending_adoptions(
-            runtime_root=effective_runtime_root(registry.resolve(), runtime_root),
-            codex_home=str(home),
-            pending=pending_records, resolved=resolved)
+    from .prompt_upgrade_hook import record_deferred_upgrades
+    record_deferred_upgrades(registry=registry, home=home, runtime_root=runtime_root,
+        cli_bin=cli_bin, entries=current, results=results)
     pending = any(result["status"] not in {"current", "updated", "unmanaged", "missing"} for result in results)
     return {"ok": not pending, "status": "attention_required" if pending else "current", "results": results,
             "api_updates": api_updates,

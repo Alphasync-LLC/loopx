@@ -881,11 +881,6 @@ class _SchedulerHintBuilder:
             },
             "no_spend_for_cadence_change": True,
         }
-        prompt_adoption = self.payload.get("automation_prompt_adoption")
-        if isinstance(prompt_adoption, dict):
-            # The installed body decides which rules later wakes follow, so a
-            # recorded pending adoption is part of the observed App automation.
-            app_automation["prompt_adoption"] = dict(prompt_adoption)
         stateful_backoff = app_automation["stateful_backoff"]
         if host_update_failures:
             stateful_backoff["host_update_failures"] = [

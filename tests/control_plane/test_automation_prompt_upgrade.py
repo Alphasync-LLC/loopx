@@ -13,12 +13,6 @@ import pytest
 from loopx.control_plane.heartbeat import automation_upgrade as upgrade
 
 
-def runtime_root(tmp_path: Path) -> Path:
-    """One explicit runtime root per test: reconciliation records deferred adoptions."""
-
-    return tmp_path / "runtime"
-
-
 def fixture(tmp_path: Path, backing_kind="heartbeat"):
     home = tmp_path / "host"
     path = home / "automations/watch/automation.toml"
@@ -40,7 +34,7 @@ def fixture(tmp_path: Path, backing_kind="heartbeat"):
     registry = tmp_path / "registry.json"
     state = tmp_path / "STATE.md"
     state.write_text("# Fixture\n", encoding="utf-8")
-    registry.write_text(json.dumps({"goals": [{"id": "fixture-goal", "repo": str(tmp_path),
+    registry.write_text(json.dumps({"common_runtime_root": str(tmp_path / "runtime"), "goals": [{"id": "fixture-goal", "repo": str(tmp_path),
         "state_file": str(state), "registered_agents": ["agent-a"]}]}), encoding="utf-8")
     return home, path, database, registry, prompt
 
@@ -224,7 +218,7 @@ def test_failed_install_never_attempts_prompt_writes(tmp_path, monkeypatch):
     def forbidden(*args, **kwargs):
         raise AssertionError("failed installer must not invoke prompt writer")
     monkeypatch.setattr(lifecycle.subprocess, "run", forbidden)
-    result = lifecycle.update_with_prompts({}, registry=registry, runtime_root=str(runtime_root(tmp_path)),
+    result = lifecycle.update_with_prompts({}, registry=registry, runtime_root=None,
         timeout_seconds=1, runtime_update=lambda payload, **_: {"ok": False})
     assert result["automation_prompt_upgrade"]["status"] == "skipped_runtime_update_failed"
     assert path.read_bytes() == original
@@ -255,7 +249,7 @@ def test_prompt_reconciliation_is_independent_of_optional_extension_health(
         "next_action": {"kind": "review_or_rollback"}, "recommended_action": "Inspect optional extensions"}
     result = lifecycle.update_with_prompts(
         {"install_lifecycle": {"execution_driver": "python_pip"}}, registry=registry,
-        runtime_root=str(runtime_root(tmp_path)), timeout_seconds=60, runtime_update=lambda *_, **__: runtime_result)
+        runtime_root=None, timeout_seconds=60, runtime_update=lambda *_, **__: runtime_result)
     assert result["automation_prompt_upgrade"]["status"] == expected_status
     assert len(calls) == (1 if expected_status == "attention_required" else 0)
     assert not result["ok"] and not result["upgrade_complete"]
@@ -276,12 +270,12 @@ def test_update_identifies_owned_legacy_body_and_migrates_without_changing_sched
     metadata = tomllib.loads(path.read_text())
     monkeypatch.setattr(lifecycle, "require_closed_app", lambda: None)
     monkeypatch.setattr(lifecycle.sys, "platform", "darwin")
-    result = lifecycle.reconcile(before=before, registry=registry, home=home, runtime_root=runtime_root(tmp_path))
+    result = lifecycle.reconcile(before=before, registry=registry, home=home)
     assert result["ok"] and result["results"][0]["status"] == "updated"
     after = tomllib.loads(path.read_text())
     assert {k: v for k, v in after.items() if k != "prompt"} == {k: v for k, v in metadata.items() if k != "prompt"}
     assert upgrade.bootstrap_binding(after["prompt"]) is not None
-    assert lifecycle.reconcile(before=before, registry=registry, home=home, runtime_root=runtime_root(tmp_path))["results"][0]["status"] == "current"
+    assert lifecycle.reconcile(before=before, registry=registry, home=home)["results"][0]["status"] == "current"
 
 
 @pytest.mark.parametrize("scenario", ["custom", "unsupported_host", "race", "wrong_home", "canary"])
@@ -304,7 +298,7 @@ def test_update_does_not_overwrite_custom_changed_or_foreign_hosts(tmp_path, mon
         with pytest.raises(ValueError, match="another host"):
             lifecycle.reconcile(before=before, registry=registry, home=tmp_path / "other")
     else:
-        result = lifecycle.reconcile(before=before, registry=registry, home=home, runtime_root=runtime_root(tmp_path))
+        result = lifecycle.reconcile(before=before, registry=registry, home=home)
         expected = {"custom": "review_required", "canary": "review_required",
                     "unsupported_host": "deferred", "race": "changed_since_snapshot"}[scenario]
         assert result["results"][0]["status"] == expected
@@ -343,12 +337,11 @@ def test_mirror_failure_rolls_back_db_and_is_journal_recoverable(tmp_path, monke
 def test_running_app_defers_to_native_api_without_touching_cached_scheduler(tmp_path, monkeypatch):
     from loopx.control_plane.heartbeat import installed_prompt_update as lifecycle
     home, path, database, registry, _ = fixture(tmp_path)
-    prompt = upgrade.bootstrap_prompt(registry=registry, goal_id="fixture-goal", agent_id="agent-a",
-        runtime_root=str(runtime_root(tmp_path)))
+    prompt = upgrade.bootstrap_prompt(registry=registry, goal_id="fixture-goal", agent_id="agent-a")
     legacy = prompt.replace(upgrade.BOOTSTRAP, upgrade._LEGACY_BOOTSTRAP, 1).removesuffix(
         upgrade._BOOTSTRAP_INSTRUCTION) + upgrade._LEGACY_INSTRUCTION
     _set_fixture_prompt(path, database, legacy)
-    before = lifecycle.snapshot(registry=registry, home=home, runtime_root=str(runtime_root(tmp_path)))
+    before = lifecycle.snapshot(registry=registry, home=home)
     monkeypatch.setattr(lifecycle.sys, "platform", "darwin")
     probes = []
     def running(command, **kwargs):
@@ -358,7 +351,7 @@ def test_running_app_defers_to_native_api_without_touching_cached_scheduler(tmp_
     original = path.read_bytes()
     with sqlite3.connect(database) as observer:
         row = observer.execute("SELECT * FROM automations").fetchone()
-        result = lifecycle.reconcile(before=before, registry=registry, home=home, runtime_root=runtime_root(tmp_path))
+        result = lifecycle.reconcile(before=before, registry=registry, home=home)
         assert not result["ok"] and result["results"][0]["status"] == "deferred"
         assert observer.execute("SELECT * FROM automations").fetchone() == row
     assert path.read_bytes() == original
@@ -538,103 +531,9 @@ def test_exact_legacy_host_loader_upgrades_to_v2_without_dropping_explicit_polic
     assert entry["desired_prompt"].startswith("LoopX managed heartbeat bootstrap v2\n")
     assert host_bootstrap_binding(entry["desired_prompt"])["permission_rule"] == "Read only"
     monkeypatch.setattr(lifecycle, "require_closed_app", lambda: None)
-    assert lifecycle.reconcile(before=before, registry=registry, home=home, runtime_root=runtime_root(tmp_path))["ok"]
+    assert lifecycle.reconcile(before=before, registry=registry, home=home)["ok"]
     assert lifecycle.snapshot(registry=registry, home=home)["entries"][0]["status"] == "current"
     malformed = legacy.replace("heartbeat-prompt ", "")
     _set_fixture_prompt(path, database, malformed)
     rejected = lifecycle.snapshot(registry=registry, home=home)["entries"][0]
     assert rejected["status"] != "current" and not rejected["automatic_eligible"]
-
-
-def managed_legacy_fixture(path, database, registry, root) -> str:
-    """A managed v1 wrapper this host may still adopt, not a hand-written body."""
-
-    desired = upgrade.bootstrap_prompt(registry=registry, goal_id="fixture-goal",
-        agent_id="agent-a", runtime_root=str(root))
-    legacy = desired.replace(upgrade.BOOTSTRAP, upgrade._LEGACY_BOOTSTRAP, 1).removesuffix(
-        upgrade._BOOTSTRAP_INSTRUCTION) + upgrade._LEGACY_INSTRUCTION
-    _set_fixture_prompt(path, database, legacy)
-    return legacy
-
-
-def test_deferred_adoption_is_recorded_and_stops_projecting_once_installed(tmp_path, monkeypatch):
-    from loopx.control_plane.heartbeat import installed_prompt_update as lifecycle
-    home, path, database, registry, _ = fixture(tmp_path)
-    root = runtime_root(tmp_path)
-    legacy = managed_legacy_fixture(path, database, registry, root)
-    before = lifecycle.snapshot(registry=registry, home=home, runtime_root=str(root))
-    assert before["entries"][0]["automatic_eligible"] is True
-    # An unqualified host cannot take the write, so the reviewed request has to
-    # outlive this one report.
-    monkeypatch.setattr(lifecycle.sys, "platform", "linux")
-    result = lifecycle.reconcile(before=before, registry=registry, home=home, runtime_root=root)
-    assert not result["ok"] and result["results"][0]["status"] == "deferred"
-    assert lifecycle.pending_store_path(root).is_file()
-    pending = lifecycle.load_pending_adoption(
-        runtime_root=root, goal_id="fixture-goal", agent_id="agent-a")
-    assert pending["status"] == "adoption_required"
-    assert pending["host_action"] == lifecycle.PENDING_HOST_ACTION
-    assert pending["host_action_contract"] == lifecycle.PENDING_HOST_ACTION_CONTRACT
-    assert pending["spend_policy"] == lifecycle.PENDING_SPEND_POLICY
-    # Same reviewed request as the update report, scheduling and binding intact.
-    assert pending["api_update_request"] == result["api_updates"][0]
-    assert pending["api_update_request"]["arguments"]["targetThreadId"] == "thread-a"
-    assert pending["api_update_request"]["arguments"]["status"] == "PAUSED"
-    # Another lane, an absent store, and no lane identity project nothing.
-    assert lifecycle.load_pending_adoption(
-        runtime_root=root, goal_id="fixture-goal", agent_id="agent-b") is None
-    assert lifecycle.load_pending_adoption(
-        runtime_root=tmp_path / "absent", goal_id="fixture-goal", agent_id="agent-a") is None
-    assert lifecycle.load_pending_adoption(
-        runtime_root=root, goal_id="fixture-goal", agent_id=None) is None
-    # The exact reviewed body satisfies the obligation without re-reading the lane.
-    upgrade.apply_offline(home=home, automation_id="watch", expected_prompt_sha256=upgrade.digest(legacy),
-        desired_prompt=pending["api_update_request"]["arguments"]["prompt"])
-    assert lifecycle.load_pending_adoption(
-        runtime_root=root, goal_id="fixture-goal", agent_id="agent-a") is None
-
-
-def test_applied_adoption_clears_its_record(tmp_path, monkeypatch):
-    from loopx.control_plane.heartbeat import installed_prompt_update as lifecycle
-    home, path, database, registry, _ = fixture(tmp_path)
-    root = runtime_root(tmp_path)
-    managed_legacy_fixture(path, database, registry, root)
-    before = lifecycle.snapshot(registry=registry, home=home, runtime_root=str(root))
-    monkeypatch.setattr(lifecycle.sys, "platform", "linux")
-    assert lifecycle.reconcile(
-        before=before, registry=registry, home=home, runtime_root=root)["api_updates"]
-    assert lifecycle.pending_store_path(root).is_file()
-    monkeypatch.setattr(lifecycle, "require_closed_app", lambda: None)
-    monkeypatch.setattr(lifecycle.sys, "platform", "darwin")
-    result = lifecycle.reconcile(before=before, registry=registry, home=home, runtime_root=root)
-    assert result["ok"] and result["results"][0]["status"] == "updated"
-    assert not lifecycle.pending_store_path(root).is_file()
-    assert lifecycle.load_pending_adoption(
-        runtime_root=root, goal_id="fixture-goal", agent_id="agent-a") is None
-
-
-def test_pending_store_serves_only_an_unambiguous_reviewed_record(tmp_path):
-    from loopx.control_plane.heartbeat import installed_prompt_update as lifecycle
-    root = runtime_root(tmp_path)
-    request = upgrade.automation_update_request(automation_id="watch",
-        manifest={"name": "Fixture watch", "status": "ACTIVE", "rrule": "FREQ=HOURLY",
-                  "target_thread_id": "thread-a"},
-        expected_prompt_sha256="a" * 64, desired_prompt="LoopX managed heartbeat bootstrap v2")
-    record = {"automation_id": "watch", "goal_id": "fixture-goal", "agent_id": "agent-a",
-              "automation_status": "ACTIVE", "codex_home": str(tmp_path / "host"),
-              "expected_prompt_sha256": "a" * 64, "desired_sha256": "b" * 64,
-              "source": "update_time_reconciliation", "api_update_request": request}
-    lifecycle.update_pending_adoptions(runtime_root=root, codex_home=str(tmp_path / "host"),
-        pending=[record], resolved=[])
-    assert lifecycle.load_pending_adoption(
-        runtime_root=root, goal_id="fixture-goal", agent_id="agent-a")["automation_id"] == "watch"
-    # Two installed automations claiming one lane stay a review, not a host action.
-    lifecycle.update_pending_adoptions(runtime_root=root, codex_home=str(tmp_path / "host"),
-        pending=[{**record, "automation_id": "watch-2"}], resolved=[])
-    assert lifecycle.load_pending_adoption(
-        runtime_root=root, goal_id="fixture-goal", agent_id="agent-a") is None
-    # A record without its reviewed request is never handed to a host.
-    lifecycle.update_pending_adoptions(runtime_root=root, codex_home=str(tmp_path / "host"),
-        pending=[{**record, "api_update_request": None}], resolved=["watch-2"])
-    assert lifecycle.load_pending_adoption(
-        runtime_root=root, goal_id="fixture-goal", agent_id="agent-a") is None

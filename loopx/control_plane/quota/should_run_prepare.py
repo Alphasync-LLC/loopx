@@ -31,7 +31,6 @@ from ..goals.goal_frontier import (
     build_goal_frontier_projection_context_from_status,
 )
 from ..quota.error_codes import HeartbeatReceiptIdentityConflictError
-from ..quota.decision_summary import quota_decision_agent_id
 from ..agents.capability_memory import resolve_agent_capabilities
 from ..quota.goal_boundary import (
     goal_boundary as _goal_boundary,
@@ -141,7 +140,6 @@ class _QuotaDecisionPreparation:
     goal_boundary: dict[str, Any] | None
     automation_prompt_upgrade: dict[str, Any] | None
     automation_prompt_upgrade_required: bool
-    automation_prompt_adoption: dict[str, Any] | None
     blocked_priority_fallback: dict[str, Any] | None
     stall_self_repair: dict[str, Any] | None
     self_repair_allowed: bool
@@ -295,35 +293,6 @@ def _automation_prompt_upgrade(
         goal,
         goal_id=goal_id,
         agent_identity=agent_identity,
-    )
-
-
-def _automation_prompt_adoption(
-    status_payload: dict[str, Any],
-    *,
-    goal_id: str,
-    requested_agent_id: str | None,
-    resolved_scheduler_context: SchedulerExecutionContextResolution,
-) -> dict[str, Any] | None:
-    """The lane's recorded prompt-only adoption, when an App automation drives it.
-
-    Update-time reconciliation cannot apply a prompt change while the App runs,
-    so it records the request it reviewed. Project that record instead of
-    re-classifying the installed body every turn.
-    """
-    context = resolved_scheduler_context.context
-    if (
-        not resolved_scheduler_context.ok
-        or context is None
-        or not context.app_automation_applicable
-    ):
-        return None
-    from ..heartbeat.installed_prompt_update import load_pending_adoption
-
-    return load_pending_adoption(
-        runtime_root=status_payload.get("runtime_root"),
-        goal_id=goal_id,
-        agent_id=quota_decision_agent_id(status_payload) or requested_agent_id,
     )
 
 
@@ -857,9 +826,6 @@ def _prepare_quota_should_run_item(
         goal_boundary=goal_boundary,
         automation_prompt_upgrade=automation_prompt_upgrade,
         automation_prompt_upgrade_required=automation_prompt_upgrade_required,
-        automation_prompt_adoption=_automation_prompt_adoption(status_payload,
-            goal_id=safe_goal_id, requested_agent_id=requested_agent_id,
-            resolved_scheduler_context=resolved_scheduler_context),
         blocked_priority_fallback=blocked_priority_fallback,
         stall_self_repair=stall_self_repair,
         self_repair_allowed=self_repair_allowed,

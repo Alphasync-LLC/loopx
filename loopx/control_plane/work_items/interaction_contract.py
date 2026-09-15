@@ -959,7 +959,8 @@ def _interaction_required_reads(payload: dict[str, Any]) -> list[dict[str, Any]]
     for item in reads:
         if not isinstance(item, dict):
             continue
-        command = protocol_action_text(item.get("command"), limit=360)
+        # Match the admitted turn-start command budget; never clip a valid route.
+        command = protocol_action_text(item.get("command"), limit=1024)
         if not command:
             continue
         result.append({**item, "command": command})

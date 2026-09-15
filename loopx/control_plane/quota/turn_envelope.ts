@@ -294,7 +294,8 @@ function requiredReads(interaction: JsonObject, payload: JsonObject): JsonObject
   const result: JsonObject[] = [];
   for (const value of raw.slice(0, 5)) {
     const item = object(value);
-    const command = text(item.command, 360);
+    // Preserve routes admitted by the turn-start hook command budget.
+    const command = text(item.command, 1024);
     if (!command) continue;
     const compact: JsonObject = { command };
     for (const field of ["kind", "reason", "source"]) {
