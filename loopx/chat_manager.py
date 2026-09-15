@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import hashlib
-import os
 from pathlib import Path
 from typing import Any
+
+from .control_plane.operator_credential import (
+    configured_operator_credential,
+    env_text,
+    operator_credential_configured,
+)
+from .chat_agent import MANAGED_HOST_CHAT_TRANSPORT_UNSUPPORTED, MANAGED_TURN_HOST_IDS
 
 MANAGER_AGENT_GOAL_ID = "loopx-manager"
 MANAGER_AGENT_OBJECTIVE = (
@@ -90,18 +96,141 @@ def is_manager_channel(value: Any) -> bool:
     return value == "manager" or str(value or "").startswith("manager.external.")
 
 
+# The steward channel selects its executor and its model explicitly, and a
+# discovered credential re-points neither one. The shipped endpoint is the
+# interactive CLI host because it is the only transport that can hold a steward
+# session today; the managed host (`dsh`) runs one bounded work segment per
+# request, so the steward drives managed Turns through `loopx turn` while its
+# own channel stays on the CLI. Promoting the managed host to this channel is
+# gated on it gaining an interactive Chat transport, never on a credential
+# appearing.
+MANAGER_CHANNEL_BINDING_SCHEMA_VERSION = "manager_channel_binding_v0"
+MANAGER_ENDPOINT_ENV_VAR = "LOOPX_MANAGER_ENDPOINT"
+MANAGER_ENDPOINT_DEFAULT = "codex"
+MANAGER_ENDPOINT_SOURCE_PRODUCT_DEFAULT = "product_default"
+MANAGER_ENDPOINT_SOURCE_EXPLICIT_CONFIG = "explicit_config"
+# Executor kinds name where this channel's model work is billed and bounded
+# rather than which adapter is launched, and they use the same vocabulary as the
+# governed Turn surface: an individual executor runs on one person's own CLI
+# login, a managed executor on an operator-supplied credential. Which kind an
+# endpoint is decides whether an operator credential belongs to it at all; the
+# mere presence of a credential decides nothing.
+MANAGER_EXECUTOR_KIND_INDIVIDUAL = "individual"
+MANAGER_EXECUTOR_KIND_MANAGED = "managed"
+MANAGER_ENDPOINT_KINDS = {
+    MANAGER_ENDPOINT_DEFAULT: MANAGER_EXECUTOR_KIND_INDIVIDUAL,
+    # The managed host is billed to the operator's own endpoint, not to one
+    # person's CLI login.
+    "dsh": MANAGER_EXECUTOR_KIND_MANAGED,
+}
+# The managed Turn hosts are exactly the endpoints the Chat runtime refuses to
+# hold an interactive session on, so the channel reports them as unavailable.
+MANAGER_ENDPOINTS_WITHOUT_CHAT_TRANSPORT = MANAGED_TURN_HOST_IDS
+
+MANAGER_MODEL_ENV_VAR = "LOOPX_MANAGER_MODEL"
+MANAGER_MODEL_DEFAULT = "gpt-6-astra"
+MANAGER_MODEL_SOURCE_ENV_OVERRIDE = "env_override"
+MANAGER_MODEL_SOURCE_VENDOR_DEFAULT = "vendor_default"
+MANAGER_REASONING_EFFORT_ENV_VAR = "LOOPX_MANAGER_REASONING_EFFORT"
+MANAGER_REASONING_EFFORT_DEFAULT = "high"
+MANAGER_REASONING_EFFORTS = (
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "ultra",
+)
+
+
+def selected_manager_executor_endpoint(
+    environ: dict[str, str] | None = None,
+) -> tuple[str, str]:
+    """Return the selected steward executor endpoint and the source selecting it.
+
+    Selection is environment-independent beyond one explicit override: the
+    shipped endpoint applies until the operator re-points it with
+    ``LOOPX_MANAGER_ENDPOINT``. A configured credential is never a selection
+    signal, so discovering a provider key cannot move the steward channel onto
+    an executor the operator did not choose.
+    """
+
+    explicit = env_text(MANAGER_ENDPOINT_ENV_VAR, environ)
+    if explicit:
+        return explicit, MANAGER_ENDPOINT_SOURCE_EXPLICIT_CONFIG
+    return MANAGER_ENDPOINT_DEFAULT, MANAGER_ENDPOINT_SOURCE_PRODUCT_DEFAULT
+
+
+def manager_executor_endpoint_default(environ: dict[str, str] | None = None) -> str:
+    """Return the selected steward executor endpoint."""
+
+    return selected_manager_executor_endpoint(environ)[0]
+
+
+def manager_channel_binding(
+    environ: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Project the steward channel's resolved executor, model, and their source.
+
+    This is the channel's readback contract: which executor it resolved and why,
+    which provider authenticates that executor, which model follows it, and
+    whether the channel can actually run there. Credential facts are reported as
+    the variable name only -- never the value -- because a credential
+    authenticates the selected configuration instead of selecting it.
+
+    ``available`` is ``False`` only when LoopX can prove the selected endpoint
+    cannot serve this channel, which is what a caller fails closed on, and
+    ``None`` when this projection makes no claim rather than an unproven ``True``.
+    """
+
+    endpoint, endpoint_source = selected_manager_executor_endpoint(environ)
+    executor_kind = MANAGER_ENDPOINT_KINDS.get(endpoint, "")
+    credential_env = ""
+    if executor_kind == MANAGER_EXECUTOR_KIND_MANAGED:
+        credential_env = configured_operator_credential(environ) or ""
+    if endpoint in MANAGER_ENDPOINTS_WITHOUT_CHAT_TRANSPORT:
+        available: bool | None = False
+        unavailable_reason: str | None = MANAGED_HOST_CHAT_TRANSPORT_UNSUPPORTED
+    else:
+        available, unavailable_reason = None, None
+    model_override = env_text(MANAGER_MODEL_ENV_VAR, environ)
+    if model_override:
+        model, model_source = model_override, MANAGER_MODEL_SOURCE_ENV_OVERRIDE
+    else:
+        model, model_source = MANAGER_MODEL_DEFAULT, MANAGER_MODEL_SOURCE_VENDOR_DEFAULT
+    return {
+        "schema_version": MANAGER_CHANNEL_BINDING_SCHEMA_VERSION,
+        "executor_endpoint": endpoint,
+        "executor_endpoint_source": endpoint_source,
+        "executor_kind": executor_kind,
+        "credential_env_var": credential_env,
+        "operator_credential_configured": operator_credential_configured(environ),
+        "available": available,
+        "unavailable_reason": unavailable_reason,
+        "model": model,
+        "model_source": model_source,
+    }
+
+
 def open_manager_session(
     *,
     controller: Any,
     goal_id: str,
     work_dir: Path,
-    executor_endpoint_id: str = "codex",
+    executor_endpoint_id: str | None = None,
     provider: str = "",
     audience: str = "",
 ) -> tuple[dict[str, Any], bool]:
+    resolved_endpoint = (
+        str(executor_endpoint_id).strip()
+        if executor_endpoint_id
+        else manager_executor_endpoint_default()
+    )
     return controller.open_session(
         goal_id=goal_id,
-        agent_id=executor_endpoint_id,
+        agent_id=resolved_endpoint,
         work_dir=work_dir,
         objective=MANAGER_AGENT_OBJECTIVE,
         mode="resume_latest",
@@ -117,23 +246,21 @@ def manager_skill_text() -> str:
     return (Path(__file__).parent / "capabilities/manager_context/skills/loopx-manager/SKILL.md").read_text(encoding="utf-8")
 
 
-def manager_model_config() -> dict[str, str]:
-    model = (
-        os.environ.get("LOOPX_MANAGER_MODEL", "gpt-6-astra").strip() or "gpt-6-astra"
-    )
+def manager_model_config(environ: dict[str, str] | None = None) -> dict[str, str]:
+    """Return the manager host arguments: model and reasoning effort.
+
+    Both are explicit product defaults with exactly one environment override
+    each. A configured operator credential is not an input: the steward model
+    follows the executor the operator selected, so a credential for a provider
+    this channel is not running on cannot silently change it.
+    """
+
+    model = env_text(MANAGER_MODEL_ENV_VAR, environ) or MANAGER_MODEL_DEFAULT
     effort = (
-        os.environ.get("LOOPX_MANAGER_REASONING_EFFORT", "high").strip() or "high"
+        env_text(MANAGER_REASONING_EFFORT_ENV_VAR, environ)
+        or MANAGER_REASONING_EFFORT_DEFAULT
     )
-    if effort not in {
-        "none",
-        "minimal",
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max",
-        "ultra",
-    }:
+    if effort not in MANAGER_REASONING_EFFORTS:
         raise ValueError("invalid manager reasoning effort")
     return {"model": model, "reasoning_effort": effort}
 
