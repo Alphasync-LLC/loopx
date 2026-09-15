@@ -43,7 +43,8 @@ not amend normative sections.
    string enums, `Literal` aliases, named closed sets, TypeScript `as const`
    arrays, and every constant name defined in more than one module. A public
    smoke, `examples/semantic-vocabulary-drift-smoke.py`, checks the code against
-   both on every premerge and full-public run. A change that widens a
+   both inside the default `pytest` sweep on every pull request; premerge and
+   the full-public fleet are additional surfaces (Section 10). A change that widens a
    vocabulary, forks a constant, adds a carrier, or weakens the registry must
    edit the registry or regenerate the inventory in the same diff, so the
    reviewer sees the semantic change as a change.
@@ -196,6 +197,29 @@ the TypeScript runtime each own one spelling of the same idea.
   discovery under `examples/` and the `repo-architecture-budget` premerge
   profile are additional surfaces, not the obligation: the fleet runs after
   merge and on a schedule, and premerge selects by changed-path tokens.
+- **I11 Roles are distinct.** A vocabulary has one owner, some producers, some
+  interpreters, and some pass-throughs (Section 5, "Roles of a vocabulary").
+  Only the owner defines the set and only producers write values. Mentioning,
+  comparing, serializing, or displaying a value confers no ownership. An
+  interpreter or pass-through that starts writing a value has become a
+  producer and must be registered as one. Enforced from M0.5.
+- **I12 Every kernel value is produced.** For a `kernel` vocabulary, every
+  value not listed under `compatibility_only` has at least one production site
+  the fixed production forms recognise or a `variable_sourced_values` entry. A
+  value that is only compared is dead or compatibility-only, never canonical.
+  `skip` in `effective_action` is the first expected failure. Enforced from
+  M0.5; at M0 the literal scan accepts a compared value as carried.
+- **I13 Producers write registered values only.** A production site that
+  writes a value outside the registered set fails closed, independently of
+  whether any consumer compares it. Production is stricter than comparison: a
+  consumer comparing an unregistered value is dead code, a producer writing one
+  is protocol drift. Enforced from M0.5; the M0 literal scan covers both forms
+  together.
+- **I14 Scope is declared, not inferred.** A name defined in several modules
+  is a fork unless the registry declares it `bounded_context` and lists the
+  contexts and one owner symbol per context. Declared names leave the fork
+  budget; a rename does not change the budget's meaning and is not a fix.
+  Enforced from M0.5; at M0 `SOURCE_SURFACES` is counted as a fork and noted.
 
 ## 3. Scope and non-goals
 
@@ -294,8 +318,44 @@ must not be "fixed" by renaming, because a rename lowers the number without
 changing the code's meaning. M0.5 adds a `scope` field to the registry with at
 least `global` and `bounded_context`, lets a bounded-context name be declared
 once with its owning contexts, and removes declared names from the fork
-budget. Until then the fork budget is a ceiling that contains this one known
+budget (I14, the schema rows below, and the M0.5 row in Section 11). Until
+then the fork budget is a ceiling that contains this one known
 misclassification, recorded in the registry's `inventory_ratchets` note.
+
+### Roles of a vocabulary
+
+A module that mentions a value is not its owner, and a vocabulary has more
+than one kind of participant. The registry distinguishes four roles because
+the check that makes sense differs by role:
+
+| Role | What it does | Registered | Check |
+| --- | --- | --- | --- |
+| Owner | Defines the closed set as one `module::Symbol` per runtime | Yes, since M0 | I1 to I3 |
+| Producer | Writes a value into the field: assignment, dict or object literal, constructor keyword, `return` of a literal inside a listed deciding function, enum member on the owner | Yes for `kernel` vocabularies, from M0.5 | I12, I13 |
+| Interpreter | Branches on the value: `if`, `match`, `switch`, membership test | No; found by the dispatch scan, ranked by `--report` | I2, no unregistered comparison |
+| Pass-through | Serializes, persists, forwards, or displays the value without branching on it | No | None; a pass-through never becomes an owner |
+
+Two rules follow. A value with no producer is dead or compatibility-only:
+`skip` is compared in `todos/user_gate.py` and written nowhere, so M0 passes
+it and M0.5 fails it until it is removed or listed under `compatibility_only`.
+Production is stricter than comparison: M0.5 scans production forms on their
+own and fails on an unregistered produced value (I13), while the M0 literal
+scan keeps catching unregistered comparisons (I2). Interpreters and
+pass-throughs are deliberately not registered; otherwise every consumer edit
+would touch the registry, the churn Section 6 rejected for consumer counts.
+Their relations to a vocabulary are advisory output of `--report`.
+
+Production forms are fixed in the smoke at M0.5, like the dispatch forms:
+Python `x["f"] = "v"`, `f="v"` as a constructor keyword of the envelope or
+packet type, `return "v"` inside a function the registry lists as a producer,
+and member access on the owner enum; TypeScript `f: "v"` in an object
+literal, `x.f = "v"`, and the conditional expression. `variable_sourced_values`
+stays for the values a producer builds from a variable the scan cannot follow.
+Which vocabularies must list producers: `kernel` at M0.5; `cross_runtime` only
+when a value is added or removed after M0.5; `cross_module` only if promoted
+(Q8). Persistence is a property the production scan can answer: a producer
+whose listed symbol is a journal or receipt writer marks the vocabulary
+`persisted`, which is the fact Q2 and Q10 wait on.
 
 ### State model and schema
 
@@ -310,6 +370,9 @@ vocabulary key fails the smoke.
 | `vocabularies.<name>.tier`, `status` | `kernel`, `cross_runtime`, `cross_module`; `canonical`, `legacy`, `merge_candidate` | Closed enumerations |
 | `vocabularies.<name>.literal_scan` | `field`, roots, suffixes | Every literal the fixed dispatch forms capture is registered; every registered value is captured or variable-sourced (I2) |
 | `vocabularies.<name>.variable_sourced_values` | value to producer module | The producer still contains the quoted value |
+| `vocabularies.<name>.scope` (M0.5) | `global` or `bounded_context`; a `bounded_context` entry lists `contexts`, each with one owner symbol | Closed enumeration; declared bounded-context names are excluded from `multi_value_forks`; an undeclared multi-module name stays a fork (I14) |
+| `vocabularies.<name>.producers` (M0.5) | `path::Symbol` sites that write the field, required for `kernel` | Every site writes registered values only; every value not under `compatibility_only` has at least one site or a variable-sourced entry (I12, I13) |
+| `vocabularies.<name>.compatibility_only` (M0.5) | values kept so readers of persisted records still resolve them | Subset of `values`; zero production sites; each carries a `value_notes` reason and a retirement milestone |
 | `vocabularies.<name>.value_notes`, `deprecated_values` | per-value review notes; values slated for removal | Names must be registered values |
 | `relations.same_concept` | groups of `vocabulary.value` members | Every member resolves |
 | `relations.shared_field_names` | one field name, its slots and the vocabulary or values each carries | Every slot resolves |
@@ -424,6 +487,9 @@ inventory in the same PR.
 | Docs governance accepts the RFC pair | `python3 examples/docs-governance-smoke.py` | pass | Checks mirror, links, index |
 | Retirement budgets count substrings, not identifiers | `goal_boundary` counted with `in file.text` and with `\bgoal_boundary\b` | 35 vs 30 Python modules on the baseline | Known boundary; M3's zero-reader gate needs the identifier count, tracked in Section 12 |
 | The module-local convention filter is a code edit | Widen `MODULE_LOCAL_CONVENTION` in `inventory.py` and regenerate | `*_semantic` budgets fall with no code change elsewhere | Known boundary; the regex is in code so the widening is a reviewed diff, and the unfiltered totals stay budgeted |
+| A registered value nobody produces fails (M0.5) | Run the production-form scan on the baseline | Fails naming `effective_action` and `skip`; passes after `skip` is removed or listed `compatibility_only` | First expected I12 failure; a compared-only value is not carried |
+| A producer of an unregistered value fails (M0.5) | Write `effective_action: "brand_new"` in a listed producer site | Fails naming the site and the value even though no consumer compares it | I13; production is stricter than comparison |
+| A bounded-context name leaves the fork budget only by declaration (M0.5) | Declare `SOURCE_SURFACES` with its four contexts; separately, rename one definition without declaring | The declaration lowers `multi_value_forks` to 3; the rename alone does not | I14; the honest fix is a registry edit a reviewer sees, the rename is code without registry change |
 | An upstream merge can stale the committed inventory | Replay the scanner over the first parent and the merge of the last twenty `upstream/main` merge commits | 8 of 20 merges change at least one carrier | Measured cost of committing a snapshot; the handling rule is Section 10 and Section 12 Q9 |
 
 Known limits, stated so the check is not over-trusted:
@@ -498,7 +564,8 @@ commands as `python3.11` for that reason, and the planner entry is left as
 | Milestone | Shipped behavior | Entry gate | Exit evidence | Rollback |
 | --- | --- | --- | --- | --- |
 | M0 | Registry with 26 vocabularies and 9 relations, generated inventory with `--check`, drift smoke with fixed dispatch forms and coverage floor, two owner forks removed, RFC index entry | This RFC opened | Section 9 rows green; 20 mutation classes fail closed | Delete the smoke, `loopx/semantics/`, the generator, and its test |
-| M1 | `EffectiveAction` typed enum in one owner module; the replay observation and frontier slots split off (Q6); producers and consumers import it; registry `literal_scan` tightened to the enum | M0 merged; owner module chosen (Q3); slot split decided (Q6) | Smoke green; zero bare `effective_action` literals outside the owner; parity fixtures for status/should-run unchanged | Revert to literals; registry keeps the set |
+| M0.5 | `scope` with `global` and `bounded_context` and per-context owners; `producers` and `compatibility_only` on `kernel` vocabularies; production-form scan with the two role checks (I12, I13); retirement budgets counted by identifier with all six anchors lowered in one diff (Q11); merge-order rule from Q9 written into Section 10 | M0 merged; Q9 decided or its interim rule accepted | Smoke green with I11 to I14 enforced; `skip` resolved; `multi_value_forks` at 3 by declaration; Section 9 role rows green; `turn_route` persistence answered for Q2 | Remove the three fields and the role checks; budgets return to the M0 anchors |
+| M1 | `EffectiveAction` typed enum in one owner module; the replay observation and frontier slots split off (Q6); producers and consumers import it; registry `literal_scan` tightened to the enum | M0.5 merged; owner module chosen (Q3); slot split decided (Q6) | Smoke green; zero bare `effective_action` literals outside the owner; parity fixtures for status/should-run unchanged | Revert to literals; registry keeps the set |
 | M2 | Route-to-disposition projection, the `decide_loop_disposition` decision table, and the cross-runtime sets published through a shared contract with generated Python and TypeScript bindings, following the coordination contract generator | M1 merged; Q2 and Q7 decided | Generator `--check` and smoke green; `settlement.ts` and `transaction.py` read the generated set | Regenerate from prior contract |
 | M3 | Per-field retirement of legacy should-run fields, one field per PR, budgets lowered to zero and the field removed | Field has zero external readers proven by producer/reader research | Schema-reduction record per `AGENTS.md`; Appendix B entry | Restore field from the last writer |
 | M4 | Twin budget lowered with each replacement-first cutover from the migration RFC | Each cutover PR | Budget edit in the same diff | None needed; budget follows code |
@@ -535,7 +602,8 @@ vocabulary property the smoke can check. Rows marked *open* wait on a Section
    Recommendation: keep both, publish the projection in M2, revisit after the
    managed-step consumer matures. Needed before M2. The stated reason for
    keeping both is that merging would touch persisted Turn records; that
-   premise is unverified. Before deciding, a producer check should establish
+   premise is unverified. Before deciding, the M0.5 production-form scan (I12,
+   Section 5) applied to `turn_route` should establish
    whether `turn_route` is ever written to the journal or a receipt, or only
    flows in-process; if the latter, the cost of a merge is far lower than this
    RFC assumes and Q10 applies.
@@ -582,7 +650,7 @@ vocabulary property the smoke can check. Rows marked *open* wait on a Section
    list, not its task list.
 10. **Target state for the Turn vocabularies.** Section 11's target table
    keeps three sets and seven redundant spellings by default because Q2
-   recommends keeping both. If the producer check in Q2 shows `turn_route` is
+   recommends keeping both. If the M0.5 production-form scan in Q2 shows `turn_route` is
    not persisted, the maintainers should choose between (a) three sets with a
    generated projection, the current plan, and (b) a two-phase merge (dual-
    write, then retire) to one spelling per concept. Without this decision the
@@ -724,6 +792,24 @@ vocabulary property the smoke can check. Rows marked *open* wait on a Section
 - **Effect on normative design:** Section 3 scope narrowed to match the code;
   Section 11 now has a definition of done; Section 12 gains three decisions.
 
+### 2026-09-15 — Role and scope models written into the contract
+
+- **Trigger:** the RFC used "producer" and "consumer" nineteen times without
+  defining either, Q2 and Q10 depended on "a producer check" the document
+  never specified, `scope` existed only as a preview paragraph, and Section 1
+  still said the smoke ran "on every premerge and full-public run" after
+  Section 10 had made the pytest sweep the obligation.
+- **Delivered:** Section 5 gains "Roles of a vocabulary" (owner, producer,
+  interpreter, pass-through) and three schema rows (`scope`, `producers`,
+  `compatibility_only`); Section 2 gains I11 to I14, each marked as enforced
+  from M0.5; Section 9 gains three M0.5 rows; Section 11 gains the M0.5
+  milestone and M1 now gates on it; Q2 and Q10 point at I12 instead of an
+  undefined check; Section 1 matches Section 10. No code, registry value, or
+  budget changed; the M0 smoke does not yet enforce I11 to I14.
+- **Effect on normative design:** four invariants added with an explicit
+  enforcement milestone; the plan gains a definition of "produced" that M3's
+  zero-reader gate and Q2's persistence question can both use.
+
 ## Appendix B: Decision log
 
 | Date | Decision | Owner / approval | Alternatives | Normative sections changed |
@@ -802,3 +888,9 @@ projection proven to be a bijection after M2.
   claim the scanner does not implement is a false invariant.
 - Budgets that only go down describe a direction. Write the target table
   before the second milestone, or nobody can say when the work is done.
+- A decision that waits on "a check" the RFC never defines is a dangling
+  reference dressed as prudence. Name the invariant and the milestone that
+  delivers the check, or the decision has no input and never closes.
+- Using a role word (producer, consumer) nineteen times is not defining it.
+  Until the roles are a table with a check per role, "who writes this value"
+  is a question every reviewer answers differently.
