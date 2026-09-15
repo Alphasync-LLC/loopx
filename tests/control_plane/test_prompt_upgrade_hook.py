@@ -162,7 +162,11 @@ def test_live_decision_adds_only_existing_required_read_channel(tmp_path, monkey
     hint = pending["required_reads"][-1]
     assert len(hint["command"]) > 360
     assert compact_quota_should_run_cli_payload(pending)["required_reads"][-1] == hint
-    assert build_turn_envelope(pending)["required_reads"][-1]["command"] == hint["command"]
+    envelope = build_turn_envelope(pending)
+    assert envelope["required_reads"][-1]["command"] == hint["command"]
+    assert envelope["compaction"]["budget_bytes"] == 8192 + 1536
+    assert envelope["compaction"]["hook_prompt_budget_bytes"] == 1536
+    assert build_turn_envelope(baseline)["compaction"]["budget_bytes"] == 8192
     for key in baseline.keys() | pending.keys():
         if key not in {"required_reads", "interaction_contract", "protocol_action_packet"}:
             assert pending.get(key) == baseline.get(key), key

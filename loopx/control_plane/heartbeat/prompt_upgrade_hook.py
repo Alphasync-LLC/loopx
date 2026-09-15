@@ -86,6 +86,7 @@ def prompt_upgrade_hook(*, registry: Path, runtime_root: Path, goal_id: str,
         "command": shlex.join(command),
         "reason": "A managed prompt upgrade is pending. Read the fresh plan; review and apply only the prompt through automation_update, then read back. Preserve other fields; no quota spend for repair. Continue normal work under its existing decision.",
         "ordering": "before_work",
+        "prompt_budget_bytes": 1536,
     }
 
     def produce() -> dict[str, Any]:

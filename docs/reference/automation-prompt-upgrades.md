@@ -85,6 +85,13 @@ channel. Read that fresh plan, review the prompt-only adoption through the App,
 and read back the result. Repair alone spends no quota; normal work keeps its
 existing decision and permission boundaries.
 
+The active hint declares `prompt_budget_bytes=1536` in its required read.
+The typed hook validates this optional allowance (at most 2048 bytes per read).
+Only emitted hook reads extend the envelope's 8192-byte budget and their command
+projection allowance; inactive hooks contribute zero. Existing unbudgeted reads
+retain their 360-character projection and the normal envelope budget. This is
+prompt capacity, not execution, quota or adoption authority.
+
 No pending entry, an adopted prompt, customization, a changed thread, ambiguous
 identity or unavailable host evidence produces no adoption hint. With no pending receipt
 the hook does not open the host database or dispatch a capability call.
@@ -243,3 +250,8 @@ prompt 模板或 scheduler action。只有唯一未完成项的旧 prompt 和线
 完成升级即停止提示，下次对账清除记录，无需新的 ACK 或按轮状态写入。发现仍发生在
 升级时；两次升级之间的外部修改不会自动成为迁移候选，可显式运行
 `automation-prompts plan` 审阅。
+
+激活的 hint 同时声明 `prompt_budget_bytes=1536`，由类型化 hook 校验（单条最多
+2048 字节）。只有实际输出的 hook read 才增加 envelope 原有 8192 字节预算及该条
+命令的投影空间；未激活时增加量为零。未声明预算的 read 保留原有 360 字符投影和
+默认 envelope 预算。这仅增加 prompt 容量，不增加执行、额度或采纳权限。
