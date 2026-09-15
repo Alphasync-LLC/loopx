@@ -273,6 +273,128 @@ def test_managed_turn_projects_prior_unsettled_heartbeat_recovery(
     assert contract["cli_channel"]["spend_after_validation"] is False
 
 
+def test_managed_turn_accepts_exact_material_monitor_poll_closeout(
+    tmp_path: Path,
+) -> None:
+    runtime_root = tmp_path / "runtime"
+    registry_path = tmp_path / "registry.json"
+    state_path = tmp_path / "ACTIVE_GOAL_STATE.md"
+    agent_id = "codex-fixture"
+    monitor_id = "todo_managed_monitor"
+    prior_turn_id = "managed-prior-monitor-turn"
+    state_path.write_text(
+        "# Goal\n\n## Agent Todo\n\n"
+        "- [ ] [P0-monitor] Observe the managed target.\n"
+        f"  <!-- loopx:todo todo_id={monitor_id} status=open "
+        "task_class=continuous_monitor target_key=managed-target "
+        "cadence=1h next_due_at=2099-01-01T00%3A00%3A00Z -->\n"
+        "- [ ] [P1] Continue independent work.\n"
+        "  <!-- loopx:todo todo_id=todo_visible status=open "
+        "task_class=advancement_task -->\n",
+        encoding="utf-8",
+    )
+    registry_path.write_text(
+        json.dumps(
+            {
+                "common_runtime_root": str(runtime_root),
+                "goals": [
+                    {
+                        "id": GOAL_ID,
+                        "repo": str(tmp_path),
+                        "state_file": str(state_path),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    receipt = build_rollout_event(
+        goal_id=GOAL_ID,
+        event_kind="quota_should_run",
+        agent_id=agent_id,
+        todo_id=monitor_id,
+        run_id=prior_turn_id,
+        status="normal_run",
+        summary="managed monitor heartbeat requires closeout",
+        details={
+            "todo_id": monitor_id,
+            "settlement_effect_id": (
+                f"{GOAL_ID}:{agent_id}:{monitor_id}:{prior_turn_id}"
+            ),
+            "closeout_required": True,
+        },
+    )
+    goal_runtime = runtime_root / "goals" / GOAL_ID
+    goal_runtime.mkdir(parents=True)
+    (goal_runtime / "rollout-event-log.jsonl").write_text(
+        json.dumps(receipt) + "\n", encoding="utf-8"
+    )
+    runs_dir = goal_runtime / "runs"
+    runs_dir.mkdir()
+    (runs_dir / "index.jsonl").write_text(
+        json.dumps(
+            {
+                "classification": "quota_monitor_poll",
+                "goal_id": GOAL_ID,
+                "agent_id": agent_id,
+                "todo_id": monitor_id,
+                "turn_instance_id": prior_turn_id,
+                "material_change": True,
+                "quota_monitor_poll_commit": {
+                    "schema_version": "quota_monitor_poll_commit_receipt_v0",
+                    "effect_id": (
+                        f"quota-monitor-poll:{GOAL_ID}:{agent_id}:"
+                        f"{prior_turn_id}:todo:{monitor_id}"
+                    ),
+                    "request_digest": "sha256:fixture",
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    status = quota_status_payload(
+        goal_id=GOAL_ID,
+        status="active",
+        agent_todo_items=[
+            {
+                "todo_id": "todo_visible",
+                "index": 2,
+                "text": "[P1] Continue independent work.",
+                "role": "agent",
+                "status": "open",
+                "priority": "P1",
+                "task_class": "advancement_task",
+            }
+        ],
+        recommended_action="[P1] Continue independent work.",
+        next_action="[P1] Continue independent work.",
+        coordination={"registered_agents": [agent_id], "agent_model": "peer_v1"},
+        claim_scope_agent_id=agent_id,
+    )
+    packet = build_live_quota_should_run_decision(
+        status,
+        goal_id=GOAL_ID,
+        agent_id=agent_id,
+        available_capabilities=["shell"],
+        include_scheduler_detail=False,
+        codex_app_current_rrule=None,
+        registry_path=registry_path,
+        runtime_root=runtime_root,
+        route_source="loopx_turn_plan",
+        turn_instance_id="managed-current-turn",
+        scheduler_execution_context={
+            "host_surface": "generic_cli",
+            "scheduler_owner": "agent_cli_loop",
+            "execution_mode": "interactive",
+        },
+    )
+
+    assert packet["effective_action"] != "unsettled_host_turn_recovery"
+    assert packet["selected_todo"]["todo_id"] == "todo_visible"
+
+
 def test_recovery_reads_lifecycle_when_status_summary_omits_bound_todo(
     tmp_path: Path,
 ) -> None:

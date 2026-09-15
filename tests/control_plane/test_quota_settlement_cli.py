@@ -3437,6 +3437,181 @@ def test_pending_action_selection_can_bind_exact_newly_due_monitor(
     assert settled["heartbeat_receipt"]["status"] == "replayed"
     assert _spend_run_count(runtime) == 0
 
+def test_prior_monitor_turn_accepts_exact_committed_receipt(
+    tmp_path: Path,
+) -> None:
+    project, runtime, registry_path = _write_fixture(tmp_path)
+    _append_newly_due_monitor(project)
+    prior_turn_id = "turn-monitor-exact-closeout"
+    guard_args = (
+        "quota",
+        "should-run",
+        "--codex-app",
+        "--goal-id",
+        GOAL_ID,
+        "--agent-id",
+        AGENT_ID,
+        "--scan-path",
+        str(project),
+        "--available-capability",
+        "network",
+        "--available-capability",
+        "external_evidence_poll",
+    )
+    prior_rc, prior = _run_cli(
+        registry_path,
+        runtime,
+        *guard_args,
+        "--turn-instance-id",
+        prior_turn_id,
+        "--todo-id",
+        DUE_MONITOR_TODO_ID,
+    )
+    assert prior_rc == 0, prior
+    assert prior["selected_todo"]["todo_id"] == DUE_MONITOR_TODO_ID
+
+    poll_rc, poll = _run_cli(
+        registry_path,
+        runtime,
+        "quota",
+        "monitor-poll",
+        "--goal-id",
+        GOAL_ID,
+        "--agent-id",
+        AGENT_ID,
+        "--turn-instance-id",
+        prior_turn_id,
+        "--todo-id",
+        DUE_MONITOR_TODO_ID,
+        "--target-key",
+        "due-monitor-fixture",
+        "--result-hash",
+        "unchanged-exact-closeout",
+        "--available-capability",
+        "network",
+        "--available-capability",
+        "external_evidence_poll",
+        "--execute",
+        "--scan-path",
+        str(project),
+    )
+    assert poll_rc == 0, poll
+    assert poll["material_change"] is False
+    assert poll["appended"] is True
+
+    next_turn_rc, next_turn = _run_cli(
+        registry_path,
+        runtime,
+        *guard_args,
+        "--turn-instance-id",
+        "turn-after-exact-monitor-closeout",
+    )
+    assert next_turn_rc == 0, next_turn
+    assert next_turn["effective_action"] != "unsettled_host_turn_recovery"
+    assert next_turn["selected_todo"]["todo_id"] == TODO_ID
+    assert _spend_run_count(runtime) == 0
+
+
+def test_prior_monitor_turn_recovery_rejects_wrong_identity_receipt(
+    tmp_path: Path,
+) -> None:
+    project, runtime, registry_path = _write_fixture(tmp_path)
+    _append_newly_due_monitor(project)
+    prior_turn_id = "turn-monitor-wrong-identity"
+    guard_args = (
+        "quota",
+        "should-run",
+        "--codex-app",
+        "--goal-id",
+        GOAL_ID,
+        "--agent-id",
+        AGENT_ID,
+        "--scan-path",
+        str(project),
+        "--available-capability",
+        "network",
+        "--available-capability",
+        "external_evidence_poll",
+    )
+    prior_rc, prior = _run_cli(
+        registry_path,
+        runtime,
+        *guard_args,
+        "--turn-instance-id",
+        prior_turn_id,
+        "--todo-id",
+        DUE_MONITOR_TODO_ID,
+    )
+    assert prior_rc == 0, prior
+    assert prior["selected_todo"]["todo_id"] == DUE_MONITOR_TODO_ID
+
+    preview_rc, preview = _run_cli(
+        registry_path,
+        runtime,
+        "quota",
+        "monitor-poll",
+        "--codex-app",
+        "--goal-id",
+        GOAL_ID,
+        "--agent-id",
+        AGENT_ID,
+        "--turn-instance-id",
+        prior_turn_id,
+        "--todo-id",
+        DUE_MONITOR_TODO_ID,
+        "--target-key",
+        "due-monitor-fixture",
+        "--result-hash",
+        "preview-only",
+        "--available-capability",
+        "network",
+        "--available-capability",
+        "external_evidence_poll",
+        "--scan-path",
+        str(project),
+    )
+    assert preview_rc == 0, preview
+    assert preview["dry_run"] is True
+    assert preview["appended"] is False
+    assert _classification_count(runtime, "quota_monitor_poll") == 0
+
+    index_path = runtime / "goals" / GOAL_ID / "runs" / "index.jsonl"
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    with index_path.open("a", encoding="utf-8") as stream:
+        stream.write(
+            json.dumps(
+                {
+                    "classification": "quota_monitor_poll",
+                    "goal_id": GOAL_ID,
+                    "agent_id": "different-agent",
+                    "todo_id": DUE_MONITOR_TODO_ID,
+                    "turn_instance_id": prior_turn_id,
+                    "quota_monitor_poll_commit": {
+                        "schema_version": "quota_monitor_poll_commit_receipt_v0",
+                        "effect_id": "quota-monitor-poll:wrong-agent-fixture",
+                        "request_digest": "sha256:wrong-agent-fixture",
+                    },
+                }
+            )
+            + "\n"
+        )
+
+    recovery_rc, recovery = _run_cli(
+        registry_path,
+        runtime,
+        *guard_args,
+        "--turn-instance-id",
+        "turn-after-wrong-monitor-receipt",
+    )
+    assert recovery_rc == 0, recovery
+    assert recovery["effective_action"] == "unsettled_host_turn_recovery"
+    packet = recovery["unsettled_host_turn_recovery"]
+    assert packet["binding_task_class"] == "continuous_monitor"
+    actions = recovery["interaction_contract"]["cli_channel"]["next_cli_actions"]
+    assert "quota monitor-poll" in actions[1]
+    assert f"--turn-instance-id {prior_turn_id}" in actions[1]
+    assert "--resume-when" not in "\n".join(actions)
+
 
 def test_receipt_bound_advancement_turn_records_multiple_due_monitors(
     tmp_path: Path,
