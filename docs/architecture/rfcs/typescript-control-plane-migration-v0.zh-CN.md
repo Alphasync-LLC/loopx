@@ -313,6 +313,10 @@ Markdown renderer 长期保留。
 负责 durable truth、恢复、cutover 与投影交付。删除 Python decision 不以前端 CLI
 全部改成 TypeScript 或 `loopxd` 落地为前提；输入适配和外部 effect 执行可以保留 Python。
 
+Objective 编码与读回复用既有 Goal metadata／section owner；旧注册按解码后的值与
+精确叙述正文比较。这是展示边界闭合，不增加 TS transport，也不迁移业务权威。
+见[文档边界](../../reference/protocols/active-state-structured-projection-v0.md#markdown-ownership-boundary)。
+
 本次 lifecycle-admission 切片将 legacy claim/update 准入、委托 action/reason 检查、
 ownership-holder 路由及 native complete/supersede 统一到
 `todo_lifecycle_decision.ts`。Native text/note 编辑与 terminal transition 在进程内

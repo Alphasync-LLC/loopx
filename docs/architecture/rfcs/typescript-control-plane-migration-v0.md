@@ -397,6 +397,11 @@ owns durable truth, recovery, cutover, and projection delivery. Neither a fully
 TypeScript CLI nor `loopxd` is a prerequisite for removing Python decisions.
 An input adapter or external-effect executor may remain Python.
 
+Objective serialization and readback now share the existing Goal metadata and
+section owners; legacy registration compares decoded values and exact narrative.
+This closes a presentation boundary without adding TS transport or moving business
+authority. See the [document boundary](../../reference/protocols/active-state-structured-projection-v0.md#markdown-ownership-boundary).
+
 The lifecycle-admission slice now uses `todo_lifecycle_decision.ts` for legacy
 claim/update admission, delegated action/reason checks, ownership-holder routing,
 and native complete/supersede. Native text/note edits and terminal transitions
