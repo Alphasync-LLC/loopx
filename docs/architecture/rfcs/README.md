@@ -70,6 +70,15 @@ changes.
   - **Current boundary:** Stage 1 and 2A are complete. Stage 2B is cutting over
     whole semantic transactions and retiring Python facades under parity and
     differential gates.
+- [Semantic Vocabulary Convergence and Commit-Time Drift Checks v0](semantic-vocabulary-convergence-v0.md)
+  ([中文版](semantic-vocabulary-convergence-v0.zh-CN.md))
+  - **RFC status:** Draft.
+  - **Delivery on `main`:** M0 registry and drift smoke shipped with the RFC.
+  - **Current boundary:** One registry names the Turn outcome vocabularies,
+    `effective_action`, the route-to-disposition projection, the Turn Envelope
+    schema owner, legacy should-run field budgets, and the py/ts twin budget; a
+    public smoke fails closed on drift. No enum merge, field removal, or code
+    generation is approved yet.
 - [Shared-goal Online Authority and Pluggable Coordination Provider v0](shared-goal-authority-state-provider-v0.md)
   ([中文版](shared-goal-authority-state-provider-v0.zh-CN.md),
   [validation boundary](shared-goal-authority-state-provider-v0-evidence.zh-CN.md))
