@@ -366,6 +366,7 @@ def main() -> int:
         assert skill_readback["source"]["revision"] == source_commit
         assert set(skill_readback["materialized_skill_ids"]) == {
             "loopx",
+            "loopx-pr-merge",  # Source installer also ships the merge workflow.
             *PACKAGED_HOST_SKILL_IDS,
         }
         skill_text = skill.read_text(encoding="utf-8")
