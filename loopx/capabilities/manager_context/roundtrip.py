@@ -15,7 +15,7 @@ from . import _root, _read, _write, _hash, authority
 from .tracking import _entry, _now, _receipt
 from ...file_lock import exclusive_file_lock
 from ...presentation.public_safety import scan_public_boundary_text
-from ...control_plane.effect_runtime import effect_runtime_result
+from ...control_plane.effect_runtime import EffectRuntimeRejected, effect_runtime_result
 
 PHASES = ("decision", "conclusion")
 DELIVERY_STATUSES = {
@@ -40,6 +40,33 @@ DELIVERY_ERRORS = {
     "original_route_or_return_delivery_unavailable",
     "delivery_state_unreadable",
 }
+
+# Bounded reasons why one return cannot be resolved at all. Adapters raise
+# ``ReturnResolutionBlocked`` with one of these instead of relying on their prose
+# being re-parsed, so delivery state never depends on message substrings.
+RETURN_RESOLUTION_REASONS = frozenset(
+    {
+        "return_authorization_unavailable",
+        "original_route_unavailable",
+        "initial_delivery_receipt_unavailable",
+    }
+)
+
+
+class ReturnResolutionBlocked(ValueError, RuntimeError):
+    """A return cannot be resolved; ``reason`` is the provider-neutral code.
+
+    Inheriting ``ValueError`` keeps existing adapter call sites and their
+    handling unchanged while the typed reason is what the state machine reads.
+    """
+
+    def __init__(self, reason, message):
+        if reason not in RETURN_RESOLUTION_REASONS:
+            raise ValueError("unsupported return resolution reason")
+        self.reason = reason
+        super().__init__(message)
+
+
 def _delivery_attempt(value):
     return dict(
         effect_runtime_result(
@@ -57,8 +84,17 @@ def _verification_decision(outcome):
 
 
 def _verification_exception_error(exc):
+    reason = getattr(exc, "reason", None)
+    if reason in RETURN_RESOLUTION_REASONS:
+        return reason
+    # Compatibility fallback for adapter text that still arrives as prose. New
+    # adapter failures must raise ReturnResolutionBlocked with a typed reason.
     message = str(exc)
-    if "authorization" in message or "authorized" in message:
+    if (
+        "authorization" in message
+        or "authorized" in message
+        or "authority" in message
+    ):
         return "return_authorization_unavailable"
     if any(token in message for token in ("conversation", "route", "binding", "target")):
         return "original_route_unavailable"
@@ -350,9 +386,21 @@ def drain(root, registry, store, external_sender, *, now=None, cancelled=lambda:
                 transport = {}
                 if route["channel_id"] != "manager":
                     if state.get("status") == "verification_required":
+                        if state.get("attempt") is None:
+                            # A record written before locators were persisted has
+                            # no trustworthy provider identity: never guess and
+                            # never resend the conclusion.
+                            _write(
+                                state_path,
+                                {
+                                    "status": "explicit_unverified",
+                                    "error": "provider_locator_unavailable",
+                                },
+                            )
+                            continue
                         try:
                             attempt = _delivery_attempt(state.get("attempt"))
-                        except ValueError:
+                        except (ValueError, EffectRuntimeRejected):
                             _write(
                                 state_path,
                                 {
@@ -371,8 +419,42 @@ def drain(root, registry, store, external_sender, *, now=None, cancelled=lambda:
                                 },
                             )
                             continue
-                        verified = verifier(route, session, turn, text, attempt)
-                        decision = _verification_decision(verified)
+                        try:
+                            verified = verifier(route, session, turn, text, attempt)
+                            decision = _verification_decision(verified)
+                        except (
+                            OSError,
+                            ValueError,
+                            KeyError,
+                            TypeError,
+                            RuntimeError,
+                        ) as exc:
+                            error = _verification_exception_error(exc)
+                            if error:
+                                _write(
+                                    state_path,
+                                    {"status": "explicit_unverified", "error": error},
+                                )
+                                continue
+                            # An unclassified readback failure keeps the locator and
+                            # stays retryable, but must never re-run the provider on
+                            # every pump without backoff.
+                            attempts = int(state.get("attempts", 0)) + 1
+                            _write(
+                                state_path,
+                                {
+                                    **state,
+                                    "status": "verification_required",
+                                    "attempts": attempts,
+                                    "retry_at": (
+                                        now
+                                        + timedelta(
+                                            seconds=min(300, 5 * 2 ** min(attempts, 6))
+                                        )
+                                    ).isoformat(),
+                                },
+                            )
+                            continue
                         if decision["status"] == "delivered":
                             _write(
                                 state_path,

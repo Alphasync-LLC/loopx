@@ -9,6 +9,7 @@ from .manager_routing import authorized_manager_goal_ids
 from .event_inbox import load_lark_event_inbox_config, _load_processed
 from .inbox_reply import reply_lark_event_inbox, verify_lark_inbox_reply
 from ...capabilities.manager_context import authority
+from ...capabilities.manager_context.roundtrip import ReturnResolutionBlocked
 
 
 def _resolve_return(
@@ -20,14 +21,19 @@ def _resolve_return(
     # Validate live binding/session independently of the worker's target Goal.
     # Delegation grants permit only this request's audience-ready reply.
     if not authorized_manager_goal_ids(snapshot, session, runtime_root=root):
-        raise ValueError("manager connection no longer authorized")
+        raise ReturnResolutionBlocked(
+            "return_authorization_unavailable",
+            "manager connection no longer authorized",
+        )
     target = {k: route[k] for k in ("goal_id", "agent_id")}
     grant = authority(root, registry, session, turn)
     if (
         target not in grant["targets"]
         or grant.get("source_id") != route["source_id"]
     ):
-        raise ValueError("context return authority revoked")
+        raise ReturnResolutionBlocked(
+            "return_authorization_unavailable", "context return authority revoked"
+        )
     matches = []
     for gid, payload in snapshot.get("binding_payloads", {}).items():
         for binding in bindings_for_goal(payload, gid):
@@ -39,13 +45,17 @@ def _resolve_return(
             ):
                 matches.append(binding)
     if len(matches) != 1:
-        raise ValueError("manager return binding ambiguous")
+        raise ReturnResolutionBlocked(
+            "original_route_unavailable", "manager return binding ambiguous"
+        )
     binding = matches[0]
     target_config = goal_channel_target_for_name(
         snapshot["target_payload"], binding["target_ref"]
     )
     if not target_config or target_config.get("enabled") is not True:
-        raise ValueError("manager return target disabled")
+        raise ReturnResolutionBlocked(
+            "original_route_unavailable", "manager return target disabled"
+        )
     routing = {
         "target_ref": binding["target_ref"],
         "conversation_kind": "manager",
@@ -89,7 +99,10 @@ def send_return(
     message_id = route["source_id"].removeprefix("lark:")
     config = load_lark_event_inbox_config(project=root, config_path=config_path)
     if message_id not in _load_processed(config["inbox_path"] / "processed.json"):
-        raise ValueError("initial reply has not been acknowledged")
+        raise ReturnResolutionBlocked(
+            "initial_delivery_receipt_unavailable",
+            "initial reply has not been acknowledged",
+        )
 
     def before_send(_intent):
         current = resolve()
@@ -136,7 +149,10 @@ def verify_return(
     message_id = route["source_id"].removeprefix("lark:")
     config = load_lark_event_inbox_config(project=root, config_path=config_path)
     if message_id not in _load_processed(config["inbox_path"] / "processed.json"):
-        raise ValueError("initial reply has not been acknowledged")
+        raise ReturnResolutionBlocked(
+            "initial_delivery_receipt_unavailable",
+            "initial reply has not been acknowledged",
+        )
     return verify_lark_inbox_reply(
         project=root,
         config_path=config_path,

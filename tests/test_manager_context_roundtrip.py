@@ -18,6 +18,7 @@ from loopx.capabilities.manager_context import (
 )
 from loopx.capabilities.manager_context.roundtrip import (
     ReturnService,
+    ReturnResolutionBlocked,
     _hash,
     drain,
     project_chat_return_deliveries,
@@ -588,6 +589,141 @@ def test_provider_verification_stops_after_return_authority_revocation(flow):
     assert state["status"] == "explicit_unverified"
     assert state["error"] == "return_authorization_unavailable"
     assert transport.verify_calls == 0
+
+
+def test_legacy_verification_required_without_locator_is_never_resent(flow):
+    """A record from before locators were persisted must not be guessed or resent."""
+    root, registry, store, create = flow
+    _, _, receipt = create(True)
+    rid = receipt["request_id"]
+    acknowledge(root, "research", "worker", rid, "adopt", "Checked")
+    report(root, "research", "worker", rid, "conclusion", "Legacy ambiguous result.")
+    _write(
+        _root(root) / "replies" / rid / "conclusion.delivery.json",
+        {"status": "verification_required", "error": "provider_delivery_unverified"},
+    )
+
+    class Transport:
+        send_calls = 0
+
+        def send_with_attempt(self, route, session, turn, text, record_attempt):
+            self.send_calls += 1
+            return {"reply_verified": True}
+
+        def verify(self, *_args):
+            raise AssertionError("a locatorless return has nothing to verify")
+
+    transport = Transport()
+    drain(root, registry, store, transport)
+    drain(root, registry, ChatSessionStore(root), transport)
+    state = reply_status(root, receipt)[0]
+    assert state["status"] == "explicit_unverified"
+    assert state["error"] == "provider_locator_unavailable"
+    # Terminal: no later pump may resend the already published conclusion.
+    drain(
+        root,
+        registry,
+        ChatSessionStore(root),
+        transport,
+        now=datetime.now(timezone.utc) + timedelta(days=2),
+    )
+    assert transport.send_calls == 0
+
+
+def accepted_attempt():
+    return {
+        "schema_version": "manager_return_delivery_attempt_v0",
+        "provider": "lark",
+        "message_ref": "om_provider_reply",
+        "intent_digest": "sha256:" + "a" * 64,
+        "provider_receipt": "sha256:" + "b" * 64,
+    }
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        lambda: ReturnResolutionBlocked(
+            "return_authorization_unavailable", "context return authority revoked"
+        ),
+        lambda: ValueError("context return authority revoked"),
+        lambda: ValueError("manager connection no longer authorized"),
+    ],
+    ids=["typed-reason", "prose-revoked", "prose-unauthorized"],
+)
+def test_return_authority_revocation_terminalizes_without_repeating_readback(
+    flow, failure
+):
+    root, registry, store, create = flow
+    _, _, receipt = create(True)
+    rid = receipt["request_id"]
+    acknowledge(root, "research", "worker", rid, "adopt", "Checked")
+    report(root, "research", "worker", rid, "conclusion", "Bounded result.")
+
+    class Transport:
+        verify_calls = 0
+
+        def send_with_attempt(self, route, session, turn, text, record_attempt):
+            record_attempt(accepted_attempt())
+            return {"external_write_performed": True, "reply_verified": False}
+
+        def verify(self, *_args):
+            self.verify_calls += 1
+            raise failure()
+
+    transport = Transport()
+    drain(root, registry, store, transport)
+    drain(root, registry, ChatSessionStore(root), transport)
+    state = reply_status(root, receipt)[0]
+    assert state["status"] == "explicit_unverified"
+    assert state["error"] == "return_authorization_unavailable"
+    assert transport.verify_calls == 1
+    # A terminal reason is never re-read, not even after the backoff window.
+    drain(
+        root,
+        registry,
+        ChatSessionStore(root),
+        transport,
+        now=datetime.now(timezone.utc) + timedelta(days=2),
+    )
+    assert transport.verify_calls == 1
+
+
+def test_unclassified_verification_failure_backs_off_instead_of_hot_looping(flow):
+    root, registry, store, create = flow
+    _, _, receipt = create(True)
+    rid = receipt["request_id"]
+    acknowledge(root, "research", "worker", rid, "adopt", "Checked")
+    report(root, "research", "worker", rid, "conclusion", "Bounded result.")
+
+    class Transport:
+        verify_calls = 0
+
+        def send_with_attempt(self, route, session, turn, text, record_attempt):
+            record_attempt(accepted_attempt())
+            return {"external_write_performed": True, "reply_verified": False}
+
+        def verify(self, *_args):
+            self.verify_calls += 1
+            raise RuntimeError("provider readback transport failed")
+
+    transport = Transport()
+    drain(root, registry, store, transport)
+    drain(root, registry, ChatSessionStore(root), transport)
+    assert reply_status(root, receipt)[0]["status"] == "verification_required"
+    assert transport.verify_calls == 1
+    # The kept locator stays retryable, but the next pump must respect the
+    # backoff instead of re-running the provider readback every few seconds.
+    drain(root, registry, ChatSessionStore(root), transport)
+    assert transport.verify_calls == 1
+    drain(
+        root,
+        registry,
+        ChatSessionStore(root),
+        transport,
+        now=datetime.now(timezone.utc) + timedelta(days=2),
+    )
+    assert transport.verify_calls == 2
 
 
 def test_public_delivery_projection_normalizes_unknown_private_state(flow):
