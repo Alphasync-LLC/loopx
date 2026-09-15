@@ -15,7 +15,7 @@ import shlex
 import sqlite3
 import tempfile
 import tomllib
-from typing import Any
+from typing import Any, Mapping
 from types import SimpleNamespace
 
 from .bootstrap_prompt import (
@@ -227,6 +227,25 @@ def build_plan(*, registry: Path, home: Path | None = None,
     return {"schema_version": SCHEMA, "ok": True, "codex_home": str(home),
             "entries": entries, "writes": False,
             "policy": "Discovery is not adoption authority. Review each replacement; use the App API first."}
+
+
+def automation_update_request(*, automation_id: str, manifest: Mapping[str, Any],
+                              expected_prompt_sha256: str, desired_prompt: str) -> dict[str, Any]:
+    """Complete prompt-only App request; scheduling and thread binding are preserved.
+
+    The CLI cannot call an in-App tool itself, so every entrypoint that hands a
+    stale installed body to its host sends this exact reviewed request.
+    """
+    return {"tool": "automation_update",
+            "expected_prompt_sha256": expected_prompt_sha256,
+            "precondition": "View the same automation; verify this prompt hash and all "
+                "preserved fields before update; read back afterward.",
+            "arguments": {"mode": "update", "id": automation_id, "kind": "heartbeat",
+                "name": manifest["name"], "status": manifest["status"],
+                "rrule": manifest["rrule"],
+                "targetThreadId": manifest["target_thread_id"],
+                "notificationPolicy": manifest.get("notification_policy"),
+                "prompt": desired_prompt}}
 
 
 def apply_offline(*, home: Path, automation_id: str, expected_prompt_sha256: str,
