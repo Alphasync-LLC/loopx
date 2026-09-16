@@ -6,6 +6,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from ...runtime.time import parse_timestamp
+# Refs #4447: the todo contract owns this vocabulary; import it instead of
+# restating the literal in every module that classifies a Todo.
+from ...todos.contract import TODO_TASK_CLASS_ADVANCEMENT
 from ...todos.frontier_revision import (
     TODO_FRONTIER_REVISION_SCHEMA_VERSION,
     advancement_frontier_revision_from_index,
@@ -16,7 +19,6 @@ from ...todos.frontier_revision import frontier_source_facts
 
 
 LONG_TODO_CHAIN_TRIGGER = "long_todo_chain"
-TODO_TASK_CLASS_ADVANCEMENT = "advancement_task"
 LONG_TODO_CHAIN_FRONTIER_REVISION_SCHEMA_VERSION = (
     TODO_FRONTIER_REVISION_SCHEMA_VERSION
 )
