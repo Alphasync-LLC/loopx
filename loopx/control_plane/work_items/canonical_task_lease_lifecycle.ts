@@ -1,0 +1,69 @@
+import type {JsonObject} from "../effect_program.ts";
+import {canonicalAuthoritySha256} from "../coordination/authority_store_codec.ts";
+import {openLocalAuthorityStoreHandle, localAuthorityOpenFailure,
+  type LocalAuthorityProviderDependencies} from "../coordination/local_authority_provider.ts";
+import {loadLegacyCoordinationWriterFence} from "../coordination/legacy_writer_fence.ts";
+import {withCanonicalWriter} from "../coordination/local_authority_write.ts";
+import {ShadowManagementError} from "../coordination/shadow_management.ts";
+import {EffectRuntimeLockTimeoutError} from "../effect_runtime_errors.ts";
+import {executeCanonicalTaskLeaseLifecycle} from "../coordination/task_lease_lifecycle.ts";
+import {revalidateAuthoritySources, TaskLeaseAcquireError, type AuthorityFacts} from "./task_lease_acquire.ts";
+import type {TaskLeaseLifecycleDecisionOperation} from "./task_lease_lifecycle_decision.ts";
+
+interface LocalLeaseRequest {
+  operation: TaskLeaseLifecycleDecisionOperation;
+  runtime_root: string; goal_id: string; todo_id: string;
+  owner: string | null; idempotency_key: string | null;
+  expected_version: number | null; ttl_seconds: number | null;
+  new_owner: string | null; new_idempotency_key: string | null;
+  authority: AuthorityFacts | null;
+}
+
+/** One fenced local opening boundary. A selected service provider must supply
+ * its service-owned factory; request data can never carry credentials/clients. */
+export async function mutateCanonicalTaskLease(request: LocalLeaseRequest,
+  dependencies: {now: () => Date; beforeWrite?: (lease: JsonObject) => void | Promise<void>;
+    authorityProvider?: LocalAuthorityProviderDependencies}): Promise<JsonObject> {
+  const root = request.runtime_root, goalId = request.goal_id;
+  const initialFence = await loadLegacyCoordinationWriterFence(root, goalId);
+  const evidence: JsonObject = {source_authority: null, decision_read_from_provider: false, legacy_fallback_used: false};
+  const rejected = (code: string, reason: string): JsonObject => ({status: "failed", changed: false,
+    reason_code: code, reason, failure_stage: "validation", ...evidence});
+  if (initialFence.status === "missing") return rejected(`canonical_${request.operation}_fence_missing`, "canonical lease writer fence is missing; legacy fallback is forbidden");
+  if (initialFence.status === "failed") return rejected(initialFence.reason_code, initialFence.reason);
+  try {
+    return await withCanonicalWriter(root, goalId, false, async () => {
+      const verifyFence = async () => {
+        const current = await loadLegacyCoordinationWriterFence(root, goalId);
+        if (current.status !== "loaded" || canonicalAuthoritySha256(current.fence) !== canonicalAuthoritySha256(initialFence.fence)) {
+          throw new TaskLeaseAcquireError("canonical lease writer fence changed; inspect authority before retrying", `canonical_${request.operation}_fence_changed`, {goal_id: goalId});
+        }
+      };
+      await verifyFence();
+      const {store, sourceAuthority} = await openLocalAuthorityStoreHandle(root, goalId, dependencies.authorityProvider);
+      evidence.source_authority = sourceAuthority;
+      if (!request.owner || !request.idempotency_key || (request.operation !== "release" && !request.authority)) {
+        return rejected("authority_required", "canonical lease mutation needs registered actor context");
+      }
+      evidence.decision_read_from_provider = true;
+      const result = await executeCanonicalTaskLeaseLifecycle(store, {operation: request.operation,
+        goal_id: goalId, todo_id: request.todo_id, owner: request.owner, idempotency_key: request.idempotency_key,
+        expected_version: request.expected_version, ttl_seconds: request.ttl_seconds,
+        new_owner: request.new_owner, new_idempotency_key: request.new_idempotency_key,
+        registered_agents: request.authority?.registered_agents ?? [], now: dependencies.now()}, async lease => {
+        if (lease) await dependencies.beforeWrite?.(lease);
+        await verifyFence();
+        // Release only relinquishes the existing proof. Removed actors and a
+        // missing registry must still be able to clean up their own lease.
+        if (request.operation !== "release" && request.authority) {
+          await revalidateAuthoritySources(request.authority.source_receipts);
+        }
+      });
+      return {...result, ...evidence};
+    });
+  } catch (error) {
+    if (error instanceof ShadowManagementError || error instanceof TaskLeaseAcquireError) return {...rejected(error.code, error.message), ...error.payload};
+    if (error instanceof EffectRuntimeLockTimeoutError) return rejected("lock_acquire_timeout", "canonical lease maintenance lock timed out");
+    return {...rejected("canonical_lease_route_failed", error instanceof Error ? error.message : "canonical lease route failed"), ...localAuthorityOpenFailure(error)};
+  }
+}
