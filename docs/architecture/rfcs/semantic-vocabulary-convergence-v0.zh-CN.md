@@ -4,7 +4,7 @@
 - **Delivery maturity：** Partial（M0 的注册表、计算清单与漂移 smoke 随本 RFC 一起交付）
 - **Authors / owners：** LoopX 贡献者；控制面内核维护者拥有批准权
 - **Created：** 2026-09-15
-- **Last normative revision：** 2026-09-16
+- **Last normative revision：** 2026-09-17
 - **Implementation baseline：** `1dc6ad8d8`
 - **Related contracts：** `loopx/semantics/vocabulary_v0.json`、
   `loopx/semantics/inventory.py`、
@@ -426,15 +426,44 @@ G ⊆ V × V × (S(v_source) ⇀ S(v_target) ∪ {reject}) 做投影
 R ⊆ L × V × Version               将值持久化
 ```
 
-最低语义义务如下：
+每条义务都按它实际被检查的值域陈述，而不是泛指 `V`。`Kernel(V) ⊆ V` 是
+`tier: kernel` 子集，也是唯一声明了 producers 的层；`Produced_scan(v)` 是固定形式
+在代码所有的扫描范围内观察到的生产；`ScopeDeclarations` 是注册表声明为有界上下文
+的那些分叉名字。
 
-1. **生产闭包：** `Produced(v) ⊆ S(v) ⊆ U(v)`。被识别的生产者不能写入注册集合之外的值。
-2. **规范值存活：** `Canonical(v) ⊆ Produced(v) ∪ CompatibilityOnly(v)`。只被比较、
-   没有生产来源的值是死值或兼容值，不能是 canonical。
+1. **生产闭包（仅 kernel 层）：** `∀v ∈ Kernel(V): Produced_scan(v) ⊆ S(v) ⊆ U(v)`。
+   被识别的生产者不能写入注册集合之外的值。扫描范围之外的生产，以及整个
+   `cross_runtime` 层，是未验证，而不是已证明闭合。
+2. **规范值存活（仅 kernel 层）：** `∀v ∈ Kernel(V): Canonical(v) ⊆ Produced_scan(v) ∪
+   CompatibilityOnly(v)`。只被比较、没有生产来源的值是死值或兼容值，不能是
+   canonical。`cross_runtime` 层不声明 producers，因此该层的存活性未被验证。
 3. **消费者定义域闭包：** `Accepted(c) ⊆ S(v)`，除非消费者显式声明外部定义域或部分定义域。
-4. **作用域分离：** 只有声明作用域相交时，同名冲突才是语义冲突。拼写本身不能证明等价。
+4. **作用域枚举完备性：** `∀n ∈ ScopeDeclarations`，声明的上下文 owner 模块集合
+   恰好等于定义 `n` 的模块集合，每个模块一个上下文，且每个上下文的 owner 符号
+   都是 `n`。作用域是声明的、从不推断，所以“只有声明作用域相交时同名冲突才是
+   语义冲突”是语义冲突的*定义*，不可能被违反；可检查的义务是一份声明必须枚举
+   全部定义模块。拼写本身仍然不能证明等价。
 5. **投影全性：** 每个源值都必须映射到目标值，或显式映射为 `reject`。
 6. **持久化兼容性：** 持久化词表改变时，必须保持所有读者可读，或声明带版本的迁移。
+
+每条义务在 `formal_model.invariants[].domain` 中记录它量化的集合，smoke 从注册表
+推导两个规模数字，而不是相信声明值：
+
+| 义务 | 量化范围 | 已验证 / 已注册 | 证据边界 |
+| --- | --- | --- | --- |
+| F1、F2 | `vocabularies[tier=kernel].producers` | 6 / 26 | producer 扫描范围 |
+| F3 | `vocabularies[*]` | 0 / 26 | 仅清单证据 |
+| F4 | `scope_declarations[*].contexts` | 4 / 4 | 声明的定义模块 |
+| F5 | `projections[*]` | 1 / 1 | 可执行 owner 函数 |
+| F6 | `persists_edges[*]` | 0 / 0 | 未建模 |
+
+`verified` 是该实施阶段真正走到的子值域，`registered` 是同一单位的全体总数。
+建议性（advisory）与未证明（unproved）阶段什么都不走，因此 `verified` 必须为 0；
+已强制阶段则不得声明空值域。每条义务的 selector 与证据边界由 smoke 里的
+`FORMAL_DOMAIN_ANCHOR` 按 `COVERAGE_ANCHOR` 同一模式钉住（I5），因此不可能只改数据
+就扒宽一条不变量所声称的范围。producer 扫描范围本身每次运行现算而不钉住，
+因为分母会随任何新模块移动；smoke 会打印当前比值、未解析位点总数，以及其中
+再宽的扫描也永远无法解析的那一部分（E21）。
 
 这些是不同的证明义务。M0 已建立 owner 集合相等、跨运行时 parity、声明的可执行投影
 和基于当前已跟踪源码树计算的清单。固定字面量形式与闭集载体只提供有界证据，不是全程序证明。M0.5
@@ -506,6 +535,7 @@ external_input | compatibility_only | unknown
 | `vocabularies.<name>.producers`（M0.5） | 写入该字段的 `path::Symbol` 位点，`kernel` 必填 | 每个位点只写注册值；未列入 `compatibility_only` 的每个值至少有一个源码生产位点或可执行输入见证（I12、I13） |
 | `vocabularies.<name>.compatibility_only`（M0.5） | 为持久化读者或旧类型化调用接口保留的值 | `values` 的子集；零生产位点；每个值带 `value_notes` 理由与退休里程碑 |
 | `formal_model` | 有限的集合、角色关系与层次、语义义务、候选决策，以及已建立/有界/unknown/未证明的声明 | 漂移 smoke 校验精确 schema、角色层次、候选决策和不变量 ID；属性实施阶段不能冒充已完成证明 |
+| `formal_model.invariants[].domain` | 义务量化的集合：`quantifies_over` selector、`verified` 与 `registered` 规模、`evidence_bound` | selector 与证据边界都是代码所有的名字，并由 `FORMAL_DOMAIN_ANCHOR` 逐不变量钉住；两个规模都从注册表推导并必须与声明值相等；advisory 与 unproved 阶段必须声明 `verified: 0`，已强制阶段不得声明空值域 |
 | `formal_model.enforcement_policy` | 当前阻断、下一阶段阻断、建议性和未证明层级 | 每个形式不变量恰好出现一次，且层级与其实施阶段一致 |
 | `vocabularies.<name>.value_notes`、`deprecated_values` | 逐值评审备注；计划删除的值 | 名字必须是已注册值 |
 | `relations.same_concept` | `vocabulary.value` 成员组 | 每个成员可解析 |
@@ -523,9 +553,14 @@ external_input | compatibility_only | unknown
 报告不入库；它每行一条地列出 Python 枚举、闭集、`Literal` 别名、
 TypeScript `as const` 数组，以及拆为跨运行时孪生、同运行时分叉、冲突值、多值
 孪生与多值分叉四类的重复定义。每个多值冲突都带上全部定义模块及其值集，因此
-可评审的是分叉本身而不只是计数。消费者计数由 `--report` 打印，合并候选组通过 `merge_candidate_groups` 获取，
-所有清单输出均不提交；合并候选是建议性的，因为值集
-相同并不能证明是同一个概念。单模块的字符串常量只计数，不列出。
+可评审的是分叉本身而不只是计数。消费者计数与合并候选组都由 `--report` 打印，
+`merge_candidate_groups` 返回这些组，所有清单输出均不提交；合并候选是建议性的，因为值集
+相同并不能证明是同一个概念。打印的列表会剔除那些名字恰好等于某个已注册词表自身
+owner 符号集合的组：`EffectiveAction` 与 `EFFECTIVE_ACTIONS` 是同一个已注册概念在两个
+运行时的两种拼法，不是两个待合并的概念。不传注册表调用 `merge_candidate_groups`
+仍可得到未过滤列表。被剔除的对已有定论，因此剔除既不退休任何东西也不做任何分类；
+留下的每一组都带上名字、值、模块，以及模块是否横跨两个运行时——后者正是注册表
+缺口的形状。单模块的字符串常量只计数，不列出。
 
 值是只增的。删除一个值、字段、owner 或关系属于 schema 缩减，遵循 `AGENTS.md`
 规则：枚举受影响表面、调研生产者与读者、在同一 diff 中调低下限、记录维护者
@@ -614,6 +649,8 @@ TypeScript `as const` 数组，以及拆为跨运行时孪生、同运行时分�
 
 | 历史上的已提交清单会因上游合并而过期 | 对 `upstream/main` 最近二十个合并提交，在第一父提交与合并结果之间重放扫描器 | 20 次合并中 8 次至少改变一个载体 | Q9 的历史动机；当前检查直接计算合并后的全树，不再依赖提交快照 |
 | 形式模型不能静默丢失证明义务 | 从 `formal_model` 删除不变量、角色、候选决策、关系或证明边界分类 | 漂移 smoke 针对形式模型结构失败 | 该模型是有限契约和证明账本，本身不等于这些性质已经被证明 |
+| 义务不能声称一个无人清点的值域 | `uv run --extra test python -m pytest tests/architecture/test_semantic_vocabulary_drift.py -k domain` | 删掉 `domain`、调大 `verified` 或 `registered`、自造 selector、使用未钉住的 selector 或跨阶段的证据边界、以及 advisory 不变量声称已验证成员，逐项失败关闭 | 规模从注册表推导，因此该检查把声明值域接地到注册表数据；它不证明该义务在那个值域上成立 |
+| F1/F2 恰好量化 producer 检查真正走到的集合 | 同一测试模块：将 `check_producers` 的谓词与 F1/F2 声明的值域对比 | 声明了 `producers` 的词表恰好是 `kernel` 层，26 中的 6；其余 20 个全部是 `cross_runtime` | 扫描范围进一步约束该声明，它被上报而不被钉住 |
 
 已知边界，写明是为了不让这个检查被过度信任：
 
@@ -884,6 +921,31 @@ TypeScript 用有界文法扫描，且先把字符串字面量与注释抹白再
 `field:` 报为提及而非写入：在这套文法看来，接口成员与对象字面量条目形状相同，
 把一处声明算作生产会恰好朝 I13 警告的方向高估。
 
+### 2026-09-17 — 不变量表述收敛到各自已验证的值域
+
+规范性变更；需要内核维护者批准。当前源码树上没有任何检查的通过/失败结果改变，
+改变的是这些不变量所声称的内容。
+
+- F1 与 F2 原本在 `V` 上无条件成立，而 `check_producers` 会跳过每个没有
+  `producers` 的词表——26 个中的 20 个，也就是整个 `cross_runtime` 层。现在两者
+  都改写在 `Kernel(V)` 上，并以 `Produced_scan(v)`（代码所有的扫描范围内观察到的
+  生产）为界，该范围是 1203 个已跟踪 `loopx/**/*.{py,ts}` 文件中的 432 个。
+  `validate_production` 自己的 docstring 早已声明不主张全程序闭合性；现在表述与
+  它一致。
+- F4 原本是 `conflict := collision ∧ scope_overlap`，这是一条定义：作用域是声明
+  的、从不推断，因此它不可能被违反。现改写为 `check_scope_declarations` 真正强制
+  的枚举完备性性质。
+- 每条义务新增 `domain`（`quantifies_over`、`verified`、`registered`、
+  `evidence_bound`）。两个规模都在每次运行时从注册表推导，selector 与证据边界这一
+  对则由 `FORMAL_DOMAIN_ANCHOR` 逐不变量钉住，因此不可能只改数据就扒宽一条不变量
+  所声称的集合。
+- 报告会打印各值域规模、扫描范围，以及 41 个未解析 producer 位点中永远不可能成为
+  证据的 15 个。
+- `check_producers` 里 `continue` 的注释原本说被跳过的是“其他 kernel 家族”。它们
+  根本不是 kernel；该注释已修正。
+- 本次未处理：`check_formal_model` 仍会接受一个自洽的错误声明，因为同时挪动某条
+  不变量的 `enforcement` 与它的 policy 层级仍然自洽。那个接地缺口是另一件事。
+
 ### 2026-09-16 — B2 试点：Python producer 扫描器绑定一跳再导出
 
 - **触发：** M2 把三个 Turn owner 迁入 `turn_contract_generated.py` 后，仍经
@@ -1031,6 +1093,7 @@ TypeScript 用有界文法扫描，且先把字符串字面量与注释抹白再
 | 2026-09-16 | B2：Python producer 扫描器绑定一跳未改名再导出 | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B2；PR 评审待完成 | 要求每个消费者都从 owner 模块导入（脆弱；M2 中已静默失效）；拒绝无界多跳解析 | 5、附录 A |
 | 2026-09-17 | B3：在 token 计数旁边为迁移面设预算；Q11 决策前两者都保留 | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B3；PR 评审待完成 | 直接用新指标取代 token 预算（否决：token 计数正是证明新角色划分同一批模块的锚，在引入角色的同一个 diff 里把它删掉会让更小的数字无法复核）；把计算式下标也计为未定读取（否决：`rows[index]` 与 `payload[key]` 是同一种语法，未知数会大到不再携带信息） | 5、9、11、12 |
 | 2026-09-16 | B1 改名不变性：新增按名字归组的分歧报告；写明它未闭合的边界 | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B1；PR 评审待完成 | 把预算改按值集归组（否决：`CONFIDENCE_LEVELS` 与 `EDGE_CASE_COMPLEXITIES` 共享 `high/low/medium` 而含义不同）；提交名字账本（M0 否决：Q9 已退役提交式清单）。该报告列出仍然存在的分叉；初稿称它能抓住单侧改名，实测证否，故两份镜像按真实行为写明边界 | 9 |
+| 2026-09-17 | 将 F1/F2 限定在 kernel 层与扫描范围，把 F4 重述为作用域枚举完备性，并给每条义务加上可推导的 `domain` | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447)；**需要内核维护者批准，尚未获得** | 保留无条件表述、只在正文记一笔缺口（否决：该表述比 `validate_production` 自己的 docstring 还强）；把 F4 重述为各上下文值集互斥（否决：会被仓库自身数据推翻，`scope_declarations` 恰恰就是为了允许合理的同名复用）；扒宽扫描让无条件声明成立（否决：那是自带风险的另一个变更） | 5、9、附录 B、附录 C |
 
 ## 附录 C：证据登记
 
@@ -1055,7 +1118,10 @@ TypeScript 用有界文法扫描，且先把字符串字面量与注释抹白再
 | E18 | 声明范围超出扫描根 | `503991dd2` + M0 | 从注册表读 `literal_scan.roots` 与清单 `root`；在 `examples/` 下 `grep` `effective_action` 分发字面量；统计 `apps/` 下 `.ts`/`.tsx` | 根只有 `loopx`；`examples/` 12+ 处断言；`apps/` 90 个文件 | 消费者与测试替身，非生产者 |
 | E19 | `SOURCE_SURFACES` 是四个有界上下文，不是分叉 | `503991dd2` | 从清单读出四个 `multi_value_forks` 定义 | 每个模块列出自己 CLI 命令的数据来源，值互不相交 | 读值后的判断；规则本身做不出 |
 | E20 | 退休预算按子串高估 | `503991dd2` | 对 `loopx/**/*.py` 分别用 `'goal_boundary' in text` 与 `\bgoal_boundary\b` | 35 对 30 个模块 | 标识符计数才是 M3 门的度量 |
-| E21 | 退休预算把提及算成了读者 | `e12e05fff` | 对六个旧字段运行 `check_reader_metric()`；断言角色划分 `count_identifier_modules()` | 109 个 py token 模块解析为 82 个迁移面模块；`goal_boundary` 30 → 15，`work_lane_contract` 29 → 28，`protocol_action_packet` 5 → 5 且只有一个读者 | 度量句法使用而非数据流；1712 处计算式键 mapping 访问仍无法归属，因此迁移面为零不等于读者为零 |
+| E21 | F1/F2 写成无条件，但只在一个层上被验证 | `3ca868193` | 从源码树读 `check_producers` 的跳过谓词与 producer 扫描根目录 | 26 个词表中 6 个声明了 `producers`，恰好是 `tier: kernel` 那几个；被跳过的 20 个全部是 `cross_runtime`；扫描触及 1203 个已跟踪 `loopx/**/*.{py,ts}` 中的 432 个（35.9%），未覆盖部分主要是 capabilities 285、其余控制面 192、extensions 83 | 计数来自注册表与已跟踪源码树；分母会随任何新模块移动，所以只上报、不钉住 |
+| E22 | 15 个被上报的未解析位点永远不可能成为证据 | `3ca868193` | smoke 报告的 `unresolved_producer_blockers` | 41 个未解析位点，其中 `argument_name_only` 10 个、`annotation_only` 5 个分别是以字段名命名的关键字参数和裸声明；其余 26 个是动态或跨过程的 | 按标签归组；这两个标签在扫描器里由代码持有，因此这个下界只能靠改代码移动 |
+| E23 | F4 写法本身不可能被违反 | `3ca868193` | 对照 F4 表述阅读 `check_scope_declarations` | 作用域是声明的、从不推断，所以 `conflict := collision ∧ scope_overlap` 是一条定义；真正被强制的是一份声明必须恰好枚举每个定义模块，范围是 1 份声明、4 个上下文 | 阅读检查后的判断；各上下文值集互斥故意*不*作为该性质，因为 `SOURCE_SURFACES` 正是合理地在四个上下文复用同一个名字（E19） |
+| E24 | 退休预算把提及算成了读者 | `e12e05fff` | 对六个旧字段运行 `check_reader_metric()`；断言角色划分 `count_identifier_modules()` | 109 个 py token 模块解析为 82 个迁移面模块；`goal_boundary` 30 → 15，`work_lane_contract` 29 → 28，`protocol_action_packet` 5 → 5 且只有一个读者 | 度量句法使用而非数据流；1712 处计算式键 mapping 访问仍无法归属，因此迁移面为零不等于读者为零 |
 | E13 | 冲突预算主要在度量局部命名 | `1dc6ad8d8` | 对 `conflicting_values` 与 `same_runtime_forks` 名字应用 `MODULE_LOCAL_CONVENTION` | 18 个冲突中 16 个、25 个分叉中 7 个是模块局部约定；语义子集分别为 2 与 18 | 分类是名字模式，已在扫描器中说明并由夹具测试钉住 |
 
 ## 附录 D：被否决或取代的方案
