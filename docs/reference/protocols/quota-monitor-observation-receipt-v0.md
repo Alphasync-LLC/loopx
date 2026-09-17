@@ -77,6 +77,8 @@ does not perform a network poll. Add `--material-change --next-agent-todo ...
   proof**. Its durable business receipt can settle after lease release/expiry,
   with the original decision as the event's `before` state. A new observation
   still needs current authority. Quota settlement never spends a delivery slot.
+  The existing quota-index CAS remains enforced: an intervening index write
+  causes an explicit conflict, not an unconditional settlement append.
 - Lease-bearing quota/provider requests and provider plans use v1; proof-less
   requests retain v0, including their original digests. Completed v0 settlement
   receipts remain readable. Old v0 *pending* receipts have no frozen admission:
@@ -153,6 +155,7 @@ version。调用方须已有合法 Monitor Turn 和所需 host capabilities；�
   冻结原准入决策与 provider plan。进程丢失后，用**相同 Turn、观察、intent 和原凭据**
   重试；已提交业务的回执可在租约释放／过期后补结算，event 的 `before` 仍是原决策。
   新观察依旧需要当前权限；结算不消耗 delivery slot。
+  既有 quota-index CAS 继续生效；若期间有其他 index 写入，则明确冲突，不能无条件追加。
 - 携带租约的 quota/provider request 和 provider plan 使用 v1；无 proof 的请求保留
   v0 及原 digest，已完成的 v0 结算继续可读。旧 v0 pending 没有冻结准入：当前准入仍
   成立时可恢复，否则报告 `legacy_monitor_admission_unavailable`，保留证据供核对。

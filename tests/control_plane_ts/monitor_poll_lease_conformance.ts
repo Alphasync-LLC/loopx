@@ -5,6 +5,7 @@ import type {JsonObject} from "../../loopx/control_plane/effect_program.ts";
 import type {AuthorityStore, AuthorityStoreCommit} from "../../loopx/control_plane/coordination/authority_store.ts";
 import {executeCoordinationMonitorPoll} from "../../loopx/control_plane/coordination/todo_monitor_poll.ts";
 import {coordinationTodoReadModel} from "../../loopx/control_plane/coordination/coordination_projection.ts";
+import {evaluateTodoResumeConditions} from "../../loopx/control_plane/todos/resume_condition.ts";
 import type {AuthorityStoreConformanceFactory} from "./authority_store_conformance.ts";
 import {productionScaleLeasedMonitorFixture} from "./production_scale_coordination_fixture.ts";
 
@@ -43,6 +44,14 @@ export function registerLeasedMonitorConformance(provider: string, factory: Auth
       original.filter(todo => todo.todo_id !== fixture.target));
     assert.equal(rows.length, original.length + 2);
     assert.equal(rows.find(todo => todo.todo_id === fixture.target)?.material_change_generation, 5);
+    const ready = [original, rows].map(source => {
+      const result = evaluateTodoResumeConditions({schema_version: "todo_resume_evaluation_request_v0",
+        items: source.filter(todo => todo.todo_id === fixture.dependent), source_items: source,
+        kinds: ["monitor_changed"]});
+      const condition = (result.conditions as JsonObject[])[0]!.condition as JsonObject;
+      return condition.satisfied;
+    });
+    assert.deepEqual(ready, [false, true], "the committed generation releases the existing dependent's wait");
     const unchanged = await executeCoordinationMonitorPoll(store, {...request, operation_id: "unchanged",
       observation: {...request.observation, generated_at: "2026-09-01T02:00:00Z", material_change: false}, intent: {}});
     assert.equal(unchanged.status, "applied");
