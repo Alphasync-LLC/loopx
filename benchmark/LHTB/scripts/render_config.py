@@ -54,13 +54,19 @@ def main() -> int:
     agent["model_name"] = args.model
     agent["override_timeout_sec"] = args.timeout
     agent["kwargs"]["reasoning_effort"] = args.effort
-    execution = Execution(mode=args.execution_mode, context=args.iteration_context,
-                          timeout_seconds=args.turn_timeout,
-                          validation_command=tuple(json.loads(args.validation_command_json)))
-    agent["kwargs"].update(execution_mode=execution.mode, iteration_context=execution.context,
-                           validation_command=list(execution.validation_command),
-                           turn_timeout_sec=execution.timeout_seconds,
-                           scheduler_timeout_sec=args.scheduler_timeout)
+    execution = Execution(
+        mode=args.execution_mode,
+        context=args.iteration_context,
+        timeout_seconds=args.turn_timeout,
+        validation_command=json.loads(args.validation_command_json),
+    )
+    agent["kwargs"].update(
+        execution_mode=execution.mode,
+        iteration_context=execution.context,
+        validation_command=list(execution.validation_command),
+        turn_timeout_sec=execution.timeout_seconds,
+        scheduler_timeout_sec=args.scheduler_timeout,
+    )
     agent["kwargs"]["goals"] = str(execution.native_goal).lower()
     agent["kwargs"]["web_search"] = "disabled"
 

@@ -31,8 +31,11 @@ class Execution:
             raise ValueError("unsupported Codex sandbox")
         if not math.isfinite(self.timeout_seconds) or self.timeout_seconds <= 0:
             raise ValueError("execution timeout must be finite and positive")
+        if not isinstance(self.validation_command, (list, tuple)):
+            raise ValueError("validation_command must be an argv list")
         if any(not isinstance(arg, str) or not arg for arg in self.validation_command):
             raise ValueError("validation_command must contain non-empty argv strings")
+        object.__setattr__(self, "validation_command", tuple(self.validation_command))
         if self.mode == "turn" and not self.validation_command:
             raise ValueError("mode=turn requires an independent validation_command")
         if self.mode != "turn" and self.validation_command:

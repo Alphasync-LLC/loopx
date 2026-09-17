@@ -70,8 +70,6 @@ stage native Codex + current LoopX source/profile
   -> expose staged Node 22 through BASH_ENV for Codex login shells
   -> create trial-local registry/runtime/task document
   -> bootstrap one trial-local Goal
-       -> Harbor adapter marks the connection provider-prevalidated
-       -> skip the generic repo-intake onboarding Todo
   -> register benchmark-agent
   -> configure replan_after_completed_todos=3 and read it back
   -> add the current Harbor phase as a claimed advancement Todo
@@ -94,8 +92,8 @@ workspace, Codex home and trial-local LoopX state persist. This replaces the old
 per-wake home and is a disclosed behavior change. Memory generation/injection
 are disabled. The [shared runtime](../runtime/RUNTIME.md) also supports governed
 Turn fresh/resume and native Goal modes; historical results retain their original
-configuration and do not describe these new combinations. Each wake's `invocation.json` records
-`fresh_codex_exec=true`, `resume=false`, and its unique Turn ID.
+configuration and do not describe these new combinations. Each wake receipt
+records the requested mode/context and its unique identity.
 
 Codex tool commands run through a login shell, which can replace the inherited
 `PATH`. The adapter supplies a trial-local `BASH_ENV` that prepends the staged
@@ -108,11 +106,9 @@ trial-local goal document, and the selected P0 Todo points the model to that
 document. Registries are inside their own task containers, so no Goal, Todo,
 or scheduler state is shared between the 46 trials.
 
-The Harbor adapter has already validated the project bridge and writes the
-benchmark phase as an explicit P0 Todo. Bootstrap therefore uses
-`--no-onboarding-scan --onboarding-connection-validation
-provider-prevalidated`. This suppresses the unrelated generic repo-intake Todo;
-it does not suppress successor Todos created while solving the LHTB task.
+The adapter registers the project through the current public bootstrap CLI and
+adds the benchmark phase as an explicit P0 Todo. Retired onboarding flags are
+not replayed; bootstrap and Todo lifecycle follow the installed product version.
 
 ## Shared execution configuration
 
@@ -216,7 +212,7 @@ authoritative captured stream when it does not.
 - `configs/heartbeat-generic-cli.yaml`: immutable 46-task template.
 - `agents/codex_loopx_heartbeat.py`: Harbor lifecycle and LoopX Goal setup.
 - `../swe-marathon/agents/codex_offline.py`: shared native Codex staging.
-- `runtime/wake_once.py`: unique Turn, thin heartbeat body, fresh Codex exec.
+- `../runtime/worker.py`: unique Turn, thin heartbeat body, fresh Codex exec.
 - `scripts/preflight.py`: fail-closed parity and safety checks.
 - `harbor_patch/`: opt-in model-only Docker networking patch.
 - `verifier-images/`: the two task-declared separate verifier images.

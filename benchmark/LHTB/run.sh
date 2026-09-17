@@ -72,7 +72,7 @@ if [[ -z "${LOOPX_NODE_DIR:-}" ]]; then
   node_binary="$(readlink -f "$node_command" 2>/dev/null || true)"
   [[ -n "$node_binary" ]] && LOOPX_NODE_DIR="$(cd "$(dirname "$node_binary")/.." && pwd)"
 fi
-[[ -n "${LOOPX_NODE_DIR:-}" && -x "$LOOPX_NODE_DIR/bin/node" ]] || die "Set LOOPX_NODE_DIR to a Node >=22.6 root"
+[[ -n "${LOOPX_NODE_DIR:-}" && -x "$LOOPX_NODE_DIR/bin/node" ]] || die "Set LOOPX_NODE_DIR to a a supported Node root"
 
 for value in "$CONCURRENCY" "$AGENT_TIMEOUT_SEC" "$LOOPX_SCHEDULER_TIMEOUT_SEC" \
   "$LOOPX_WAKE_TIMEOUT_SEC" "$LOOPX_CODEX_TURN_TIMEOUT_SEC" "$LHTB_MAX_RETRIES" "$RUNNER_RESTARTS"; do
@@ -173,7 +173,6 @@ receipt="$CODE_DIR/reports/${job_name}.env"
   printf 'concurrency=%s\nagent_timeout_sec=%s\nscheduler_timeout_sec=%s\n' "$CONCURRENCY" "$AGENT_TIMEOUT_SEC" "$LOOPX_SCHEDULER_TIMEOUT_SEC"
   printf 'gateway=%s\nwire_api=%s\nweb_search=disabled\n' "$OPENAI_BASE_URL" "$CODEX_WIRE_API"
   printf 'execution_mode=%s\niteration_context=%s\ncodex_home_scope=trial\n' "$LOOPX_EXECUTION_MODE" "$LOOPX_ITERATION_CONTEXT"
-  printf 'onboarding_connection_validation=provider-prevalidated\n'
   printf 'scheduler_terminal_packet_compatibility=true\n'
   printf 'replan_after_completed_todos=3\nverifier_policy=44_shared_2_separate\n'
   printf 'loopx_commit=%s\n' "$(git -C "$LOOPX_SRC_DIR" rev-parse HEAD)"

@@ -205,9 +205,7 @@ def run_once(env: dict[str, str]) -> dict:
         context=env.get("LOOPX_ITERATION_CONTEXT", "fresh"),
         sandbox=env.get("LOOPX_CODEX_SANDBOX", "danger-full-access"),
         timeout_seconds=float(env.get("LOOPX_CODEX_TURN_TIMEOUT_SEC", "4700")),
-        validation_command=tuple(
-            json.loads(env.get("LOOPX_VALIDATION_COMMAND_JSON", "[]"))
-        ),
+        validation_command=json.loads(env.get("LOOPX_VALIDATION_COMMAND_JSON", "[]")),
     )
     turn_id = f"wake-{time.time_ns()}-{uuid.uuid4().hex[:12]}"
     log_root = Path(env["LOOPX_WAKE_LOG_DIR"])

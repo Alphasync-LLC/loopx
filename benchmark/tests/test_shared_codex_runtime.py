@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 import os
 import sys
 import tomllib
@@ -39,6 +40,8 @@ def settings(tmp_path, **changes):
         {"mode": "turn"},
         {"timeout_seconds": float("nan")},
         {"validation_command": ("true",)},
+        {"mode": "turn", "validation_command": "true"},
+        {"mode": "turn", "validation_command": {"command": "true"}},
         {"sandbox": "unrecognised"},
     ],
 )
@@ -205,3 +208,33 @@ def test_baseline_and_treatment_use_same_harbor_entry(tmp_path):
         assert env["LOOPX_EXECUTION_MODE"] == mode
         assert env["LOOPX_PROJECT"] == "/workspace"
         assert env["MODEL_NAME"] == "fixture"
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_phase_bootstrap_uses_current_public_cli(tmp_path, monkeypatch, existing):
+    pytest.importorskip("harbor")
+    from benchmark.runtime.harbor import BenchmarkCodex
+    from loopx.cli import build_parser
+
+    agent = BenchmarkCodex(logs_dir=tmp_path, model_name="openai/fixture")
+    calls = []
+
+    async def write_task(*args, **kwargs):
+        pass
+
+    async def registry_exists(*args):
+        return existing
+
+    async def cli(environment, args, **kwargs):
+        # Parse the actual adapter command, so retired flags fail without
+        # launching a model or mutating any active project.
+        build_parser().parse_args(args)
+        calls.append(args)
+        return {"after": {"execution_profile": {"replan_after_completed_todos": 3}}}
+
+    monkeypatch.setattr(agent, "_write_task_document", write_task)
+    monkeypatch.setattr(agent, "_registry_exists", registry_exists)
+    monkeypatch.setattr(agent, "_loopx", cli)
+    asyncio.run(agent._prepare_phase(None, "Synthetic task", cwd=str(tmp_path)))
+    assert any(args[:2] == ["todo", "add"] for args in calls)
+    assert any(args[0] == "bootstrap" for args in calls) is not existing

@@ -58,7 +58,7 @@ export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 
 Also set `CODEX_OFFLINE_DIR` (Codex, code-mode sidecar, rg),
 `LOOPX_PORTABLE_PYTHON` (Python >=3.11 distribution) and `LOOPX_NODE_DIR`
-(Node >=22.6 distribution). Staging uses `git archive HEAD`, never local run
+(Node >=22.18.0 distribution). Staging uses `git archive HEAD`, never local run
 artifacts. Commit the candidate before real validation. Baselines stage only
 the runner/native transport, without installing LoopX skills or initializing
 its state. LoopX modes use the formal installer and doctor readback.

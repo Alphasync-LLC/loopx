@@ -64,7 +64,7 @@ class BenchmarkCodex(CodexOffline):
             iteration_context,
             codex_sandbox,
             float(turn_timeout_sec),
-            tuple(validation_command or ()),
+            validation_command if validation_command is not None else (),
         )
         self.scheduler_timeout = int(scheduler_timeout_sec)
         if self.scheduler_timeout <= self.execution.timeout_seconds + 150:
@@ -208,7 +208,6 @@ class BenchmarkCodex(CodexOffline):
             "execution_mode": self.execution.mode,
             "iteration_context": self.execution.context,
             "home_scope": "trial",
-            "onboarding_connection_validation": "provider-prevalidated",
             "login_shell_node_path": _BASH_ENV,
             "scheduler_terminal_packet_compatibility": True,
             "replan_after_completed_todos": self.replan_after_todos,
@@ -304,12 +303,6 @@ class BenchmarkCodex(CodexOffline):
                     "connected-read-only",
                     "--write-scope",
                     "**",
-                    "--no-onboarding-scan",
-                    "--onboarding-connection-validation",
-                    "provider-prevalidated",
-                    "--begin-autonomous-advance",
-                    "--codex-app-heartbeat",
-                    "no",
                     "--no-global-sync",
                 ],
                 cwd=cwd,
