@@ -513,7 +513,7 @@ external_input | compatibility_only | unknown
 | `relations.subsets` | 超集词表、排除值、子集符号的 owner | owner 符号等于超集减排除值 |
 | `projections.<name>.mapping` | 源值到目标值或 `null` | 键等于源词表；映射值与 owner 函数一致；`null` 路由抛出（I4） |
 | `schema_versions.<name>` | 常量名、值、owner 模块 | 唯一的定义模块就是列出的 owner 且都携带该值（I1） |
-| `retirement_ledger.<group>.fields` | 每字段的 Python 与 TypeScript 模块预算 | 实际模块数不超过预算，且字段集合与每个预算与 `RETIREMENT_ANCHOR` 一致（I5） |
+| `retirement_ledger.<group>.fields` | 每字段在两种指标下的 Python 与 TypeScript 预算：`*_module_budget` 统计携带该字段 token 的模块，`*_migration_surface` 统计真正读、写或以形参/局部名承载它的模块 | 两个实测值都不超过各自预算；字段集合与每个 token 预算与 `RETIREMENT_ANCHOR` 一致，每个迁移面预算与 `MIGRATION_SURFACE_ANCHOR` 一致，且五种句法角色恰好划分 token 计数（I5） |
 | `dual_runtime_twins` | 根目录与模块预算 | 同名 `.py`/`.ts` 对数不超过预算（I5） |
 | `inventory_ratchets` | 同运行时分叉的名字数与定义数、冲突的名字数与定义数、schema 版本分叉数、多值孪生与分叉数，以及共享词表冲突与分叉子集的预算 | 清单摘要计数不超过预算，且每个预算必须等于其 `BUDGET_ANCHOR` 条目（I5、I9） |
 
@@ -604,6 +604,9 @@ TypeScript `as const` 数组，以及拆为跨运行时孪生、同运行时分�
 | 两处 owner 修正不改变行为 | `uv run --extra test python -m pytest tests/test_loopx_turn_transaction.py tests/test_loop_turn_loop_controller.py tests/test_turn_loop_disposition.py tests/test_loopx_turn_managed_step.py tests/control_plane -k authority` 与 `uv run --extra test loopx canary premerge --from-git-diff` | 通过 | 在干净树上可复现的 `main` 既有环境失败除外 |
 | 文档治理接受这对 RFC | `python3 examples/docs-governance-smoke.py` | 通过 | 检查镜像、链接、索引 |
 | 退休预算按子串而非标识符计数 | 分别以 `in file.text` 与 `\bgoal_boundary\b` 统计 `goal_boundary` | 基线上 35 对 30 个 Python 模块 | 已知边界；M3 的零读者门需要标识符计数，见第 12 节 |
+| 退休指标把读者与提及分开（B3） | `check_reader_metric()` 把携带六个字段 token 的每个模块归为 reader、writer、binding、unresolved 或 mention | `goal_boundary`：30 个 token 模块解析为 8 读、4 写、3 承载、1 未定、14 提及，迁移面是 15 而非 30；`work_lane_contract` 仍是 29 中的 28 | 度量的是句法使用，不是数据流。角色被断言恰好划分 token 计数，因此更小的数字是同一批模块的重新分类，不是另一批更小的样本 |
+| 旧字段新增读者会在 PR 路径上失败 | 让一个模块读 `payload["protocol_action_packet"]` 从而超出预算 | `check_reader_metric` 失败并点名该字段与计数 | `tests/architecture/test_semantic_vocabulary_drift.py` 内的提交测试；锚点等值检查与 `RETIREMENT_ANCHOR` 同一套模式 |
+| 计算式键保持「未定」而非「不存在」 | 统计首参数不是字面量的 mapping 访问器 | `loopx/` 下 1704 处；某字段读者计为零时，是对着这个公开的未知数计零 | 这正是零读者本身不能授权删除的原因（Q11）。计算式下标不计入：`rows[index]` 与 `payload[key]` 是同一种语法 |
 | 模块局部约定过滤器是一次代码修改 | 扩宽 `inventory.py` 的 `MODULE_LOCAL_CONVENTION` 并重新生成 | `*_semantic` 预算下降而别处无代码改动 | 已知边界；正则在代码里，扩宽是可评审的 diff，未过滤总数仍在预算内 |
 | 无人生产的注册值失败（M0.5） | 在基线上运行生产形式扫描 | 失败并点名 `effective_action` 与 `skip`；删除 `skip` 或列入 `compatibility_only` 后通过 | 第一个预期的 I12 失败；只被比较的值不算已携带 |
 | 生产未注册值失败（M0.5） | 在某个已列生产位点写 `effective_action: "brand_new"` | 即使无消费者比较它也失败，并点名位点与值 | I13；生产比比较更严 |
@@ -698,7 +701,7 @@ TypeScript effective-action 绑定与[术语表](../../reference/glossary.md)通
 | M0.5b | `kernel` 词表的 `producers` 与 `compatibility_only`；带两条角色检查（I12、I13）的生产形式扫描；退休预算改按标识符计数并在一个 diff 里调整六个锚点（Q11）；Q9 的合并序规则写入第 10 节 | M0.5a 完成；Q9 已决或其临时规则被接受 | smoke 在 I11 到 I14 强制下全绿；`skip` 已处理；第 9 节生产者行全绿；为 Q2 回答 `turn_route` 是否持久化 | 删除生产者字段和角色检查；预算回到 M0.5b 前的锚点 |
 | M1 | 单一 owner 模块中的 `EffectiveAction` 类型化枚举；replay observation 与 frontier 槽位拆出（Q6）；生产者与消费者 import 它；注册表 `literal_scan` 收紧到枚举 | M0.5 合入；owner 模块已定（Q3）；槽位拆分已决（Q6） | smoke 绿；owner 之外零裸 `effective_action` 字面量；status/should-run 的 parity fixture 不变 | 回退为字面量；注册表保留集合 |
 | M2 | route 到 disposition 的投影、`decide_loop_disposition` 决策表与跨运行时集合通过共享契约发布，生成 Python 与 TypeScript 绑定，效仿协调契约生成器 | M1 合入；Q2 与 Q7 已决 | 生成器 `--check` 与 smoke 绿；`settlement.ts` 与 `transaction.py` 读取生成集合 | 从上一版契约重新生成 |
-| M3 | 逐字段退休旧 should-run 字段，每个 PR 一个字段，预算降到零并删除字段 | 经生产者/读者调研证明该字段外部读者为零 | 按 `AGENTS.md` 的 schema 缩减记录；附录 B 条目 | 从最后一个写方恢复字段 |
+| M3 | 逐字段退休旧 should-run 字段，每个 PR 一个字段，预算降到零并删除字段 | 逐模块清空该字段的迁移面，并评审残留的 unresolved 与计算式键证据；计数归零本身不构成这道门 | 按 `AGENTS.md` 的 schema 缩减记录；附录 B 条目 | 从最后一个写方恢复字段 |
 | M4 | 随迁移 RFC 的每次 replacement-first 切换调低孪生预算 | 每个切换 PR | 同 diff 中的预算修改 | 无需；预算跟随代码 |
 
 没有目标的棘轮只是方向，不是计划。下表是本 RFC 完成时的状态；每一行都是一个
@@ -714,7 +717,7 @@ TypeScript effective-action 绑定与[术语表](../../reference/glossary.md)通
 | 冲突值（语义） | 2 个名字 | 0 | 基线窄 PR |
 | 多值分叉 | 4（1 个误分类） | `scope` 声明有界上下文名字后为 0 | M0.5 + 基线窄 PR |
 | 多值孪生 | 19 | 0 | 基线窄 PR |
-| 旧 should-run 字段 | 6 个字段，124 py / 10 ts 模块提及 | 0 个字段 | M3，按标识符计数 |
+| 旧 should-run 字段 | 6 个字段，124 py / 10 ts 模块提及；2026-09-17 实测 109 py / 10 ts 个 token 模块，其中 82 py / 8 ts 属于迁移面 | 0 个字段 | M3，以 B3 迁移面为门；token 计数在 Q11 决策前继续计入预算 |
 | 合并候选组 | 32 组未评审 | 每组已分类；只合并 `same_semantics` 的组 | 分类表 PR，随后逐组 PR |
 | 控制面 py/ts 孪生 | 43 | 跟随 TypeScript 迁移 RFC；本 RFC 不设目标 | M4 |
 
@@ -818,12 +821,52 @@ PR review 保留这些层级。普通改动记录检查范围和理由，无共�
    Q2 建议保留两者。Q2 的实际写入及读回证据证明 `turn_route` 已持久化，因此
    实现保留三套不同值集并生成投影，不合并拼法。未来合并提案须提供双读或带版本
    的迁移及读者证据。Owner：Turn driver owner。
-11. **退休预算使用独立字段 token。** 六个旧字段预算现在使用
+11. **退休预算使用独立字段 token。** 六个旧字段预算使用
    `count_identifier_modules()`，因此 `goal_boundary_repair` 不会被算作
-   `goal_boundary`。这是保守的词法指标，不等于证明不存在语义读者；计算式访问
-   仍然是证据缺口。Owner：内核维护者。
+   `goal_boundary`。这是保守的词法指标，不等于证明不存在语义读者。B3 在它旁边
+   加入 `check_reader_metric()`：把同一批模块拆成读者、写方、形参/局部承载、
+   未定名字载体与提及，并把前三者作为迁移面纳入预算。两个指标现在都在检查。
+   仍然未决的是：当迁移面预算已经能排序删除工作后，是否退役 token 预算；以及
+   在 1704 处计算式键访问之下，迁移面为零的字段还欠哪些残余证据。
+   Owner：内核维护者。
 
 ## 附录 A：执行账本（非规范）
+
+### 2026-09-17 — B3：退休指标把读者与提及分开
+
+六个旧 should-run 字段此前按 token 计数计入预算：文本里出现该独立字段名的模块
+数。这个数字回答的是「这个名字在这里出现过吗」，而不是退休所问的问题。
+`check_reader_metric` 把同一批模块按句法角色分类，并把删除该字段前必须改动的
+三种角色纳入预算。
+
+| 字段 | Python token | reader | writer | binding | unresolved | mention | 迁移面 | TS token | 迁移面 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `protocol_action_packet` | 5 | 1 | 4 | 0 | 0 | 0 | 5 | 2 | 2 |
+| `external_evidence_observation` | 8 | 4 | 1 | 1 | 1 | 1 | 6 | 1 | 1 |
+| `heartbeat_recommendation` | 17 | 8 | 4 | 1 | 0 | 4 | 13 | 1 | 1 |
+| `execution_obligation` | 20 | 8 | 7 | 0 | 0 | 5 | 15 | 1 | 0 |
+| `work_lane_contract` | 29 | 11 | 8 | 9 | 1 | 0 | 28 | 3 | 3 |
+| `goal_boundary` | 30 | 8 | 4 | 3 | 1 | 14 | 15 | 2 | 1 |
+
+token 计数掩盖掉的三个结果：
+
+- `goal_boundary` 与 `work_lane_contract` 是 30 与 29，只差一个模块，于是计划
+  把两者当作同等代价排序。它们真实的迁移面是 15 与 28。`goal_boundary` 有十四
+  个模块是提示词散文与模块路径导入，迁移根本不会碰到。
+- `protocol_action_packet` 只有一个 Python 读者和四个写方。它是代价最低的首个
+  M3 删除对象，而 token 计数说不出这一点。
+- `loopx/` 下有 1704 处 mapping 访问器使用计算式键。任何按名字的扫描——词法的
+  还是句法的——都无法归属它们，因此 smoke 把这个数字与各字段计数一起打印。这
+  就是「计数归零不授权删除」的可测形式；残余义务归 Q11。
+
+每次运行都会按字段、按运行时断言这些角色恰好划分 token 计数。因此新指标是对同
+一批模块的重新分类，而不是换了一批更小的样本；本切片也不偿还任何债务：两个预算
+都在同一 diff 里钉在各自的实测值上。
+
+TypeScript 用有界文法扫描，且先把字符串字面量与注释抹白再匹配代码文本，否则路
+径标签 `"decision.heartbeat_recommendation"` 会被算成属性读取。行首裸写的
+`field:` 报为提及而非写入：在这套文法看来，接口成员与对象字面量条目形状相同，
+把一处声明算作生产会恰好朝 I13 警告的方向高估。
 
 ### 2026-09-16 — B2 试点：Python producer 扫描器绑定一跳再导出
 
@@ -970,6 +1013,7 @@ PR review 保留这些层级。普通改动记录检查范围和理由，无共�
 | --- | --- | --- | --- | --- |
 | 2026-09-16 | Q9：全树按需计算；移除已提交结构清单 | 根据[维护者反馈](https://github.com/huangruiteng/loopx/pull/4360#issuecomment-5692062394)实现，PR 评审待完成 | 取代合并后补再生成；拒绝只扫描 diff | 1、I6、3、5、9、10、12 |
 | 2026-09-16 | B2：Python producer 扫描器绑定一跳未改名再导出 | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B2；PR 评审待完成 | 要求每个消费者都从 owner 模块导入（脆弱；M2 中已静默失效）；拒绝无界多跳解析 | 5、附录 A |
+| 2026-09-17 | B3：在 token 计数旁边为迁移面设预算；Q11 决策前两者都保留 | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B3；PR 评审待完成 | 直接用新指标取代 token 预算（否决：token 计数正是证明新角色划分同一批模块的锚，在引入角色的同一个 diff 里把它删掉会让更小的数字无法复核）；把计算式下标也计为未定读取（否决：`rows[index]` 与 `payload[key]` 是同一种语法，未知数会大到不再携带信息） | 5、9、11、12 |
 | 2026-09-16 | B1 改名不变性：新增按名字归组的分歧报告；写明它未闭合的边界 | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B1；PR 评审待完成 | 把预算改按值集归组（否决：`CONFIDENCE_LEVELS` 与 `EDGE_CASE_COMPLEXITIES` 共享 `high/low/medium` 而含义不同）；提交名字账本（M0 否决：Q9 已退役提交式清单）。该报告列出仍然存在的分叉；初稿称它能抓住单侧改名，实测证否，故两份镜像按真实行为写明边界 | 9 |
 
 ## 附录 C：证据登记
@@ -995,6 +1039,7 @@ PR review 保留这些层级。普通改动记录检查范围和理由，无共�
 | E18 | 声明范围超出扫描根 | `503991dd2` + M0 | 从注册表读 `literal_scan.roots` 与清单 `root`；在 `examples/` 下 `grep` `effective_action` 分发字面量；统计 `apps/` 下 `.ts`/`.tsx` | 根只有 `loopx`；`examples/` 12+ 处断言；`apps/` 90 个文件 | 消费者与测试替身，非生产者 |
 | E19 | `SOURCE_SURFACES` 是四个有界上下文，不是分叉 | `503991dd2` | 从清单读出四个 `multi_value_forks` 定义 | 每个模块列出自己 CLI 命令的数据来源，值互不相交 | 读值后的判断；规则本身做不出 |
 | E20 | 退休预算按子串高估 | `503991dd2` | 对 `loopx/**/*.py` 分别用 `'goal_boundary' in text` 与 `\bgoal_boundary\b` | 35 对 30 个模块 | 标识符计数才是 M3 门的度量 |
+| E21 | 退休预算把提及算成了读者 | `897e9aedb` | 对六个旧字段运行 `check_reader_metric()`；断言角色划分 `count_identifier_modules()` | 109 个 py token 模块解析为 82 个迁移面模块；`goal_boundary` 30 → 15，`work_lane_contract` 29 → 28，`protocol_action_packet` 5 → 5 且只有一个读者 | 度量句法使用而非数据流；1704 处计算式键 mapping 访问仍无法归属，因此迁移面为零不等于读者为零 |
 | E13 | 冲突预算主要在度量局部命名 | `1dc6ad8d8` | 对 `conflicting_values` 与 `same_runtime_forks` 名字应用 `MODULE_LOCAL_CONVENTION` | 18 个冲突中 16 个、25 个分叉中 7 个是模块局部约定；语义子集分别为 2 与 18 | 分类是名字模式，已在扫描器中说明并由夹具测试钉住 |
 
 ## 附录 D：被否决或取代的方案

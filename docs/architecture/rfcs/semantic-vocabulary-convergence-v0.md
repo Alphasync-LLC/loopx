@@ -631,7 +631,7 @@ vocabulary key fails the smoke.
 | `relations.subsets` | superset vocabulary, excluded values, owners of the subset symbol | Owner symbols equal superset minus excluded |
 | `projections.<name>.mapping` | source value to target value or `null` | Keys equal the source vocabulary; mapped values match the owner function; `null` routes raise (I4) |
 | `schema_versions.<name>` | constant name, value, owner modules | The only defining modules are the listed owners and all carry the value (I1) |
-| `retirement_ledger.<group>.fields` | per-field Python and TypeScript module budgets | Actual module counts are at or below budget, and the field set and every budget match `RETIREMENT_ANCHOR` (I5) |
+| `retirement_ledger.<group>.fields` | per-field Python and TypeScript budgets under two metrics: `*_module_budget` counts modules carrying the field token, `*_migration_surface` counts the modules that read, write or bind it | Actual counts are at or below both budgets; the field set and every token budget match `RETIREMENT_ANCHOR`, every surface budget matches `MIGRATION_SURFACE_ANCHOR`, and the five syntactic roles partition the token count exactly (I5) |
 | `dual_runtime_twins` | root and module budget | Tracked same-basename `.py`/`.ts` pair count is at or below budget; root and budget equal their code anchors (I5) |
 | `inventory_ratchets` | budgets for same-runtime fork names and definitions, conflicting names and definitions, schema-version forks, multi-value twins and forks, and the shared-vocabulary conflict and fork subsets | Inventory summary counts are at or below budget, and each budget equals its `BUDGET_ANCHOR` entry (I5, I9) |
 
@@ -739,6 +739,9 @@ on the next full-tree scan; genuine shared-contract changes still need review.
 | No behavior change from the two owner fixes | `uv run --extra test python -m pytest tests/test_loopx_turn_transaction.py tests/test_loop_turn_loop_controller.py tests/test_turn_loop_disposition.py tests/test_loopx_turn_managed_step.py tests/control_plane -k authority` and `uv run --extra test loopx canary premerge --from-git-diff` | pass | Environment failures already present on `main` are excluded when reproduced on a clean tree |
 | Docs governance accepts the RFC pair | `python3 examples/docs-governance-smoke.py` | pass | Checks mirror, links, index |
 | Retirement budgets use standalone field tokens | `count_identifier_modules()` uses identifier boundaries for the six fields | `goal_boundary`: 30 Python modules under the new metric; the old substring metric was 35 | Conservative lexical measure; it removes compound-name false positives but does not prove semantic reader absence |
+| The retirement metric separates readers from mentions (B3) | `check_reader_metric()` classifies every module carrying one of the six field tokens as reader, writer, binding, unresolved or mention | `goal_boundary`: 30 token modules resolve to 8 readers, 4 writers, 3 bindings, 1 unresolved and 14 mentions, so its migration surface is 15, not 30; `work_lane_contract` stays at 28 of 29 | Syntactic use, not data flow. The roles are asserted to partition the token count, so the smaller number is a reclassification of the same modules and not a different population |
+| A new reader of a legacy field fails the pull-request path | Add a module reading `payload["protocol_action_packet"]` beyond the budget | `check_reader_metric` fails naming the field and the count | Committed fixture in `tests/architecture/test_semantic_vocabulary_drift.py`; the anchor equality check is the same pattern as `RETIREMENT_ANCHOR` |
+| A computed key stays unresolved rather than absent | Count mapping accessors whose first argument is not a literal | 1704 sites under `loopx/`; a field measured at zero readers is measured against that standing unknown | This is why zero readers cannot by itself authorize a removal (Q11). Subscripts with a computed key are excluded: `rows[index]` and `payload[key]` are the same syntax |
 | The module-local convention filter is a code edit | Widen `MODULE_LOCAL_CONVENTION` in `inventory.py` and scan | `*_semantic` budgets fall with no code change elsewhere | Known boundary; the regex is in code so the widening is a reviewed diff, and the unfiltered totals stay budgeted |
 | A registered value nobody produces fails (M0.5) | Run the production-form scan on the baseline | Fails naming `effective_action` and `skip`; passes after `skip` is removed or listed `compatibility_only` | First expected I12 failure; a compared-only value is not carried |
 | A producer of an unregistered value fails (M0.5) | Write `effective_action: "brand_new"` in a listed producer site | Fails naming the site and the value even though no consumer compares it | I13; production is stricter than comparison |
@@ -852,7 +855,7 @@ with `npm ci --ignore-scripts` before running the TypeScript production scan.
 | M0.5b | `producers` and `compatibility_only` on `kernel` vocabularies; production-form scan with the two role checks (I12, I13); retirement budgets counted by identifier with all six anchors lowered in one diff (Q11); merge-order rule from Q9 written into Section 10 | M0.5a complete; Q9 decided or its interim rule accepted | Smoke green with I11 to I14 enforced; `skip` resolved; Section 9 producer rows green; `turn_route` persistence answered for Q2 | Remove producer fields and role checks; budgets return to the pre-M0.5b anchors |
 | M1 | `EffectiveAction` typed enum in one owner module; the replay observation and frontier slots split off (Q6); producers and consumers import it; registry `literal_scan` tightened to the enum | M0.5 merged; owner module chosen (Q3); slot split decided (Q6) | Smoke green; zero bare `effective_action` literals outside the owner; parity fixtures for status/should-run unchanged | Revert to literals; registry keeps the set |
 | M2 | Route-to-disposition projection, the `decide_loop_disposition` decision table, and the cross-runtime sets published through a shared contract with generated Python and TypeScript bindings, following the coordination contract generator | M1 merged; Q2 and Q7 decided | Generator `--check` and smoke green; `settlement.ts` and `transaction.py` read the generated set | Regenerate from prior contract |
-| M3 | Per-field retirement of legacy should-run fields, one field per PR, budgets lowered to zero and the field removed | Field has zero external readers proven by producer/reader research | Schema-reduction record per `AGENTS.md`; Appendix B entry | Restore field from the last writer |
+| M3 | Per-field retirement of legacy should-run fields, one field per PR, budgets lowered to zero and the field removed | Field's migration surface is emptied module by module, and the residual unresolved and dynamic-key evidence is reviewed; a zero count is not by itself the gate | Schema-reduction record per `AGENTS.md`; Appendix B entry | Restore field from the last writer |
 | M4 | Twin budget lowered with each replacement-first cutover from the migration RFC | Each cutover PR | Budget edit in the same diff | None needed; budget follows code |
 
 A ratchet without a target is a direction, not a plan. The table below is the
@@ -869,7 +872,7 @@ vocabulary property the smoke can check. Rows marked *open* wait on a Section
 | Conflicting values, semantic | 2 names | 0 | baseline PRs |
 | Multi-value forks | 4 (1 misclassified) | 0 after `scope` declares bounded-context names | M0.5 + baseline PRs |
 | Multi-value twins | 19 | 0 | baseline PRs |
-| Legacy should-run fields | 6 fields, 124 py / 10 ts module mentions | 0 fields | M3, identifier-counted |
+| Legacy should-run fields | 6 fields, 124 py / 10 ts module mentions; measured 2026-09-17: 109 py / 10 ts token modules, of which 82 py / 8 ts are the migration surface | 0 fields | M3, gated on the B3 migration surface; the token count stays budgeted until Q11 |
 | Merge-candidate groups | 32 unreviewed | every group classified; only `same_semantics` groups merged | classification PR, then per-group PRs |
 | Control-plane py/ts twins | 43 | follows the TypeScript migration RFC; no target here | M4 |
 
@@ -1004,13 +1007,61 @@ introduce a competing target state.
    and generates their projection; it does not merge spellings. A future proposal
    to merge them must provide a dual-read/versioned migration and reader proof.
    Owner: Turn driver owner. Needed before M2 closes.
-11. **Retirement budgets by identifier.** The six legacy-field budgets now use
+11. **Retirement budgets by identifier.** The six legacy-field budgets use
    `count_identifier_modules()`, so `goal_boundary_repair` is not counted as
    `goal_boundary`. This is a conservative lexical metric, not proof of zero
-   semantic readers; computed accesses remain an evidence gap. Owner: kernel
+   semantic readers. B3 adds `check_reader_metric()` beside it, which splits the
+   same modules into readers, writers, bindings, unresolved name carriers and
+   mentions and budgets the first three as the migration surface. Both metrics
+   are now checked. What stays open is whether the token budget is retired once
+   the surface budget has ordered a removal, and what residual evidence a field
+   at zero surface still owes given 1704 computed-key sites. Owner: kernel
    maintainers.
 
 ## Appendix A: Execution ledger (non-normative)
+
+### 2026-09-17 — B3: the retirement metric separates readers from mentions
+
+The six legacy should-run fields were budgeted by a token count: modules whose
+text contains the standalone field name. That number answers "does this name
+appear here", which is not the question a retirement asks. `check_reader_metric`
+classifies the same modules by syntactic role and budgets the three roles that
+have to change before a field can be removed.
+
+| Field | Python token | reader | writer | binding | unresolved | mention | surface | TS token | surface |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `protocol_action_packet` | 5 | 1 | 4 | 0 | 0 | 0 | 5 | 2 | 2 |
+| `external_evidence_observation` | 8 | 4 | 1 | 1 | 1 | 1 | 6 | 1 | 1 |
+| `heartbeat_recommendation` | 17 | 8 | 4 | 1 | 0 | 4 | 13 | 1 | 1 |
+| `execution_obligation` | 20 | 8 | 7 | 0 | 0 | 5 | 15 | 1 | 0 |
+| `work_lane_contract` | 29 | 11 | 8 | 9 | 1 | 0 | 28 | 3 | 3 |
+| `goal_boundary` | 30 | 8 | 4 | 3 | 1 | 14 | 15 | 2 | 1 |
+
+Three results the token count had hidden:
+
+- `goal_boundary` and `work_lane_contract` were within one module of each other
+  at 30 and 29, so the plan ordered them as equally expensive. Their real
+  surfaces are 15 and 28. Fourteen of `goal_boundary`'s modules are prompt prose
+  and module-path imports that no migration touches.
+- `protocol_action_packet` has one Python reader and four writers. It is the
+  cheapest first M3 removal, and the token count did not say so.
+- 1704 mapping accessors under `loopx/` take a computed key. No name-keyed scan,
+  lexical or syntactic, can attribute them, so the smoke prints that number
+  beside the per-field counts. This is the measured form of "a zero count does
+  not authorize a deletion"; the residual obligation is Q11's.
+
+The roles are asserted to partition the token count exactly, per field and per
+runtime, on every run. The new metric therefore reclassifies one population
+rather than measuring a smaller one, and this slice repays no debt: both
+budgets are pinned at their measured values in the same diff.
+
+TypeScript is scanned by bounded grammar over code text whose string literals
+and comments are blanked first, because the path label
+`"decision.heartbeat_recommendation"` would otherwise count as a property read.
+A bare `field:` at the head of a line is reported as a mention, not a write: an
+interface member and an object-literal entry are the same shape to this grammar,
+and crediting a declaration as production would overstate it in exactly the
+direction I13 warns about.
 
 ### 2026-09-16 — B2 pilot: one re-export hop bound in the Python producer scanner
 
@@ -1193,6 +1244,7 @@ introduce a competing target state.
 | --- | --- | --- | --- | --- |
 | 2026-09-16 | Q9: compute the full inventory on demand; retire the committed census | Implementation for [maintainer feedback](https://github.com/huangruiteng/loopx/pull/4360#issuecomment-5692062394); PR review pending | Committed snapshot with post-merge regeneration; diff-only scan rejected | 1, I6, 3, 5, 9, 10, 12 |
 | 2026-09-16 | B2: bind one unrenamed re-export hop in the Python producer scanner | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B2; PR review pending | Require every consumer to import the owner module (fragile; failed silently in M2); unbounded multi-hop resolution rejected | 5, Appendix A |
+| 2026-09-17 | B3: budget the migration surface beside the token count; keep both until Q11 | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B3; PR review pending | Replacing the token budget outright (rejected: the token count is the anchor that proves the new roles partition the same population, and dropping it in the same diff that introduces them would make the smaller number unauditable); counting computed-key subscripts as unresolved reads (rejected: `rows[index]` and `payload[key]` are one syntax, and the unknown would stop carrying information) | 5, 9, 11, 12 |
 | 2026-09-16 | B1 rename invariance: add the name-keyed divergence advisory; state the limit it does not close | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B1; PR review pending | Keying the budget on value sets (rejected: `CONFIDENCE_LEVELS` and `EDGE_CASE_COMPLEXITIES` share `high/low/medium` with different meanings); a committed name ledger (rejected at M0: Q9 retired the committed census). The advisory lists surviving forks by name; it was first described as catching a one-sided rename, which measurement disproved, so both mirrors state the limit as it behaves | 9 |
 
 ## Appendix C: Evidence registry
@@ -1218,6 +1270,7 @@ introduce a competing target state.
 | E18 | Declared scope exceeded the scan root | `503991dd2` + M0 | `literal_scan.roots` and inventory `root` read from the registry; `grep` for `effective_action` dispatch literals under `examples/`; count of `.ts`/`.tsx` under `apps/` | roots are `loopx` only; 12+ assertions in `examples/`; 90 files in `apps/` | Consumers and test doubles, not producers |
 | E19 | `SOURCE_SURFACES` is four bounded contexts, not a fork | `503991dd2` | the four `multi_value_forks` definitions read from the inventory | each module lists the data sources of its own CLI command with disjoint values | Judgement from reading the values; the rule cannot make it |
 | E20 | Retirement budgets over-count by substring | `503991dd2` | `'goal_boundary' in text` vs `\bgoal_boundary\b` over `loopx/**/*.py` | 35 vs 30 modules | Identifier count is the M3 gate's measure |
+| E21 | The retirement budget counted mentions as readers | `897e9aedb` | `check_reader_metric()` over the six legacy fields; roles asserted to partition `count_identifier_modules()` | 109 py token modules resolve to 82 surface modules; `goal_boundary` 30 → 15, `work_lane_contract` 29 → 28, `protocol_action_packet` 5 → 5 with one reader | Syntactic use, not data flow; 1704 computed-key mapping accessors stay unattributable, so zero surface is not zero readers |
 | E13 | The conflict budget mostly measured local naming | `1dc6ad8d8` | `MODULE_LOCAL_CONVENTION` applied to `conflicting_values` and `same_runtime_forks` names | 16 of 18 conflicts and 7 of 25 forks are module-local conventions; the semantic subsets are 2 and 18 | Classification is a name pattern, documented in the scanner and pinned by a fixture test |
 
 ## Appendix D: Rejected or superseded alternatives
