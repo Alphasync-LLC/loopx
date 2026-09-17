@@ -9,9 +9,23 @@ from .control_plane.status.collection import (
     StatusCollectionContext,
     collect_status as _collect_status_read_model,
 )
+from .control_plane.status.active_state_projection import (
+    STATE_EVENT_LOG_BASENAME,
+)
+from .control_plane.status.contract_projection import (
+    STATUS_CONTRACT_RELOAD_HINT,
+)
+from .control_plane.status.goal_attention_projection import (
+    PLANNED_CONTROLLER_OPT_IN_RECOMMENDED_ACTION,
+)
 # Refs #4447: one definition for this vocabulary. The control_plane projection
-# owns it because it feeds the attention-queue read model; this module keeps
-# re-exporting the name for existing callers.
+# owns it because it feeds the monitor/attention read models; this module keeps
+# re-exporting each name for existing callers instead of restating its value.
+from .control_plane.status.monitor_display_projection import (
+    MONITOR_DISPLAY_FALLBACK_ACTION,
+    MONITOR_DISPLAY_STOP_CONDITION,
+    MONITOR_SIGNAL_WAITING_ON,
+)
 from .control_plane.status.registry_health_projection import (
     SOURCE_REGISTRY_SHADOW_FINDINGS,
 )
@@ -224,11 +238,18 @@ _PUBLIC_COMPAT_REEXPORTS = {
     "todo_projection_sort_key": "loopx.control_plane.todos.todo_summary",
     "normalize_todo_task_class": "loopx.control_plane.todos.contract",
     "todo_item_is_expired_monitor": "loopx.control_plane.todos.todo_semantics",
+    # Refs #4447: single-sourced monitor/status vocabulary. Each name was already
+    # defined here and again in the control_plane projection that owns it; these
+    # entries keep the facade exporting one definition instead of a second copy.
+    "MONITOR_DISPLAY_STOP_CONDITION": "loopx.control_plane.status.monitor_display_projection",
+    "MONITOR_DISPLAY_FALLBACK_ACTION": "loopx.control_plane.status.monitor_display_projection",
+    "STATUS_CONTRACT_RELOAD_HINT": "loopx.control_plane.status.contract_projection",
+    "STATE_EVENT_LOG_BASENAME": "loopx.control_plane.status.active_state_projection",
+    "PLANNED_CONTROLLER_OPT_IN_RECOMMENDED_ACTION": "loopx.control_plane.status.goal_attention_projection",
 }
 
 
 STATUS_NEUTRAL_CLASSIFICATIONS = HISTORY_STATUS_NEUTRAL_CLASSIFICATIONS
-STATE_EVENT_LOG_BASENAME = "events.jsonl"
 STATUS_CONTROL_PLANE_CONTEXT_LIMIT = 20
 AGENT_LANE_PROGRESS_SCOPE = "agent_lane"
 REGISTRY_WAITING_ON_OVERRIDES = {
@@ -241,18 +262,9 @@ LEGACY_EXTERNAL_EVIDENCE_CLASSIFICATION_PREFIXES = (
     "await_",
     "external_evidence_observation_",
 )
-MONITOR_SIGNAL_WAITING_ON = "monitor_signal"
 MONITOR_DISPLAY_SCHEMA_VERSION = "monitor_quiet_display_v0"
-MONITOR_DISPLAY_STOP_CONDITION = (
-    "stop until a material monitor transition, regression, or concrete blocker appears"
-)
-MONITOR_DISPLAY_FALLBACK_ACTION = (
-    "No immediate agent work; keep the monitor quiet until a material monitor "
-    "transition, regression, or concrete blocker appears."
-)
 STATUS_CONTRACT_SCHEMA_VERSION = 2
 MINIMUM_DASHBOARD_STATUS_CONTRACT_SCHEMA_VERSION = 2
-STATUS_CONTRACT_RELOAD_HINT = "scripts/macos-dashboard-launchagent.sh restart"
 STATUS_CONTRACT_SIGNAL_LIMIT = 3
 MONITOR_WRITEBACK_CONTRACT_SCHEMA_VERSION = _MONITOR_WRITEBACK_CONTRACT_SCHEMA_VERSION
 EVENT_LEDGER_DECISION_CLASSIFICATIONS = USER_OR_CONTROLLER_CLASSIFICATIONS | {
@@ -293,9 +305,6 @@ CONNECTED_ADAPTER_STATUSES = {
 CONNECTED_DELIVERY_ADAPTER_STATUSES = {
     "connected-delivery",
 }
-PLANNED_CONTROLLER_OPT_IN_RECOMMENDED_ACTION = (
-    "先在 LoopX 完成 operator 判断；同意后项目 Agent 只执行 read-only map dry-run"
-)
 RUN_COMPACT_FIELDS = RUN_BASE_COMPACT_FIELDS
 LIFECYCLE_PRIORITY = (
     "controller_ready",
