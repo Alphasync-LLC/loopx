@@ -90,7 +90,7 @@ Map P0/P1 catalog rows to canary archetypes before picking commands:
 | Human Decision | IP-004, IP-014, IP-017, IP-027, IP-030, IP-033 | Scoped decision canary; Product/readiness canary when first-screen human copy changes | user todos, decision scope, operator-gate/reward preview, deferred resume candidates | one concrete user ask, one scoped non-blocking gate, one preview-or-append dry run | humans may be asked the wrong question, or an agent may continue without the needed decision |
 | State And Boundary | IP-005, IP-006, IP-011, IP-016, IP-019, IP-020, IP-022, IP-023, IP-025, IP-026, IP-028, IP-031, IP-032 | Projection and boundary canary; Hot-path route canary when the projection feeds quota/status | active state, todo metadata, task graph, authority source, claim lease, completed-work archive, connector runtime policy, public/private scan | fixture state plus structured projection check; boundary scan for touched public files | compact state and executable truth diverge, so dashboards and agents may trust stale or unsafe authority |
 | Evidence Lifecycle | IP-012, IP-015 | Evidence lifecycle canary; Product/readiness canary when evidence is rendered | external handle observation, benchmark lifecycle reducer, compact result projection | compact public-safe evidence fixture with raw-material exclusion assertions | progress evidence may be missing, double-counted, or represented with unsafe raw material |
-| Planning Governance | IP-010, IP-013, IP-018, IP-024 | Planning governance canary; Hot-path route canary when cadence changes affect execution | stalled run history, autonomous replan obligation, repair delta, cadence hint, plan-to-todo writeback | two-turn stalled fixture plus repair/writeback delta assertion | the agent may keep planning in prose while the machine-visible frontier stays unchanged |
+| Planning Governance | IP-010, IP-013, IP-018, IP-024, IP-034 | Planning governance canary; Hot-path route canary when cadence changes affect execution | stalled run history, autonomous replan obligation, repair delta, cadence hint, plan-to-todo writeback | two-turn stalled fixture plus repair/writeback delta assertion | the agent may keep planning in prose while the machine-visible frontier stays unchanged |
 
 P2 patterns may still have canaries, but they should be selected by an explicit
 domain profile instead of being pulled into every default profile. If a P2
@@ -363,6 +363,7 @@ Replanning, dreaming, cadence, and future-work writeback.
 | P1 | IP-024 | Repair Delta Contract | Agent/controller | no interruption unless repair creates a user todo | self-repair/replan must change the machine-visible frontier or record a no-op/blocker |
 | P1 | IP-010 | Cadence Hint | Agent/controller | no interruption by default | surface a low-confidence hint when turns look too thin |
 | P1 | IP-018 | Plan To Todo Writeback | Agent plus LoopX | no interruption unless a user todo is created | write user-facing plans into todos, Next Action, or refresh-state |
+| P1 | IP-034 | Unstaffable Team Lane Is A Typed Gap | Steward/manager plus the work-items transaction | name the gap in the preview; no interruption for the admitted lanes | create only the lanes that can run; never invent a lane, an Agent, a capability, or an action kind |
 
 ## Visual Model
 
@@ -2766,6 +2767,87 @@ successor work. The next automation then behaves as if the plan never existed.
 - `examples/control_plane/heartbeat-prompt-smoke.py`
 - future status/quota smoke that flags user-facing plans without todo or
   refresh-state writeback.
+
+#### IP-034 Unstaffable Team Lane Is A Typed Gap
+
+**Trigger**
+
+- one owner sentence asks for a team rather than a single task, so a plan
+  preview has to name the Agent that runs each lane;
+- a requested lane needs an Agent registration, capability grant, or action
+  kind the current host or profile does not have, so no honest assignment
+  exists for it; or
+- a confirmed plan is being applied and one admitted lane cannot be started on
+  this host.
+
+**Expected behavior**
+
+An unstaffable lane is a typed gap, not an invented lane. Admission and
+staffing are two different questions, and only the first one is
+all-or-nothing.
+
+1. **Name the gap instead of inventing the lane.** A lane that cannot be
+   staffed is reported as a gap with the missing registration or grant, or with
+   the shipped action kind that covers the requested work. The preview may not
+   invent a lane, an Agent, a capability, or an action kind to fill the slot.
+2. **Keep the admitted plan.** The rest of the plan is the owner's request, so
+   it stays admitted. Applying it creates the first bounded Todo for exactly
+   the lanes that can run; one unstaffable lane does not fail the whole
+   confirmation.
+3. **Show the lane; do not drop it silently.** "Dropped instead of shown"
+   applies to a plan that names no Goal or a Goal outside the authorized
+   scope, not to one lane inside an admitted plan. An omitted lane is work
+   nobody knows is unowned.
+4. **A gap is not self-healing.** Retrying the same proposal recovers an
+   uncertain commit; it does not fill a previously unstaffed gap. Filling one
+   needs explicit new intent, and never by impersonating a receiving Agent as
+   the author.
+
+IP-018 owns plan-to-todo writeback and IP-024 owns the repair delta. Neither
+owns the case where part of an admitted plan has no honest owner, which is the
+gap this pattern fills.
+
+**Visual Model**
+
+```mermaid
+flowchart TD
+  A["owner asks for a team"] --> B["one plan preview, every lane named"]
+  B --> C{"each lane staffable?"}
+  C -->|"yes"| D["admitted lane: first bounded Todo on apply"]
+  C -->|"no"| E["typed gap: missing registration or grant"]
+  D --> F["apply receipt read before reporting assignments"]
+  E --> G["plan stays admitted, gap shown in the preview"]
+  E --> H["no invented lane, Agent, capability, or action kind"]
+  H --> I["filling the gap later needs explicit new intent"]
+```
+
+**Bad smell**
+
+A host does not ship the action kind a requested lane needs, so the surface
+invents one: the preview shows every lane staffed and a first Todo lands in a
+lane no Agent can actually run. The operator experience is "the whole team is
+up" followed by "why is that lane not moving".
+
+The mirror-image smell is all-or-nothing admission: because one lane cannot be
+staffed, the confirmation fails and discards the lanes the owner already
+authorized. A third smell is the quiet omission, where the unstaffable lane is
+left out of the preview so the plan looks complete and the work simply never
+appears.
+
+**Validation**
+
+- `tests/test_steward_team_plan_apply.py` owns the apply-side case:
+  `test_a_lane_whose_kind_the_host_does_not_ship_creates_nothing` proves the
+  plan is still admitted and creates exactly one Todo, for the lane that can
+  run, while the unstaffable lane's Todo is absent.
+- `tests/test_manager_team_plan_guidance.py` pins the preview contract,
+  including "as a gap, with the missing registration or grant" and the "do not
+  regenerate every lane" rule that stops an automatic gap fill.
+- `loopx/capabilities/manager_context/skills/loopx-manager/SKILL.md` owns the
+  preview wording and the gap-versus-invention boundary.
+- `loopx/control_plane/work_items/governed_transition_proposal.py` owns the
+  admission-to-receipt transaction that creates only the admitted lanes.
+- `examples/interaction-pattern-catalog-smoke.py` protects this entry.
 
 ## Maintenance Rules
 

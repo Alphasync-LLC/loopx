@@ -480,3 +480,34 @@ def test_remaining_kernel_values_each_carry_a_note(name):
         if not str(notes.get(value) or '').strip()
     ]
     assert not undocumented, f'{name}: values with no value_notes entry: {undocumented}'
+
+
+def test_inventory_report_discloses_budget_slack(monkeypatch):
+    """Budget slack (budget above the measured value) must be disclosed.
+
+    The guard only fails on overflow (measured > budget), so a merge that
+    reverts a tightened budget passes silently unless the report line shows
+    the reopened headroom.  See the same_runtime_forks hunk straddle when
+    merging two budget-tightening branches.
+    """
+    import copy
+
+    smoke = runpy.run_path(str(SMOKE))
+    registry = smoke["load_registry"]()
+    sources = smoke["load_sources"](REPO_ROOT)
+    # Pinned budgets disclose no slack for the counters this change locks
+    # (the multi_value_twins slack belongs to the multi-value single-source
+    # batch, not this one).
+    _, pinned = smoke["check_inventory"](registry, sources)
+    assert "slack=conflicting_values" not in pinned, pinned
+    assert "slack=conflicting_definitions" not in pinned, pinned
+    # A two-file budget revert (the merge-trap shape: registry and anchor
+    # move back together, so the equality anchor stays satisfied) must show
+    # up as disclosed slack instead of passing silently.
+    widened = copy.deepcopy(registry)
+    widened["inventory_ratchets"]["conflicting_values"] += 2
+    monkeypatch.setitem(
+        smoke["BUDGET_ANCHOR"], "conflicting_values", widened["inventory_ratchets"]["conflicting_values"],
+    )
+    _, line = smoke["check_inventory"](widened, sources)
+    assert "slack=conflicting_values=2" in line, line

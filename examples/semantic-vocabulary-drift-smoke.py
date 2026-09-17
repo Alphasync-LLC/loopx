@@ -147,8 +147,8 @@ TWIN_BUDGET_ANCHOR = 43
 BUDGET_ANCHOR = {
     "same_runtime_forks": 18,
     "same_runtime_fork_definitions": 41,
-    "conflicting_values": 18,
-    "conflicting_definitions": 59,
+    "conflicting_values": 16,
+    "conflicting_definitions": 55,
     "schema_version_same_runtime_forks": 7,
     "multi_value_twins": 13,
     "multi_value_forks": 2,
@@ -692,9 +692,17 @@ def check_inventory(registry: dict[str, Any], sources: list[SourceFile]) -> tupl
                  for item in review['magnitude_regressions']]
     require(review['ok'], '; '.join(failures))
     parts = []
+    slack = []
     for key in RATCHET_KEYS:
         actual = semantic_multi_value_forks if key == "multi_value_forks_semantic" else summary[key]
         parts.append(f"{key}={actual}/{ratchets[key]}")
+        if ratchets[key] > actual:
+            # Disclose unlocked headroom so a merge that reverts a tightened
+            # budget shows up as new slack in this line instead of passing
+            # silently (the guard only fails on overflow, never on slack).
+            slack.append(f"{key}={ratchets[key] - actual}")
+    if slack:
+        parts.append("slack=" + ",".join(slack))
     if review['reviewed_exception_count']:
         parts.append(f"reviewed_inventory_exceptions={review['reviewed_exception_count']}")
     return inventory, " ".join(parts)

@@ -197,6 +197,15 @@ line, `deepseek-v4-flash@high` in the shipped shape, with the provider prepended
 only when it is not the shipped one -- it is one line because every plan carries
 it, and the agent-facing output budget is a contract.
 
+`runtime_probe` distinguishes an import probe (`scope: "probing_interpreter"`,
+`module: "deepseek_harness"`) from an injected runner (`scope: "configured_runner"`,
+`module: null`, no import attempted). Availability applies to the answering
+interpreter or runner, not the whole machine, and does not prove provider
+authentication. The Chat refusal directs the operator to run `loopx doctor`
+in the service environment, check `python.executable`, and install the SDK in
+that same environment before restarting. Interpreter paths stay in local doctor
+output, outside the Turn payload.
+
 `run-once --execute` fails closed on that verdict: status `unavailable`, no host
 invocation, no journal write, and no quota spend, with
 `dsh_runtime_unavailable`, `operator_credential_unconfigured`, or
