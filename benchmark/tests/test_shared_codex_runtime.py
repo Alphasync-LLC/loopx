@@ -364,3 +364,60 @@ def test_phase_bootstrap_uses_current_public_cli(tmp_path, monkeypatch, existing
     asyncio.run(agent._prepare_phase(None, "Synthetic task", cwd=str(tmp_path)))
     assert any(args[:2] == ["todo", "add"] for args in calls)
     assert any(args[0] == "bootstrap" for args in calls) is not existing
+
+
+def test_staged_snapshot_keeps_observed_commit_when_branch_moves(tmp_path, monkeypatch):
+    pytest.importorskip("harbor")
+    import tarfile
+    from benchmark.runtime import harbor
+
+    source = tmp_path / "source"
+    source.mkdir()
+
+    def git(*args):
+        return subprocess.run(
+            ["git", "-C", str(source), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    git("init")
+    git("config", "user.name", "Fixture")
+    git("config", "user.email", "fixture@example.invalid")
+    marker = source / "revision.txt"
+    marker.write_text("original")
+    git("add", "revision.txt")
+    git("commit", "-m", "original")
+    original = git("rev-parse", "HEAD").stdout.strip()
+    monkeypatch.setattr(harbor, "__file__", str(source / "benchmark/runtime/harbor.py"))
+    monkeypatch.setenv("LOOPX_EXPECTED_COMMIT", original)
+    run = subprocess.run
+
+    def moving_head(argv, **kwargs):
+        result = run(argv, **kwargs)
+        if argv[-2:] == ["rev-parse", "HEAD"]:
+            marker.write_text("successor")
+            git("add", "revision.txt")
+            git("commit", "-m", "successor")
+        return result
+
+    monkeypatch.setattr(harbor.subprocess, "run", moving_head)
+    uploaded = []
+
+    class Environment:
+        async def upload_file(self, path, target):
+            with tarfile.open(path) as archive:
+                uploaded.append(archive.extractfile("revision.txt").read())
+
+    async def unpack(*args, **kwargs):
+        pass
+
+    agent = harbor.BenchmarkCodex(
+        logs_dir=tmp_path / "logs", model_name="openai/fixture"
+    )
+    monkeypatch.setattr(agent, "exec_as_root", unpack)
+    staged = asyncio.run(agent._stage_source(Environment(), source))
+    assert staged == original
+    assert marker.read_text() == "successor"
+    assert uploaded == [b"original"]

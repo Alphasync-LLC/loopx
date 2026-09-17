@@ -102,7 +102,7 @@ class BenchmarkCodex(CodexOffline):
         # Never upload the checkout, local experiment outputs or trajectories.
         with tempfile.TemporaryDirectory(prefix="benchmark-source-") as directory:
             archive = Path(directory) / "source.tar"
-            command = ["git", "-C", str(source), "archive", "--format=tar", "HEAD"]
+            command = ["git", "-C", str(source), "archive", "--format=tar", head]
             if not self.execution.uses_loopx:
                 command += [
                     "benchmark/runtime",
