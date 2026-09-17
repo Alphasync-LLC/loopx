@@ -185,12 +185,65 @@ def test_registry_cannot_add_unanchored_output_selectors(name, metadata, selecti
         smoke['check_coverage_floor'](registry)
 
 
+SYNTHETIC_FORK_NAME = "SYNTHETIC_RENAME_SAMPLE_MARKERS"
+SYNTHETIC_FORK_MODULES = (
+    "loopx/state_projection.py",
+    "loopx/control_plane/goals/active_state_metadata.py",
+)
+
+
+def _with_synthetic_fork(smoke, sources):
+    """Inject a synthetic multi-value fork into two in-memory modules.
+
+    The rename-laundering limit is a property of the inventory machinery, not
+    of whichever real fork happens to be undeclared today. Track A retires real
+    forks one by one (PR #4643 retired two of the three this file used to rent),
+    so these pins carry their own sample instead: two modules, one name, two
+    disagreeing value sets -- exactly what makes a multi-value fork.
+    """
+    texts = {
+        SYNTHETIC_FORK_MODULES[0]: f'\n{SYNTHETIC_FORK_NAME} = ("synthetic_left", "left_two")\n',
+        SYNTHETIC_FORK_MODULES[1]: f'\n{SYNTHETIC_FORK_NAME} = ("synthetic_right", "right_two")\n',
+    }
+    return [
+        smoke["SourceFile"](source.path, source.suffix, source.text + texts[source.path])
+        if source.path in texts
+        else source
+        for source in sources
+    ]
+
+
+def _rename_synthetic_side(smoke, sources, path):
+    return [
+        smoke["SourceFile"](
+            source.path,
+            source.suffix,
+            source.text.replace(SYNTHETIC_FORK_NAME, SYNTHETIC_FORK_NAME + "_RENAMED", 1),
+        )
+        if source.path == path
+        else source
+        for source in sources
+    ]
+
+
 def test_bounded_context_scope_excludes_only_declared_multi_value_fork() -> None:
+    """A declaration is what removes a fork from the budget; prove it by removal.
+
+    The undeclared count itself is debt population, not a pin -- Track A lowers
+    it PR by PR. What must hold is the exclusion: dropping a declaration puts
+    its fork back into the semantic budget, exactly one.
+    """
     smoke = runpy.run_path(str(SMOKE))
     registry = smoke["load_registry"]()
     sources = smoke["load_sources"](REPO_ROOT)
     inventory = smoke["build_inventory"](REPO_ROOT, sources=sources)
-    assert smoke["check_scope_declarations"](registry, inventory) == 3
+    with_declaration = smoke["check_scope_declarations"](registry, inventory)
+
+    without = copy.deepcopy(registry)
+    del without["scope_declarations"]["SOURCE_SURFACES"]
+    assert (
+        smoke["check_scope_declarations"](without, inventory) == with_declaration + 1
+    ), "a declared fork is excluded from the semantic budget only while declared"
 
 
 def test_renaming_one_side_of_a_fork_launders_the_semantic_budget() -> None:
@@ -204,20 +257,16 @@ def test_renaming_one_side_of_a_fork_launders_the_semantic_budget() -> None:
     """
     smoke = runpy.run_path(str(SMOKE))
     registry = smoke["load_registry"]()
-    sources = smoke["load_sources"](REPO_ROOT)
-    before = smoke["build_inventory"](REPO_ROOT, sources=sources)
-    assert smoke["check_scope_declarations"](registry, before) == 3
+    plain = smoke["load_sources"](REPO_ROOT)
+    base = smoke["check_scope_declarations"](registry, smoke["build_inventory"](REPO_ROOT, sources=plain))
 
-    path = "loopx/state_projection.py"
-    name = "AGENT_TODO_HEADER_MARKERS"
-    renamed = [
-        smoke["SourceFile"](source.path, source.suffix, source.text.replace(name, name + "_RENAMED", 1))
-        if source.path == path
-        else source
-        for source in sources
-    ]
+    forked = _with_synthetic_fork(smoke, plain)
+    before = smoke["build_inventory"](REPO_ROOT, sources=forked)
+    assert smoke["check_scope_declarations"](registry, before) == base + 1
+
+    renamed = _rename_synthetic_side(smoke, forked, SYNTHETIC_FORK_MODULES[0])
     after = smoke["build_inventory"](REPO_ROOT, sources=renamed)
-    assert smoke["check_scope_declarations"](registry, after) == 2, (
+    assert smoke["check_scope_declarations"](registry, after) == base, (
         "a rename no longer lowers the semantic budget; the RFC known-limits entry "
         "('Renames launder a collision') is now stale and must be revised"
     )
@@ -237,9 +286,14 @@ def test_divergent_value_sets_lists_the_names_a_rename_would_hide() -> None:
 
     smoke = runpy.run_path(str(SMOKE))
     sources = smoke["load_sources"](REPO_ROOT)
-    inventory = smoke["build_inventory"](REPO_ROOT, sources=sources)
-    listed = {row["name"] for row in divergent_value_sets(inventory)}
-    assert {"AGENT_TODO_HEADER_MARKERS", "USER_TODO_HEADER_MARKERS", "RAW_MATERIAL_KEY_HINTS"} <= listed
+    inventory = smoke["build_inventory"](REPO_ROOT, sources=_with_synthetic_fork(smoke, sources))
+    rows = divergent_value_sets(inventory)
+    listed = {row["name"] for row in rows}
+    assert SYNTHETIC_FORK_NAME in listed
+    assert {row["value_sets"] for row in rows if row["name"] == SYNTHETIC_FORK_NAME} == {2}
+    # The one real undeclared fork that survives PR #4643; when Track A retires
+    # it, this assertion retires with it. Until then the advisory must name it.
+    assert "RAW_MATERIAL_KEY_HINTS" in listed
 
     # The advisory is not a budget input: it must not appear in the committed
     # inventory, which stays the single computed authority.
@@ -273,43 +327,37 @@ def test_rename_visibility_splits_into_three_cases() -> None:
 
     smoke = runpy.run_path(str(SMOKE))
     registry = smoke["load_registry"]()
-    sources = smoke["load_sources"](REPO_ROOT)
-    name = "AGENT_TODO_HEADER_MARKERS"
-
-    def renamed_in(paths):
-        out = sources
-        for path in paths:
-            out = [
-                smoke["SourceFile"](source.path, source.suffix, source.text.replace(name, name + "_RENAMED", 1))
-                if source.path == path
-                else source
-                for source in out
-            ]
-        return out
+    plain = smoke["load_sources"](REPO_ROOT)
+    forked = _with_synthetic_fork(smoke, plain)
 
     # Case 1: declared name, one side renamed -> the declaration no longer resolves.
-    declared = _restate(smoke, sources, "loopx/global_todos.py", "SOURCE_SURFACES", "GT_SOURCE_SURFACES")
+    declared = _restate(smoke, plain, "loopx/global_todos.py", "SOURCE_SURFACES", "GT_SOURCE_SURFACES")
     with pytest.raises(smoke["Drift"], match="every defining module"):
         smoke["check_scope_declarations"](registry, smoke["build_inventory"](REPO_ROOT, sources=declared))
 
     # Case 2: undeclared name, one side renamed -> gone from the budget AND the advisory.
-    partial = smoke["build_inventory"](REPO_ROOT, sources=renamed_in(["loopx/state_projection.py"]))
-    assert name not in {entry["name"] for entry in partial["duplicate_definitions"]["multi_value_forks"]}
-    assert name not in {row["name"] for row in divergent_value_sets(partial)}
+    partial = smoke["build_inventory"](
+        REPO_ROOT, sources=_rename_synthetic_side(smoke, forked, SYNTHETIC_FORK_MODULES[0])
+    )
+    assert SYNTHETIC_FORK_NAME not in {
+        entry["name"] for entry in partial["duplicate_definitions"]["multi_value_forks"]
+    }
+    assert SYNTHETIC_FORK_NAME not in {row["name"] for row in divergent_value_sets(partial)}
 
     # Case 3: every side renamed -> also invisible; indistinguishable from an honest rename.
     whole = smoke["build_inventory"](
         REPO_ROOT,
-        sources=renamed_in([
-            "loopx/state_projection.py",
-            "loopx/control_plane/goals/active_state_metadata.py",
-        ]),
+        sources=_rename_synthetic_side(
+            smoke, _rename_synthetic_side(smoke, forked, SYNTHETIC_FORK_MODULES[0]), SYNTHETIC_FORK_MODULES[1]
+        ),
     )
-    assert name not in {entry["name"] for entry in whole["duplicate_definitions"]["multi_value_forks"]}
-    assert name not in {row["name"] for row in divergent_value_sets(whole)}
+    assert SYNTHETIC_FORK_NAME not in {
+        entry["name"] for entry in whole["duplicate_definitions"]["multi_value_forks"]
+    }
+    assert SYNTHETIC_FORK_NAME not in {row["name"] for row in divergent_value_sets(whole)}
 
     # The surviving forks are what the advisory does list, by name.
-    assert "USER_TODO_HEADER_MARKERS" in {row["name"] for row in divergent_value_sets(partial)}
+    assert "RAW_MATERIAL_KEY_HINTS" in {row["name"] for row in divergent_value_sets(partial)}
 
 
 def test_bounded_context_scope_requires_every_distinct_defining_module() -> None:

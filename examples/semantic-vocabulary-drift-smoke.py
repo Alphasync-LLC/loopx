@@ -151,9 +151,9 @@ BUDGET_ANCHOR = {
     "conflicting_definitions": 55,
     "schema_version_same_runtime_forks": 7,
     "multi_value_twins": 13,
-    "multi_value_forks": 4,
-    "multi_value_forks_semantic": 3,
-    "multi_value_fork_definitions": 10,
+    "multi_value_forks": 2,
+    "multi_value_forks_semantic": 1,
+    "multi_value_fork_definitions": 6,
     "same_runtime_forks_semantic": 11,
     "conflicting_values_semantic": 0,
 }
