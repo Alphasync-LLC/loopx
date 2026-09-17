@@ -109,6 +109,20 @@ native creation, archival, receipt replay, and store reopen are tested without
 Markdown metadata. Python only adapts the typed read result to the compatibility
 summary. This is a contract checkpoint, not a completed CLI lifecycle cutover.
 
+### Existing-lease transaction closure (2026-09-17)
+
+Renew, transfer and release now share `coordination/task_lease_lifecycle.ts` and
+the existing typed lifecycle decision/record materializer. The Python adapter
+routes promoted commands once; the local opening handle owns provider identity,
+including service-factory PostgreSQL. Renew-only constructors and duplicated
+record materialization are retired; legacy storage remains for its real callers.
+Transfer preserves Todo claims/scopes; release accepts expired or deregistered
+owners only with matching proof. No-op cleanup seals a receipt; historical
+replay cannot reacquire execution authority. Archived renew/transfer and unsafe
+generation increments fail closed. See [operation, compatibility and four-arm
+rehearsal](../../reference/canonical-lease-renew.md). This closes existing-lease
+L3 mutations, not acquisition/reclaim, executor fences, D2/D3 or new-Goal defaults.
+
 ### Local provider opening boundary (2026-09-13)
 
 The provider-first runtime now has one typed local opening seam. An absent
