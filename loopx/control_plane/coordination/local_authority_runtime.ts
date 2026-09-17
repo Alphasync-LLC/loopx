@@ -1,3 +1,4 @@
+import {decodeTaskLeaseProof} from "./task_lease_proof.ts";
 import {COORDINATION_TODO_ARCHIVE_RESULT_SCHEMA} from "./todo_archive.ts";
 import {readCoordinationOwnership} from "./ownership_observation.ts";
 import {executeTodoContinuation} from "./todo_continuation.ts";
@@ -6,7 +7,7 @@ import { ShadowManagementError } from "./shadow_management.ts";
 import { isAbsolute, join } from "node:path";
 
 import type { JsonObject } from "../effect_program.ts";
-import {executeCoordinationMonitorPoll, COORDINATION_MONITOR_POLL_REQUEST_SCHEMA,
+import {executeCoordinationMonitorPoll, COORDINATION_MONITOR_POLL_REQUEST_SCHEMA, COORDINATION_LEASED_MONITOR_POLL_REQUEST_SCHEMA,
   COORDINATION_MONITOR_POLL_RESULT_SCHEMA} from "./todo_monitor_poll.ts";
 import { requireJsonObject } from "../runtime_decode.ts";
 import {
@@ -112,7 +113,15 @@ export async function pollLocalCoordinationMonitor(value: unknown,
   const evidence = {source_authority: "file_v0", decision_read_from_provider: true, legacy_fallback_used: false};
   try {
     const input = requireJsonObject(value, "local Monitor poll request");
-    if (input.schema_version !== COORDINATION_MONITOR_POLL_REQUEST_SCHEMA) throw new TypeError("Monitor poll schema mismatch");
+    if (input.schema_version !== COORDINATION_MONITOR_POLL_REQUEST_SCHEMA &&
+        input.schema_version !== COORDINATION_LEASED_MONITOR_POLL_REQUEST_SCHEMA) throw new TypeError("Monitor poll schema mismatch");
+    if (input.lease_proof != null && input.schema_version !== COORDINATION_LEASED_MONITOR_POLL_REQUEST_SCHEMA) {
+      throw new TypeError("lease-backed Monitor poll requires request v1");
+    }
+    const proof = decodeTaskLeaseProof(input.lease_proof);
+    if (input.schema_version === COORDINATION_LEASED_MONITOR_POLL_REQUEST_SCHEMA && !proof) {
+      throw new TypeError("Monitor poll request v1 requires lease_proof");
+    }
     const root = runtimeRoot(input.runtime_root);
     const goalId = requireAuthorityStoreId(input.goal_id, "goal id");
     if (!Array.isArray(input.registered_agents)) throw new TypeError("registered_agents must be an array");
@@ -126,6 +135,7 @@ export async function pollLocalCoordinationMonitor(value: unknown,
         registered_agents: registered, dry_run: input.dry_run as boolean,
         observation: requireJsonObject(input.observation, "Monitor observation"),
         intent: requireJsonObject(input.intent, "Monitor successor intent"),
+        lease_proof: proof, now: new Date(),
       }), ...evidence};
     });
   } catch (error) {

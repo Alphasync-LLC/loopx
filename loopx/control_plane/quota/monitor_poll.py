@@ -212,8 +212,14 @@ def _observation_packet(
     next_user_todo: str | None,
     next_user_task_class: str | None,
     next_claimed_by: str | None,
+    task_lease_idempotency_key: str | None = None,
+    task_lease_expected_version: int | None = None,
 ) -> dict[str, Any]:
+    proof = ({"idempotency_key": task_lease_idempotency_key,
+              "expected_version": task_lease_expected_version}
+             if task_lease_idempotency_key is not None or task_lease_expected_version is not None else None)
     return {
+        **({"lease_proof": proof} if proof is not None else {}),
         "actor_agent_id": normalize_todo_claimed_by(agent_id)
         or quota_decision_agent_id(before),
         "settlement_todo_id": settlement_todo_id,
@@ -278,7 +284,8 @@ def _request(
     status_reload_warning: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
-        "schema_version": QUOTA_MONITOR_POLL_COMMIT_REQUEST_SCHEMA,
+        "schema_version": ("loopx_quota_monitor_poll_commit_request_v1" if observation.get("lease_proof") is not None
+                           else QUOTA_MONITOR_POLL_COMMIT_REQUEST_SCHEMA),
         "phase": phase,
         "effect_id": effect_id,
         "runtime_root": str(runtime_root) if runtime_root is not None else None,
@@ -652,6 +659,8 @@ def _provider_writeback(
         next_user_task_class=plan.get("next_user_task_class"),
         next_claimed_by=plan.get("next_claimed_by"),
         agent_id=plan.get("agent_id"),
+        task_lease_idempotency_key=(plan.get("lease_proof") or {}).get("idempotency_key"),
+        task_lease_expected_version=(plan.get("lease_proof") or {}).get("expected_version"),
     )
     if not isinstance(result, dict):
         raise TypeError("monitor Todo provider returned no writeback receipt")
@@ -686,6 +695,8 @@ def record_quota_monitor_poll_for_decision(
     next_user_todo: str | None = None,
     next_user_task_class: str | None = None,
     next_claimed_by: str | None = None,
+    task_lease_idempotency_key: str | None = None,
+    task_lease_expected_version: int | None = None,
     turn_instance_id: str | None = None,
     _index_lock_held: bool = False,
     status_reloader: Callable[[], dict[str, Any]] | None = None,
@@ -746,6 +757,8 @@ def record_quota_monitor_poll_for_decision(
         next_user_todo=next_user_todo,
         next_user_task_class=next_user_task_class,
         next_claimed_by=next_claimed_by,
+        task_lease_idempotency_key=task_lease_idempotency_key,
+        task_lease_expected_version=task_lease_expected_version,
     )
     generated_at = _now_local()
 
@@ -835,13 +848,16 @@ def record_quota_monitor_poll_for_decision(
         else:
             native, after_status = transact()
     except ValueError as exc:
-        return failure(
+        payload = failure(
             str(exc),
             include_capability_retry=(
                 isinstance(exc, _NativeMonitorPollRejected)
                 and exc.diagnostic_code == "monitor_poll_admission_rejected"
             ),
         )
+        if isinstance(exc, _NativeMonitorPollRejected):
+            payload["error_code"] = exc.diagnostic_code
+        return payload
 
     if native.get("status") == "conflict":
         payload = failure(
