@@ -34,19 +34,36 @@ test("invalid successor intent is rejected as a whole, not partly normalized awa
   assert.throws(() => plan({}, "git:github.com/example/source"), /require explicit --next-task-repository/);
 });
 
-test("repository transport aliases match the retained node-independent codec", () => {
-  const inputs = ["git:github.com/example/repo", "https://github.com/example/repo.git",
-    "git@github.com:example/repo.git", "ssh://git@github.com/example/repo.git",
-    "http://github.com:80/example/repo/", "https://github.com:22/example/repo",
-    "ssh://git@github.com:443/example/repo", "ssh://git@github.com:8022/example//repo.git",
-    "git://github.com:80/example/repo", "https://GITHUB.com/example/repo.git"];
+test("repository transport codecs agree with explicit scheme-specific port expectations", () => {
+  const cases = [
+    ["git:github.com/example/repo", "git:github.com/example/repo"],
+    ["https://github.com/example/repo.git", "git:github.com/example/repo"],
+    ["git@github.com:example/repo.git", "git:github.com/example/repo"],
+    ["ssh://git@github.com/example/repo.git", "git:github.com/example/repo"],
+    ["http://github.com:80/example/repo/", "git:github.com/example/repo"],
+    ["https://github.com:443/example/repo", "git:github.com/example/repo"],
+    ["ssh://git@github.com:22/example/repo", "git:github.com/example/repo"],
+    ["git://github.com:9418/example/repo", "git:github.com/example/repo"],
+    ["https://github.com:22/example/repo", "git:github.com:22/example/repo"],
+    ["ssh://git@github.com:443/example/repo", "git:github.com:443/example/repo"],
+    ["ssh://git@github.com:8022/example//repo.git", "git:github.com:8022/example/repo"],
+    ["git://github.com:80/example/repo", "git:github.com:80/example/repo"],
+    ["http://github.com:0/example/repo", "git:github.com:0/example/repo"],
+    ["https://github.com:0/example/repo", "git:github.com:0/example/repo"],
+    ["ssh://git@github.com:0/example/repo", "git:github.com:0/example/repo"],
+    ["git://github.com:0/example/repo", "git:github.com:0/example/repo"],
+    ["git:github.com:443/example/repo", "git:github.com:443/example/repo"],
+    ["git:github.com:9418/example/repo", "git:github.com:9418/example/repo"],
+    ["https://GITHUB.com/example/repo.git", "git:github.com/example/repo"],
+  ];
+  const inputs = cases.map(([input]) => input);
   const python = spawnSync("python", ["-c", "import json,sys; from loopx.repository_identity import normalize_repository_identity; print(json.dumps([normalize_repository_identity(x) for x in json.load(sys.stdin)]))"],
     {input: JSON.stringify(inputs), encoding: "utf8"});
   assert.equal(python.status, 0, python.stderr);
-  const expected = JSON.parse(python.stdout);
-  for (const [index, input] of inputs.entries()) {
+  assert.deepEqual(JSON.parse(python.stdout), cases.map(([, expected]) => expected));
+  for (const [input, expected] of cases) {
     const actual = monitorSuccessorIntent({...intent, next_task_repository: input}).next_task_repository;
-    assert.equal(actual, expected[index]);
+    assert.equal(actual, expected, input);
     assert.equal(monitorSuccessorIntent({...intent, next_task_repository: actual}).next_task_repository, actual);
   }
 });
