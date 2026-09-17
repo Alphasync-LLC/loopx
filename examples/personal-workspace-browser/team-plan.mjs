@@ -167,7 +167,7 @@ export const teamPlanScenario = {
         "a ready lane shows its first bounded Todo with its priority and action kind",
       );
       check(
-        previewText.includes("验收: the bounded Todo is created through the canonical owner"),
+        previewText.includes("验收参考: the bounded Todo is created through the canonical owner"),
         "a ready lane shows its acceptance signal",
       );
       check(
@@ -205,8 +205,21 @@ export const teamPlanScenario = {
         "confirming sends exactly one apply for the confirmed proposal",
       );
       check(api.durableWriteCount === 1, "the confirmed apply performed exactly one durable write");
-      await drawer.getByText("已应用，LoopX 状态将刷新。", { exact: true })
+      await drawer.getByText("已分配 1 条 lane 的任务，1 条仍有缺口。接收者采纳与执行尚未验证。", { exact: true })
         .waitFor({ state: "visible", timeout: 15_000 });
+      // The confirmation replaced the preview with the apply receipt, so the
+      // card has to keep naming the lane that stayed unstaffed and the host
+      // fact behind it; a bare count would leave the owner with a number and
+      // nothing to act on.
+      const appliedText = await drawer.innerText();
+      check(
+        appliedText.includes("已应用，但有 1 条 lane 仍未组建："),
+        "the applied card says how many lanes stayed unstaffed",
+      );
+      check(
+        appliedText.includes("lane_review（agent-reviewer）仍未组建：该 Agent 未在该 Goal 注册"),
+        "the applied card names the unstaffed lane, its Agent and the host reason",
+      );
       await page.screenshot({
         path: resolve(outputDir, "team-plan-applied.png"),
         fullPage: false,

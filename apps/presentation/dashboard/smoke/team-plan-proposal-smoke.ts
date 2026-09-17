@@ -13,7 +13,7 @@ import {
   typedActionKindSchema,
   typedActionProposalSchema,
 } from "../src/data/chat.js";
-import { teamPlanFields, teamPlanGoalId, teamPlanLaneCount } from "../src/features/personal-workspace/team-plan-preview.js";
+import { teamPlanFields, teamPlanGapLaneLine, teamPlanGoalId, teamPlanLaneCount, teamPlanReceiptGapLanes } from "../src/features/personal-workspace/team-plan-preview.js";
 
 const GOAL_ID = "team-plan-smoke-goal";
 
@@ -132,6 +132,10 @@ const translate = (key: string, values?: Record<string, string | number>) => {
     "proposal.teamPlan.acceptanceShort": "acceptance",
     "proposal.teamPlan.gapLane": "unstaffed",
     "proposal.teamPlan.laneUnstaffed": "staffing gap, no first Todo",
+    "proposal.teamPlan.appliedGapLane": "{lane} ({agent}) stayed unstaffed: {reason}",
+    "proposal.teamPlan.advisory": "planning context",
+    "proposal.teamPlan.gapReason.agentNotRegistered": "the Agent is not registered for this Goal",
+    "proposal.teamPlan.gapReason.actionKindNotSupported": "this host does not ship that action kind",
   };
   const template = table[key] ?? key;
   return Object.entries(values ?? {}).reduce(
@@ -158,14 +162,46 @@ check(
   "a gap lane says it is unstaffed, names the reason and keeps the work it did not staff",
 );
 check(byKey.get("lane_gaps")?.value === "lane_review: agent_not_registered", "the gap summary joins lane and reason");
-check(byKey.get("quota_envelope")?.value === "slots: 4 · window: 1d", "the quota envelope is shown as data");
+check(byKey.get("quota_envelope")?.value === "slots: 4 · window: 1d · planning context", "quota is labeled as planning context");
 check(
-  byKey.get("stop_condition")?.value === "every lane reports a typed outcome or a stated gap",
+  byKey.get("stop_condition")?.value === "every lane reports a typed outcome or a stated gap · planning context",
   "the stop condition is shown",
 );
 check(
   fields.some((field) => field.value.includes("agent-") === true && field.value.includes("ready") === true) === false,
   "the card never renders a lane as already created",
+);
+
+// Confirming the plan replaces the preview facts with the apply receipt, so
+// the readback has to carry the same lane identity: a partial application that
+// reported only a count left the owner unable to name what was missing.
+const partialReceipt = {
+  outcome: "team_plan_partially_applied",
+  gap_count: 1,
+  gap_lanes: [
+    { lane_id: "lane_review", agent_id: "agent-reviewer", reason_code: "agent_not_registered" },
+  ],
+};
+const appliedGaps = teamPlanReceiptGapLanes(partialReceipt);
+check(appliedGaps.length === 1 && appliedGaps[0].laneId === "lane_review", "the apply receipt names the lane that stayed unstaffed");
+check(
+  teamPlanGapLaneLine(appliedGaps[0], translate as never)
+    === "lane_review (agent-reviewer) stayed unstaffed: the Agent is not registered for this Goal",
+  "the applied card says which lane is missing and what would let it run",
+);
+check(
+  teamPlanGapLaneLine({ laneId: "lane_x", agentId: "", reasonCode: "future_reason" }, translate as never)
+    .endsWith("future_reason"),
+  "an unrecognized host reason is shown verbatim instead of being invented",
+);
+check(
+  teamPlanReceiptGapLanes({ outcome: "team_plan_applied" }).length === 0,
+  "a plan that staffed every lane reports no gap lanes",
+);
+check(
+  teamPlanReceiptGapLanes(null).length === 0
+  && teamPlanReceiptGapLanes({ gap_lanes: [{ agent_id: "agent-reviewer" }] }).length === 0,
+  "a receipt without the field, or without a lane, reports no gap lanes",
 );
 
 if (process.exitCode !== 1) console.log("team plan proposal smoke ok");
