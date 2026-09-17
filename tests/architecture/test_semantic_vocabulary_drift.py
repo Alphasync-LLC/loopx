@@ -246,6 +246,72 @@ def test_divergent_value_sets_lists_the_names_a_rename_would_hide() -> None:
     assert "divergent_value_sets" not in inventory
 
 
+def _restate(smoke, sources, path, name, replacement):
+    return [
+        smoke["SourceFile"](source.path, source.suffix, source.text.replace(name, replacement, 1))
+        if source.path == path
+        else source
+        for source in sources
+    ]
+
+
+def test_rename_visibility_splits_into_three_cases() -> None:
+    """The complete boundary, measured, so no reader has to re-derive it.
+
+    Case 1: a partial rename of a **declared** name is rejected outright -- the
+    declaration names every defining module and the renamed side no longer
+    matches, so the rename cannot lower the budget.
+
+    Cases 2 and 3 are the RFC Section 9 limit, and this test records it as it
+    actually behaves rather than as the limit's heading suggests: renaming one
+    side leaves the name with a single definition, so it stops being a fork and
+    drops out of ``divergent_value_sets`` exactly as it drops out of the budget.
+    The advisory makes *surviving* forks visible by name; it does not detect the
+    rename. Both cases assert that so a future claim of coverage fails here.
+    """
+    from loopx.semantics.inventory import divergent_value_sets
+
+    smoke = runpy.run_path(str(SMOKE))
+    registry = smoke["load_registry"]()
+    sources = smoke["load_sources"](REPO_ROOT)
+    name = "AGENT_TODO_HEADER_MARKERS"
+
+    def renamed_in(paths):
+        out = sources
+        for path in paths:
+            out = [
+                smoke["SourceFile"](source.path, source.suffix, source.text.replace(name, name + "_RENAMED", 1))
+                if source.path == path
+                else source
+                for source in out
+            ]
+        return out
+
+    # Case 1: declared name, one side renamed -> the declaration no longer resolves.
+    declared = _restate(smoke, sources, "loopx/global_todos.py", "SOURCE_SURFACES", "GT_SOURCE_SURFACES")
+    with pytest.raises(smoke["Drift"], match="every defining module"):
+        smoke["check_scope_declarations"](registry, smoke["build_inventory"](REPO_ROOT, sources=declared))
+
+    # Case 2: undeclared name, one side renamed -> gone from the budget AND the advisory.
+    partial = smoke["build_inventory"](REPO_ROOT, sources=renamed_in(["loopx/state_projection.py"]))
+    assert name not in {entry["name"] for entry in partial["duplicate_definitions"]["multi_value_forks"]}
+    assert name not in {row["name"] for row in divergent_value_sets(partial)}
+
+    # Case 3: every side renamed -> also invisible; indistinguishable from an honest rename.
+    whole = smoke["build_inventory"](
+        REPO_ROOT,
+        sources=renamed_in([
+            "loopx/state_projection.py",
+            "loopx/control_plane/goals/active_state_metadata.py",
+        ]),
+    )
+    assert name not in {entry["name"] for entry in whole["duplicate_definitions"]["multi_value_forks"]}
+    assert name not in {row["name"] for row in divergent_value_sets(whole)}
+
+    # The surviving forks are what the advisory does list, by name.
+    assert "USER_TODO_HEADER_MARKERS" in {row["name"] for row in divergent_value_sets(partial)}
+
+
 def test_bounded_context_scope_requires_every_distinct_defining_module() -> None:
     smoke = runpy.run_path(str(SMOKE))
     registry = copy.deepcopy(smoke["load_registry"]())
