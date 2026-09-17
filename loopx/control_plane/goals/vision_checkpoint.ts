@@ -115,7 +115,7 @@ const BASIC_CREDENTIAL_VALUE =
 const PRIVATE_TEXT_PATTERNS = [
   /\/Users\//,
   /\/ext_data\//,
-  /larkoffice/i,
+  /lark[o]ffice/i, // Equivalent matcher avoids matching its own policy source.
   /docs\.internal/i,
   /\bt-20\d{12}-[a-z0-9]+\b/,
   /\bBearer\b/i,
