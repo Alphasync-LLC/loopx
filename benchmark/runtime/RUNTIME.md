@@ -59,7 +59,8 @@ export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 Also set `CODEX_OFFLINE_DIR` (Codex, code-mode sidecar, rg),
 `LOOPX_PORTABLE_PYTHON` (Python >=3.11 distribution) and `LOOPX_NODE_DIR`
 (Node >=22.18.0 distribution). Staging uses `git archive HEAD`, never local run
-artifacts. Commit the candidate before real validation. Baselines stage only
+artifacts. The host import must come from that checkout, whose tracked files
+must match HEAD. Commit the candidate before real validation. Baselines stage only
 the runner/native transport, without installing LoopX skills or initializing
 its state. LoopX modes use the formal installer and doctor readback.
 
@@ -93,6 +94,8 @@ Timeout preserves partial task artifacts for native scoring. Goal receipts
 retain the observed transaction on timeout. Cancellation reaps child processes.
 Harbor deadlines must exceed scheduler deadlines, which must exceed host
 timeouts plus validation and cleanup allowance.
+The scheduler wake deadline is derived from the host timeout plus 150 seconds;
+the retired LHTB `LOOPX_WAKE_TIMEOUT_SEC` setting is no longer used.
 
 Pending controlled Turns retain their identity across worker restarts. Core
 `--resume-turn-key` decides recovery eligibility and retry limits. The runner

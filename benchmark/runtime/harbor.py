@@ -72,8 +72,8 @@ class BenchmarkCodex(CodexOffline):
                 "scheduler timeout must exceed turn timeout plus cleanup allowance"
             )
         self.replan_after_todos = int(replan_after_todos)
-        if self.replan_after_todos < 1:
-            raise ValueError("replan_after_todos must be positive")
+        if not 1 <= self.replan_after_todos <= 5:
+            raise ValueError("replan_after_todos must be between 1 and 5")
         self._phase_number = 0
         super().__init__(*args, **kwargs)
 
@@ -82,6 +82,14 @@ class BenchmarkCodex(CodexOffline):
         return "benchmark-codex"
 
     async def _stage_source(self, environment: BaseEnvironment, source: Path) -> str:
+        if Path(__file__).resolve() != source / "benchmark/runtime/harbor.py":
+            raise RuntimeError("Harbor must import the adapter from LOOPX_SRC_DIR")
+        dirty = subprocess.run(
+            ["git", "-C", str(source), "diff", "HEAD", "--quiet"],
+            check=False,
+        )
+        if dirty.returncode:
+            raise RuntimeError("Commit tracked source changes before staging a trial")
         head = subprocess.run(
             ["git", "-C", str(source), "rev-parse", "HEAD"],
             capture_output=True,

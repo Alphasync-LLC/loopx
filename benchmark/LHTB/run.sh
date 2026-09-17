@@ -38,7 +38,6 @@ REASONING_EFFORT="${REASONING_EFFORT:-max}"
 CONCURRENCY="${CONCURRENCY:-4}"
 AGENT_TIMEOUT_SEC="${AGENT_TIMEOUT_SEC:-5400}"
 LOOPX_SCHEDULER_TIMEOUT_SEC="${LOOPX_SCHEDULER_TIMEOUT_SEC:-5080}"
-LOOPX_WAKE_TIMEOUT_SEC="${LOOPX_WAKE_TIMEOUT_SEC:-4800}"
 LOOPX_CODEX_TURN_TIMEOUT_SEC="${LOOPX_CODEX_TURN_TIMEOUT_SEC:-4700}"
 LHTB_MAX_RETRIES="${LHTB_MAX_RETRIES:-2}"
 RUNNER_RESTARTS="${RUNNER_RESTARTS:-2}"
@@ -72,14 +71,13 @@ if [[ -z "${LOOPX_NODE_DIR:-}" ]]; then
   node_binary="$(readlink -f "$node_command" 2>/dev/null || true)"
   [[ -n "$node_binary" ]] && LOOPX_NODE_DIR="$(cd "$(dirname "$node_binary")/.." && pwd)"
 fi
-[[ -n "${LOOPX_NODE_DIR:-}" && -x "$LOOPX_NODE_DIR/bin/node" ]] || die "Set LOOPX_NODE_DIR to a a supported Node root"
+[[ -n "${LOOPX_NODE_DIR:-}" && -x "$LOOPX_NODE_DIR/bin/node" ]] || die "Set LOOPX_NODE_DIR to a supported Node root"
 
 for value in "$CONCURRENCY" "$AGENT_TIMEOUT_SEC" "$LOOPX_SCHEDULER_TIMEOUT_SEC" \
-  "$LOOPX_WAKE_TIMEOUT_SEC" "$LOOPX_CODEX_TURN_TIMEOUT_SEC" "$LHTB_MAX_RETRIES" "$RUNNER_RESTARTS"; do
+  "$LOOPX_CODEX_TURN_TIMEOUT_SEC" "$LHTB_MAX_RETRIES" "$RUNNER_RESTARTS"; do
   [[ "$value" =~ ^[0-9]+$ ]] || die "numeric configuration expected, got: $value"
 done
-(( LOOPX_CODEX_TURN_TIMEOUT_SEC < LOOPX_WAKE_TIMEOUT_SEC )) || die "Codex turn timeout must be below wake timeout"
-(( LOOPX_WAKE_TIMEOUT_SEC < LOOPX_SCHEDULER_TIMEOUT_SEC )) || die "wake timeout must be below scheduler timeout"
+(( LOOPX_CODEX_TURN_TIMEOUT_SEC + 150 < LOOPX_SCHEDULER_TIMEOUT_SEC )) || die "scheduler timeout must exceed Codex timeout plus 150s cleanup allowance"
 (( LOOPX_SCHEDULER_TIMEOUT_SEC < AGENT_TIMEOUT_SEC )) || die "scheduler timeout must be below Harbor agent timeout"
 
 gateway_host="$($VENV/bin/python -c 'from urllib.parse import urlsplit; import sys; print(urlsplit(sys.argv[1]).hostname or "")' "$OPENAI_BASE_URL")"
@@ -140,7 +138,7 @@ jobs_dir="$CODE_DIR/runs"
 export OPENAI_BASE_URL OPENAI_API_KEY MODEL_NAME REASONING_EFFORT
 export CODEX_BIN CODEX_OFFLINE_DIR CODEX_WIRE_API="${CODEX_WIRE_API:-responses}"
 export LOOPX_SRC_DIR LOOPX_EXPECTED_COMMIT LOOPX_PORTABLE_PYTHON LOOPX_NODE_DIR
-export LOOPX_SCHEDULER_TIMEOUT_SEC LOOPX_WAKE_TIMEOUT_SEC LOOPX_CODEX_TURN_TIMEOUT_SEC
+export LOOPX_SCHEDULER_TIMEOUT_SEC LOOPX_CODEX_TURN_TIMEOUT_SEC
 export LHTB_MODELONLY_NETWORK CONCURRENCY AGENT_TIMEOUT_SEC
 export LHTB_MODELONLY_NET=1 HB_VERIFIER_FEEDBACK_MODE=binary
 export DOCKER_DEFAULT_PLATFORM="${DOCKER_DEFAULT_PLATFORM:-linux/amd64}"

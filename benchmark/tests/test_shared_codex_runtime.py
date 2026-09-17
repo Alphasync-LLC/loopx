@@ -172,6 +172,53 @@ def test_turn_uses_public_cli_and_core_session_policy(tmp_path):
     assert parsed.codex_sandbox == "danger-full-access"
 
 
+def test_failed_turn_restarts_same_transaction_until_core_recovers(tmp_path):
+    env = worker_env(tmp_path)
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    cli = tmp_path / "loopx"
+    cli.write_text(
+        f"#!{sys.executable}\n"
+        + """
+import json, pathlib, sys
+log = pathlib.Path("calls.jsonl")
+first = not log.exists()
+with log.open("a") as output:
+    output.write(json.dumps(sys.argv[1:]) + "\\n")
+print(json.dumps({"ok": not first, "resume_turn_key": "sha256:" + "a" * 64}))
+sys.exit(1 if first else 0)
+"""
+    )
+    cli.chmod(0o755)
+    env.update(
+        LOOPX_EXECUTION_MODE="turn",
+        LOOPX_CLI=str(cli),
+        LOOPX_SHARED_SKILLS=str(skills),
+        LOOPX_REGISTRY=str(tmp_path / "registry.json"),
+        LOOPX_RUNTIME_ROOT=str(tmp_path / "runtime"),
+        LOOPX_GOAL_ID="fixture-goal",
+        LOOPX_AGENT_ID="fixture-agent",
+        LOOPX_VALIDATION_COMMAND_JSON='["trusted-validator"]',
+    )
+    assert not run_once(env)["ok"]
+    pending = tmp_path / "runtime/benchmark-pending-turn.json"
+    assert pending.exists()
+    assert run_once(env)["ok"]
+    assert not pending.exists()
+    assert run_once(env)["ok"]
+    calls = [
+        json.loads(line) for line in (tmp_path / "calls.jsonl").read_text().splitlines()
+    ]
+    first, recovery, successor = calls
+    assert "--turn-instance-id" in first
+    assert "--turn-instance-id" not in recovery
+    assert recovery[recovery.index("--resume-turn-key") + 1] == "sha256:" + "a" * 64
+    assert (
+        successor[successor.index("--turn-instance-id") + 1]
+        != first[first.index("--turn-instance-id") + 1]
+    )
+
+
 def test_harbor_imports_and_keeps_native_sessions_separate(tmp_path, monkeypatch):
     pytest.importorskip("harbor")
     from benchmark.runtime.harbor import BenchmarkCodex
