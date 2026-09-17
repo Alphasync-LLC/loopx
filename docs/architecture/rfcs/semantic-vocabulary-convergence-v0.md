@@ -752,7 +752,19 @@ Known limits, stated so the check is not over-trusted:
   side of a fork lowers the count without removing the drift. The advisory merge
   report is the review aid here; value-set equality cannot be a hard budget
   because `CONFIDENCE_LEVELS` and `EDGE_CASE_COMPLEXITIES` share `high/low/medium`
-  while meaning different things.
+  while meaning different things. The merge-candidate report alone does not cover
+  this limit: it groups *different* names carrying *identical* value sets, while a
+  fork is *one* name whose modules disagree, so the grouping never lists a fork.
+  `divergent_value_sets(inventory)`, printed by `--report`, is the name-keyed
+  companion that lists surviving forks with their count of disagreeing value sets,
+  where they were visible only as a number before. It is **not** a rename detector:
+  measured, a one-sided rename leaves the name with a single definition, so it
+  stops being a fork and drops out of both the budget and this report. The one
+  case that does fail closed is a **declared** name, because `scope_declarations`
+  names every defining module and a renamed side no longer matches. An undeclared
+  one-sided rename, and renaming every side at once, both lower the budget with
+  nothing reporting it. That residue is accepted for M0 along with the rest of
+  this entry.
 - **Single-element carriers are invisible.** A closed set with one string member
   is not a vocabulary, so reducing a two-value set to one removes it from the
   inventory entirely.
@@ -1193,6 +1205,7 @@ introduce a competing target state.
 | --- | --- | --- | --- | --- |
 | 2026-09-16 | Q9: compute the full inventory on demand; retire the committed census | Implementation for [maintainer feedback](https://github.com/huangruiteng/loopx/pull/4360#issuecomment-5692062394); PR review pending | Committed snapshot with post-merge regeneration; diff-only scan rejected | 1, I6, 3, 5, 9, 10, 12 |
 | 2026-09-16 | B2: bind one unrenamed re-export hop in the Python producer scanner | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B2; PR review pending | Require every consumer to import the owner module (fragile; failed silently in M2); unbounded multi-hop resolution rejected | 5, Appendix A |
+| 2026-09-16 | B1 rename invariance: add the name-keyed divergence advisory; state the limit it does not close | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B1; PR review pending | Keying the budget on value sets (rejected: `CONFIDENCE_LEVELS` and `EDGE_CASE_COMPLEXITIES` share `high/low/medium` with different meanings); a committed name ledger (rejected at M0: Q9 retired the committed census). The advisory lists surviving forks by name; it was first described as catching a one-sided rename, which measurement disproved, so both mirrors state the limit as it behaves | 9 |
 
 ## Appendix C: Evidence registry
 
