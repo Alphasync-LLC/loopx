@@ -235,6 +235,8 @@ R2 的一条依赖必须通过真实 LoopX Agent 间的请求/产物交接完成
 
 ### R5：TS 收敛与本地持久化
 
+既有 lease 的 L3 检查点：renew/transfer/release 共用 TS 事务和 provider handle；真实 File/SQLite/PostgreSQL 与不可变 legacy 对照覆盖转交、清理和历史 replay。[交付边界与剩余 caller](../../reference/canonical-lease-renew.md)；R5、D2/D3 和新 Goal 默认化资格仍未完成。
+
 - **Owner：** TS RFC T0–T4、shared-authority D1–D3；保留两套编号及原门禁。
 - **选择规则：** 优先迁移 R1–R4 热路径的一笔完整事务或恢复生命周期，附前后 caller/owner/crossing 表、实际删除和性能证据。不要继续按单字段增加 Python→TS RPC；不要重建已合入的 Todo update。
 - **交付：** 用已选本地 profile 验证完整来源读取、单向 Markdown 投影、event/receipt 保留、重启恢复、容量与长期成本；source 失败不能回退 legacy。R1 不能把大计划正文塞入 coordination head。
