@@ -11,7 +11,13 @@ from ...agents.agent_scope import (
 from ...agents.profile import agent_profile_requires_vision
 from ...agents.runtime_model import peer_work_key, select_peer_for_work
 from ...runtime.time import parse_timestamp
-from ...todos.contract import normalize_todo_replan_obligation_id
+# Refs #4447: the todo contract owns this vocabulary; import it instead of
+# restating the literal in every module that classifies a Todo.
+from ...todos.contract import (
+    TODO_TASK_CLASS_ADVANCEMENT,
+    TODO_TASK_CLASS_MONITOR,
+    normalize_todo_replan_obligation_id,
+)
 from ...todos.todo_semantics import (
     todo_advancement_frontier_counts,
     todo_item_is_watch_only_monitor,
@@ -99,8 +105,6 @@ FRONTIER_EXHAUSTED_MONITOR_TRIGGER = "frontier_exhausted_monitor_lane"
 MONITOR_NO_CHANGE_STREAK_TRIGGER = "monitor_no_change_streak"
 VISION_PROFILE_MISSING_TRIGGER = "required_agent_vision_missing"
 TODO_SUCCESSION_GAP_TRIGGER = TODO_SUCCESSION_WARNING_REASON_CODE
-TODO_TASK_CLASS_ADVANCEMENT = "advancement_task"
-TODO_TASK_CLASS_MONITOR = "continuous_monitor"
 
 
 def safe_non_negative_int(value: Any) -> int:
