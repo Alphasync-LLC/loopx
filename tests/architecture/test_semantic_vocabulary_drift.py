@@ -38,6 +38,14 @@ def test_semantic_vocabulary_registry_matches_the_code() -> None:
     assert completed.stdout.startswith("semantic-vocabulary-drift-smoke: ok"), (
         completed.stdout
     )
+    # The domain sizes are part of the report, not only of the registry: a reader
+    # of the smoke output must see how much each invariant actually covers.
+    report = completed.stdout
+    assert "\n  formal_domain=F1:" in report, report
+    for token in ("kernel_with_producers=", "cross_runtime_unverified=",
+                  "producer_scan_reach=", "scope_declarations=", "declared_contexts="):
+        assert token in report, (token, report)
+    assert "can never become evidence)" in report, report
 
 
 @pytest.mark.parametrize("mutation", ["twin_budget", "twin_root", "scan_root"])
@@ -82,7 +90,7 @@ def test_candidate_decisions_are_exhaustive_and_default_to_unknown() -> None:
 
     registry["formal_model"]["candidate_decisions"]["default"] = "reuse_existing"
     with pytest.raises(smoke["Drift"], match="default unresolved candidates"):
-        smoke["check_formal_model"](registry["formal_model"])
+        smoke["check_formal_model"](registry["formal_model"], registry)
 
 
 def test_bounded_producer_scan_rejects_unregistered_write() -> None:
@@ -480,6 +488,205 @@ def test_remaining_kernel_values_each_carry_a_note(name):
         if not str(notes.get(value) or '').strip()
     ]
     assert not undocumented, f'{name}: values with no value_notes entry: {undocumented}'
+
+
+def _invariant(registry: dict, invariant_id: str) -> dict:
+    return next(item for item in registry["formal_model"]["invariants"] if item["id"] == invariant_id)
+
+
+def test_f1_f2_domain_names_exactly_the_vocabularies_the_producer_check_walks() -> None:
+    """The declared domain must be the set ``check_producers`` really visits.
+
+    F1 and F2 were unconditional claims over every vocabulary while the check
+    skipped 20 of 26. This ties the quantifier in the statement to the predicate
+    the scanner uses, so widening one without the other fails.
+    """
+    smoke = runpy.run_path(str(SMOKE))
+    registry = smoke["load_registry"]()
+    vocabularies = registry["vocabularies"]
+    walked = {name for name, entry in vocabularies.items() if "producers" in entry}
+    assert walked == {name for name, entry in vocabularies.items() if entry["tier"] == "kernel"}
+    skipped = {entry["tier"] for name, entry in vocabularies.items() if name not in walked}
+    assert skipped == {"cross_runtime"}
+    for invariant_id in ("F1_producer_closedness", "F2_canonical_value_liveness"):
+        domain = _invariant(registry, invariant_id)["domain"]
+        assert domain["quantifies_over"] == "vocabularies[tier=kernel].producers"
+        assert domain["verified"] == len(walked)
+        assert domain["registered"] == len(vocabularies)
+        assert domain["evidence_bound"] == "producer_scan_reach"
+
+
+@pytest.mark.parametrize("invariant_id", sorted({
+    "F1_producer_closedness",
+    "F2_canonical_value_liveness",
+    "F3_consumer_domain_closedness",
+    "F4_scope_separation",
+    "F5_projection_totality",
+    "F6_persistence_version_compatibility",
+}))
+def test_every_invariant_must_declare_a_domain(invariant_id: str) -> None:
+    smoke = runpy.run_path(str(SMOKE))
+    registry = copy.deepcopy(smoke["load_registry"]())
+    _invariant(registry, invariant_id).pop("domain")
+    with pytest.raises(smoke["Drift"], match="invalid shape"):
+        smoke["check_formal_model"](registry["formal_model"], registry)
+
+
+@pytest.mark.parametrize("invariant_id, field, value", [
+    ("F1_producer_closedness", "verified", 26),
+    ("F1_producer_closedness", "verified", 5),
+    ("F1_producer_closedness", "registered", 6),
+    ("F2_canonical_value_liveness", "verified", 26),
+    ("F4_scope_separation", "verified", 1),
+    ("F5_projection_totality", "registered", 9),
+])
+def test_declared_domain_size_must_match_the_derived_one(invariant_id, field, value) -> None:
+    """A domain size is counted from the registry, never taken on trust."""
+    smoke = runpy.run_path(str(SMOKE))
+    registry = copy.deepcopy(smoke["load_registry"]())
+    _invariant(registry, invariant_id)["domain"][field] = value
+    with pytest.raises(smoke["Drift"], match=f"formal invariant {invariant_id}"):
+        smoke["check_formal_model"](registry["formal_model"], registry)
+
+
+@pytest.mark.parametrize("invariant_id", ["F3_consumer_domain_closedness", "F6_persistence_version_compatibility"])
+def test_an_unenforced_invariant_cannot_claim_verified_members(invariant_id: str) -> None:
+    """Advisory and unproved stages walk nothing; the count has to say so."""
+    smoke = runpy.run_path(str(SMOKE))
+    registry = copy.deepcopy(smoke["load_registry"]())
+    _invariant(registry, invariant_id)["domain"]["verified"] = 1
+    with pytest.raises(smoke["Drift"], match="an unenforced stage walks nothing"):
+        smoke["check_formal_model"](registry["formal_model"], registry)
+
+
+def test_an_enforced_invariant_cannot_declare_an_empty_domain(monkeypatch) -> None:
+    """An enforced stage over an empty set is vacuous, not proven."""
+    smoke = runpy.run_path(str(SMOKE))
+    registry = copy.deepcopy(smoke["load_registry"]())
+    # The anchor is what normally forbids this pairing; move it so the emptiness
+    # rule itself is the one under test.
+    monkeypatch.setitem(
+        smoke["check_invariant_domain"].__globals__["FORMAL_DOMAIN_ANCHOR"],
+        "F4_scope_separation", ("persists_edges[*]", "declared_defining_modules"),
+    )
+    domain = _invariant(registry, "F4_scope_separation")["domain"]
+    domain["quantifies_over"] = "persists_edges[*]"
+    domain["verified"] = 0
+    domain["registered"] = 0
+    with pytest.raises(smoke["Drift"], match="over an empty domain"):
+        smoke["check_formal_model"](registry["formal_model"], registry)
+
+
+@pytest.mark.parametrize("invariant_id, selector", [
+    # Every swap below names a selector the code knows, so only the anchor stops
+    # an invariant from widening the domain its statement quantifies over.
+    ("F1_producer_closedness", "vocabularies[*]"),
+    ("F2_canonical_value_liveness", "vocabularies[*]"),
+    ("F4_scope_separation", "projections[*]"),
+    ("F5_projection_totality", "scope_declarations[*].contexts"),
+])
+def test_an_invariant_cannot_widen_its_own_domain_by_data_edit(invariant_id, selector) -> None:
+    smoke = runpy.run_path(str(SMOKE))
+    registry = copy.deepcopy(smoke["load_registry"]())
+    _invariant(registry, invariant_id)["domain"]["quantifies_over"] = selector
+    with pytest.raises(smoke["Drift"], match="FORMAL_DOMAIN_ANCHOR pins"):
+        smoke["check_formal_model"](registry["formal_model"], registry)
+
+
+def test_every_invariant_is_anchored_to_a_domain() -> None:
+    smoke = runpy.run_path(str(SMOKE))
+    anchor = smoke["FORMAL_DOMAIN_ANCHOR"]
+    assert set(anchor) == smoke["FORMAL_INVARIANTS"]
+    for selector, bound in anchor.values():
+        assert selector in smoke["FORMAL_DOMAIN_SELECTORS"]
+        assert bound in smoke["FORMAL_EVIDENCE_BOUNDS"]
+
+
+def test_a_domain_selector_cannot_be_invented_by_registry_data() -> None:
+    smoke = runpy.run_path(str(SMOKE))
+    registry = copy.deepcopy(smoke["load_registry"]())
+    _invariant(registry, "F1_producer_closedness")["domain"]["quantifies_over"] = "vocabularies[everything]"
+    with pytest.raises(smoke["Drift"], match="selectors are code owned"):
+        smoke["check_formal_model"](registry["formal_model"], registry)
+
+
+@pytest.mark.parametrize("invariant_id, bound", [
+    ("F1_producer_closedness", "unmodelled"),
+    ("F1_producer_closedness", "inventory_only"),
+    ("F3_consumer_domain_closedness", "producer_scan_reach"),
+    ("F5_projection_totality", "unmodelled"),
+])
+def test_an_evidence_bound_cannot_contradict_the_enforcement_stage(monkeypatch, invariant_id, bound) -> None:
+    """A bound that says nothing was walked cannot sit on an enforced stage, and
+    a walked-evidence bound cannot sit on an advisory or unproved one."""
+    smoke = runpy.run_path(str(SMOKE))
+    registry = copy.deepcopy(smoke["load_registry"]())
+    anchor = smoke["check_invariant_domain"].__globals__["FORMAL_DOMAIN_ANCHOR"]
+    monkeypatch.setitem(anchor, invariant_id, (anchor[invariant_id][0], bound))
+    _invariant(registry, invariant_id)["domain"]["evidence_bound"] = bound
+    with pytest.raises(smoke["Drift"], match="evidence bound"):
+        smoke["check_formal_model"](registry["formal_model"], registry)
+
+
+def test_an_unknown_evidence_bound_is_rejected() -> None:
+    smoke = runpy.run_path(str(SMOKE))
+    registry = copy.deepcopy(smoke["load_registry"]())
+    _invariant(registry, "F1_producer_closedness")["domain"]["evidence_bound"] = "trust_me"
+    with pytest.raises(smoke["Drift"], match="unknown evidence bound"):
+        smoke["check_formal_model"](registry["formal_model"], registry)
+
+
+@pytest.mark.parametrize("extra", [{"note": "why"}, {}])
+def test_domain_key_set_is_closed(extra: dict) -> None:
+    smoke = runpy.run_path(str(SMOKE))
+    registry = copy.deepcopy(smoke["load_registry"]())
+    domain = _invariant(registry, "F5_projection_totality")["domain"]
+    if extra:
+        domain.update(extra)
+    else:
+        domain.pop("evidence_bound")
+    with pytest.raises(smoke["Drift"], match="domain keys must be exactly"):
+        smoke["check_formal_model"](registry["formal_model"], registry)
+
+
+def test_adding_a_vocabulary_forces_the_declared_domain_to_move() -> None:
+    """The population count is derived, so a registry that grows fails until the
+    invariant's domain admits it. This is the I6 same-diff rule for a claim."""
+    smoke = runpy.run_path(str(SMOKE))
+    registry = copy.deepcopy(smoke["load_registry"]())
+    registry["vocabularies"]["probe_vocabulary"] = {
+        "meaning": "probe", "tier": "cross_runtime", "status": "canonical",
+        "owners": {"python": None, "typescript": None}, "values": ["probe_value"],
+    }
+    with pytest.raises(smoke["Drift"], match="the registry holds 27"):
+        smoke["check_formal_model"](registry["formal_model"], registry)
+
+
+def test_producer_scan_reach_is_measured_not_pinned() -> None:
+    """F1/F2's evidence bound is a file reach; the report derives it each run."""
+    smoke = runpy.run_path(str(SMOKE))
+    sources = smoke["load_sources"](REPO_ROOT)
+    scanned, tracked = smoke["producer_scan_reach"](sources)
+    assert 0 < scanned < tracked == len(sources)
+    roots = smoke["PRODUCER_ROOTS"]
+    files = smoke["PRODUCER_FILES"]
+    assert scanned == sum(
+        1 for source in sources
+        if source.path in files or any(source.path.startswith(root + "/") for root in roots)
+    )
+
+
+def test_permanently_unresolvable_blockers_are_counted_apart() -> None:
+    """Two blocker labels can never become evidence; the total says how many."""
+    smoke = runpy.run_path(str(SMOKE))
+    sites = [
+        "loopx/a.py::f:1 [argument_name_only]",
+        "loopx/a.py::f:2 [annotation_only]",
+        "loopx/a.py::f:3 [call_result]",
+        "loopx/a.py::f:4 [typescript_dynamic]",
+    ]
+    assert smoke["count_permanently_unresolvable"](sites) == 2
+    assert set(smoke["PERMANENTLY_UNRESOLVABLE_BLOCKERS"]) == {"annotation_only", "argument_name_only"}
 
 
 def test_inventory_report_discloses_budget_slack(monkeypatch):

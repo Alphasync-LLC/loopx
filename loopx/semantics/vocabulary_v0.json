@@ -13,10 +13,10 @@
   "formal_model": {
     "schema_version": "loopx_semantic_formal_model_v0",
     "universes": {
-      "vocabularies": "V: registered vocabulary identifiers",
+      "vocabularies": "V: registered vocabulary identifiers; Kernel(V) ⊆ V is the tier=kernel subset, the only tier that declares producers",
       "values": "U(v): ambient runtime values; S(v): registered admitted values",
       "sites": "L: source locations that define, produce, consume, interpret, pass through, project, or persist values",
-      "scopes": "Scope: global or bounded_context(context_id)",
+      "scopes": "Scope: global or bounded_context(context_id); ScopeDeclarations are the forked names the registry declares as bounded contexts",
       "roles": "Roles assigned to sites; a site may have more than one role only when each edge is explicit"
     },
     "roles": [
@@ -73,39 +73,75 @@
     "invariants": [
       {
         "id": "F1_producer_closedness",
-        "statement": "Produced(v) ⊆ S(v) ⊆ U(v)",
+        "statement": "∀v ∈ Kernel(V): Produced_scan(v) ⊆ S(v) ⊆ U(v), where Produced_scan(v) is the production the fixed forms observe inside the code-owned scan reach. Production outside that reach, and the whole cross_runtime tier, is unverified rather than proven closed.",
         "enforcement": "m0_5",
-        "evidence": "bounded production-form AST scan; unknown dynamic producers are reported, not treated as proven safe"
+        "evidence": "bounded production-form AST scan over the PRODUCER_ROOTS/PRODUCER_FILES reach in loopx/semantics/production.py; check_producers visits only vocabularies that declare producers, and validate_production claims no whole-program closedness; unresolved dynamic sites are reported, not treated as proven safe",
+        "domain": {
+          "quantifies_over": "vocabularies[tier=kernel].producers",
+          "verified": 6,
+          "registered": 26,
+          "evidence_bound": "producer_scan_reach"
+        }
       },
       {
         "id": "F2_canonical_value_liveness",
-        "statement": "Canonical(v) ⊆ Produced(v) ∪ CompatibilityOnly(v)",
+        "statement": "∀v ∈ Kernel(V): Canonical(v) ⊆ Produced_scan(v) ∪ CompatibilityOnly(v). The cross_runtime tier declares no producers, so liveness there is unverified rather than proven.",
         "enforcement": "m0_5",
-        "evidence": "every kernel value has a recognised producer or an explicit compatibility-only reason"
+        "evidence": "every kernel value has a producer recognised inside the scan reach, an executable input witness, or an explicit compatibility-only reason; a value whose only producer lies outside the reach would be reported as dead, not silently accepted",
+        "domain": {
+          "quantifies_over": "vocabularies[tier=kernel].producers",
+          "verified": 6,
+          "registered": 26,
+          "evidence_bound": "producer_scan_reach"
+        }
       },
       {
         "id": "F3_consumer_domain_closedness",
         "statement": "Accepted(c) ⊆ S(v), unless the consumer declares an external or partial domain",
         "enforcement": "advisory",
-        "evidence": "consumer and interpreter edges are currently inventory evidence, not complete data-flow proof"
+        "evidence": "consumer and interpreter edges are currently inventory evidence, not complete data-flow proof",
+        "domain": {
+          "quantifies_over": "vocabularies[*]",
+          "verified": 0,
+          "registered": 26,
+          "evidence_bound": "inventory_only"
+        }
       },
       {
         "id": "F4_scope_separation",
-        "statement": "A name collision is a semantic conflict only when its declared scopes overlap",
+        "statement": "∀n ∈ ScopeDeclarations: the declared context owner modules are exactly the modules defining n, one context per module, and every context owner symbol is n. Scope overlap itself is declared, never inferred, so it defines the conflict rather than being checkable against it.",
         "enforcement": "m0_5",
-        "evidence": "scope declarations and per-context owners; scope is never inferred from spelling"
+        "evidence": "check_scope_declarations compares the declared owner modules with the inventory's defining modules for the fork and rejects a partial enumeration; only a declared name leaves the semantic fork budget",
+        "domain": {
+          "quantifies_over": "scope_declarations[*].contexts",
+          "verified": 4,
+          "registered": 4,
+          "evidence_bound": "declared_defining_modules"
+        }
       },
       {
         "id": "F5_projection_totality",
         "statement": "For every source value, a projection maps to a target value or explicit reject",
         "enforcement": "m0",
-        "evidence": "registry mapping is compared with the executable owner function"
+        "evidence": "registry mapping is compared with the executable owner function",
+        "domain": {
+          "quantifies_over": "projections[*]",
+          "verified": 1,
+          "registered": 1,
+          "evidence_bound": "executable_owner_function"
+        }
       },
       {
         "id": "F6_persistence_version_compatibility",
         "statement": "A persisted vocabulary change preserves readers or declares a versioned migration",
         "enforcement": "unproved",
-        "evidence": "requires producer, serializer, storage, reader, and migration edges not yet modeled"
+        "evidence": "requires producer, serializer, storage, reader, and migration edges not yet modeled",
+        "domain": {
+          "quantifies_over": "persists_edges[*]",
+          "verified": 0,
+          "registered": 0,
+          "evidence_bound": "unmodelled"
+        }
       }
     ],
     "proof_boundary": {
@@ -123,6 +159,7 @@
       "unproved": [
         "all_runtime_trace_values_are_registered",
         "all_producers_are_found",
+        "cross_runtime_producer_closedness",
         "same_concept_behavioral_equivalence",
         "persistence_reader_compatibility"
       ],
