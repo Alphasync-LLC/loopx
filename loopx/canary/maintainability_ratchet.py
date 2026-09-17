@@ -615,7 +615,8 @@ def collect_module_metric_findings(
 def _git_show_text(repository_root: Path, rev: str, path: str) -> str | None:
     result = subprocess.run(
         ["git", "show", f"{rev}:{path}"],
-        cwd=repository_root, capture_output=True, text=True, check=False,
+        cwd=repository_root, capture_output=True,
+        text=True, encoding="utf-8", errors="replace", check=False,
     )
     return result.stdout if result.returncode == 0 else None
 
