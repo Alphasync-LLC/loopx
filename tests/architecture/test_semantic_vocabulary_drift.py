@@ -193,6 +193,59 @@ def test_bounded_context_scope_excludes_only_declared_multi_value_fork() -> None
     assert smoke["check_scope_declarations"](registry, inventory) == 3
 
 
+def test_renaming_one_side_of_a_fork_launders_the_semantic_budget() -> None:
+    """Pin the RFC Section 9 known limit so a future fix cannot be a silent edit.
+
+    Collisions are keyed by name, so renaming one module's definition removes the
+    name from ``multi_value_forks`` and lowers the semantic budget by one while
+    the drift stays in the tree. This test asserts the limit as it is documented,
+    not as it should be: if a change makes renaming refuse to lower the budget,
+    this test must fail so the RFC's known-limits section is updated with it.
+    """
+    smoke = runpy.run_path(str(SMOKE))
+    registry = smoke["load_registry"]()
+    sources = smoke["load_sources"](REPO_ROOT)
+    before = smoke["build_inventory"](REPO_ROOT, sources=sources)
+    assert smoke["check_scope_declarations"](registry, before) == 3
+
+    path = "loopx/state_projection.py"
+    name = "AGENT_TODO_HEADER_MARKERS"
+    renamed = [
+        smoke["SourceFile"](source.path, source.suffix, source.text.replace(name, name + "_RENAMED", 1))
+        if source.path == path
+        else source
+        for source in sources
+    ]
+    after = smoke["build_inventory"](REPO_ROOT, sources=renamed)
+    assert smoke["check_scope_declarations"](registry, after) == 2, (
+        "a rename no longer lowers the semantic budget; the RFC known-limits entry "
+        "('Renames launder a collision') is now stale and must be revised"
+    )
+    assert after["summary"]["multi_value_forks"] == before["summary"]["multi_value_forks"] - 1
+
+
+def test_divergent_value_sets_lists_the_names_a_rename_would_hide() -> None:
+    """The reviewer-facing signal for the laundering limit above.
+
+    ``merge_candidate_groups`` groups *different* names with *identical* value
+    sets, so it cannot see a fork at all -- a fork is one name whose value sets
+    disagree. Renaming one side hides the name from both the budget and that
+    grouping, so this advisory is keyed by name and still lists the abandoned
+    name whenever the surviving definitions disagree.
+    """
+    from loopx.semantics.inventory import divergent_value_sets
+
+    smoke = runpy.run_path(str(SMOKE))
+    sources = smoke["load_sources"](REPO_ROOT)
+    inventory = smoke["build_inventory"](REPO_ROOT, sources=sources)
+    listed = {row["name"] for row in divergent_value_sets(inventory)}
+    assert {"AGENT_TODO_HEADER_MARKERS", "USER_TODO_HEADER_MARKERS", "RAW_MATERIAL_KEY_HINTS"} <= listed
+
+    # The advisory is not a budget input: it must not appear in the committed
+    # inventory, which stays the single computed authority.
+    assert "divergent_value_sets" not in inventory
+
+
 def test_bounded_context_scope_requires_every_distinct_defining_module() -> None:
     smoke = runpy.run_path(str(SMOKE))
     registry = copy.deepcopy(smoke["load_registry"]())

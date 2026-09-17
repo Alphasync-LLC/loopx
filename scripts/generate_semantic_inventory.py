@@ -22,6 +22,7 @@ if str(ROOT) not in sys.path:
 from loopx.semantics.inventory import (  # noqa: E402
     build_inventory,
     consumer_ranking,
+    divergent_value_sets,
     load_sources,
     render_inventory,
 )
@@ -46,6 +47,11 @@ def main() -> int:
         print("external_consumer_modules  values  name  module")
         for row in rows:
             print(f"{row['external_consumer_modules']:>25}  {row['values']:>6}  {row['name']:<{width}}  {row['module']}")
+        divergent = divergent_value_sets(inventory)[: args.top]
+        print()
+        print("value_sets  name  definition_modules")
+        for row in divergent:
+            print(f"{row['value_sets']:>10}  {row['name']}  {', '.join(row['definition_modules'])}")
         return 0
     if args.output is None:
         print(content, end="")

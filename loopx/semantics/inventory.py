@@ -432,6 +432,34 @@ def merge_candidate_groups(inventory: dict[str, Any]) -> list[dict[str, Any]]:
     return sorted(groups, key=lambda group: (-len(group["names"]), group["names"]))
 
 
+def divergent_value_sets(inventory: dict[str, Any]) -> list[dict[str, Any]]:
+    """Advisory: one name whose modules carry different multi-value sets.
+
+    Collisions are keyed by name, so renaming one side of a fork removes the
+    name from ``multi_value_forks`` and lowers the semantic budget without
+    removing the drift. ``merge_candidate_groups`` cannot see that move: it
+    groups *different* names with *identical* value sets, while the split is
+    precisely a disagreement between value sets under one name. This report is
+    keyed by name instead, so a rename lowers the budget while the name it
+    abandoned stays listed here for the reviewer. Nothing here is a second
+    authority: it is advisory output over the same computed inventory, never
+    committed, and never a budget input.
+    """
+    entries: list[dict[str, Any]] = []
+    for entry in inventory["duplicate_definitions"]["multi_value_forks"]:
+        value_sets = {tuple(sorted(item["values"])) for item in entry["definitions"]}
+        if len(value_sets) < 2:
+            continue
+        entries.append(
+            {
+                "name": entry["name"],
+                "value_sets": len(value_sets),
+                "definition_modules": sorted({item["module"] for item in entry["definitions"]}),
+            }
+        )
+    return sorted(entries, key=lambda item: (-item["value_sets"], item["name"]))
+
+
 def consumer_ranking(inventory: dict[str, Any], sources: list[SourceFile]) -> list[dict[str, Any]]:
     """Advisory ranking: modules outside the definer that mention each symbol.
 

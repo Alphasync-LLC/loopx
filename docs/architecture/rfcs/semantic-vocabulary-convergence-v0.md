@@ -752,7 +752,15 @@ Known limits, stated so the check is not over-trusted:
   side of a fork lowers the count without removing the drift. The advisory merge
   report is the review aid here; value-set equality cannot be a hard budget
   because `CONFIDENCE_LEVELS` and `EDGE_CASE_COMPLEXITIES` share `high/low/medium`
-  while meaning different things.
+  while meaning different things. The merge-candidate report alone does not cover
+  this limit: it groups *different* names carrying *identical* value sets, while a
+  fork is *one* name whose modules disagree, so the grouping never lists a fork.
+  `divergent_value_sets(inventory)` is the name-keyed companion, printed by
+  `--report`, and it catches a rename of **one** side because the surviving
+  definitions still disagree under the abandoned name. Renaming **every** side at
+  once is indistinguishable from an honest rename: no committed snapshot or name
+  ledger exists, so the budget falls and nothing reports it. That residue is
+  accepted for M0 along with the rest of this entry.
 - **Single-element carriers are invisible.** A closed set with one string member
   is not a vocabulary, so reducing a two-value set to one removes it from the
   inventory entirely.
