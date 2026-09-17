@@ -73,6 +73,9 @@ MANAGED_HOST = MANAGED_TURN_HOST
 # launchability fact this projection checks without side effects.
 DSH_RUNTIME_MODULE = "deepseek_harness"
 DSH_RUNTIME_UNAVAILABLE = "dsh_runtime_unavailable"
+# Module availability is scoped to this interpreter, not the whole machine.
+MANAGED_RUNTIME_PROBE_SCHEMA_VERSION = "managed_runtime_probe_v0"
+RUNTIME_PROBE_SCOPE_INTERPRETER = "probing_interpreter"
 # A managed host is billed to the operator's own endpoint. Without the operator
 # credential (or an explicit injected runner) LoopX cannot authenticate that
 # endpoint, so it refuses instead of letting the managed default consume
@@ -175,6 +178,10 @@ def managed_executor_binding(
     with it, the provider claims to authenticate. It is ``None`` for every
     non-managed executor because neither the profile nor the credential belongs
     to an individual or generic host.
+
+    ``runtime_probe`` states what the ``dsh_runtime_unavailable`` verdict is a
+    claim about, so a reader does not take a process-level answer for a
+    machine-level fact.
     """
 
     if host == MANAGED_HOST:
@@ -212,6 +219,12 @@ def managed_executor_binding(
             "unavailable_remediation": _managed_unavailable_remediation(
                 unavailable_reason
             ),
+            "runtime_probe": {
+                "schema_version": MANAGED_RUNTIME_PROBE_SCHEMA_VERSION,
+                "scope": "configured_runner" if dsh_runner_configured else RUNTIME_PROBE_SCOPE_INTERPRETER,
+                "module": None if dsh_runner_configured else DSH_RUNTIME_MODULE,
+                "available": runtime_available,
+            },
         }
     return {
         "schema_version": MANAGED_EXECUTOR_BINDING_SCHEMA_VERSION,
@@ -228,6 +241,9 @@ def managed_executor_binding(
         "available": None,
         "unavailable_reason": None,
         "unavailable_remediation": [],
+        # The same field exists for every executor kind so a reader never
+        # branches on its presence; only a managed executor probes a runtime.
+        "runtime_probe": None,
     }
 
 
