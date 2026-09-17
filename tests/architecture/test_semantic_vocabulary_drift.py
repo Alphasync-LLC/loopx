@@ -201,6 +201,125 @@ def test_bounded_context_scope_excludes_only_declared_multi_value_fork() -> None
     assert smoke["check_scope_declarations"](registry, inventory) == 3
 
 
+def test_renaming_one_side_of_a_fork_launders_the_semantic_budget() -> None:
+    """Pin the RFC Section 9 known limit so a future fix cannot be a silent edit.
+
+    Collisions are keyed by name, so renaming one module's definition removes the
+    name from ``multi_value_forks`` and lowers the semantic budget by one while
+    the drift stays in the tree. This test asserts the limit as it is documented,
+    not as it should be: if a change makes renaming refuse to lower the budget,
+    this test must fail so the RFC's known-limits section is updated with it.
+    """
+    smoke = runpy.run_path(str(SMOKE))
+    registry = smoke["load_registry"]()
+    sources = smoke["load_sources"](REPO_ROOT)
+    before = smoke["build_inventory"](REPO_ROOT, sources=sources)
+    assert smoke["check_scope_declarations"](registry, before) == 3
+
+    path = "loopx/state_projection.py"
+    name = "AGENT_TODO_HEADER_MARKERS"
+    renamed = [
+        smoke["SourceFile"](source.path, source.suffix, source.text.replace(name, name + "_RENAMED", 1))
+        if source.path == path
+        else source
+        for source in sources
+    ]
+    after = smoke["build_inventory"](REPO_ROOT, sources=renamed)
+    assert smoke["check_scope_declarations"](registry, after) == 2, (
+        "a rename no longer lowers the semantic budget; the RFC known-limits entry "
+        "('Renames launder a collision') is now stale and must be revised"
+    )
+    assert after["summary"]["multi_value_forks"] == before["summary"]["multi_value_forks"] - 1
+
+
+def test_divergent_value_sets_lists_the_names_a_rename_would_hide() -> None:
+    """The reviewer-facing signal for the laundering limit above.
+
+    ``merge_candidate_groups`` groups *different* names with *identical* value
+    sets, so it cannot see a fork at all -- a fork is one name whose value sets
+    disagree. Renaming one side hides the name from both the budget and that
+    grouping, so this advisory is keyed by name and still lists the abandoned
+    name whenever the surviving definitions disagree.
+    """
+    from loopx.semantics.inventory import divergent_value_sets
+
+    smoke = runpy.run_path(str(SMOKE))
+    sources = smoke["load_sources"](REPO_ROOT)
+    inventory = smoke["build_inventory"](REPO_ROOT, sources=sources)
+    listed = {row["name"] for row in divergent_value_sets(inventory)}
+    assert {"AGENT_TODO_HEADER_MARKERS", "USER_TODO_HEADER_MARKERS", "RAW_MATERIAL_KEY_HINTS"} <= listed
+
+    # The advisory is not a budget input: it must not appear in the committed
+    # inventory, which stays the single computed authority.
+    assert "divergent_value_sets" not in inventory
+
+
+def _restate(smoke, sources, path, name, replacement):
+    return [
+        smoke["SourceFile"](source.path, source.suffix, source.text.replace(name, replacement, 1))
+        if source.path == path
+        else source
+        for source in sources
+    ]
+
+
+def test_rename_visibility_splits_into_three_cases() -> None:
+    """The complete boundary, measured, so no reader has to re-derive it.
+
+    Case 1: a partial rename of a **declared** name is rejected outright -- the
+    declaration names every defining module and the renamed side no longer
+    matches, so the rename cannot lower the budget.
+
+    Cases 2 and 3 are the RFC Section 9 limit, and this test records it as it
+    actually behaves rather than as the limit's heading suggests: renaming one
+    side leaves the name with a single definition, so it stops being a fork and
+    drops out of ``divergent_value_sets`` exactly as it drops out of the budget.
+    The advisory makes *surviving* forks visible by name; it does not detect the
+    rename. Both cases assert that so a future claim of coverage fails here.
+    """
+    from loopx.semantics.inventory import divergent_value_sets
+
+    smoke = runpy.run_path(str(SMOKE))
+    registry = smoke["load_registry"]()
+    sources = smoke["load_sources"](REPO_ROOT)
+    name = "AGENT_TODO_HEADER_MARKERS"
+
+    def renamed_in(paths):
+        out = sources
+        for path in paths:
+            out = [
+                smoke["SourceFile"](source.path, source.suffix, source.text.replace(name, name + "_RENAMED", 1))
+                if source.path == path
+                else source
+                for source in out
+            ]
+        return out
+
+    # Case 1: declared name, one side renamed -> the declaration no longer resolves.
+    declared = _restate(smoke, sources, "loopx/global_todos.py", "SOURCE_SURFACES", "GT_SOURCE_SURFACES")
+    with pytest.raises(smoke["Drift"], match="every defining module"):
+        smoke["check_scope_declarations"](registry, smoke["build_inventory"](REPO_ROOT, sources=declared))
+
+    # Case 2: undeclared name, one side renamed -> gone from the budget AND the advisory.
+    partial = smoke["build_inventory"](REPO_ROOT, sources=renamed_in(["loopx/state_projection.py"]))
+    assert name not in {entry["name"] for entry in partial["duplicate_definitions"]["multi_value_forks"]}
+    assert name not in {row["name"] for row in divergent_value_sets(partial)}
+
+    # Case 3: every side renamed -> also invisible; indistinguishable from an honest rename.
+    whole = smoke["build_inventory"](
+        REPO_ROOT,
+        sources=renamed_in([
+            "loopx/state_projection.py",
+            "loopx/control_plane/goals/active_state_metadata.py",
+        ]),
+    )
+    assert name not in {entry["name"] for entry in whole["duplicate_definitions"]["multi_value_forks"]}
+    assert name not in {row["name"] for row in divergent_value_sets(whole)}
+
+    # The surviving forks are what the advisory does list, by name.
+    assert "USER_TODO_HEADER_MARKERS" in {row["name"] for row in divergent_value_sets(partial)}
+
+
 def test_bounded_context_scope_requires_every_distinct_defining_module() -> None:
     smoke = runpy.run_path(str(SMOKE))
     registry = copy.deepcopy(smoke["load_registry"]())

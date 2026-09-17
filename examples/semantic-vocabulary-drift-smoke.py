@@ -199,16 +199,16 @@ RETURN_PATH_ANCHOR = {
 TWIN_ROOT_ANCHOR = "loopx/control_plane"
 TWIN_BUDGET_ANCHOR = 43
 BUDGET_ANCHOR = {
-    "same_runtime_forks": 25,
-    "same_runtime_fork_definitions": 58,
+    "same_runtime_forks": 20,
+    "same_runtime_fork_definitions": 47,
     "conflicting_values": 18,
     "conflicting_definitions": 59,
     "schema_version_same_runtime_forks": 7,
-    "multi_value_twins": 19,
+    "multi_value_twins": 13,
     "multi_value_forks": 4,
     "multi_value_forks_semantic": 3,
     "multi_value_fork_definitions": 10,
-    "same_runtime_forks_semantic": 18,
+    "same_runtime_forks_semantic": 13,
     "conflicting_values_semantic": 0,
 }
 # Budgets for the legacy should-run decision fields, anchored the same way so a
