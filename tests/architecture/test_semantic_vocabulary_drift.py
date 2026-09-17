@@ -387,3 +387,42 @@ def test_live_inventory_ignores_missing_or_stale_reports(tmp_path, monkeypatch, 
                  for name in ("first", "second")]
     with pytest.raises(smoke["Drift"], match="same_runtime_forks grew"):
         smoke["check_inventory"](registry, sources + duplicate)
+
+
+def _retirement_registry(python_surface: int, typescript_surface: int) -> dict:
+    """A one-field ledger shaped like the real one, for the B3 budget checks."""
+    return {"retirement_ledger": {"should_run_legacy_decision_fields": {"fields": {
+        "protocol_action_packet": {
+            "python_module_budget": 5,
+            "typescript_module_budget": 2,
+            "python_migration_surface": python_surface,
+            "typescript_migration_surface": typescript_surface,
+        },
+    }}}}
+
+
+def test_a_new_reader_of_a_legacy_field_exceeds_its_migration_surface() -> None:
+    smoke = runpy.run_path(str(SMOKE))
+    readers = [
+        smoke["SourceFile"](f"loopx/probe_{index}.py", ".py", 'value = payload["protocol_action_packet"]')
+        for index in range(6)
+    ]
+    with pytest.raises(smoke["Drift"], match="modules migrated"):
+        smoke["check_reader_metric"](_retirement_registry(5, 2), readers)
+
+
+def test_migration_surface_budget_cannot_move_without_its_anchor() -> None:
+    smoke = runpy.run_path(str(SMOKE))
+    with pytest.raises(smoke["Drift"], match="MIGRATION_SURFACE_ANCHOR"):
+        smoke["check_reader_metric"](_retirement_registry(6, 2), [])
+
+
+def test_prose_and_same_prefix_identifiers_do_not_consume_the_migration_surface() -> None:
+    smoke = runpy.run_path(str(SMOKE))
+    sources = [
+        smoke["SourceFile"]("loopx/prose.py", ".py", '"""protocol_action_packet is published downstream."""'),
+        smoke["SourceFile"]("loopx/prefix.py", ".py", 'value = payload["protocol_action_packet_v2"]'),
+    ]
+    report, detail = smoke["check_reader_metric"](_retirement_registry(5, 2), sources)
+    assert any("surface=0/5" in line and "mention=1" in line for line in detail), detail
+    assert any("dynamic_mapping_key_sites=0" in line for line in report), report
