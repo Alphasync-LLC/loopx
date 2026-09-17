@@ -1129,7 +1129,11 @@ and comments are blanked first, because the path label
 A bare `field:` at the head of a line is reported as a mention, not a write: an
 interface member and an object-literal entry are the same shape to this grammar,
 and crediting a declaration as production would overstate it in exactly the
-direction I13 warns about.
+direction I13 warns about. Strings and comments are masked in source order;
+subscript matches must start outside either, so quoted URLs do not hide later
+code and access examples in prose do not become readers. Template interpolation,
+regular-expression literals and computed-key data flow are outside this bounded
+grammar; M3 must inspect those paths before removing a field.
 
 
 ### 2026-09-17 — Invariant statements bounded to their verified domains
