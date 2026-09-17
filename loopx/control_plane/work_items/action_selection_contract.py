@@ -183,9 +183,6 @@ def apply_action_selection_recovery(
     payload["recommended_action"] = command
     payload["spend_allowed_now"] = False
     payload["spend_after_validation"] = False
-    obligation = payload.get("execution_obligation") or {}
-    obligation.update(must_attempt_work=False, delivery_allowed=False, reason=command)
-    payload["execution_obligation"] = obligation
     interaction = payload.get("interaction_contract") or {}
     agent = interaction.get("agent_channel") or {}
     agent.update(must_attempt=False, delivery_allowed=False, primary_action=command)

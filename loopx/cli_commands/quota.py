@@ -356,6 +356,10 @@ def _reconcile_requested_quota_action_selection(
             scheduler_args=render_scheduler_execution_args(
                 scheduler_execution_context=context.scheduler_context),
         )
+        obligation = payload.get("execution_obligation")
+        if isinstance(obligation, dict):
+            obligation.update(must_attempt_work=False, delivery_allowed=False,
+                              reason=payload["recommended_action"])
     return rejected
 
 
