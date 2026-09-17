@@ -848,18 +848,30 @@ state at which this RFC is complete; each row is a registry budget or a
 vocabulary property the smoke can check. Rows marked *open* wait on a Section
 12 decision and are the reason the plan is a skeleton until those are recorded.
 
-| Surface | Baseline (`1dc6ad8d8`) | Target when this RFC closes | Reached by |
-| --- | --- | --- | --- |
-| `effective_action` values | 33 literals, no owner symbol | one enum owner; `skip`, `observe_replay`, `block_replay`, and the two `quota_action_selection_*` codes gone from the decision slot; 32 decision values after accounting for the five previously missed producers and retiring the synthetic operator_gate value | M1 |
-| `effective_action` slots in one envelope | 3 vocabularies under one field name | 1, or a registered union if Q6 keeps the field | M1 (Q6) |
-| Turn vocabularies | 3 sets, 28 values, 21 distinct, 7 redundant spellings | 3 sets kept; projection and decision table generated and checked; spellings unchanged unless Q10 sets a merge | M2 (Q2, Q10 *open*) |
-| Same-runtime forks, semantic | 18 names | 0 | baseline PRs |
-| Conflicting values, semantic | 2 names | 0 | baseline PRs |
-| Multi-value forks | 4 (1 misclassified) | 0 after `scope` declares bounded-context names | M0.5 + baseline PRs |
-| Multi-value twins | 19 | 0 | baseline PRs |
-| Legacy should-run fields | 6 fields, 124 py / 10 ts module mentions | 0 fields | M3, identifier-counted |
-| Merge-candidate groups | 32 unreviewed | every group classified; only `same_semantics` groups merged | classification PR, then per-group PRs |
-| Control-plane py/ts twins | 43 | follows the TypeScript migration RFC; no target here | M4 |
+| Surface | Baseline (`1dc6ad8d8`) | Measured by | Target when this RFC closes | Reached by |
+| --- | --- | --- | --- | --- |
+| `effective_action` values | 33 literals, no owner symbol | registry `vocabularies.effective_action.values`; `semantic-vocabulary-drift-smoke.py` fails on an unregistered literal | one enum owner; `skip`, `observe_replay`, `block_replay`, and the two `quota_action_selection_*` codes gone from the decision slot; 32 decision values after accounting for the five previously missed producers and retiring the synthetic operator_gate value | M1 |
+| `effective_action` slots in one envelope | 3 vocabularies under one field name | no counter: the slot split is a Q6 decision, not a number. Read `relations.shared_field_names` | 1, or a registered union if Q6 keeps the field | M1 (Q6) |
+| Turn vocabularies | 3 sets, 28 values, 21 distinct, 7 redundant spellings | registry `vocabularies`; spelling overlap is `relations.same_concept` | 3 sets kept; projection and decision table generated and checked; spellings unchanged unless Q10 sets a merge | M2 (Q2, Q10 *open*) |
+| Same-runtime forks, semantic | 18 names | `semantic-vocabulary-drift-smoke.py`: `same_runtime_forks_semantic` | 0 | baseline PRs |
+| Conflicting values, semantic | 2 names | `semantic-vocabulary-drift-smoke.py`: `conflicting_values_semantic` | 0 | baseline PRs |
+| Multi-value forks | 4 (1 misclassified) | `semantic-vocabulary-drift-smoke.py`: `multi_value_forks` and `multi_value_forks_semantic`. Only the count is printed today; #4614 adds `divergent_value_sets` to name the surviving forks | 0 after `scope` declares bounded-context names | M0.5 + baseline PRs |
+| Multi-value twins | 19 | `semantic-vocabulary-drift-smoke.py`: `multi_value_twins` | 0 | baseline PRs |
+| Legacy should-run fields | 6 fields, 124 py / 10 ts module mentions | `semantic-vocabulary-drift-smoke.py`: one `<field>.py` / `<field>.ts` pair per field | 0 fields | M3, identifier-counted |
+| Merge-candidate groups | 32 unreviewed | `merge_candidate_groups()` in `loopx/semantics/inventory.py`; no command prints it today, and #4630 adds the CLI line. Read the reviewable count, not the raw one -- a registered cross-runtime vocabulary owns both its Python and TypeScript symbols, so those pairs are required by I3 rather than debt | every group classified; only `same_semantics` groups merged | classification PR, then per-group PRs |
+| Control-plane py/ts twins | 43 | `semantic-vocabulary-drift-smoke.py`: `independently_maintained` | follows the TypeScript migration RFC; no target here | M4 |
+
+*Measured by* names the command and field that print each surface today, the
+way Section 9 names a test for each claim. It deliberately does not carry the
+values: a transcribed number is stale on the next merge, and a reader who wants
+the current state runs the command rather than trusting a date. Dated values
+belong to the delivery tracker, issue #4447, which owns delivery status; this
+table stays a contract about where the truth is measured.
+
+Read the reviewable merge-candidate count rather than the raw one. The raw
+grouping pairs any two names carrying identical values, which includes the
+Python and TypeScript symbols a registered cross-runtime vocabulary is required
+by I3 to have. Treating those as debt is a measurement artifact, not drift.
 
 ### Two-track execution and enforcement lanes
 
