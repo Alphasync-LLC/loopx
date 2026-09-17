@@ -638,6 +638,7 @@ owner 符号集合的组：`EffectiveAction` 与 `EFFECTIVE_ACTIONS` 是同一�
 | 度量覆盖两种载体形状并过滤局部命名 | `uv run --extra test python -m pytest tests/architecture/test_semantic_inventory.py` | 通过，含冲突与模块局部约定两组夹具 | 规则来自本 RFC 而非扫描输出 |
 | 两处 owner 修正不改变行为 | `uv run --extra test python -m pytest tests/test_loopx_turn_transaction.py tests/test_loop_turn_loop_controller.py tests/test_turn_loop_disposition.py tests/test_loopx_turn_managed_step.py tests/control_plane -k authority` 与 `uv run --extra test loopx canary premerge --from-git-diff` | 通过 | 在干净树上可复现的 `main` 既有环境失败除外 |
 | 文档治理接受这对 RFC | `python3 examples/docs-governance-smoke.py` | 通过 | 检查镜像、链接、索引 |
+| 消费者角色按位点报告，并写明未知量（B5） | `uv run python scripts/generate_semantic_inventory.py --report --consumer-evidence` 与 `uv run --extra test python -m pytest tests/architecture/test_semantic_consumer_report.py` | 报告打印 read/interpret/pass-through/unknown 计数、两个未知占比，以及每种未知原因及其位点数；测试通过 | 仅为参考：在两个根目录的扫描范围内度量语法使用，既不是数据流，也永远不是闸门 |
 | 退休预算按子串而非标识符计数 | 分别以 `in file.text` 与 `\bgoal_boundary\b` 统计 `goal_boundary` | 基线上 35 对 30 个 Python 模块 | 已知边界；M3 的零读者门需要标识符计数，见第 12 节 |
 | 模块局部约定过滤器是一次代码修改 | 扩宽 `inventory.py` 的 `MODULE_LOCAL_CONVENTION` 并重新生成 | `*_semantic` 预算下降而别处无代码改动 | 已知边界；正则在代码里，扩宽是可评审的 diff，未过滤总数仍在预算内 |
 | 无人生产的注册值失败（M0.5） | 在基线上运行生产形式扫描 | 失败并点名 `effective_action` 与 `skip`；删除 `skip` 或列入 `compatibility_only` 后通过 | 第一个预期的 I12 失败；只被比较的值不算已携带 |
@@ -871,6 +872,44 @@ PR review 保留这些层级。普通改动记录检查范围和理由，无共�
 
 ## 附录 A：执行账本（非规范）
 
+### 2026-09-17 — B5：按位点报告消费者角色，并写明未知量
+
+非规范性；仅为参考证据。当前源码树上没有任何检查的通过/失败结果改变，
+本次新增的内容也不闸住任何合并。
+
+- `consumer_ranking` 统计的是**提及**某符号的模块数。第 5 节早已写明这个数字
+  “既不分类角色，也不证明数据流”，因此 B5 新增
+  `loopx/semantics/consumer_report.py`：一次有界的 AST 扫描，把每个消费位点分类为
+  `read`、`interpret`、`pass_through` 或 `unknown`，并逐行携带位置
+  （`module::symbol` 与行号）、扫描所依据的源码 SHA、涉及的值域，以及适用于该行的
+  边界说明。
+- 锚点全部来自注册表已有的身份，这正是以 B2 为前置条件的原因：词表的槽位名
+  （`literal_scan.field`，没有则用词表 id），以及它注册的 owner 类——后者沿用
+  producer 扫描器同一套“一跳、未改名”的导入绑定纪律。没有任何模块需要把自己登记为
+  消费者，扫描范围与 `PRODUCER_ROOTS` 一样由代码所有，注册表数据无法扒宽它。
+- 在 `440b002fb` 上、跨 `loopx/control_plane` 与 `loopx/cli_commands`、
+  1207 个已跟踪源文件中的 484 个上实测：**921 行——`read` 3 行、`interpret` 141 行、
+  `pass_through` 50 行、`unknown` 727 行，未知占比 78.9%。** 若只看归属于单一词表的
+  319 行，未知占比为 39.2%。
+- 未知量是这次度量的主体，不是待清扫的残渣。602 个位点以计算出的键读取映射，
+  因而对每个词表都同时未解析；76 个模块写出了槽位名却没有可识别的锚点；
+  46 个携带槽位名的已跟踪 TypeScript 源文件未被遍历，因为这条路径上没有 TypeScript
+  解析器；3 个 Python 位点是不稳定局部变量或未分类上下文。每一条都是带位置与
+  记录原因的行，沿用 B2 为未解析 producer 位点确立的做法。
+- 该报告确立的是**语法使用，而非数据流**。一行的含义是：此位置对该槽位执行了一次
+  可识别的读取，且读取周围的语法对该值做了分支或做了转发。它不证明该值来自已注册的
+  producer，不证明该分支可达，也不证明没有行的词表就没有读者——计算键那一群位点，
+  恰恰就是按名字归组的扫描无法作出最后这个论断的原因。
+- 通过既有报告表面暴露为
+  `scripts/generate_semantic_inventory.py --report --consumer-evidence`，采用显式开启：
+  它是额外工作——全树上按位点扫描在三次独立运行中耗时 3.35–3.65 秒，而 `--report`
+  本已打印的排名约需 217 秒。drift smoke 不会调用它，PR 路径上唯一触及 `--report`
+  的是一个三文件的 pytest 夹具仓库，因此每个 PR 的开销不变。
+- 本次未处理：扫描范围是两个根目录而非整棵树；TypeScript 只计数、不解析；
+  跟随局部变量只走一跳，因此经过两次别名传递的值是未知而非被追踪。扒宽这三者中的
+  任何一个，都是自带风险的另一个变更。
+
+
 ### 2026-09-17 — 不变量表述收敛到各自已验证的值域
 
 规范性变更；需要内核维护者批准。当前源码树上没有任何检查的通过/失败结果改变，
@@ -1043,6 +1082,7 @@ PR review 保留这些层级。普通改动记录检查范围和理由，无共�
 | 2026-09-16 | Q9：全树按需计算；移除已提交结构清单 | 根据[维护者反馈](https://github.com/huangruiteng/loopx/pull/4360#issuecomment-5692062394)实现，PR 评审待完成 | 取代合并后补再生成；拒绝只扫描 diff | 1、I6、3、5、9、10、12 |
 | 2026-09-16 | B2：Python producer 扫描器绑定一跳未改名再导出 | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B2；PR 评审待完成 | 要求每个消费者都从 owner 模块导入（脆弱；M2 中已静默失效）；拒绝无界多跳解析 | 5、附录 A |
 | 2026-09-16 | B1 改名不变性：新增按名字归组的分歧报告；写明它未闭合的边界 | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B1；PR 评审待完成 | 把预算改按值集归组（否决：`CONFIDENCE_LEVELS` 与 `EDGE_CASE_COMPLEXITIES` 共享 `high/low/medium` 而含义不同）；提交名字账本（M0 否决：Q9 已退役提交式清单）。该报告列出仍然存在的分叉；初稿称它能抓住单侧改名，实测证否，故两份镜像按真实行为写明边界 | 9 |
+| 2026-09-17 | B5：以注册表锚定的 AST 证据按位点报告消费者角色，并写明未知占比，而不是把一切都分类 | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B5；PR 评审待完成 | 在注册表中登记消费者（否决：跟踪 issue 明令禁止全量消费者登记，且一份声明清单是主张而非证据）；把该报告做成合并闸门（否决：F3 属于参考层级，78.9% 的未知占比也不足以闸住任何东西）；只报告语法能解析的位点（否决：这会让各词表的表格读起来像是完整的，因此未识别的提及与计算键读取都作为带原因的行保留） | 9、附录 A、附录 B |
 | 2026-09-17 | 将 F1/F2 限定在 kernel 层与扫描范围，把 F4 重述为作用域枚举完备性，并给每条义务加上可推导的 `domain` | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447)；**需要内核维护者批准，尚未获得** | 保留无条件表述、只在正文记一笔缺口（否决：该表述比 `validate_production` 自己的 docstring 还强）；把 F4 重述为各上下文值集互斥（否决：会被仓库自身数据推翻，`scope_declarations` 恰恰就是为了允许合理的同名复用）；扒宽扫描让无条件声明成立（否决：那是自带风险的另一个变更） | 5、9、附录 B、附录 C |
 
 ## 附录 C：证据登记
