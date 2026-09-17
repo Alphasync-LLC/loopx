@@ -5,7 +5,7 @@ Usage:
   uv run python scripts/generate_semantic_inventory.py             # JSON to stdout, no writes
   uv run python scripts/generate_semantic_inventory.py --output .local/inventory.json
   uv run python scripts/generate_semantic_inventory.py --output .local/inventory.json --check
-  uv run python scripts/generate_semantic_inventory.py --report    # advisory consumer ranking
+  uv run python scripts/generate_semantic_inventory.py --report    # advisory consumer ranking + merge candidates
 """
 
 from __future__ import annotations
@@ -23,14 +23,47 @@ from loopx.semantics.inventory import (  # noqa: E402
     build_inventory,
     consumer_ranking,
     load_sources,
+    merge_candidate_groups,
     render_inventory,
 )
+
+REGISTRY_RELATIVE = "loopx/semantics/vocabulary_v0.json"
+
+
+def print_merge_candidates(inventory: dict) -> None:
+    """Print the merge candidates the registry does not already explain.
+
+    Advisory, like the ranking above it: an equal value set is a question for a
+    reviewer, never an auto-merge. Groups that are one registered vocabulary's
+    own Python and TypeScript owner symbols are dropped because the registry
+    has already ruled them one concept; hiding them retires nothing and
+    classifies nothing, it only leaves the unruled groups readable. A group
+    whose modules span both runtimes is a registry gap: the same value set
+    lives in two runtimes with no vocabulary binding them.
+    """
+    registry = json.loads((ROOT / REGISTRY_RELATIVE).read_text(encoding="utf-8"))
+    groups = merge_candidate_groups(inventory, registry)
+    raw = len(merge_candidate_groups(inventory))
+    print(
+        f"merge candidates (advisory, never auto-merged): {len(groups)} to review, "
+        f"{raw - len(groups)} explained by a registered vocabulary's own owner symbols, "
+        f"{raw} raw groups"
+    )
+    for group in sorted(groups, key=lambda item: (not item["cross_runtime"], item["names"])):
+        scope = "cross-runtime" if group["cross_runtime"] else "python-only"
+        print(f"  [{scope}] {', '.join(group['names'])}")
+        print(f"      values:  {', '.join(group['values'])}")
+        print(f"      modules: {', '.join(group['modules'])}")
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     destination = parser.add_mutually_exclusive_group()
     destination.add_argument("--output", type=Path, help="write an optional report to this path instead of stdout")
-    destination.add_argument("--report", action="store_true", help="print the advisory consumer ranking")
+    destination.add_argument(
+        "--report", action="store_true",
+        help="print the advisory consumer ranking and the merge candidates the registry does not explain",
+    )
     parser.add_argument("--check", action="store_true", help="compare an explicit --output report without writing")
     parser.add_argument("--top", type=int, default=25, help="rows to print with --report")
     args = parser.parse_args()
@@ -46,6 +79,8 @@ def main() -> int:
         print("external_consumer_modules  values  name  module")
         for row in rows:
             print(f"{row['external_consumer_modules']:>25}  {row['values']:>6}  {row['name']:<{width}}  {row['module']}")
+        print()
+        print_merge_candidates(inventory)
         return 0
     if args.output is None:
         print(content, end="")
