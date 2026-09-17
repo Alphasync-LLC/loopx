@@ -441,6 +441,42 @@ def merge_candidate_groups(inventory: dict[str, Any]) -> list[dict[str, Any]]:
     return sorted(groups, key=lambda group: (-len(group["names"]), group["names"]))
 
 
+def divergent_value_sets(inventory: dict[str, Any]) -> list[dict[str, Any]]:
+    """Advisory: forks, keyed by name, with how many value sets each carries.
+
+    Complements ``merge_candidate_groups``, which groups *different* names with
+    *identical* value sets and therefore never lists a fork at all: a fork is
+    *one* name whose modules disagree, so the two reports answer different
+    questions and the merge-candidate grouping cannot substitute for this one.
+
+    What this does **not** do is detect a rename. Renaming one side of a fork
+    leaves that name with a single definition, so it stops being a fork and
+    drops out of this report exactly as it drops out of the budget -- measured,
+    not assumed. The RFC Section 9 limit therefore stands unclosed; this report
+    only makes the *surviving* forks visible by name, with the count of
+    disagreeing value sets, where before they were visible only as a number.
+    A rename of one side is still caught when the name is declared, because the
+    declaration names every defining module and the renamed side no longer
+    matches.
+
+    Nothing here is a second authority: advisory output over the same computed
+    inventory, never committed, never a budget input.
+    """
+    entries: list[dict[str, Any]] = []
+    for entry in inventory["duplicate_definitions"]["multi_value_forks"]:
+        value_sets = {tuple(sorted(item["values"])) for item in entry["definitions"]}
+        if len(value_sets) < 2:
+            continue
+        entries.append(
+            {
+                "name": entry["name"],
+                "value_sets": len(value_sets),
+                "definition_modules": sorted({item["module"] for item in entry["definitions"]}),
+            }
+        )
+    return sorted(entries, key=lambda item: (-item["value_sets"], item["name"]))
+
+
 def consumer_ranking(inventory: dict[str, Any], sources: list[SourceFile]) -> list[dict[str, Any]]:
     """Advisory ranking: modules outside the definer that mention each symbol.
 
