@@ -78,8 +78,10 @@ settlement-identity conflict. The full quota response preserves the TypeScript
 the exact current preemption or eligibility reason. An existing identity-less
 receipt is replayed without mutation; a first-call rejection reports
 `heartbeat_receipt.status=not_committed` and writes no receipt event. The agent
-can therefore refresh the current portfolio with the same Turn id and re-enter
-deterministically. A receipt already bound to a different Todo or autonomous
+receives `recovery_action=reenter_guard_without_selection` and one executable
+same-Turn guard in the full decision's `cli_channel.next_cli_actions`. The failed
+selection exposes no settlement plan or spend command. Execute that guard without
+a Todo/replan argument before following the resulting binding or portfolio. A receipt already bound to a different Todo or autonomous
 replan obligation remains a hard `heartbeat_receipt_identity_conflict`.
 When a due monitor is visible only as auxiliary context for an advancement lane,
 the typed reason is
