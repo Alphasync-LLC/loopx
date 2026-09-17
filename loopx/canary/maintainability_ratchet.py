@@ -612,6 +612,82 @@ def collect_module_metric_findings(
     return sorted(findings, key=lambda item: str(item["id"]))
 
 
+def _git_show_text(repository_root: Path, rev: str, path: str) -> str | None:
+    result = subprocess.run(
+        ["git", "show", f"{rev}:{path}"],
+        cwd=repository_root, capture_output=True, text=True, check=False,
+    )
+    return result.stdout if result.returncode == 0 else None
+
+
+def _rev_baseline_ceilings(repository_root: Path, rev: str) -> dict[str, dict[str, int]]:
+    """Mirror ``module_metric_baseline`` for a committed revision."""
+    text = _git_show_text(repository_root, rev, "loopx/canary/module_metric_baseline.json")
+    if text is None:
+        return {}
+    payload = json.loads(text)
+    ceilings = payload.get("module_metric_ceilings")
+    if not isinstance(ceilings, dict):
+        return {}
+    return {
+        str(path): {key: int(metrics[key]) for key in ("lines", "any_count", "dict_any_count") if key in metrics}
+        for path, metrics in ceilings.items()
+        if isinstance(metrics, dict)
+    }
+
+
+def diff_scoped_module_ceiling_violations(
+    repository_root: Path,
+    changed_files: Sequence[str],
+    *,
+    base_ref: str,
+) -> list[dict[str, Any]]:
+    """Module growth that crossed a reviewed ceiling must settle in the same diff.
+
+    A module may exceed its pre-diff ceiling without this check firing, as long
+    as this diff did not cause the crossing; and a module whose ceiling this diff
+    raises can stay silent. The single case this flags is the one that previously
+    merged and turned ``main`` red until a separate reconciliation PR refreshed
+    the ledger: this diff grew a module past the ceiling it inherited, without
+    settling that ceiling here.
+    """
+    head_ceilings = module_metric_baseline(
+        repository_root / "loopx" / "canary" / "module_metric_baseline.json"
+    )
+    base_ceilings = _rev_baseline_ceilings(repository_root, (base_ref or "origin/main").strip() or "origin/main")
+    violations: list[dict[str, Any]] = []
+    for changed in changed_files:
+        relative = str(changed)
+        if not relative.startswith("loopx/") or not relative.endswith(".py"):
+            continue
+        checkout_path = repository_root / relative
+        if not checkout_path.is_file():
+            continue
+        head_lines = module_metrics(checkout_path)["lines"]
+        base_lines = _git_show_text(repository_root, (base_ref or "origin/main").strip() or "origin/main", relative)
+        if base_lines is None:
+            base_ceiling = MODULE_LINE_LIMIT
+            was_within_budget = True
+        else:
+            base_ceiling = base_ceilings.get(relative, {}).get("lines", MODULE_LINE_LIMIT)
+            was_within_budget = len(base_lines.splitlines()) <= base_ceiling
+        head_ceiling = head_ceilings.get(relative, {}).get("lines", MODULE_LINE_LIMIT)
+        crossed_inherited_ceiling = was_within_budget and head_lines > base_ceiling
+        if crossed_inherited_ceiling and head_ceiling < head_lines:
+            violations.append(
+                {
+                    "id": _finding_id("module_metric_budget", relative),
+                    "category": "module_metric_budget",
+                    "path": relative,
+                    "base_lines": 0 if base_lines is None else len(base_lines.splitlines()),
+                    "base_ceiling": base_ceiling,
+                    "head_lines": head_lines,
+                    "head_ceiling": head_ceiling,
+                }
+            )
+    return sorted(violations, key=lambda item: str(item["id"]))
+
+
 def evaluate_maintainability_findings(
     findings: Sequence[Mapping[str, Any]],
     *,
