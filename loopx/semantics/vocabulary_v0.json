@@ -850,31 +850,43 @@
   },
   "retirement_ledger": {
     "should_run_legacy_decision_fields": {
-      "meaning": "Decision fields the should-run documentation already calls legacy. Budgets count modules under loopx/ that still mention the field.",
+      "meaning": "Decision fields the should-run documentation already calls legacy. module_budget counts modules under loopx/ whose text carries the standalone field token; migration_surface counts the modules that read, write or bind it and must change before removal. Both are budgeted; the token count stays until Q11 decides whether the syntactic metric replaces it.",
       "fields": {
         "execution_obligation": {
           "python_module_budget": 20,
-          "typescript_module_budget": 1
+          "typescript_module_budget": 1,
+          "python_migration_surface": 15,
+          "typescript_migration_surface": 0
         },
         "heartbeat_recommendation": {
           "python_module_budget": 17,
-          "typescript_module_budget": 1
+          "typescript_module_budget": 1,
+          "python_migration_surface": 13,
+          "typescript_migration_surface": 1
         },
         "work_lane_contract": {
           "python_module_budget": 29,
-          "typescript_module_budget": 3
+          "typescript_module_budget": 3,
+          "python_migration_surface": 28,
+          "typescript_migration_surface": 3
         },
         "external_evidence_observation": {
           "python_module_budget": 8,
-          "typescript_module_budget": 1
+          "typescript_module_budget": 1,
+          "python_migration_surface": 6,
+          "typescript_migration_surface": 1
         },
         "goal_boundary": {
           "python_module_budget": 30,
-          "typescript_module_budget": 2
+          "typescript_module_budget": 2,
+          "python_migration_surface": 15,
+          "typescript_migration_surface": 1
         },
         "protocol_action_packet": {
           "python_module_budget": 5,
-          "typescript_module_budget": 2
+          "typescript_module_budget": 2,
+          "python_migration_surface": 5,
+          "typescript_migration_surface": 2
         }
       }
     }
