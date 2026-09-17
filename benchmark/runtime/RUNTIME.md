@@ -107,6 +107,11 @@ monkeypatch CLI internals.
 
 ## Migration and qualification
 
+This is the native runtime bridge/adapter slice in the research program's
+[engineering plan](../../docs/architecture/rfcs/long-horizon-harness-benchmark-research-program-v0.md#11-engineering-construction-plan).
+Synthetic Harbor conformance does not qualify a matched study or a benchmark
+score claim. Full LHTB and SWE-Marathon studies retain their own acceptance.
+
 Existing named LHTB/SWE agent imports remain thin compatibility entries; new
 studies use the shared entry with explicit modes. Retired WEN controls fail
 instead of silently changing their meaning. The old fixed-stage Turn and

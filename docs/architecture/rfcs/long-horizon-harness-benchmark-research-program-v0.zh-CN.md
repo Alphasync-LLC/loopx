@@ -804,6 +804,11 @@ release promise：
 一个 adapter 可以在工程上达到 E1，但其 study 仍然只有 C0；如果 E2 runtime evidence
 不完整，C2 result 也不成立。
 
+[共享 Codex 研究 runtime](../../../benchmark/runtime/RUNTIME.md) 是
+LHTB/SWE-Marathon 原生桥接的工程检查点：共享 trial 初始化，复用产品的
+heartbeat、Turn 和 Goal 执行，并保留原生验证。合成 Harbor conformance
+只验证这条工程路径；E3 matched study 和 E4 跨 benchmark 结论仍需独立验收。
+
 ### 11.3 必需的 delivery slice
 
 每个 benchmark engineering PR 或 contributor task 都应声明一个有界 slice，包含：
