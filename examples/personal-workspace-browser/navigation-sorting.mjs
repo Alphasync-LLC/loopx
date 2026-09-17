@@ -167,7 +167,7 @@ export const navigationSortingScenario = {
         throw new Error("Settings return reset loaded task history");
       }
       await page.locator(".personal-goal-link", { hasText: "Multi Agent Projection" }).click();
-      const laneFilter = page.getByLabel("按工作 Agent 筛选", { exact: true });
+      const laneFilter = page.getByRole("combobox", { name: "按工作 Agent 筛选", exact: true });
       await laneFilter.selectOption("codex-older-lane");
       await goalViews.getByRole("button", { name: "概览", exact: true }).click();
       await goalViews.getByRole("button", { name: "任务", exact: true }).click();

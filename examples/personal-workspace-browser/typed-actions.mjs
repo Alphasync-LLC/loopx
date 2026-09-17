@@ -132,7 +132,7 @@ export const typedActionsScenario = {
     try {
       const { page } = operationUi;
       await page.locator(".personal-goal-link", { hasText: "Product Release" }).click();
-      await page.locator(".personal-goal-tabs button", { hasText: "Chat" }).click();
+      await page.getByRole("navigation", { name: "Goal 视图" }).getByRole("button", { name: /^(Chat|对话)$/ }).click();
 
       const pendingResult = page.locator(".personal-proposal-row", {
         hasText: "Simulation result awaiting card readback",
@@ -553,7 +553,7 @@ export const typedActionsScenario = {
       await page.getByRole("button", { name: /Close details/ }).click();
       const englishGoalNavigation = page.getByRole("navigation", { name: "Goal view" });
       await englishGoalNavigation.getByRole("button", { name: /^(Chat|对话)$/, exact: true }).click();
-      await page.getByText("Agent is waiting for your decision", { exact: true }).first().waitFor({ state: "visible" });
+      await page.locator('[data-goal-panel="chat"]').getByText("Agent is waiting for your decision", { exact: true }).first().waitFor({ state: "visible" });
       await englishGoalNavigation.getByRole("button", { name: /^(Files|成果)$/, exact: true }).click();
       const latestRunOutput = page.locator('[data-output-kind="evidence"]', { hasText: "Latest run" }).first();
       await latestRunOutput.waitFor({ state: "visible" });

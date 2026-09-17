@@ -185,10 +185,11 @@ export const chatRecoveryScenario = {
         await page.getByTestId("personal-goal-home").waitFor({ state: "visible" });
         await page.locator(".personal-goal-link").first().click();
         await goalNavigation.getByRole("button", { name: /^(Chat|对话)$/ }).click();
-        await page.getByText("保持运行，用于验证刷新恢复。").waitFor({ state: "visible", timeout: 10_000 });
+        const recoveredChat = page.locator('[data-goal-panel="chat"]');
+        await recoveredChat.getByText("保持运行，用于验证刷新恢复。", { exact: true }).waitFor({ state: "visible", timeout: 10_000 });
         // The live region also contains "<Agent>: 正在整理…" while a reply is
         // pending. Target the visible message placeholder, not both surfaces.
-        await page.getByText("正在整理…", { exact: true }).waitFor({ state: "hidden", timeout: 10_000 });
+        await recoveredChat.getByText("正在整理…", { exact: true }).waitFor({ state: "hidden", timeout: 10_000 });
         const recovered = page.__loopxRuntime.sessions.get(recoveryTurn.sessionId);
         if (recovered?.active_turn_id !== null && recovered?.active_turn_id !== recoveryTurn.turnId) {
           throw new Error("Recovered Session points at a different active Turn");
