@@ -49,7 +49,7 @@ class StatusCollectionContext:
     load_registry: StatusCallback
     resolve_runtime_root: StatusCallback
     collect_global_registry_health: StatusCallback
-    collect_history: StatusCallback
+    collect_status_history: StatusCallback
     check_contract: StatusCallback
     build_attention_queue: StatusCallback
     build_runtime_summaries: StatusCallback
@@ -102,15 +102,16 @@ def collect_status(
         current_registry=registry,
     )
     include_runtime_goals = bool(global_registry.get("current_registry_is_global"))
-    history = context.collect_history(
+    history_collection = context.collect_status_history(
         registry_path=registry_path,
         runtime_root=runtime_root,
         goal_id=goal_filter,
         limit=control_plane_limit,
-        include_runtime_goals=include_runtime_goals,
+        status_include_runtime_goals=include_runtime_goals,
         activation_state_filter=activation_filter,
         agent_lane_id=agent_lane_id,
     )
+    history = history_collection.status_history
     contract = context.check_contract(
         registry_path=registry_path,
         runtime_root_override=str(runtime_root),
@@ -119,6 +120,7 @@ def collect_status(
         goal_id_filter=goal_filter,
         include_public_boundary_scan=include_public_boundary_scan,
         activation_state_filter=activation_filter,
+        history_audit=history_collection.contract_audit,
     )
     contract = project_contract_health_for_goal(contract, goal_id=goal_filter)
     queue = context.build_attention_queue(

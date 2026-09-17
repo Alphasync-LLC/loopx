@@ -2,13 +2,13 @@
 
 The retirement ledger used to count modules whose text contains the field
 token. That metric answers "does this name appear here", which is not the
-question retirement asks. Removing ``goal_boundary`` requires knowing which
+question retirement asks. Removing a legacy field requires knowing which
 modules *read* it, which modules *write* it, and which merely mention it in
 prose -- three populations the token count folds into one number.
 
 What is measured here is syntactic use, not data flow. A module is a reader
-when it performs a recognized literal-key read (``payload["goal_boundary"]``,
-``payload.get("goal_boundary")``, ``"goal_boundary" in payload``, or the
+when it performs a recognized literal-key read (``payload["legacy_field"]``,
+``payload.get("legacy_field")``, ``"legacy_field" in payload``, or the
 TypeScript property read). It is a writer when it performs a recognized literal
 write (subscript store, dict-literal key, keyword argument, attribute store,
 ``setdefault``). Reader and writer are not exclusive: a projection module that
@@ -25,9 +25,14 @@ Three limits are part of the metric, not caveats around it:
   key are deliberately *not* counted: ``rows[index]`` and ``payload[key]`` are
   the same syntax, and counting sequence indexing as an unresolved mapping read
   would inflate the unknown until it stopped carrying information.
-* Same-prefix identifiers are different fields. ``goal_boundary_repair`` is not
-  a use of ``goal_boundary``; the AST compares whole keys, and the TypeScript
+* Same-prefix identifiers are different fields. ``legacy_field_repair`` is not
+  a use of ``legacy_field``; the AST compares whole keys, and the TypeScript
   scan anchors on non-identifier boundaries.
+* A field this module measures must not be spelled out here. The scan reads
+  tracked sources under ``loopx/``, this file is one of them, and a field name
+  in a docstring would add a mention to that field's own budget. The examples
+  above use ``legacy_field`` for that reason; the real names live in the
+  registry and in the smoke's anchors, both outside the scanned root.
 * A mention is evidence of nothing. Prompt prose, a module path component, a
   local variable named after the payload it holds and a parameter name all
   carry the token without touching the field. They are reported as mentions so
@@ -38,10 +43,11 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass
+from functools import lru_cache
 import re
 from typing import Any, Iterable
 
-from .inventory import SourceFile
+from .inventory import SourceFile, parse_python
 
 # ``dict``/``Mapping`` accessors whose first literal argument names a field.
 MAPPING_READ_CALLS = frozenset({"get", "pop"})
@@ -69,9 +75,9 @@ USE_FORMS = READ_FORMS | WRITE_FORMS | BINDING_FORMS | UNRESOLVED_FORMS | MENTIO
 
 # TypeScript has no parser here, so it is scanned with a bounded grammar over
 # code text whose string literals and comments have been blanked out first --
-# otherwise the path label ``"decision.heartbeat_recommendation"`` would be
-# counted as a property read. Each pattern is anchored on non-identifier
-# boundaries, so ``goal_boundary_repair`` cannot match ``goal_boundary``.
+# otherwise a path label such as ``"decision.legacy_field"`` would be counted
+# as a property read. Each pattern is anchored on non-identifier boundaries, so
+# ``legacy_field_repair`` cannot match ``legacy_field``.
 #
 # ``object_key`` (a bare ``field:`` at the head of a line) is reported as a
 # mention, not a write. An interface member and an object-literal entry are the
@@ -140,17 +146,30 @@ def _literal_key(node: ast.AST) -> str | None:
     return None
 
 
-def python_field_forms(tree: ast.AST, fields: frozenset[str]) -> dict[str, set[str]]:
-    """Recognized forms per field in one parsed Python module."""
+def python_module_scan(tree: ast.AST, fields: frozenset[str]) -> tuple[dict[str, set[str]], int]:
+    """Recognized forms per field, and the module's computed-key site count.
+
+    Both come from one walk. The scan runs over every tracked Python module on
+    every pull request that touches ``loopx/``, so a second traversal is a cost
+    paid by everyone; the shared ``parse_python`` cache exists for the same
+    reason.
+    """
     found: dict[str, set[str]] = {}
     # Constants consumed as a literal key. Whatever is left over is the field
     # name travelling as data, which is how a computed access is written.
     keyed: set[int] = set()
+    seen_constants: list[tuple[int, str]] = []
+    dynamic_sites = 0
 
     def record(field: str, form: str) -> None:
         found.setdefault(field, set()).add(form)
 
     for node in ast.walk(tree):
+        key = _literal_key(node)
+        if key is not None:
+            if key in fields:
+                seen_constants.append((id(node), key))
+            continue
         if isinstance(node, ast.Subscript):
             key = _literal_key(node.slice)
             if key in fields:
@@ -159,8 +178,11 @@ def python_field_forms(tree: ast.AST, fields: frozenset[str]) -> dict[str, set[s
         elif isinstance(node, ast.Call):
             function = node.func
             if isinstance(function, ast.Attribute) and node.args:
+                accessor = function.attr in MAPPING_READ_CALLS or function.attr in MAPPING_WRITE_CALLS
                 key = _literal_key(node.args[0])
-                if key in fields and function.attr in MAPPING_READ_CALLS:
+                if accessor and key is None:
+                    dynamic_sites += 1
+                elif key in fields and function.attr in MAPPING_READ_CALLS:
                     keyed.add(id(node.args[0]))
                     record(key, "mapping_call_read")
                 elif key in fields and function.attr in MAPPING_WRITE_CALLS:
@@ -202,32 +224,10 @@ def python_field_forms(tree: ast.AST, fields: frozenset[str]) -> dict[str, set[s
                 parts = set(alias.name.split("."))
                 for field in fields & parts:
                     record(field, "module_import")
-    for node in ast.walk(tree):
-        key = _literal_key(node)
-        if key in fields and id(node) not in keyed:
+    for identity, key in seen_constants:
+        if identity not in keyed:
             record(key, "name_constant")
-    return found
-
-
-def python_dynamic_mapping_keys(tree: ast.AST) -> int:
-    """Count mapping accessor calls whose key is computed rather than literal.
-
-    These are the sites that make "zero readers" a measurement rather than a
-    proof: the key is decided at runtime, so the field being read is unknown to
-    any scan over names.
-    """
-    total = 0
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not node.args:
-            continue
-        function = node.func
-        if not isinstance(function, ast.Attribute):
-            continue
-        if function.attr not in (MAPPING_READ_CALLS | MAPPING_WRITE_CALLS):
-            continue
-        if _literal_key(node.args[0]) is None:
-            total += 1
-    return total
+    return found, dynamic_sites
 
 
 def _blank_strings_and_comments(text: str) -> tuple[str, list[str]]:
@@ -280,9 +280,14 @@ def typescript_field_forms(text: str, fields: frozenset[str]) -> dict[str, set[s
     return found
 
 
+@lru_cache(maxsize=256)
+def _token_pattern(field: str) -> re.Pattern[str]:
+    return re.compile(rf"(?<![A-Za-z0-9_]){re.escape(field)}(?![A-Za-z0-9_])")
+
+
 def lexical_module_count(field: str, suffix: str, sources: Iterable[SourceFile]) -> int:
     """The pre-B3 metric: modules whose text contains the standalone token."""
-    token = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(field)}(?![A-Za-z0-9_])")
+    token = _token_pattern(field)
     return sum(1 for source in sources if source.suffix == suffix and token.search(source.text))
 
 
@@ -292,26 +297,32 @@ def scan_field_uses(fields: Iterable[str], sources: Iterable[SourceFile]) -> tup
     uses: list[FieldUse] = []
     dynamic_sites = 0
     for source in sources:
+        # Every Python module contributes to the computed-key total whether or
+        # not it names a field, so the cheap substring filter only narrows the
+        # per-field work, never the standing unknown.
+        present = frozenset(field for field in wanted if field in source.text)
         if source.suffix == ".py":
             try:
-                tree = ast.parse(source.text)
-            except SyntaxError:
+                tree = parse_python(source)
+            except (SyntaxError, ValueError):
                 # An unparseable tracked module is a measurement gap, not a
                 # module without readers; fall back to the token so the field
-                # is not silently credited with one fewer mention.
+                # is not silently credited with one fewer mention. The inventory
+                # scan rejects such a module first, so this path is for direct
+                # callers rather than the drift smoke.
                 for field in wanted:
                     if lexical_module_count(field, ".py", [source]):
                         uses.append(FieldUse(field=field, module=source.path, forms=frozenset({"prose"})))
                 continue
-            dynamic_sites += python_dynamic_mapping_keys(tree)
-            forms = python_field_forms(tree, wanted)
+            forms, module_dynamic_sites = python_module_scan(tree, present)
+            dynamic_sites += module_dynamic_sites
         elif source.suffix == ".ts":
-            forms = typescript_field_forms(source.text, wanted)
+            forms = typescript_field_forms(source.text, present)
         else:
             continue
-        for field in wanted:
+        for field in present:
             recognized = forms.get(field, set())
-            if not recognized and lexical_module_count(field, source.suffix, [source]):
+            if not recognized and _token_pattern(field).search(source.text):
                 # The token is present but no recognized form carries it: a
                 # comment, a docstring, or prompt prose.
                 recognized = {"prose"}

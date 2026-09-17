@@ -15,8 +15,7 @@ import pytest
 from loopx.semantics.field_use import (
     ROLES,
     field_use_summary,
-    python_dynamic_mapping_keys,
-    python_field_forms,
+    python_module_scan,
     scan_field_uses,
     typescript_field_forms,
 )
@@ -27,7 +26,7 @@ FIELDS = frozenset({FIELD})
 
 
 def python(text: str) -> dict[str, set[str]]:
-    return python_field_forms(ast.parse(text), FIELDS)
+    return python_module_scan(ast.parse(text), FIELDS)[0]
 
 
 def source(text: str, suffix: str = ".py", path: str = "loopx/probe") -> SourceFile:
@@ -113,8 +112,16 @@ def test_the_same_prefix_identifier_is_not_a_use_of_the_field() -> None:
 
 def test_computed_keys_are_counted_as_the_standing_unknown() -> None:
     tree = ast.parse('payload.get(name)\npayload.get("goal_boundary")\nrows[index]\npayload.pop(key, None)\n')
-    assert python_dynamic_mapping_keys(tree) == 2, (
+    assert python_module_scan(tree, FIELDS)[1] == 2, (
         "literal keys are attributable and sequence indexing is not a mapping access"
+    )
+
+
+def test_computed_keys_are_counted_in_modules_that_never_name_the_field() -> None:
+    uses, dynamic_sites = scan_field_uses([FIELD], [source("payload.get(name)\n", path="loopx/other")])
+    assert uses == [] and dynamic_sites == 1, (
+        "the standing unknown is repository-wide; narrowing it to modules that name the "
+        "field would make a zero-reader field look proven"
     )
 
 
