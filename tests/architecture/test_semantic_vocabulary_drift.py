@@ -268,3 +268,23 @@ def test_live_inventory_ignores_missing_or_stale_reports(tmp_path, monkeypatch, 
                  for name in ("first", "second")]
     with pytest.raises(smoke["Drift"], match="same_runtime_forks grew"):
         smoke["check_inventory"](registry, sources + duplicate)
+
+
+@pytest.mark.parametrize('name', ['effective_action', 'lease_action'])
+def test_remaining_kernel_values_each_carry_a_note(name):
+    """The two kernel vocabularies that are not Turn control flow still need notes.
+
+    ``effective_action`` is the overloaded should-run slot M1 is due to split, so
+    a value here is only legible once the registry says which condition produces
+    it; ``lease_action`` is legacy and every value is compatibility-only, which
+    is exactly the kind of disposition a reader cannot infer from the name. The
+    note is required in the diff that adds a value, not afterwards.
+    """
+    smoke = runpy.run_path(str(SMOKE))
+    vocabulary = smoke['load_registry']()['vocabularies'][name]
+    notes = vocabulary.get('value_notes', {})
+    undocumented = [
+        value for value in vocabulary['values']
+        if not str(notes.get(value) or '').strip()
+    ]
+    assert not undocumented, f'{name}: values with no value_notes entry: {undocumented}'
