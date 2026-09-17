@@ -38,7 +38,7 @@ CODEX_CLI_RESULT_KINDS = (
     "wait",
     "iteration_failed",
 )
-CODEX_CLI_SANDBOXES = ("read-only", "workspace-write")
+CODEX_CLI_SANDBOXES = ("read-only", "workspace-write", "danger-full-access")
 SESSION_ID_MAX_CHARS = 256
 OUTPUT_DRAIN_TIMEOUT_SECONDS = 2.0
 SESSION_INVALIDATING_FAILURE_CATEGORIES = frozenset(
@@ -712,7 +712,7 @@ def run_codex_cli_host(
     if request.get("schema_version") != LOOPX_TURN_HOST_REQUEST_SCHEMA_VERSION:
         raise ValueError("unsupported LoopX Turn host request schema")
     if sandbox not in CODEX_CLI_SANDBOXES:
-        raise ValueError("Codex CLI sandbox must be read-only or workspace-write")
+        raise ValueError(f"Codex CLI sandbox must be one of {CODEX_CLI_SANDBOXES}")
     resolved = shutil.which(codex_bin) if os.path.sep not in codex_bin else codex_bin
     if not resolved or not Path(resolved).exists():
         raise ValueError("Codex CLI executable is unavailable")
@@ -807,6 +807,9 @@ def run_codex_cli_host(
             _terminate_process(proc)
             timed_out = True
             returncode = proc.returncode
+        except BaseException:
+            _terminate_process(proc)
+            raise
         finally:
             reader.join(timeout=OUTPUT_DRAIN_TIMEOUT_SECONDS)
             stderr_reader.join(timeout=OUTPUT_DRAIN_TIMEOUT_SECONDS)
