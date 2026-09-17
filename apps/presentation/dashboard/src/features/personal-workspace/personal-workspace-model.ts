@@ -237,7 +237,8 @@ export type WorkspaceActionPreview = {
   // receipt so the card can name them after the confirmation, not only in the
   // preview that the confirmation replaced.
   teamPlanOutcome?: TeamPlanAppliedOutcome;
-  teamPlanGapLanes?: Array<{ laneId: string; agentId: string; reasonCode: string }>;
+  teamPlanAssignments?: Array<{ laneId: string; agentId: string; task: string }>;
+  teamPlanGapLanes?: Array<{ laneId: string; agentId: string; reasonCode: string; task?: string }>;
   title: string;
   sourceRequest?: WorkspaceActionPreviewRequest;
   workspaceCandidates?: Array<{ label: string; workspaceRef: string }>;

@@ -49,7 +49,7 @@ export function teamPlanFields(
         label: agentId || laneId,
         value: [
           t("proposal.teamPlan.gapLane"),
-          asText(lane.gap_reason_code),
+          teamPlanGapReason(asText(lane.gap_reason_code), t),
           asText(declined.text),
         ].filter(Boolean).join(" · "),
       });
@@ -70,20 +70,6 @@ export function teamPlanFields(
       ].filter(Boolean).join(" · "),
     });
   });
-  const gaps = Array.isArray(plan.gaps) ? plan.gaps : [];
-  if (gaps.length > 0) {
-    fields.push({
-      key: "lane_gaps",
-      label: t("proposal.field.laneGaps"),
-      value: gaps
-        .map((rawGap) => {
-          const gap = asRecord(rawGap);
-          return [asText(gap.lane_id), asText(gap.reason_code)].filter(Boolean).join(": ");
-        })
-        .filter(Boolean)
-        .join(" · "),
-    });
-  }
   const envelope = asRecord(plan.quota_envelope);
   const envelopeEntries = Object.entries(envelope);
   if (envelopeEntries.length > 0) {
@@ -114,7 +100,26 @@ export function teamPlanGoalId(parameters: Record<string, unknown>): string {
   return asText(parameters.goal_id) || asText(plan.goal_id);
 }
 
-export type TeamPlanGapLane = { laneId: string; agentId: string; reasonCode: string };
+export type TeamPlanGapLane = { laneId: string; agentId: string; reasonCode: string; task?: string };
+
+export type TeamPlanAssignment = { laneId: string; agentId: string; task: string };
+
+/** Receipt membership owns the result; the admitted preview only supplies task labels. */
+export function teamPlanAssignments(receipt: unknown, parameters: Record<string, unknown>): TeamPlanAssignment[] {
+  const record = asRecord(receipt);
+  const plan = asRecord(parameters.plan);
+  const previewLanes = (Array.isArray(plan.lanes) ? plan.lanes : []).map(asRecord);
+  return (Array.isArray(record.lanes) ? record.lanes : []).map((entry) => {
+    const lane = asRecord(entry);
+    const laneId = asText(lane.lane_id);
+    const preview = previewLanes.find((candidate) => candidate.lane_id === laneId);
+    return {
+      laneId,
+      agentId: asText(lane.agent_id),
+      task: asText(asRecord(preview?.first_todo).text) || laneId,
+    };
+  }).filter((lane) => lane.laneId.length > 0);
+}
 
 /**
  * Read the lanes a confirmed plan left unstaffed out of the apply receipt.
@@ -125,8 +130,10 @@ export type TeamPlanGapLane = { laneId: string; agentId: string; reasonCode: str
  * so the card that confirmed the plan can say both. A receipt without the field
  * (an older runtime, or a plan that staffed every lane) reports no gap lanes.
  */
-export function teamPlanReceiptGapLanes(receipt: unknown): TeamPlanGapLane[] {
+export function teamPlanReceiptGapLanes(receipt: unknown, parameters: Record<string, unknown> = {}): TeamPlanGapLane[] {
   const record = asRecord(receipt);
+  const plan = asRecord(parameters.plan);
+  const previewLanes = (Array.isArray(plan.lanes) ? plan.lanes : []).map(asRecord);
   const raw = Array.isArray(record.gap_lanes) ? record.gap_lanes : [];
   return raw
     .map((entry) => {
@@ -135,6 +142,7 @@ export function teamPlanReceiptGapLanes(receipt: unknown): TeamPlanGapLane[] {
         laneId: asText(gap.lane_id),
         agentId: asText(gap.agent_id),
         reasonCode: asText(gap.reason_code),
+        task: asText(asRecord(previewLanes.find((lane) => lane.lane_id === gap.lane_id)?.declined_first_todo).text),
       };
     })
     .filter((gap) => gap.laneId.length > 0);
@@ -151,20 +159,11 @@ export function teamPlanGapReason(
   if (reasonCode === "action_kind_not_supported") {
     return t("proposal.teamPlan.gapReason.actionKindNotSupported");
   }
+  if (reasonCode === "capability_not_granted") return t("proposal.teamPlan.gapReason.capabilityNotGranted");
+  if (reasonCode === "audience_not_authorized") return t("proposal.teamPlan.gapReason.audienceNotAuthorized");
   // An unrecognized code is a host fact this card has no words for. Naming it
   // verbatim is honest; inventing a reason for it would not be.
   return reasonCode;
-}
-
-export function teamPlanGapLaneLine(
-  gap: TeamPlanGapLane,
-  t: WorkspaceTranslate,
-): string {
-  return t("proposal.teamPlan.appliedGapLane", {
-    lane: gap.laneId,
-    agent: gap.agentId || gap.laneId,
-    reason: teamPlanGapReason(gap.reasonCode, t),
-  });
 }
 
 /**
@@ -220,5 +219,5 @@ export function teamPlanAppliedLine(
   if (outcome?.kind === "already_present") {
     return t("proposal.teamPlan.appliedAlreadyPresent");
   }
-  return t(outcome?.kind === "applied" ? "proposal.teamPlan.applied" : "drawer.proposalApplied");
+  return t(outcome?.kind === "applied" ? "proposal.teamPlan.applied" : "drawer.proposalApplied", { count: outcome?.created ?? 0 });
 }

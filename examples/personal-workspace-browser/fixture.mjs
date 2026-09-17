@@ -389,6 +389,7 @@ export async function installApi(page, { goalSubagentConfigurationEnabled = true
   const state = {
     nextLifecycleProposalPatch: null,
     nextLifecycleApplyOutcome: null,
+    loseNextTeamPlanResponse: false,
     actionApplies: [],
     actionCancels: [],
     actionPreviews: [],
@@ -1610,13 +1611,15 @@ export async function installApi(page, { goalSubagentConfigurationEnabled = true
         );
       }
       const resourceKey = `${actionKind}:${apply[1]}`;
-      if (!state.durableResources.has(resourceKey)) {
+      const replay = state.durableResources.has(resourceKey);
+      if (!replay) {
         state.durableResources.add(resourceKey);
         state.durableWriteCount += 1;
       }
       // Injected proposals live in the action store, not in the session
       // previews, so the plan a confirmed card carries has to be read there.
       const teamPlanReceipt = teamPlanApplyReceipt(actionProposals.get(apply[1]));
+      if (teamPlanReceipt && replay) teamPlanReceipt.outcome = "team_plan_commit_recovered";
       const proposal = {
         schema_version: "loopx_chat_action_proposal_v1", proposal_id: apply[1], action_kind: actionKind,
         summary: "已应用", normalized_parameters: preview?.normalized_parameters ?? actionProposals.get(apply[1])?.normalized_parameters ?? {}, context: preview?.context ?? actionProposals.get(apply[1])?.context ?? {}, expected_state_fingerprint: "fixture-r1",
@@ -1624,6 +1627,11 @@ export async function installApi(page, { goalSubagentConfigurationEnabled = true
         status: "applied", receipt: teamPlanReceipt ?? { projection_verified: true, receipt_id: "fixture-receipt" }, stale: null, created_at: "2026-08-13T01:00:00Z", updated_at: "2026-08-13T01:00:01Z",
       };
       actionProposals.set(apply[1], proposal);
+      if (actionKind === "team.plan" && state.loseNextTeamPlanResponse) {
+        state.loseNextTeamPlanResponse = false;
+        await route.fulfill({ contentType: "application/json", status: 503, json: { ok: false, error: "Assignment response unavailable", error_code: "team_plan_response_lost" } });
+        return;
+      }
       await route.fulfill({ contentType: "application/json", json: { ok: true, proposal, turn: acceptedTurn }, status: acceptedTurn ? 202 : 200 });
       return;
     }
