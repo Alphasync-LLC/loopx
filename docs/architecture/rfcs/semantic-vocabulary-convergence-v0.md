@@ -1071,6 +1071,63 @@ introduce a competing target state.
 
 ## Appendix A: Execution ledger (non-normative)
 
+### 2026-09-17 — Per-value meaning for the `cross_runtime` tier
+
+Non-normative for the model; it adds no invariant and changes no existing
+check's verdict. What changes is that every registered value now says what
+produces it.
+
+- Coverage moves from 68 of 149 values to 149 of 149. The 68 were the whole
+  kernel tier, documented by #4625 (the four canonical Turn vocabularies) and
+  #4626 (`effective_action` and `lease_action`). The 81 added here are the
+  whole `cross_runtime` tier, 20 vocabularies.
+- The tracking issue described this remainder as "117 values". That count was
+  taken before #4626 merged: 117 is everything #4625 did not cover, which then
+  still included `effective_action` (32) and `lease_action` (4). Both are
+  kernel-tier and already documented, so the work actually outstanding was
+  81 values. The registry is the measurement, not the issue text.
+- **What a note is required to say:** which condition produces the value — what
+  has to be true at runtime for the code to choose it. Not a restatement of the
+  identifier, and not only the disposition that follows. The three sets of notes
+  that existed at M0 recorded disposition, which is why a reader still had to
+  reconstruct control flow from the generated rule table; that is the failure
+  mode being closed, so a note that merely rephrases its own name is treated as
+  a failure rather than as coverage.
+- Where the producing condition cannot be established, the note says so and names
+  the evidence that would settle it, in the form `Unresolved: … Missing
+  evidence: …`. Two of the 81 are in that state and neither is guessed at:
+  `settlement_failure_kind.cancelled` is declared in both owners and admitted by
+  the decoders but selected by no branch under `loopx/`, exercised only by tests
+  that fabricate it, and carries no `compatibility_only` declaration saying it is
+  reserved; `todo_decision_scope_kind.other` is an accepted member with no
+  producer, no fallback — a kind outside the set is rejected, not coerced to it —
+  and no documented rule for when an author should choose it.
+- A related boundary the notes now state rather than hide: several
+  `cross_runtime` values are **author-declared and only membership-validated**,
+  not selected by any branch. All four `goal_amendment_class` values, all of
+  `todo_decision_scope_kind` and `todo_decision_scope_granularity`, and
+  `delivery_outcome.primary_goal_outcome` are in this class. Their notes say who
+  declares the value and against what criterion, cite where that criterion is
+  normative, and say plainly that no code branch selects it. This is a real
+  property of the tier, and it is the reason `cross_runtime` declares no
+  producers and sits outside F1/F2.
+- The ratchet is a new file, `tests/architecture/test_cross_runtime_value_notes.py`,
+  rather than an addition to the end of `test_semantic_vocabulary_drift.py`,
+  where the kernel-tier ratchet lives and where several open branches already
+  collide. It derives its population from the registry, so a new `cross_runtime`
+  vocabulary is covered without editing the test; it fails a value with no note,
+  an empty note, a note that carries no words beyond its own identifier, and an
+  unresolved marker that does not name its missing evidence; and it pins the
+  unresolved count at 2 so "unresolved" cannot become the cheap default. A
+  further test fails if a vocabulary is ever registered under a tier neither
+  ratchet walks.
+- Not addressed here: the notes are prose checked for substance, not for truth.
+  Nothing verifies that a stated producing condition still matches the code
+  after the code moves. For the `cross_runtime` tier there is no producer scan
+  to check it against, which is the same gap F1/F2's domain bounds already
+  disclose.
+
+
 ### 2026-09-17 — Invariant statements bounded to their verified domains
 
 Normative; requires kernel-maintainer approval. No check changes its pass/fail
@@ -1281,6 +1338,7 @@ result on the current tree; what changes is what the invariants claim.
 | 2026-09-16 | B2: bind one unrenamed re-export hop in the Python producer scanner | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B2; PR review pending | Require every consumer to import the owner module (fragile; failed silently in M2); unbounded multi-hop resolution rejected | 5, Appendix A |
 | 2026-09-16 | B1 rename invariance: add the name-keyed divergence advisory; state the limit it does not close | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B1; PR review pending | Keying the budget on value sets (rejected: `CONFIDENCE_LEVELS` and `EDGE_CASE_COMPLEXITIES` share `high/low/medium` with different meanings); a committed name ledger (rejected at M0: Q9 retired the committed census). The advisory lists surviving forks by name; it was first described as catching a one-sided rename, which measurement disproved, so both mirrors state the limit as it behaves | 9 |
 | 2026-09-17 | Bound F1/F2 to the kernel tier and the scan reach, restate F4 as scope enumeration completeness, and give every obligation a derived `domain` | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447); **kernel-maintainer approval required, not yet given** | Leave the unconditional statements and record the gap in prose only (rejected: the statement was stronger than `validate_production`'s own docstring); restate F4 as per-context value-set disjointness (rejected: refuted by the repo's own data, since `scope_declarations` exists to permit legitimate same-name reuse); widen the scan so the unconditional claim becomes true (rejected: a separate change with its own risk) | 5, 9, Appendix B, Appendix C |
+| 2026-09-17 | Document every `cross_runtime` value with the condition that produces it, taking per-value coverage from 68/149 to 149/149, and ratchet it in a separate test file | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) Track A; PR review pending | Append to the kernel ratchet at the end of `test_semantic_vocabulary_drift.py` (rejected: three open PRs already collide on that tail, and a same-diff rule is exactly what a merge there loses); infer a meaning for the two values with no producer (rejected by the evidence rules: a guessed note is indistinguishable from a verified one once it is in the table); document only the values a branch selects (rejected: it would leave the author-declared values looking undocumented rather than declared, which is the more useful fact) | Appendix A, Appendix B |
 
 ## Appendix C: Evidence registry
 
