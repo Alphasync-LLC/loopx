@@ -1158,7 +1158,6 @@ result on the current tree; what changes is what the invariants claim.
   consistent false claim, because moving an invariant's `enforcement` and its
   policy lane together stays self-consistent. That grounding gap is separate.
 
-
 ### 2026-09-16 — B2 pilot: one re-export hop bound in the Python producer scanner
 
 - **Trigger:** after M2 moved the three Turn owners into
@@ -1186,7 +1185,6 @@ result on the current tree; what changes is what the invariants claim.
   values throughout the registry and narrative. Production is not admitted by definition.
 - Clarify candidate dispositions as advisory metadata; no per-candidate runtime
   store or enforcement is delivered by this schema.
-
 
 ### 2026-09-15 — M0 opened with the RFC
 

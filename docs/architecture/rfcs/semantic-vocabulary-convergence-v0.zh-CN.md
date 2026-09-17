@@ -947,7 +947,6 @@ TypeScript 一次批量复用 `scripts/semantic_production_scan.mjs` 的 TypeScr
 - 本次未处理：`check_formal_model` 仍会接受一个自洽的错误声明，因为同时挪动某条
   不变量的 `enforcement` 与它的 policy 层级仍然自洽。那个接地缺口是另一件事。
 
-
 ### 2026-09-16 — B2 试点：Python producer 扫描器绑定一跳再导出
 
 - **触发：** M2 把三个 Turn owner 迁入 `turn_contract_generated.py` 后，仍经
@@ -969,7 +968,6 @@ TypeScript 一次批量复用 `scripts/semantic_production_scan.mjs` 的 TypeScr
 - 注册表与叙述统一使用源码位点 `L`、环境值空间 `U(v)` 和允许集合 `S(v)`，
   不把生产值预先定义为合法值。
 - 明确候选处置为建议性元数据；本 schema 不交付逐候选运行时存储或执行门禁。
-
 
 ### 2026-09-15 — 随 RFC 开启 M0
 
