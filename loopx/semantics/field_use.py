@@ -14,7 +14,7 @@ write (subscript store, dict-literal key, keyword argument, attribute store,
 ``setdefault``). Reader and writer are not exclusive: a projection module that
 reads the legacy field and re-emits it is both.
 
-Three limits are part of the metric, not caveats around it:
+These limits are part of the metric, not caveats around it:
 
 * A computed key is **unresolved**. ``payload.get(name)`` may read any field, so
   no name-keyed scan -- lexical or syntactic -- can prove a module is not a
@@ -33,10 +33,9 @@ Three limits are part of the metric, not caveats around it:
   in a docstring would add a mention to that field's own budget. The examples
   above use ``legacy_field`` for that reason; the real names live in the
   registry and in the smoke's anchors, both outside the scanned root.
-* A mention is evidence of nothing. Prompt prose, a module path component, a
-  local variable named after the payload it holds and a parameter name all
-  carry the token without touching the field. They are reported as mentions so
-  that migration can ignore them and so the residual token count stays visible.
+* A mention is evidence of nothing. Prompt prose and module paths carry the
+  token without a recognized access. Locals and parameters are instead bindings:
+  they may carry the value through a signature that a migration must inspect.
 """
 
 from __future__ import annotations
@@ -93,8 +92,10 @@ _TS_READ_PATTERNS: tuple[tuple[str, str], ...] = (
 # pure write is kept from also counting as a read.
 _TS_WRITE_SUFFIX = r"\s*(?:=[^=]|\+=)"
 _TS_OBJECT_KEY = r"^\s*{field}\??\s*:"
-_TS_STRING = re.compile(r"""(?s)(?P<q>["'`])(?:\\.|(?!(?P=q)).)*(?P=q)""")
-_TS_COMMENT = re.compile(r"(?s)//[^\n]*|/\*.*?\*/")
+_TS_LEXEME = re.compile(
+    r"""(?P<string>(?P<q>["'`])(?:\\.|(?!(?P=q)).)*(?P=q))|//[^\n]*|/\*.*?\*/""",
+    re.DOTALL,
+)
 
 
 @dataclass(frozen=True)
@@ -151,8 +152,8 @@ def python_module_scan(tree: ast.AST, fields: frozenset[str]) -> tuple[dict[str,
 
     Both come from one walk. The scan runs over every tracked Python module on
     every pull request that touches ``loopx/``, so a second traversal is a cost
-    paid by everyone; the shared ``parse_python`` cache exists for the same
-    reason.
+    paid by everyone. Parsing errors share the inventory's ``parse_python``
+    boundary; ASTs are deliberately not retained in a cache.
     """
     found: dict[str, set[str]] = {}
     # Constants consumed as a literal key. Whatever is left over is the field
@@ -242,12 +243,14 @@ def _blank_strings_and_comments(text: str) -> tuple[str, list[str]]:
     def mask(body: str) -> str:
         return "".join("\x00" if character != "\n" else "\n" for character in body)
 
-    def blank_literal(match: re.Match[str]) -> str:
-        literals.append(match.group(0))
+    def blank_lexeme(match: re.Match[str]) -> str:
+        if match.group("string") is not None:
+            literals.append(match.group(0))
         return mask(match.group(0))
 
-    without_comments = _TS_COMMENT.sub(lambda match: mask(match.group(0)), text)
-    code = _TS_STRING.sub(blank_literal, without_comments)
+    # Match in source order: comment delimiters inside a quoted URL are data,
+    # and quotes inside a comment cannot open a string in the following code.
+    code = _TS_LEXEME.sub(blank_lexeme, text)
     return code, literals
 
 
@@ -256,18 +259,19 @@ def typescript_field_forms(text: str, fields: frozenset[str]) -> dict[str, set[s
     found: dict[str, set[str]] = {}
     code, literals = _blank_strings_and_comments(text)
     # Subscript keys are string literals, which blanking removed, so they are
-    # matched against the original text. A quoted key inside prose would be an
-    # indexing expression there too, so this does not reintroduce the path-label
-    # false positive that blanking exists to remove.
+    # matched against the original text only when the opening bracket survived
+    # masking. An example inside a comment/string is prose, not a field access.
     for field in fields:
         quoted = re.escape(field)
         for form, template in _TS_READ_PATTERNS:
             pattern = template.format(field=quoted)
             subject = text if form.startswith("subscript") else code
-            reads = [match.start() for match in re.finditer(pattern, subject, re.MULTILINE)]
+            reads = [match.start() for match in re.finditer(pattern, subject, re.MULTILINE)
+                     if code[match.start()] != "\x00"]
             if not reads:
                 continue
-            writes = {match.start() for match in re.finditer(pattern + _TS_WRITE_SUFFIX, subject, re.MULTILINE)}
+            writes = {match.start() for match in re.finditer(pattern + _TS_WRITE_SUFFIX, subject, re.MULTILINE)
+                      if match.start() in reads}
             if writes:
                 found.setdefault(field, set()).add(form.replace("_read", "_write"))
             if set(reads) - writes:

@@ -150,6 +150,25 @@ def test_typescript_string_paths_do_not_become_property_reads() -> None:
     assert forms[FIELD] == {"prose"}
 
 
+@pytest.mark.parametrize("text, expected", [
+    ('// payload["goal_boundary"]', "mention"),
+    ('/* payload["goal_boundary"] = value; */', "mention"),
+    ('''const note = 'payload["goal_boundary"]';''', "mention"),
+    ('const note = `payload["goal_boundary"]`;', "mention"),
+    ('const url = "https://example.test"; const value = payload.goal_boundary;', "reader"),
+    ('const marker = "/*"; payload["goal_boundary"] = value;', "writer"),
+    ('// "unclosed quote\nconst value = payload["goal_boundary"];', "reader"),
+])
+def test_typescript_lexical_context_preserves_real_accesses(text: str, expected: str) -> None:
+    assert role(text, ".ts") == expected
+
+
+def test_commented_write_does_not_change_a_real_reader_into_a_writer() -> None:
+    text = 'const value = payload["goal_boundary"]; // payload["goal_boundary"] = other;'
+    uses, _ = scan_field_uses([FIELD], [source(text, ".ts")])
+    assert uses[0].reads and not uses[0].writes
+
+
 def test_roles_partition_the_token_count_so_the_metric_reclassifies_one_population() -> None:
     sources = [
         source('value = payload["goal_boundary"]', path="loopx/reader"),

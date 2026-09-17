@@ -40,7 +40,7 @@ from loopx.semantics.production import (  # noqa: E402
 )
 from loopx.semantics.python_production import scan_python_production  # noqa: E402
 from loopx.semantics.field_use import (  # noqa: E402
-    ROLES, field_use_summary, render_field_uses, scan_field_uses,
+    ROLES, field_use_summary, lexical_module_count, render_field_uses, scan_field_uses,
 )
 from scripts.generate_semantic_bindings import build_artifacts  # noqa: E402
 from loopx.canary.maintainability_ratchet import evaluate_maintainability_findings  # noqa: E402
@@ -823,14 +823,7 @@ def count_identifier_modules(field: str, suffix: str, sources: list[SourceFile])
     remaining occurrence is a reader or that computed accesses are absent.
     ``check_reader_metric`` splits this same population by syntactic role.
     """
-    pattern = re.compile(
-        rf"(?<![A-Za-z0-9_]){re.escape(field)}(?![A-Za-z0-9_])"
-    )
-    return sum(
-        1
-        for file in sources
-        if file.suffix == suffix and pattern.search(file.text)
-    )
+    return lexical_module_count(field, suffix, sources)
 
 
 def check_reader_metric(registry: dict[str, Any], sources: list[SourceFile]) -> tuple[list[str], list[str]]:
