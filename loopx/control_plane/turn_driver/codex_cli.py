@@ -345,6 +345,13 @@ def _prompt(request: Mapping[str, Any]) -> str:
         "Turn request:",
         request_json,
     ]
+    boundary = _mapping(_mapping(request.get("turn_envelope")).get("boundary"))
+    if boundary.get("checkpointed_boundary_authority"):
+        instructions.append(
+            "The boundary's checkpointed_boundary_authority records existing write approval "
+            "only within its active_write_scope. It satisfies the write approval requirement "
+            "for those scopes; other scopes, publish, and production actions retain their gates."
+        )
     if _has_subagent_topology(request):
         instructions[7:7] = [
             "When subagent_execution_topology is present, return one compact child_execution_receipts item for each observed child, including the actual context_mode. Never copy prompts, transcripts, tool output, credentials, private links, or local absolute paths into a receipt. If no child was observed, return an empty list.",

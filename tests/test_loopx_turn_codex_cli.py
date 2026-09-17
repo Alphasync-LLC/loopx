@@ -824,3 +824,19 @@ def test_public_e2e_smoke_runs_n_transactions_on_one_session() -> None:
         "scheduler_acknowledged": False,
         "state_written": False,
     }
+
+
+def test_checkpointed_write_approval_is_scoped_and_absent_by_default():
+    request = _request()
+    assert "It satisfies the write approval requirement" not in _prompt(request)
+    request["turn_envelope"]["boundary"] = {
+        "requires_parent_approval": ["write", "publish", "production-action"],
+        "checkpointed_boundary_authority": {
+            "schema_version": "checkpointed_boundary_authority_v0",
+            "active_count": 1,
+            "active_write_scope": ["src/**"],
+        },
+    }
+    prompt = _prompt(request)
+    assert "only within its active_write_scope" in prompt
+    assert "publish, and production actions retain their gates" in prompt

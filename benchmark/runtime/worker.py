@@ -127,7 +127,7 @@ def turn_command(
         "--scheduler-owner",
         "outer_controller",
         *(
-            ["--resume-turn-key", resume_turn_key]
+            ["--resume-turn-key", resume_turn_key, "--retry-failed-turn"]
             if resume_turn_key
             else ["--turn-instance-id", turn_id]
         ),

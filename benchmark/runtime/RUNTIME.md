@@ -79,6 +79,9 @@ feedback and time-budget settings fixed when comparing modes.
 It does not certify that environment's security. Core Turn still defaults to
 `read-only`; callers may select `workspace-write` or `read-only` consistently
 across comparison arms. No wrapper silently replaces sandbox flags with bypass.
+LoopX arms record the trial's task-workspace write authorization through
+`configure-goal --boundary-authority-scope`. Turn carries that checkpointed
+approval in its envelope; publishing and production actions keep their gates.
 
 Staging uses Harbor upload/exec methods, without Docker-label container discovery.
 Backend-specific networking stays in the benchmark's native launcher.
@@ -98,7 +101,7 @@ The scheduler wake deadline is derived from the host timeout plus 150 seconds;
 the retired LHTB `LOOPX_WAKE_TIMEOUT_SEC` setting is no longer used.
 
 Pending controlled Turns retain their identity across worker restarts. Core
-`--resume-turn-key` decides recovery eligibility and retry limits. The runner
+`--resume-turn-key --retry-failed-turn` decides recovery eligibility and retry limits. The runner
 does not delete homes or session bindings, edit registries directly, or
 monkeypatch CLI internals.
 

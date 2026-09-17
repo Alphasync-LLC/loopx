@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 import asyncio
 import os
+import shlex
+import subprocess
 import sys
+import time
 import tomllib
 from pathlib import Path
 
@@ -150,6 +153,81 @@ time.sleep(60)
         os.kill(int((tmp_path / "pid").read_text()), 0)
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX scheduler cancellation")
+def test_scheduler_cancel_reaps_detached_worker_host_and_keeps_receipt(tmp_path):
+    env = worker_env(tmp_path)
+    source = Path(__file__).resolve().parents[2]
+    env["PYTHONPATH"] = str(source)
+    Path(env["CODEX_BIN"]).write_text(
+        f"#!{sys.executable}\n"
+        "import os,pathlib,signal,time\n"
+        "signal.signal(signal.SIGINT, signal.SIG_IGN)\n"
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+        "pathlib.Path('pid').write_text(str(os.getpid()))\n"
+        "time.sleep(60)\n"
+    )
+    cli = tmp_path / "quota"
+    payload = {
+        "should_run": True,
+        "effective_action": "run_now",
+        "scheduler_hint": {
+            "action": "run_now",
+            "cadence_class": "active_work",
+            "reason": "fixture",
+            "reset_policy": {"reset_token": "fixture"},
+            "cold_path_detail": {
+                "local_scheduler": {
+                    "recommended_interval_minutes": 1,
+                    "example_progression_minutes": [1],
+                    "unchanged_poll_limit": None,
+                    "after_limit": "continue",
+                }
+            },
+        },
+    }
+    cli.write_text(f"#!{sys.executable}\nprint({json.dumps(payload)!r})\n")
+    cli.chmod(0o755)
+    command = [
+        sys.executable,
+        str(source / "scripts/external_scheduler_worker.py"),
+        "--cli-bin",
+        str(cli),
+        "--goal-id",
+        "fixture",
+        "--agent-id",
+        "fixture",
+        "--state-file",
+        str(tmp_path / "scheduler.json"),
+        "--wake-cmd",
+        "exec " + shlex.join([sys.executable, "-m", "benchmark.runtime.worker"]),
+    ]
+    process = subprocess.Popen(
+        command,
+        env=env,
+        cwd=tmp_path,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while not (tmp_path / "pid").exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert (tmp_path / "pid").exists()
+        process.terminate()
+        process.wait(timeout=15)
+        with pytest.raises(ProcessLookupError):
+            os.kill(int((tmp_path / "pid").read_text()), 0)
+        receipt = json.loads(
+            next((tmp_path / "logs/wakes").glob("*/receipt.json")).read_text()
+        )
+        assert receipt["error_kind"] == "KeyboardInterrupt"
+        assert not receipt["ok"]
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+
+
 def test_turn_uses_public_cli_and_core_session_policy(tmp_path):
     env = worker_env(tmp_path) | {
         "LOOPX_CLI": "loopx",
@@ -212,6 +290,7 @@ sys.exit(1 if first else 0)
     first, recovery, successor = calls
     assert "--turn-instance-id" in first
     assert "--turn-instance-id" not in recovery
+    assert "--retry-failed-turn" in recovery
     assert recovery[recovery.index("--resume-turn-key") + 1] == "sha256:" + "a" * 64
     assert (
         successor[successor.index("--turn-instance-id") + 1]

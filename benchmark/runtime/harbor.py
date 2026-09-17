@@ -323,6 +323,12 @@ class BenchmarkCodex(CodexOffline):
                     _GOAL_ID,
                     "--registered-agent",
                     _AGENT_ID,
+                    "--boundary-authority-scope",
+                    "**",
+                    "--boundary-authority-source",
+                    "harbor-task-workspace",
+                    "--boundary-authority-decision-id",
+                    "trial-workspace",
                     "--execution-replan-after-todos",
                     str(self.replan_after_todos),
                     "--agent-work-mode",
@@ -570,7 +576,7 @@ class BenchmarkCodex(CodexOffline):
                     "--state-file",
                     _SCHEDULER_STATE,
                     "--wake-cmd",
-                    shlex.join(wake_command),
+                    "exec " + shlex.join(wake_command),
                     "--wake-timeout-seconds",
                     str(self.execution.timeout_seconds + 150),
                     "--quota-timeout-seconds",
@@ -597,4 +603,11 @@ class BenchmarkCodex(CodexOffline):
                 timeout_sec=self.scheduler_timeout + 60,
             )
         finally:
+            # Remote Harbor backends download logs after run(). Read them now
+            # before populating a non-empty context, which Harbor will retain.
+            mounted = getattr(environment, "is_mounted", None)
+            if mounted is None:
+                mounted = environment.capabilities.mounted
+            if not mounted:
+                await environment.download_dir("/logs/agent", self.logs_dir)
             self._populate_context(context, before)
