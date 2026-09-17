@@ -18,7 +18,6 @@ from ...todos.frontier_revision import frontier_source_facts
 
 
 LONG_TODO_CHAIN_TRIGGER = "long_todo_chain"
-TODO_TASK_CLASS_ADVANCEMENT = "advancement_task"
 LONG_TODO_CHAIN_FRONTIER_REVISION_SCHEMA_VERSION = (
     TODO_FRONTIER_REVISION_SCHEMA_VERSION
 )
