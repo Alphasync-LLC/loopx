@@ -99,6 +99,24 @@ for (const provider of providers) {
     assert.equal((await commitTeamPlan(store, {...request(), current_state_fingerprint: "now changed"})).status, "replayed");
     assert.deepEqual(await store.loadAuthority(), progressed);
   });
+  test(`${provider}: declared capability and audience gaps survive commit and recovery`, options, async t => {
+    const store = await fixture(t, provider); await seed(store);
+    for (const reason of ["agent_not_registered", "capability_not_granted", "audience_not_authorized"]) {
+      const input = request();
+      const plan = input.plan as JsonObject;
+      plan.proposal_id = `declared-${reason}`;
+      const lanes = plan.lanes as JsonObject[];
+      delete lanes[1]!.first_todo;
+      lanes[1]!.staffing_gap = {reason_code: reason, note: "Required admission is unavailable"};
+      const result = await commitTeamPlan(store, input);
+      assert.equal(result.status, "applied");
+      const expected = [{lane_id: "lane-beta", agent_id: "beta", reason_code: reason}];
+      assert.deepEqual((result.result as JsonObject).gap_lanes, expected);
+      const replay = await commitTeamPlan(store, input);
+      assert.equal(replay.status, "replayed");
+      assert.deepEqual((replay.result as JsonObject).gap_lanes, expected);
+    }
+  });
   test(`${provider}: commit outage cannot publish a successful partial batch`, options, async t => {
     const store = await fixture(t, provider); await seed(store);
     const before = await store.loadAuthority();
