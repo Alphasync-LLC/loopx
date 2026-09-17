@@ -72,26 +72,29 @@ stage native Codex + current LoopX source/profile
   -> bootstrap one trial-local Goal
        -> Harbor adapter marks the connection provider-prevalidated
        -> skip the generic repo-intake onboarding Todo
-  -> register lhtb-codex-heartbeat
+  -> register benchmark-agent
   -> configure replan_after_completed_todos=3 and read it back
   -> add the current Harbor phase as a claimed advancement Todo
   -> start LoopX external_scheduler_worker.py
        -> quota should-run --runtime-profile generic_cli
-       -> when allowed, invoke wake_once.py
+       -> when allowed, invoke benchmark.runtime.worker
             -> create a unique TURN_ID
             -> heartbeat-prompt --thin --runtime-profile generic_cli
             -> require ok=true and a non-empty current task_body
-            -> create a new CODEX_HOME
+            -> use the isolated trial CODEX_HOME
             -> codex exec --json, with task_body on stdin
             -> save JSONL/receipt and any emitted session files
-            -> delete the temporary CODEX_HOME
+            -> retain sessions for the trial
        -> obey LoopX local_scheduler wait/stop hints
   -> Harbor runs interim/final verifier and owns trial termination
 ```
 
-There is no `codex exec resume` path. A new Codex model conversation starts on
-each wake. Only the task workspace and the trial-local LoopX registry/runtime
-persist across wakes. Each wake's `invocation.json` records
+The default heartbeat mode starts a new model conversation on each wake. The
+workspace, Codex home and trial-local LoopX state persist. This replaces the old
+per-wake home and is a disclosed behavior change. Memory generation/injection
+are disabled. The [shared runtime](../runtime/RUNTIME.md) also supports governed
+Turn fresh/resume and native Goal modes; historical results retain their original
+configuration and do not describe these new combinations. Each wake's `invocation.json` records
 `fresh_codex_exec=true`, `resume=false`, and its unique Turn ID.
 
 Codex tool commands run through a login shell, which can replace the inherited
@@ -111,13 +114,26 @@ benchmark phase as an explicit P0 Todo. Bootstrap therefore uses
 provider-prevalidated`. This suppresses the unrelated generic repo-intake Todo;
 it does not suppress successor Todos created while solving the LHTB task.
 
+## Shared execution configuration
+
+`LOOPX_EXECUTION_MODE` selects `plain`, `native-goal`, `heartbeat` (default),
+`turn` or `loopx-goal`. `LOOPX_ITERATION_CONTEXT` defaults to `fresh`; only Turn
+accepts `resume-if-available`. Turn also requires `LOOPX_VALIDATION_COMMAND_JSON`,
+an argv array for the independently protected task validator. No generic
+benchmark scoring or hidden-verifier feedback is introduced.
+
+Model and effort defaults remain unchanged but may be selected explicitly.
+`run.sh prepare` performs networking/Harbor preparation. `preflight` now checks
+existing preparation without patching Harbor or creating a network. Smoke/full
+runs still prepare the environment as part of the authorized launch.
+
 ## Replan cadence
 
 The runner applies and reads back:
 
 ```bash
 loopx configure-goal \
-  --goal-id lhtb-heartbeat-goal \
+  --goal-id benchmark-goal \
   --execution-replan-after-todos 3 \
   --execute
 ```
