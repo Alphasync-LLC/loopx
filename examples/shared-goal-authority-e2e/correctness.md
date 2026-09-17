@@ -177,6 +177,20 @@ and `tests/control_plane/test_shadow_fence_caller_parity_e2e.py`; the
 `baseline` entries of that fixture document earlier revisions and are never
 executed.
 
+Promoted CLI renew, transfer and release rows now assert provider commits and
+independent lease readback; the direct legacy-wire rows remain fenced. The CLI
+scenario carries the validated current owner/key/version after renewal or
+transfer, rejects the superseded completion proof, and previews with the current
+proof before release. Release follows the active-lease/quiescence checks and
+must leave completion unauthorized. Capture-enabled rows still create no second
+legacy record or shadow outbox entry. When migrating an entry point, update this
+caller matrix and its downstream proof flow together; focused transaction tests
+or generic premerge canaries do not replace it. Run the owning matrix directly:
+
+```bash
+uv run --extra test python -m pytest -q tests/control_plane/test_shadow_fence_caller_parity_e2e.py
+```
+
 Baseline delta (0fb497af8 is the PR's diff baseline; ee1b17217 the previously
 reviewed head):
 
