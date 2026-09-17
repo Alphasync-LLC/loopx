@@ -370,6 +370,31 @@ def test_explicit_output_evidence_cannot_be_removed_or_redirected(metadata, name
         smoke['check_coverage_floor'](registry)
 
 
+@pytest.mark.parametrize('name', [
+    'turn_result_kind',
+    'turn_route',
+    'loop_disposition',
+    'agent_scope_frontier_action',
+])
+def test_turn_kernel_values_each_carry_a_note(name):
+    """A Turn kernel value with no note sends every reader back to the code.
+
+    The registry already settles who owns a vocabulary and which values are
+    legal. These four decide what one Turn did and what the outer loop does
+    next, so a new value here is a new control-flow case. Requiring the note in
+    the same diff keeps that case reviewable instead of leaving it as a bare
+    token whose meaning lives only in the controller rules.
+    """
+    smoke = runpy.run_path(str(SMOKE))
+    vocabulary = smoke['load_registry']()['vocabularies'][name]
+    notes = vocabulary.get('value_notes', {})
+    undocumented = [
+        value for value in vocabulary['values']
+        if not str(notes.get(value) or '').strip()
+    ]
+    assert not undocumented, f'{name}: values with no value_notes entry: {undocumented}'
+
+
 @pytest.mark.parametrize("legacy_report", [None, "not even JSON"])
 def test_live_inventory_ignores_missing_or_stale_reports(tmp_path, monkeypatch, legacy_report):
     smoke = runpy.run_path(str(SMOKE))

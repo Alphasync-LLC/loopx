@@ -168,10 +168,18 @@
         "terminal_closeout_failed"
       ],
       "value_notes": {
+        "validated_progress": "The Turn ran and validated without completing its Todo. The controller re-routes from the fresh should-run decision, except that an exhausted budget makes it replan.",
+        "validated_completion": "The Turn ran and validated as completing its Todo. The declared continuation decides the disposition: no_followup is terminal, successor and active_goal re-route.",
+        "repair_required": "The receipt asks for repair before further delivery; the controller dispositions repair without consulting the fresh route.",
+        "replan_required": "The receipt asks for a replan before further delivery; the controller dispositions replan without consulting the fresh route.",
+        "user_action_required": "The receipt needs a human action before the loop can continue; the controller dispositions user_action_required.",
+        "wait": "The receipt settled with nothing to do now; the controller dispositions wait.",
+        "iteration_failed": "The iteration itself failed rather than the work it carried. This is the only result kind that stops the outer loop.",
         "host_failure": "Routed by the controller protocol as a retryable or legacy failure class; retention is decided in RFC Section 12.",
         "validation_failed": "Legacy failure class per turn-loop-controller-v0; always routes to repair.",
         "writeback_failed": "Legacy failure class per turn-loop-controller-v0; always routes to repair.",
-        "quota_spend_failed": "Legacy failure class per turn-loop-controller-v0; always routes to repair."
+        "quota_spend_failed": "Legacy failure class per turn-loop-controller-v0; always routes to repair.",
+        "terminal_closeout_failed": "Closing out a terminal Turn failed. It joins the other failed receipt classes and routes to repair."
       },
       "input_producer": "loopx/control_plane/turn_driver/transaction.py::_result_kind",
       "producers": [
@@ -216,6 +224,16 @@
         "blocked",
         "contract_error"
       ],
+      "value_notes": {
+        "ready_for_host": "should_run with delivery_allowed and must_attempt set, and an effective action that is neither a replan nor a repair class. Projects to run_now, so a Host may be engaged.",
+        "capability_action_required": "should_run whose effective action is governed_capability_intent and whose capability-intent projection matches the envelope goal and agent and names a command. A capability action runs before any Host; a malformed intent yields contract_error instead.",
+        "repair_required": "should_run whose effective action is in REPAIR_ACTIONS or ends in _repair or _repair_required. Projects to repair.",
+        "replan_required": "should_run whose effective action is in REPLAN_ACTIONS: autonomous_replan, autonomous_replan_required or successor_replan_required. Projects to replan.",
+        "user_action_required": "Not should_run, and the envelope user slot marks an action required. Projects to the disposition of the same name.",
+        "wait": "Not should_run, no user action required, and the action allows a quiet no-op. Projects to wait.",
+        "blocked": "should_run without delivery_allowed or must_attempt, or not should_run with neither a user action nor a quiet no-op. Projects to wait, so a blocked lane waits rather than failing.",
+        "contract_error": "A wrong envelope schema version, an action signature whose source and envelope hashes do not match, or a malformed capability intent. It is the one route with no disposition: the controller rejects instead of dispositioning."
+      },
       "producers": [
         "loopx/control_plane/turn_driver/driver.py::_typed_route",
         "loopx/control_plane/turn_driver/driver.py::build_loopx_turn_plan",
@@ -251,6 +269,16 @@
         "replan",
         "terminal"
       ],
+      "value_notes": {
+        "run_now": "Projected from route ready_for_host: run the Turn now.",
+        "capability_action_required": "Route capability_action_required with no receipt yet or a validated one. A capability action runs before the next Host engagement.",
+        "wait": "Route wait or blocked, a wait receipt, or a host failure whose retry budget is still available.",
+        "stop": "Reached only from an iteration_failed receipt. It stops the outer loop instead of asking for repair.",
+        "user_action_required": "The fresh route or the last receipt says a human must act before the loop continues.",
+        "repair": "A repair_required receipt, a host failure routed to repair or out of retries, or any failed receipt class: host_failure, validation_failed, writeback_failed, quota_spend_failed, terminal_closeout_failed.",
+        "replan": "A replan_required receipt, a host failure routed to replan, or validated progress whose budget is exhausted.",
+        "terminal": "A terminal action with no prior receipt, or a validated completion declaring the no_followup continuation."
+      },
       "producers": [
         "loopx/control_plane/turn_driver/loop_controller.py::_replan_disposition",
         "loopx/control_plane/turn_driver/loop_controller.py::decide_loop_disposition",
@@ -280,6 +308,12 @@
         "reassignment_required",
         "successor_replan_required"
       ],
+      "value_notes": {
+        "agent_scope_exhausted": "The current agent has no projected current or unclaimed advancement candidate and no other visible advancement work, despite a goal-level advancement lane. It stays active but quiet until LoopX projects a candidate or a peer transfers work.",
+        "agent_scope_wait": "The current agent has no current or unclaimed advancement candidate and the blocking handoff work is claimed by another agent. It stays active but quiet until that agent finishes, the work is reassigned, or a concrete candidate exists.",
+        "reassignment_required": "The current agent has no current or unclaimed advancement candidate while visible advancement work is claimed by another agent. That work needs finishing, reassignment, or a concrete current-agent candidate before delivery.",
+        "successor_replan_required": "The successor lane must replan before this lane advances. It is produced by the selected-candidate priority, monitor blocked resume, deferred resume, route continuation and cleared handoff frontiers, and with must_attempt the scheduler treats it as active work rather than a wait."
+      },
       "producers": [
         "loopx/control_plane/agents/agent_scope.py::_blocked_successor_wait_frontier",
         "loopx/control_plane/agents/agent_scope.py::_blocking_handoff_frontier",
