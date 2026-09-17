@@ -13,6 +13,7 @@ from __future__ import annotations
 import ast
 from collections import defaultdict
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 import re
 import subprocess
@@ -115,7 +116,15 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
     return None
 
 
+@lru_cache(maxsize=4096)
 def python_facts(source: SourceFile) -> dict[str, list[dict[str, Any]]]:
+    """Inventory the Python facts of one source file.
+
+    The cache is keyed by the frozen SourceFile (path, suffix, text), so a
+    mutated file is a different key and never serves stale facts; repeated
+    scans of the same tree (owner_values plus build_inventory in the drift
+    smoke) parse each file once instead of once per caller.
+    """
     facts: dict[str, list[dict[str, Any]]] = {
         "enums": [],
         "closed_sets": [],
