@@ -679,10 +679,19 @@ lists Python enums, closed sets, `Literal` aliases, TypeScript `as const`
 arrays, and duplicate definitions split into cross-runtime twins, same-runtime
 forks, conflicting values, and multi-value twins and forks, one entry per line.
 Every multi-value collision carries each defining module and its value set, so
-the divergence itself is reviewable rather than only its count. Consumer counts are printed by `--report`; merge-candidate groups are available
-through `merge_candidate_groups`; all inventory output is uncommitted.
+the divergence itself is reviewable rather than only its count. Consumer counts
+and merge-candidate groups are both printed by `--report`;
+`merge_candidate_groups` returns the groups; all inventory output is
+uncommitted.
 Merge candidates are advisory
-because an equal value set is not proof of one concept. Single-module string
+because an equal value set is not proof of one concept. The printed list drops
+the groups whose names are exactly one registered vocabulary's own owner
+symbols: `EffectiveAction` and `EFFECTIVE_ACTIONS` are two runtimes spelling one
+registered concept, not two concepts to merge. Calling `merge_candidate_groups`
+without the registry keeps the unfiltered list. A dropped pair is already
+ruled on, so dropping it retires nothing and classifies nothing; each remaining
+group is printed with its names, values, modules, and whether its modules span
+both runtimes, which is the shape of a registry gap. Single-module string
 constants are counted, not listed.
 
 Values are additive. Removing a value, a field, an owner, or a relation is a

@@ -21,7 +21,9 @@ from loopx.semantics.inventory import (
     SourceFile,
     build_inventory,
     load_sources,
+    merge_candidate_groups,
     python_facts,
+    registered_owner_symbol_sets,
     render_inventory,
 )
 
@@ -178,6 +180,122 @@ def test_module_local_convention_names_stay_out_of_semantic_budgets(collision_re
     assert summary["same_runtime_forks_semantic"] == 1, "only SHARED is shared vocabulary"
     assert summary["multi_value_forks"] == 1
     assert summary["multi_value_twins"] == 1
+
+
+@pytest.fixture
+def merge_candidate_repo(tmp_path: Path) -> Path:
+    """Three name pairs carry one value set each; only one pair is registered.
+
+    ``Kind``/``KINDS`` are the two owners of a single registered vocabulary, so
+    their equal value set is a naming convention across runtimes rather than
+    duplication. ``ALPHA_STAGES``/``MIRROR_STAGES`` is unregistered and lives
+    only in Python; ``OTHER_SIDES``/``ZED_SIDES`` is unregistered and spans both
+    runtimes, which is the registry-gap shape. ``MIRROR_STAGES`` is a registered
+    owner with no TypeScript counterpart, so its vocabulary explains no pair.
+    """
+    _write(
+        tmp_path,
+        "loopx/a.py",
+        'from enum import Enum\n'
+        'class Kind(str, Enum):\n    ONE = "one"\n    TWO = "two"\n'
+        'ALPHA_STAGES = ("draft", "final")\n',
+    )
+    _write(tmp_path, "loopx/b.ts", 'export const KINDS = ["one", "two"] as const;\n')
+    _write(
+        tmp_path,
+        "loopx/c.py",
+        'MIRROR_STAGES = ("draft", "final")\nOTHER_SIDES = ("left", "right")\n',
+    )
+    _write(tmp_path, "loopx/d.ts", 'export const ZED_SIDES = ["left", "right"] as const;\n')
+    _write(
+        tmp_path,
+        "loopx/semantics/vocabulary_v0.json",
+        json.dumps(
+            {
+                "vocabularies": {
+                    "kind": {
+                        "owners": {
+                            "python": "loopx/a.py::Kind",
+                            "typescript": "loopx/b.ts::KINDS",
+                        }
+                    },
+                    "mirror_stages": {
+                        "owners": {"python": "loopx/c.py::MIRROR_STAGES", "typescript": None}
+                    },
+                }
+            }
+        ),
+    )
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "add", "loopx/a.py", "loopx/b.ts", "loopx/c.py", "loopx/d.ts"],
+        check=True,
+    )
+    return tmp_path
+
+
+def _registry(repo: Path) -> dict:
+    return json.loads((repo / "loopx/semantics/vocabulary_v0.json").read_text(encoding="utf-8"))
+
+
+def test_one_vocabulary_owning_two_spellings_explains_no_merge_candidate(
+    merge_candidate_repo: Path,
+) -> None:
+    """A registered owner pair is a naming convention, not a merge candidate.
+
+    Without the registry the advisory list mixed each cross-runtime vocabulary's
+    own two owner symbols in with the groups nobody has ruled on, so the list
+    read as duplication it was not. Filtering only hides the settled pairs; it
+    retires nothing and classifies none of the groups that stay.
+    """
+    inventory = build_inventory(merge_candidate_repo)
+    unfiltered = {tuple(group["names"]) for group in merge_candidate_groups(inventory)}
+    assert ("KINDS", "Kind") in unfiltered, "the unfiltered audit still sees every value-set collision"
+    filtered = merge_candidate_groups(inventory, _registry(merge_candidate_repo))
+    assert {tuple(group["names"]) for group in filtered} == {
+        ("ALPHA_STAGES", "MIRROR_STAGES"),
+        ("OTHER_SIDES", "ZED_SIDES"),
+    }, "an unregistered pair with the same value set is still reported"
+    assert registered_owner_symbol_sets(_registry(merge_candidate_repo)) == {
+        frozenset({"Kind", "KINDS"})
+    }, "a vocabulary with one owner symbol explains nothing"
+
+
+def test_merge_candidates_mark_the_pairs_that_span_both_runtimes(
+    merge_candidate_repo: Path,
+) -> None:
+    """Cross-runtime is the registry gap; Python-only is a human question."""
+    groups = merge_candidate_groups(
+        build_inventory(merge_candidate_repo), _registry(merge_candidate_repo)
+    )
+    assert {tuple(group["names"]): group["cross_runtime"] for group in groups} == {
+        ("ALPHA_STAGES", "MIRROR_STAGES"): False,
+        ("OTHER_SIDES", "ZED_SIDES"): True,
+    }
+
+
+def test_report_prints_the_unexplained_merge_candidates_in_a_stable_order(
+    merge_candidate_repo: Path, monkeypatch, capsys
+) -> None:
+    """``--report`` is where a reviewer sees the list, so it must not churn."""
+    from scripts import generate_semantic_inventory as generator
+
+    monkeypatch.setattr(generator, "ROOT", merge_candidate_repo)
+    monkeypatch.setattr(sys, "argv", ["generate_semantic_inventory", "--report"])
+    assert generator.main() == 0
+    first = capsys.readouterr().out
+    assert generator.main() == 0
+    assert capsys.readouterr().out == first, "the same tree must print the same advisory list"
+    listing = first.split("merge candidates", 1)[1]
+    assert "2 to review, 1 explained by a registered vocabulary's own owner symbols, 3 raw groups" in listing
+    assert "Kind" not in listing, "the explained owner pair is not printed"
+    assert "  [cross-runtime] OTHER_SIDES, ZED_SIDES" in listing
+    assert "      values:  left, right" in listing
+    assert "      modules: loopx/c.py, loopx/d.ts" in listing
+    assert "  [python-only] ALPHA_STAGES, MIRROR_STAGES" in listing
+    assert listing.index("[cross-runtime]") < listing.index("[python-only]"), (
+        "registry gaps sort ahead of the Python-only groups regardless of name order"
+    )
 
 
 def test_render_is_deterministic_valid_json(repo: Path) -> None:
