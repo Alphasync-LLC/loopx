@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from .control_plane.operator_credential import (
     env_text,
@@ -451,6 +451,7 @@ def manager_channel_binding(
     session: Mapping[str, Any] | None = None,
     machine_defaults: Mapping[str, Any] | None = None,
     credential_source: str | None = None,
+    module_probe: Callable[[str], bool] | None = None,
 ) -> dict[str, Any]:
     """Project the steward channel's resolved executor, model, and their source.
 
@@ -485,12 +486,15 @@ def manager_channel_binding(
     executor_kind = MANAGER_ENDPOINT_KINDS.get(endpoint, "")
     credential_env = ""
     execution_profile: str | None = None
+    runtime_probe: dict[str, Any] | None = None
     if executor_kind == MANAGER_EXECUTOR_KIND_MANAGED:
-        managed = managed_executor_binding(endpoint, environ=environ)
+        managed = managed_executor_binding(endpoint, environ=environ, module_probe=module_probe)
         credential_env = str(managed.get("credential_env") or "")
         execution_profile = managed.get("execution_profile")
         available: bool | None = managed.get("available")
         unavailable_reason: str | None = managed.get("unavailable_reason")
+        if isinstance(managed.get("runtime_probe"), Mapping):
+            runtime_probe = dict(managed["runtime_probe"])
     else:
         available, unavailable_reason = None, None
     model, model_source = manager_model_resolution(
@@ -523,6 +527,7 @@ def manager_channel_binding(
         "execution_profile": execution_profile,
         "available": available,
         "unavailable_reason": unavailable_reason,
+        "runtime_probe": runtime_probe,
         "model": model,
         "model_source": model_source,
         **manager_channel_session_mode_readback(session),
