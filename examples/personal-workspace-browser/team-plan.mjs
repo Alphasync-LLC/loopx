@@ -212,6 +212,7 @@ export const teamPlanScenario = {
       // fact behind it; a bare count would leave the owner with a number and
       // nothing to act on.
       const appliedText = await drawer.innerText();
+      check(appliedText.includes("product-release") && !appliedText.includes("配出 0 条"), "the applied card retains its original Goal and lane definitions");
       check(
         appliedText.includes("已应用，但有 1 条 lane 仍未组建："),
         "the applied card says how many lanes stayed unstaffed",
