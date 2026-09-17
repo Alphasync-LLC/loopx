@@ -968,6 +968,7 @@ PR review 保留这些层级。普通改动记录检查范围和理由，无共�
 | --- | --- | --- | --- | --- |
 | 2026-09-16 | Q9：全树按需计算；移除已提交结构清单 | 根据[维护者反馈](https://github.com/huangruiteng/loopx/pull/4360#issuecomment-5692062394)实现，PR 评审待完成 | 取代合并后补再生成；拒绝只扫描 diff | 1、I6、3、5、9、10、12 |
 | 2026-09-16 | B2：Python producer 扫描器绑定一跳未改名再导出 | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B2；PR 评审待完成 | 要求每个消费者都从 owner 模块导入（脆弱；M2 中已静默失效）；拒绝无界多跳解析 | 5、附录 A |
+| 2026-09-16 | B1 改名不变性：新增按名字归组的分歧报告；写明它未闭合的边界 | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B1；PR 评审待完成 | 把预算改按值集归组（否决：`CONFIDENCE_LEVELS` 与 `EDGE_CASE_COMPLEXITIES` 共享 `high/low/medium` 而含义不同）；提交名字账本（M0 否决：Q9 已退役提交式清单） | 9 |
 
 ## 附录 C：证据登记
 

@@ -1189,6 +1189,7 @@ introduce a competing target state.
 | --- | --- | --- | --- | --- |
 | 2026-09-16 | Q9: compute the full inventory on demand; retire the committed census | Implementation for [maintainer feedback](https://github.com/huangruiteng/loopx/pull/4360#issuecomment-5692062394); PR review pending | Committed snapshot with post-merge regeneration; diff-only scan rejected | 1, I6, 3, 5, 9, 10, 12 |
 | 2026-09-16 | B2: bind one unrenamed re-export hop in the Python producer scanner | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B2; PR review pending | Require every consumer to import the owner module (fragile; failed silently in M2); unbounded multi-hop resolution rejected | 5, Appendix A |
+| 2026-09-16 | B1 rename invariance: add the name-keyed divergence advisory; state the limit it does not close | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B1; PR review pending | Keying the budget on value sets (rejected: `CONFIDENCE_LEVELS` and `EDGE_CASE_COMPLEXITIES` share `high/low/medium` with different meanings); a committed name ledger (rejected at M0: Q9 retired the committed census) | 9 |
 
 ## Appendix C: Evidence registry
 
