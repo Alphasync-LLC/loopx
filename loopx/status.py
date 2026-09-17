@@ -49,7 +49,7 @@ from .extensions.lark.goal_channel_notification import (
     build_goal_channel_notification_projection,
 )
 from .handoff_budget import handoff_budget_contract
-from .history import collect_history, load_registry
+from .history import collect_status_history, load_registry
 from .history import STATUS_NEUTRAL_CLASSIFICATIONS as HISTORY_STATUS_NEUTRAL_CLASSIFICATIONS
 from .interface_budget import interface_budget_cadence_for_runs
 from .long_task_cadence import build_long_task_cadence_hint
@@ -1220,7 +1220,7 @@ def build_status_collection_context() -> StatusCollectionContext:
         load_registry=load_registry,
         resolve_runtime_root=resolve_runtime_root,
         collect_global_registry_health=collect_global_registry_health,
-        collect_history=collect_history,
+        collect_status_history=collect_status_history,
         check_contract=check_contract,
         build_attention_queue=build_attention_queue,
         build_runtime_summaries=build_status_runtime_summaries,

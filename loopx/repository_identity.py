@@ -44,10 +44,8 @@ def normalize_repository_identity(remote_url_or_identity: str) -> str:
         port = parsed.port
     except ValueError as exc:
         raise ValueError("repository remote has an invalid port") from exc
-    if port and not (
-        (parsed.scheme in {"http", "git"} and port == 80)
-        or (parsed.scheme in {"https", "ssh"} and port in {22, 443})
-    ):
+    default_port = {"git": 9418, "http": 80, "https": 443, "ssh": 22}[parsed.scheme]
+    if port is not None and port != default_port:
         host = f"{host}:{port}"
 
     path = _normalize_repository_path(parsed.path)

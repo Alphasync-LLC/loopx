@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from contextlib import nullcontext
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from heapq import merge
 from itertools import islice
@@ -69,6 +70,55 @@ REGISTRY_ATTENTION_FIELDS = (
     "recommended_action",
     "next_handoff_condition",
 )
+
+
+@dataclass(frozen=True, slots=True)
+class RunIndexAudit:
+    goal_id: str
+    index_path: Path
+    raw_index_records: int
+    unique_runs: int
+    legacy_runtime_goal: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RunHistoryAudit:
+    registry_path: Path
+    runtime_root: Path
+    goal_id: str | None
+    activation_state_filter: str | None
+    include_runtime_goals: bool
+    goal_count: int
+    run_count: int
+    goals: tuple[RunIndexAudit, ...]
+
+    def matches(
+        self,
+        *,
+        registry_path: Path,
+        runtime_root: Path,
+        goal_id: str | None,
+        activation_state_filter: GoalActivationState | str | None,
+        include_runtime_goals: bool,
+    ) -> bool:
+        normalized_activation = (
+            normalize_goal_activation_state(activation_state_filter).value
+            if activation_state_filter is not None
+            else None
+        )
+        return (
+            self.registry_path == registry_path.expanduser().resolve()
+            and self.runtime_root == runtime_root.expanduser().resolve()
+            and self.goal_id == (str(goal_id or "").strip() or None)
+            and self.activation_state_filter == normalized_activation
+            and self.include_runtime_goals is include_runtime_goals
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class StatusHistoryCollection:
+    status_history: dict[str, Any]
+    contract_audit: RunHistoryAudit
 
 
 def now_local() -> str:
@@ -384,6 +434,116 @@ def collect_history(
         "goals": goals,
         "runs": recent_runs,
     }
+
+
+def build_run_history_audit(
+    history: dict[str, Any],
+    *,
+    registry_path: Path,
+    runtime_root: Path,
+    goal_id: str | None,
+    activation_state_filter: GoalActivationState | str | None,
+    include_runtime_goals: bool,
+) -> RunHistoryAudit:
+    normalized_activation = (
+        normalize_goal_activation_state(activation_state_filter).value
+        if activation_state_filter is not None
+        else None
+    )
+    return RunHistoryAudit(
+        registry_path=registry_path.expanduser().resolve(),
+        runtime_root=runtime_root.expanduser().resolve(),
+        goal_id=str(goal_id or "").strip() or None,
+        activation_state_filter=normalized_activation,
+        include_runtime_goals=include_runtime_goals,
+        goal_count=int(history.get("goal_count") or 0),
+        run_count=int(history.get("run_count") or 0),
+        goals=tuple(
+            RunIndexAudit(
+                goal_id=str(item.get("id") or ""),
+                index_path=Path(str(item.get("index_path") or "")),
+                raw_index_records=int(item.get("raw_index_records") or 0),
+                unique_runs=int(item.get("unique_runs") or 0),
+                legacy_runtime_goal=bool(item.get("legacy_runtime_goal")),
+            )
+            for item in history.get("goals") or []
+            if isinstance(item, dict)
+        ),
+    )
+
+
+def history_for_registry_members(
+    history: dict[str, Any],
+    *,
+    limit: int,
+) -> dict[str, Any]:
+    goals = [
+        goal
+        for goal in history.get("goals") or []
+        if isinstance(goal, dict) and goal.get("registry_member") is True
+    ]
+    recent_limit = max(0, limit)
+    recent_runs = list(
+        islice(
+            merge(
+                *(
+                    goal.get("latest_runs", [])[:recent_limit]
+                    for goal in goals
+                    if isinstance(goal.get("latest_runs"), list)
+                ),
+                key=lambda item: _chronology_key(item.get("generated_at")),
+                reverse=True,
+            ),
+            recent_limit,
+        )
+    )
+    return {
+        **history,
+        "goal_count": len(goals),
+        "run_count": sum(int(goal.get("unique_runs") or 0) for goal in goals),
+        "goals": goals,
+        "runs": recent_runs,
+    }
+
+
+def collect_status_history(
+    *,
+    registry_path: Path,
+    runtime_root: Path,
+    goal_id: str | None,
+    limit: int,
+    status_include_runtime_goals: bool,
+    activation_state_filter: GoalActivationState | str | None = None,
+    agent_lane_id: str | None = None,
+) -> StatusHistoryCollection:
+    history = collect_history(
+        registry_path=registry_path,
+        runtime_root=runtime_root,
+        goal_id=goal_id,
+        limit=limit,
+        include_runtime_goals=True,
+        activation_state_filter=activation_state_filter,
+        agent_lane_id=agent_lane_id,
+    )
+    audit = build_run_history_audit(
+        history,
+        registry_path=registry_path,
+        runtime_root=runtime_root,
+        goal_id=goal_id,
+        activation_state_filter=activation_state_filter,
+        include_runtime_goals=True,
+    )
+    status_history = history
+    if (
+        not status_include_runtime_goals
+        and not str(goal_id or "").strip()
+        and activation_state_filter is None
+    ):
+        status_history = history_for_registry_members(history, limit=limit)
+    return StatusHistoryCollection(
+        status_history=status_history,
+        contract_audit=audit,
+    )
 
 
 def inspect_index_duplicates(

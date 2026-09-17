@@ -23,7 +23,12 @@ from .control_plane.runtime.run_index_duplicates import (
     index_identity,
 )
 from .control_plane.todos.active_state_editing import COMPLETED_WORK_ARCHIVE_HEADING
-from .history import collect_history, load_registry
+from .history import (
+    RunHistoryAudit,
+    build_run_history_audit,
+    collect_history,
+    load_registry,
+)
 from .paths import DEFAULT_RUNTIME_ROOT, rel_or_abs, resolve_runtime_root
 from .registry import inspect_registry, inspect_registry_boundary, registry_goals, resolve_state_file
 from .state_projection import state_projection_gap_warning
@@ -877,6 +882,7 @@ def check_contract(
     goal_id_filter: str | None = None,
     activation_state_filter: GoalActivationState | str | None = None,
     include_public_boundary_scan: bool = True,
+    history_audit: RunHistoryAudit | None = None,
 ) -> dict[str, Any]:
     error_diagnostics: list[dict[str, Any]] = []
     warnings: list[str] = []
@@ -953,34 +959,70 @@ def check_contract(
     else:
         warnings.append(f"runtime root does not exist yet: {runtime_root}")
 
-    history = collect_history(
+    if history_audit is None:
+        history = collect_history(
+            registry_path=registry_path,
+            runtime_root=runtime_root,
+            goal_id=goal_id_filter,
+            limit=limit,
+            activation_state_filter=activation_state_filter,
+        )
+        history_audit = build_run_history_audit(
+            history,
+            registry_path=registry_path,
+            runtime_root=runtime_root,
+            goal_id=goal_id_filter,
+            activation_state_filter=activation_state_filter,
+            include_runtime_goals=True,
+        )
+    elif not history_audit.matches(
         registry_path=registry_path,
         runtime_root=runtime_root,
         goal_id=goal_id_filter,
-        limit=limit,
         activation_state_filter=activation_state_filter,
+        include_runtime_goals=True,
+    ):
+        raise ValueError("history audit scope does not match contract request")
+    checks.append(
+        f"run-history goals={history_audit.goal_count} runs={history_audit.run_count}"
     )
-    checks.append(f"run-history goals={history.get('goal_count')} runs={history.get('run_count')}")
-    for item in history.get("goals") or []:
-        raw = int(item.get("raw_index_records") or 0)
-        unique = int(item.get("unique_runs") or 0)
-        if item.get("legacy_runtime_goal") and raw > unique:
-            checks.append(f"{item.get('id')}: legacy runtime goal has duplicate rows raw={raw} unique={unique}")
+    for item in history_audit.goals:
+        raw = item.raw_index_records
+        unique = item.unique_runs
+        if item.legacy_runtime_goal and raw > unique:
+            checks.append(
+                f"{item.goal_id}: legacy runtime goal has duplicate rows "
+                f"raw={raw} unique={unique}"
+            )
             continue
         if raw > unique:
-            duplicate_summary = _index_duplicate_summary(Path(str(item.get("index_path") or "")))
+            duplicate_summary = _index_duplicate_summary(item.index_path)
             if duplicate_summary.get("unexpected_duplicate_rows"):
-                warnings.append(_index_duplicate_warning(item.get("id"), raw, unique, duplicate_summary))
+                warnings.append(
+                    _index_duplicate_warning(
+                        item.goal_id,
+                        raw,
+                        unique,
+                        duplicate_summary,
+                    )
+                )
             else:
                 emitted_check = False
                 if duplicate_summary.get("reward_overlay_rows"):
                     emitted_check = True
                     checks.append(
-                        f"{item.get('id')}: reward overlay rows raw={raw} unique={unique} "
+                        f"{item.goal_id}: reward overlay rows raw={raw} unique={unique} "
                         f"overlays={duplicate_summary.get('reward_overlay_rows')}"
                     )
                 if not emitted_check:
-                    warnings.append(_index_duplicate_warning(item.get("id"), raw, unique, duplicate_summary))
+                    warnings.append(
+                        _index_duplicate_warning(
+                            item.goal_id,
+                            raw,
+                            unique,
+                            duplicate_summary,
+                        )
+                    )
 
     if include_public_boundary_scan:
         boundary = scan_public_boundary(scan_roots, registry=registry)
