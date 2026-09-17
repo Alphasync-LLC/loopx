@@ -174,6 +174,8 @@ caption { text-align: left; font-size: 12px; margin-bottom: 12px; color: var(--b
 .architecture-viewport img { display: block; width: 100%; height: auto; }
 .architecture-viewport:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
 .architecture-hint { display: block; margin-top: 6px; }
+/* Keep the foundations diagrams readable in the narrower tablet article column. */
+.kanban-figure a { min-width: 720px; }
 @media (max-width: 600px) {
   .architecture-viewport a { min-width: 960px; }
 }

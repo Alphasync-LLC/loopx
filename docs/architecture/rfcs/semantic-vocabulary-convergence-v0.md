@@ -4,7 +4,7 @@
 - **Delivery maturity:** Partial (M0 registry, computed inventory, and drift smoke ship with this RFC)
 - **Authors / owners:** LoopX contributors; control-plane kernel maintainers own approval
 - **Created:** 2026-09-15
-- **Last normative revision:** 2026-09-16
+- **Last normative revision:** 2026-09-17
 - **Implementation baseline:** `1dc6ad8d8`
 - **Related contracts:** `loopx/semantics/vocabulary_v0.json`,
   `loopx/semantics/inventory.py`,
@@ -524,21 +524,56 @@ G ⊆ V × V × (S(v_source) ⇀ S(v_target) ∪ {reject}) projects
 R ⊆ L × V × Version               persists a value durably
 ```
 
-The minimum semantic obligations are:
+Each obligation is stated over the domain it is actually checked on, not over
+`V`. `Kernel(V) ⊆ V` is the `tier: kernel` subset, the only tier that declares
+producers; `Produced_scan(v)` is the production the fixed forms observe inside
+the code-owned scan reach; `ScopeDeclarations` are the forked names the registry
+declares as bounded contexts.
 
-1. **Producer closedness:** `Produced(v) ⊆ S(v) ⊆ U(v)`. A recognised producer
-   cannot write a value outside the registered set.
-2. **Canonical liveness:** `Canonical(v) ⊆ Produced(v) ∪ CompatibilityOnly(v)`.
-   A value that is only compared is dead or compatibility-only, never
-   canonical.
+1. **Producer closedness (kernel tier):** `∀v ∈ Kernel(V): Produced_scan(v) ⊆
+   S(v) ⊆ U(v)`. A recognised producer cannot write a value outside the
+   registered set. Production outside the scan reach, and the whole
+   `cross_runtime` tier, is unverified rather than proven closed.
+2. **Canonical liveness (kernel tier):** `∀v ∈ Kernel(V): Canonical(v) ⊆
+   Produced_scan(v) ∪ CompatibilityOnly(v)`. A value that is only compared is
+   dead or compatibility-only, never canonical. The `cross_runtime` tier
+   declares no producers, so liveness there is unverified.
 3. **Consumer domain closedness:** `Accepted(c) ⊆ S(v)`, unless the consumer
    explicitly declares an external or partial domain.
-4. **Scope separation:** a name collision is a semantic conflict only when the
-   declared scopes overlap. Spelling alone cannot establish equivalence.
+4. **Scope enumeration completeness:** `∀n ∈ ScopeDeclarations`, the declared
+   context owner modules are exactly the modules defining `n`, one context per
+   module, and every context owner symbol is `n`. Scope is declared and never
+   inferred, so "a collision is a conflict only when the declared scopes
+   overlap" is the *definition* of a semantic conflict and cannot be violated;
+   the checkable obligation is that a declaration enumerates every defining
+   module. Spelling alone still cannot establish equivalence.
 5. **Projection totality:** for every source value, a projection maps to a
    target value or explicit `reject`.
 6. **Persistence compatibility:** a persisted vocabulary change preserves all
    readers or declares a versioned migration.
+
+Each obligation records the set it quantifies over in
+`formal_model.invariants[].domain`, and the smoke derives both sizes from the
+registry rather than trusting the declared numbers:
+
+| Obligation | Quantifies over | Verified / registered | Evidence bound |
+| --- | --- | --- | --- |
+| F1, F2 | `vocabularies[tier=kernel].producers` | 6 / 26 | producer scan reach |
+| F3 | `vocabularies[*]` | 0 / 26 | inventory only |
+| F4 | `scope_declarations[*].contexts` | 4 / 4 | declared defining modules |
+| F5 | `projections[*]` | 1 / 1 | executable owner function |
+| F6 | `persists_edges[*]` | 0 / 0 | unmodelled |
+
+`verified` is the sub-domain the enforcement stage walks; `registered` is the
+whole population of the same unit. An advisory or unproved stage walks nothing,
+so its `verified` count must be zero, and an enforced stage may not declare an
+empty domain. The selector and the evidence bound of each obligation are pinned
+by `FORMAL_DOMAIN_ANCHOR` in the smoke on the `COVERAGE_ANCHOR` pattern (I5), so
+an invariant cannot widen the set it claims through a registry edit alone. The
+producer scan reach is measured on every run instead of pinned, because its
+denominator moves with any new module; the smoke prints the current ratio, the
+unresolved-site total, and the share of that total no wider scan could ever
+resolve (E21).
 
 These are different proof obligations. M0 establishes owner-set equality,
 cross-runtime parity, the declared executable projection, and inventory
@@ -624,6 +659,7 @@ vocabulary key fails the smoke.
 | `vocabularies.<name>.producers` (M0.5) | `path::Symbol` sites that write the field, required for `kernel` | Every site writes registered values only; every value not under `compatibility_only` has at least one source site or executable input witness (I12, I13) |
 | `vocabularies.<name>.compatibility_only` (M0.5) | values retained for persisted readers or a legacy typed caller interface | Subset of `values`; zero production sites; each carries a `value_notes` reason and a retirement milestone |
 | `formal_model` | finite universes, role relations and hierarchy, semantic obligations, candidate decisions, and established/bounded/unknown/unproved claims | Exact schema, role hierarchy, candidate decisions, and invariant ids are checked by the drift smoke; enforcement stages cannot be mistaken for completed proofs |
+| `formal_model.invariants[].domain` | the set the obligation quantifies over: `quantifies_over` selector, `verified` and `registered` sizes, `evidence_bound` | Selector and bound are code-owned names pinned per invariant by `FORMAL_DOMAIN_ANCHOR`; both sizes are derived from the registry and must equal the declared ones; an advisory or unproved stage must declare `verified: 0`, an enforced stage a non-empty domain |
 | `formal_model.enforcement_policy` | blocking-now, blocking-next, advisory, and unproved lanes | Every formal invariant appears exactly once and its lane agrees with its enforcement stage |
 | `vocabularies.<name>.value_notes`, `deprecated_values` | per-value review notes; values slated for removal | Names must be registered values |
 | `relations.same_concept` | groups of `vocabulary.value` members | Every member resolves |
@@ -643,10 +679,19 @@ lists Python enums, closed sets, `Literal` aliases, TypeScript `as const`
 arrays, and duplicate definitions split into cross-runtime twins, same-runtime
 forks, conflicting values, and multi-value twins and forks, one entry per line.
 Every multi-value collision carries each defining module and its value set, so
-the divergence itself is reviewable rather than only its count. Consumer counts are printed by `--report`; merge-candidate groups are available
-through `merge_candidate_groups`; all inventory output is uncommitted.
+the divergence itself is reviewable rather than only its count. Consumer counts
+and merge-candidate groups are both printed by `--report`;
+`merge_candidate_groups` returns the groups; all inventory output is
+uncommitted.
 Merge candidates are advisory
-because an equal value set is not proof of one concept. Single-module string
+because an equal value set is not proof of one concept. The printed list drops
+the groups whose names are exactly one registered vocabulary's own owner
+symbols: `EffectiveAction` and `EFFECTIVE_ACTIONS` are two runtimes spelling one
+registered concept, not two concepts to merge. Calling `merge_candidate_groups`
+without the registry keeps the unfiltered list. A dropped pair is already
+ruled on, so dropping it retires nothing and classifies nothing; each remaining
+group is printed with its names, values, modules, and whether its modules span
+both runtimes, which is the shape of a registry gap. Single-module string
 constants are counted, not listed.
 
 Values are additive. Removing a value, a field, an owner, or a relation is a
@@ -748,6 +793,8 @@ on the next full-tree scan; genuine shared-contract changes still need review.
 | A bounded-context name leaves only the semantic fork budget by declaration (M0.5a) | Declare `SOURCE_SURFACES` with its four contexts; separately, rename one definition without declaring | Raw `multi_value_forks` stays 4, `multi_value_forks_semantic` is 3; a rename alone changes neither semantic accounting nor declaration | I14; the honest fix is a registry edit a reviewer sees, the rename is not a repair |
 | Historical committed snapshots could become stale across merges | Replay the scanner over the first parent and the merge of the last twenty `upstream/main` merge commits | 8 of 20 merges change at least one carrier | Historical cost motivating Q9; current checks compute the combined tree without a committed snapshot |
 | The formal model cannot silently lose a proof obligation | Remove an invariant, role, relation, candidate decision, or proof-boundary category from `formal_model` | The drift smoke fails on the exact formal-model shape | The model is a finite contract and proof ledger; it does not prove the listed properties by itself |
+| An obligation cannot claim a domain nobody counts | `uv run --extra test python -m pytest tests/architecture/test_semantic_vocabulary_drift.py -k domain` | Dropping `domain`, inflating `verified` or `registered`, inventing a selector, claiming an unanchored selector or an out-of-stage evidence bound, and an advisory invariant claiming verified members each fail closed | The sizes are derived from the registry, so the check grounds the declared domain in registry data; it does not prove the obligation over that domain |
+| F1/F2 quantify over exactly what the producer check walks | Same test module: compare `check_producers`' predicate with the declared F1/F2 domain | The vocabularies with `producers` are exactly the `kernel` tier, 6 of 26; the other 20 are all `cross_runtime` | The scan reach bounds the claim further and is reported, not pinned |
 
 Known limits, stated so the check is not over-trusted:
 
@@ -1084,6 +1131,34 @@ interface member and an object-literal entry are the same shape to this grammar,
 and crediting a declaration as production would overstate it in exactly the
 direction I13 warns about.
 
+
+### 2026-09-17 — Invariant statements bounded to their verified domains
+
+Normative; requires kernel-maintainer approval. No check changes its pass/fail
+result on the current tree; what changes is what the invariants claim.
+
+- F1 and F2 were unconditional over `V` while `check_producers` skipped every
+  vocabulary without `producers` — 20 of 26, the entire `cross_runtime` tier.
+  Both are now stated over `Kernel(V)` and over `Produced_scan(v)`, the
+  production observed inside the code-owned scan reach, which is 432 of 1203
+  tracked `loopx/**/*.{py,ts}` files. `validate_production`'s own docstring
+  already disclaimed whole-program closedness; the statements now agree with it.
+- F4 was `conflict := collision ∧ scope_overlap`, a definition that cannot be
+  violated because scope is declared and never inferred. It is restated as the
+  enumeration-completeness property `check_scope_declarations` really enforces.
+- Every obligation gains `domain` (`quantifies_over`, `verified`, `registered`,
+  `evidence_bound`). Both sizes are derived from the registry on each run, and
+  the selector/bound pair is pinned per invariant by `FORMAL_DOMAIN_ANCHOR`, so
+  an invariant cannot widen the set it claims through a data-only edit.
+- The report prints the domain sizes, the scan reach, and how many unresolved
+  producer sites can never become evidence (15 of 41).
+- The `continue` comment in `check_producers` said the skipped vocabularies were
+  "other kernel families". They are not kernel at all; the comment is corrected.
+- Not addressed here: `check_formal_model` still accepts an internally
+  consistent false claim, because moving an invariant's `enforcement` and its
+  policy lane together stays self-consistent. That grounding gap is separate.
+
+
 ### 2026-09-16 — B2 pilot: one re-export hop bound in the Python producer scanner
 
 - **Trigger:** after M2 moved the three Turn owners into
@@ -1267,6 +1342,7 @@ direction I13 warns about.
 | 2026-09-16 | B2: bind one unrenamed re-export hop in the Python producer scanner | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B2; PR review pending | Require every consumer to import the owner module (fragile; failed silently in M2); unbounded multi-hop resolution rejected | 5, Appendix A |
 | 2026-09-17 | B3: budget the migration surface beside the token count; keep both until Q11 | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B3; PR review pending | Replacing the token budget outright (rejected: the token count is the anchor that proves the new roles partition the same population, and dropping it in the same diff that introduces them would make the smaller number unauditable); counting computed-key subscripts as unresolved reads (rejected: `rows[index]` and `payload[key]` are one syntax, and the unknown would stop carrying information) | 5, 9, 11, 12 |
 | 2026-09-16 | B1 rename invariance: add the name-keyed divergence advisory; state the limit it does not close | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B1; PR review pending | Keying the budget on value sets (rejected: `CONFIDENCE_LEVELS` and `EDGE_CASE_COMPLEXITIES` share `high/low/medium` with different meanings); a committed name ledger (rejected at M0: Q9 retired the committed census). The advisory lists surviving forks by name; it was first described as catching a one-sided rename, which measurement disproved, so both mirrors state the limit as it behaves | 9 |
+| 2026-09-17 | Bound F1/F2 to the kernel tier and the scan reach, restate F4 as scope enumeration completeness, and give every obligation a derived `domain` | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447); **kernel-maintainer approval required, not yet given** | Leave the unconditional statements and record the gap in prose only (rejected: the statement was stronger than `validate_production`'s own docstring); restate F4 as per-context value-set disjointness (rejected: refuted by the repo's own data, since `scope_declarations` exists to permit legitimate same-name reuse); widen the scan so the unconditional claim becomes true (rejected: a separate change with its own risk) | 5, 9, Appendix B, Appendix C |
 
 ## Appendix C: Evidence registry
 
@@ -1291,7 +1367,10 @@ direction I13 warns about.
 | E18 | Declared scope exceeded the scan root | `503991dd2` + M0 | `literal_scan.roots` and inventory `root` read from the registry; `grep` for `effective_action` dispatch literals under `examples/`; count of `.ts`/`.tsx` under `apps/` | roots are `loopx` only; 12+ assertions in `examples/`; 90 files in `apps/` | Consumers and test doubles, not producers |
 | E19 | `SOURCE_SURFACES` is four bounded contexts, not a fork | `503991dd2` | the four `multi_value_forks` definitions read from the inventory | each module lists the data sources of its own CLI command with disjoint values | Judgement from reading the values; the rule cannot make it |
 | E20 | Retirement budgets over-count by substring | `503991dd2` | `'goal_boundary' in text` vs `\bgoal_boundary\b` over `loopx/**/*.py` | 35 vs 30 modules | Identifier count is the M3 gate's measure |
-| E21 | The retirement budget counted mentions as readers | `e12e05fff` | `check_reader_metric()` over the six legacy fields; roles asserted to partition `count_identifier_modules()` | 109 py token modules resolve to 82 surface modules; `goal_boundary` 30 → 15, `work_lane_contract` 29 → 28, `protocol_action_packet` 5 → 5 with one reader | Syntactic use, not data flow; 1712 computed-key mapping accessors stay unattributable, so zero surface is not zero readers |
+| E21 | F1/F2 were unconditional but verified over one tier | `3ca868193` | `check_producers`' skip predicate, and the producer scan roots, read from the tree | 6 of 26 vocabularies declare `producers`, exactly the `tier: kernel` ones; the 20 skipped are all `cross_runtime`; the scan reaches 432 of 1203 tracked `loopx/**/*.{py,ts}` files (35.9%), the uncovered bulk being capabilities 285, other control-plane 192, extensions 83 | Counts from the registry and the tracked tree; the reach denominator moves with any new module, so it is reported, not pinned |
+| E22 | Fifteen reported unresolved sites can never become evidence | `3ca868193` | smoke report `unresolved_producer_blockers` | 41 unresolved sites, of which `argument_name_only` 10 and `annotation_only` 5 are a field-named keyword argument and a bare declaration; the other 26 are dynamic or interprocedural | Label-keyed; the two labels are code-owned in the scanner, so the floor moves only by a code edit |
+| E23 | F4 as written could not be violated | `3ca868193` | read `check_scope_declarations` against the F4 statement | Scope is declared and never inferred, so `conflict := collision ∧ scope_overlap` is a definition; what is enforced is that a declaration names every defining module exactly once, over 1 declaration and 4 contexts | Judgement from reading the check; value-set disjointness across contexts is deliberately *not* the property, because `SOURCE_SURFACES` legitimately reuses one name in four contexts (E19) |
+| E24 | The retirement budget counted mentions as readers | `e12e05fff` | `check_reader_metric()` over the six legacy fields; roles asserted to partition `count_identifier_modules()` | 109 py token modules resolve to 82 surface modules; `goal_boundary` 30 → 15, `work_lane_contract` 29 → 28, `protocol_action_packet` 5 → 5 with one reader | Syntactic use, not data flow; 1712 computed-key mapping accessors stay unattributable, so zero surface is not zero readers |
 | E13 | The conflict budget mostly measured local naming | `1dc6ad8d8` | `MODULE_LOCAL_CONVENTION` applied to `conflicting_values` and `same_runtime_forks` names | 16 of 18 conflicts and 7 of 25 forks are module-local conventions; the semantic subsets are 2 and 18 | Classification is a name pattern, documented in the scanner and pinned by a fixture test |
 
 ## Appendix D: Rejected or superseded alternatives

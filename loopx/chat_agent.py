@@ -54,8 +54,9 @@ def _host_tool_gate(summary: str, next_action: str) -> dict[str, str]:
 AGENT_ENDPOINT_UNAVAILABLE = "agent_endpoint_unavailable"
 AGENT_ENDPOINT_NEXT_ACTIONS = {
     "dsh_runtime_unavailable": (
-        "Install the DeepSeek Harness runtime (`python -m pip install "
-        "'loopx[deepseek-harness]'`) and restart LoopX Chat."
+        "The LoopX Chat service interpreter cannot import deepseek_harness. "
+        "Run `loopx doctor` in that service environment and check python.executable; "
+        "install `loopx[deepseek-harness]` in the same environment, then restart LoopX Chat."
     ),
     "operator_credential_unconfigured": (
         "Set the managed executor credential (DEEPSEEK_API_KEY, with "

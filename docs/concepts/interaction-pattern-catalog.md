@@ -88,9 +88,9 @@ Map P0/P1 catalog rows to canary archetypes before picking commands:
 | --- | --- | --- | --- | --- | --- |
 | Work Routing | IP-001, IP-002, IP-003, IP-007, IP-008, IP-021, IP-029 | Hot-path route canary; Planning governance canary when cadence or repair is involved | `quota should-run`, `interaction_contract`, `work_lane_contract`, scheduler hint, handoff todo state | one eligible delivery fixture, one blocked/fallback fixture, one quiet or monitor fixture | agent turn routing is unsafe: it may spend, wait, notify, or choose fallback incorrectly |
 | Human Decision | IP-004, IP-014, IP-017, IP-027, IP-030, IP-033 | Scoped decision canary; Product/readiness canary when first-screen human copy changes | user todos, decision scope, operator-gate/reward preview, deferred resume candidates | one concrete user ask, one scoped non-blocking gate, one preview-or-append dry run | humans may be asked the wrong question, or an agent may continue without the needed decision |
-| State And Boundary | IP-005, IP-006, IP-011, IP-016, IP-019, IP-020, IP-022, IP-023, IP-025, IP-026, IP-028, IP-031, IP-032 | Projection and boundary canary; Hot-path route canary when the projection feeds quota/status | active state, todo metadata, task graph, authority source, claim lease, completed-work archive, connector runtime policy, public/private scan | fixture state plus structured projection check; boundary scan for touched public files | compact state and executable truth diverge, so dashboards and agents may trust stale or unsafe authority |
+| State And Boundary | IP-005, IP-006, IP-011, IP-016, IP-019, IP-020, IP-022, IP-023, IP-025, IP-026, IP-028, IP-031, IP-032, IP-035 | Projection and boundary canary; Hot-path route canary when the projection feeds quota/status | active state, todo metadata, task graph, authority source, claim lease, completed-work archive, install ownership, connector runtime policy, public/private scan | fixture state plus structured projection check; boundary scan for touched public files | compact state and executable truth diverge, so dashboards and agents may trust stale or unsafe authority |
 | Evidence Lifecycle | IP-012, IP-015 | Evidence lifecycle canary; Product/readiness canary when evidence is rendered | external handle observation, benchmark lifecycle reducer, compact result projection | compact public-safe evidence fixture with raw-material exclusion assertions | progress evidence may be missing, double-counted, or represented with unsafe raw material |
-| Planning Governance | IP-010, IP-013, IP-018, IP-024 | Planning governance canary; Hot-path route canary when cadence changes affect execution | stalled run history, autonomous replan obligation, repair delta, cadence hint, plan-to-todo writeback | two-turn stalled fixture plus repair/writeback delta assertion | the agent may keep planning in prose while the machine-visible frontier stays unchanged |
+| Planning Governance | IP-010, IP-013, IP-018, IP-024, IP-034 | Planning governance canary; Hot-path route canary when cadence changes affect execution | stalled run history, autonomous replan obligation, repair delta, cadence hint, plan-to-todo writeback | two-turn stalled fixture plus repair/writeback delta assertion | the agent may keep planning in prose while the machine-visible frontier stays unchanged |
 
 P2 patterns may still have canaries, but they should be selected by an explicit
 domain profile instead of being pulled into every default profile. If a P2
@@ -343,6 +343,7 @@ Projection, authority, write scope, and lease integrity.
 | P1 | IP-028 | Connector Runtime Boundary | Connector/runtime owners | notify only if the required owner decision is missing | enforce runtime allow/deny policy before browser or API connector reads can autoload raw material |
 | P1 | IP-031 | Manager Context Is Not Turn Authority | Manager connection owner | no interruption; retention is silent | retain group context only and act only on a provider-native mention, verified reply, or existing typed authority |
 | P1 | IP-032 | Completed Work Archive With Durable Decision Retention | Archive selector plus controller | no interruption; preview-then-execute readback | treat archived done work as history, keep durable decisions authoritative, and never move another role's lane |
+| P1 | IP-035 | Install Ownership Is Not An Update Permission | Install lifecycle owner plus user | no silent mutation; report the owning installer and its command | classify the install before mutating it; when LoopX does not own it, hand back the owner-owned command instead of switching install channels |
 
 ### Evidence Lifecycle
 
@@ -363,6 +364,7 @@ Replanning, dreaming, cadence, and future-work writeback.
 | P1 | IP-024 | Repair Delta Contract | Agent/controller | no interruption unless repair creates a user todo | self-repair/replan must change the machine-visible frontier or record a no-op/blocker |
 | P1 | IP-010 | Cadence Hint | Agent/controller | no interruption by default | surface a low-confidence hint when turns look too thin |
 | P1 | IP-018 | Plan To Todo Writeback | Agent plus LoopX | no interruption unless a user todo is created | write user-facing plans into todos, Next Action, or refresh-state |
+| P1 | IP-034 | Unstaffable Team Lane Is A Typed Gap | Steward/manager plus the work-items transaction | name the gap in the preview; no interruption for the admitted lanes | create only the lanes that can run; never invent a lane, an Agent, a capability, or an action kind |
 
 ## Visual Model
 
@@ -2419,6 +2421,99 @@ quietly disagree with what the operator believes happened.
   assertion that `--role user` leaves `Agent Todo` byte-identical is proposed
   and not yet landed.
 
+#### IP-035 Install Ownership Is Not An Update Permission
+
+**Trigger**
+
+- `loopx update` or `loopx doctor` reports upgrade drift: `requires_upgrade=true`
+  or an install-freshness status that no longer matches the release manifest;
+- the active install is one of three owned kinds, `release_snapshot`,
+  `python_distribution`, or `live_checkout`, and only some of them are writable
+  by LoopX itself;
+- an agent, automation, or operator script wants the upgrade to actually happen
+  in this turn rather than be reported.
+
+**Expected behavior**
+
+An update is a write to an installation LoopX does not always own. Three rules
+keep "newer version available" from becoming "rewrite whatever is installed".
+
+1. **Classify before you mutate.** `install_lifecycle` names the
+   `install_kind`, the `owner` (`loopx_release_snapshot`,
+   `python_package_manager`, or `source_checkout`), `loopx_apply_supported`,
+   the `execution_driver`, and the `owner_upgrade_command`. No mutating step
+   runs before that classification exists.
+2. **An unowned install fails closed instead of guessing.** When
+   `loopx_apply_supported=false`, `update apply` returns `ok=false`,
+   `commands.apply=None`, `changes_applied=false`, and
+   `next_action.kind=use_installation_owner`. It must not substitute a
+   different installer, so a `custom-manager` Python environment never gets a
+   guessed `pip install`; it must not run `git pull` on a `live_checkout`; and
+   it must not replace a source checkout with an archive snapshot.
+3. **Report the owner's command, then stop.** The payload carries
+   `owner_upgrade_command` (or `plan.install_command`) and
+   `post_update_validation=loopx doctor`. When no owner command exists, the
+   correct output is "this install is owned by X" with
+   `next_action.command=None`, not a silent success and not a fabricated
+   command.
+
+IP-006 owns the case where a required *write scope* is not projected at all.
+IP-035 is the sibling case: the scope is known, but the write target itself has
+a different owner. IP-030 owns revision-guarded preview/apply for machine
+configuration; the same "exact target plus explicit approval" discipline applies
+here, except the approval belongs to the install owner rather than to LoopX.
+
+**Visual Model**
+
+```mermaid
+flowchart TD
+  A["requires_upgrade / freshness drift"] --> B{"install_lifecycle.install_kind"}
+  B -->|"release_snapshot"| C{"POSIX?"}
+  C -->|"yes"| D["loopx_apply_supported=true<br/>atomic snapshot replace"]
+  C -->|"no"| E["owner: install-windows.ps1<br/>apply=None"]
+  B -->|"python_distribution"| F{"installer is pip or pipx?"}
+  F -->|"yes"| G["driver python_pip / python_pipx<br/>upgrade the owning environment"]
+  F -->|"no"| H["owner: package manager<br/>no pip guess, apply=None"]
+  B -->|"live_checkout"| I["owner: source_checkout<br/>no git pull, no channel switch"]
+  D --> J["loopx doctor revalidation"]
+  E --> K["use_installation_owner<br/>ok=false, changes_applied=false"]
+  H --> K
+  I --> K
+```
+
+**Bad smell**
+
+An agent sees `requires_upgrade=true` and reaches for the installer it knows
+best: `pip install --upgrade loopx` inside a checkout install, `pipx upgrade`
+against an environment LoopX does not own, or `git pull` on a contributor
+workspace. The result is a second LoopX in a different environment while `loopx`
+on `PATH` still resolves to the old one, or a source checkout silently converted
+into an archive snapshot. The operator experience is "doctor says I am behind"
+forever, plus an environment nobody can attribute ownership for.
+
+The mirror-image smell is reporting success without writing:
+`unsupported_install_owner`, an `apply=None` command, or a `None`
+`next_action.command` is rendered as "update complete", so the same drift is
+rediscovered next turn. A third smell is a fixture that only ever exercises the
+pip path, so no test can tell an owned install from an unowned one.
+
+**Validation**
+
+- `tests/test_self_update_runtime_activation.py` owns the mutation and negative
+  cases: `test_live_checkout_apply_never_mutates_git_or_switches_install_channels`,
+  `test_unknown_package_manager_apply_fails_without_guessing_pip`,
+  `test_python_distribution_apply_uses_the_owning_interpreter_pip`,
+  `test_pipx_distribution_apply_preserves_the_pipx_environment`, and
+  `test_windows_execute_update_fails_closed_without_launching_bash`.
+- `tests/test_doctor_install_freshness.py` pins install-kind classification
+  (`live_checkout`, `python_distribution`) behind the freshness contract.
+- `loopx/self_update.py::_install_lifecycle` owns the kind, owner, driver, and
+  `owner_upgrade_command` predicate; `loopx/doctor.py` supplies the install
+  snapshot it classifies.
+- `examples/loopx-update-smoke.py` and `docs/guides/installing-loopx.md` own the
+  operator-facing update, activation, and recovery path.
+- `examples/interaction-pattern-catalog-smoke.py` protects this entry.
+
 ### Evidence Lifecycle
 
 #### IP-012 External Evidence Observation
@@ -2766,6 +2861,87 @@ successor work. The next automation then behaves as if the plan never existed.
 - `examples/control_plane/heartbeat-prompt-smoke.py`
 - future status/quota smoke that flags user-facing plans without todo or
   refresh-state writeback.
+
+#### IP-034 Unstaffable Team Lane Is A Typed Gap
+
+**Trigger**
+
+- one owner sentence asks for a team rather than a single task, so a plan
+  preview has to name the Agent that runs each lane;
+- a requested lane needs an Agent registration, capability grant, or action
+  kind the current host or profile does not have, so no honest assignment
+  exists for it; or
+- a confirmed plan is being applied and one admitted lane cannot be started on
+  this host.
+
+**Expected behavior**
+
+An unstaffable lane is a typed gap, not an invented lane. Admission and
+staffing are two different questions, and only the first one is
+all-or-nothing.
+
+1. **Name the gap instead of inventing the lane.** A lane that cannot be
+   staffed is reported as a gap with the missing registration or grant, or with
+   the shipped action kind that covers the requested work. The preview may not
+   invent a lane, an Agent, a capability, or an action kind to fill the slot.
+2. **Keep the admitted plan.** The rest of the plan is the owner's request, so
+   it stays admitted. Applying it creates the first bounded Todo for exactly
+   the lanes that can run; one unstaffable lane does not fail the whole
+   confirmation.
+3. **Show the lane; do not drop it silently.** "Dropped instead of shown"
+   applies to a plan that names no Goal or a Goal outside the authorized
+   scope, not to one lane inside an admitted plan. An omitted lane is work
+   nobody knows is unowned.
+4. **A gap is not self-healing.** Retrying the same proposal recovers an
+   uncertain commit; it does not fill a previously unstaffed gap. Filling one
+   needs explicit new intent, and never by impersonating a receiving Agent as
+   the author.
+
+IP-018 owns plan-to-todo writeback and IP-024 owns the repair delta. Neither
+owns the case where part of an admitted plan has no honest owner, which is the
+gap this pattern fills.
+
+**Visual Model**
+
+```mermaid
+flowchart TD
+  A["owner asks for a team"] --> B["one plan preview, every lane named"]
+  B --> C{"each lane staffable?"}
+  C -->|"yes"| D["admitted lane: first bounded Todo on apply"]
+  C -->|"no"| E["typed gap: missing registration or grant"]
+  D --> F["apply receipt read before reporting assignments"]
+  E --> G["plan stays admitted, gap shown in the preview"]
+  E --> H["no invented lane, Agent, capability, or action kind"]
+  H --> I["filling the gap later needs explicit new intent"]
+```
+
+**Bad smell**
+
+A host does not ship the action kind a requested lane needs, so the surface
+invents one: the preview shows every lane staffed and a first Todo lands in a
+lane no Agent can actually run. The operator experience is "the whole team is
+up" followed by "why is that lane not moving".
+
+The mirror-image smell is all-or-nothing admission: because one lane cannot be
+staffed, the confirmation fails and discards the lanes the owner already
+authorized. A third smell is the quiet omission, where the unstaffable lane is
+left out of the preview so the plan looks complete and the work simply never
+appears.
+
+**Validation**
+
+- `tests/test_steward_team_plan_apply.py` owns the apply-side case:
+  `test_a_lane_whose_kind_the_host_does_not_ship_creates_nothing` proves the
+  plan is still admitted and creates exactly one Todo, for the lane that can
+  run, while the unstaffable lane's Todo is absent.
+- `tests/test_manager_team_plan_guidance.py` pins the preview contract,
+  including "as a gap, with the missing registration or grant" and the "do not
+  regenerate every lane" rule that stops an automatic gap fill.
+- `loopx/capabilities/manager_context/skills/loopx-manager/SKILL.md` owns the
+  preview wording and the gap-versus-invention boundary.
+- `loopx/control_plane/work_items/governed_transition_proposal.py` owns the
+  admission-to-receipt transaction that creates only the admitted lanes.
+- `examples/interaction-pattern-catalog-smoke.py` protects this entry.
 
 ## Maintenance Rules
 

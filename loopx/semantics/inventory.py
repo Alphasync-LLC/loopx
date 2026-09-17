@@ -424,7 +424,30 @@ def render_inventory(inventory: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def merge_candidate_groups(inventory: dict[str, Any]) -> list[dict[str, Any]]:
+def registered_owner_symbol_sets(registry: dict[str, Any]) -> set[frozenset[str]]:
+    """Symbol sets that one registered vocabulary already binds into one concept.
+
+    A cross-runtime vocabulary names its owner twice because the runtimes spell
+    it differently: ``EffectiveAction`` in Python and ``EFFECTIVE_ACTIONS`` in
+    TypeScript are the registered owners of ``effective_action``. The registry
+    entry is the decision that the two spellings are one vocabulary, so their
+    equal value sets carry no review question. Only sets with more than one
+    distinct symbol are returned; a vocabulary with a single owner, or with the
+    same symbol on both sides, explains nothing.
+    """
+    sets: set[frozenset[str]] = set()
+    for vocabulary in registry["vocabularies"].values():
+        symbols = frozenset(
+            owner.split("::")[-1] for owner in (vocabulary.get("owners") or {}).values() if owner
+        )
+        if len(symbols) > 1:
+            sets.add(symbols)
+    return sets
+
+
+def merge_candidate_groups(
+    inventory: dict[str, Any], registry: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     """Advisory: distinct names carrying an identical multi-value set.
 
     Value-set equality is a candidate signal, not proof of one concept:
@@ -432,7 +455,21 @@ def merge_candidate_groups(inventory: dict[str, Any]) -> list[dict[str, Any]]:
     while meaning different things. Each group is for review, never auto-merged,
     and is printed on demand rather than committed so it cannot be mistaken for a
     ratified decision.
+
+    ``registry`` drops the groups whose names are exactly the owner symbols of
+    one registered vocabulary. Those are a naming convention, not duplication:
+    the registry has already ruled the two spellings one concept, and leaving
+    them in the list buries the groups that nobody has ruled on. Passing
+    ``None`` keeps the unfiltered list, which is what an audit of the raw
+    value-set collisions wants. Filtering removes noise from a review list; it
+    retires nothing and settles no group that stays.
+
+    ``cross_runtime`` marks a group whose modules span both runtimes. Such a
+    group is a registry gap by construction, because a value set living in
+    Python and TypeScript with no vocabulary binding them is exactly what the
+    registry exists to record.
     """
+    explained = registered_owner_symbol_sets(registry) if registry is not None else set()
     by_values: dict[tuple[str, ...], list[dict[str, Any]]] = defaultdict(list)
     for section in ("python_enums", "python_closed_sets", "python_literal_aliases", "typescript_const_arrays"):
         for entry in inventory[section]:
@@ -441,13 +478,16 @@ def merge_candidate_groups(inventory: dict[str, Any]) -> list[dict[str, Any]]:
     groups: list[dict[str, Any]] = []
     for values, entries in by_values.items():
         names = sorted({entry["name"] for entry in entries})
-        if len(names) < 2:
+        if len(names) < 2 or frozenset(names) in explained:
             continue
+        modules = sorted({entry["module"] for entry in entries})
         groups.append(
             {
                 "names": names,
                 "values": list(values),
-                "modules": sorted({entry["module"] for entry in entries}),
+                "modules": modules,
+                "cross_runtime": any(module.endswith(".py") for module in modules)
+                and any(module.endswith(".ts") for module in modules),
             }
         )
     return sorted(groups, key=lambda group: (-len(group["names"]), group["names"]))
