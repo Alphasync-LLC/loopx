@@ -15,9 +15,16 @@ sentence exists". A note says **which condition produces the value** — what ha
 to be true at runtime for the code to choose it. A note that rephrases the
 identifier, or that only records what happens next, leaves the reader exactly
 where they started: reconstructing control flow from the generated rule table.
-That failure mode is worse than an empty note, because the coverage count says
-it is covered, so ``test_a_note_must_not_merely_restate_its_own_value`` treats
-it as a failure rather than trusting the count.
+Either is worse than an empty note, because the coverage count then says the
+value is covered.
+
+What this file actually enforces is narrower than that bar, and the difference
+matters when reading a green run. The restatement test catches the rephrasing
+case mechanically, because a restatement carries no words beyond its own
+identifier. It does not catch a fluent note that records only the disposition,
+and it cannot check that a stated condition is true or still matches the code.
+Those remain review obligations: the ratchet makes an omission visible in the
+diff, it does not certify the prose.
 
 Where the producing condition genuinely cannot be established from the code,
 the honest note is the one the RFC's evidence rules require: say it is
