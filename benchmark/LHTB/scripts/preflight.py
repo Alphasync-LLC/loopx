@@ -14,10 +14,11 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import yaml
+from benchmark.runtime.codex import Execution
 
 
 EXPECTED_SEPARATE = {"langchain-version-migration", "nbody-accel-iterative"}
-EXPECTED_AGENT = "codex_loopx_heartbeat:LoopxHeartbeatCodex"
+EXPECTED_AGENT = "benchmark.runtime.harbor:BenchmarkCodex"
 
 
 def command(argv: list[str], timeout: int = 30) -> tuple[int, str]:
@@ -101,9 +102,12 @@ def main() -> int:
     agent = config["agents"][0]
     kwargs = agent.get("kwargs", {})
     check("Harbor adapter", agent.get("import_path") == EXPECTED_AGENT, str(agent.get("import_path")))
-    check("model", agent.get("model_name") == "openai/gpt-5.6-sol", str(agent.get("model_name")))
-    check("reasoning", kwargs.get("reasoning_effort") == "max", str(kwargs.get("reasoning_effort")))
-    check("native Goal disabled", kwargs.get("goals") == "false", str(kwargs.get("goals")))
+    check("model selected", bool(agent.get("model_name")), str(agent.get("model_name")))
+    check("reasoning selected", bool(kwargs.get("reasoning_effort")), str(kwargs.get("reasoning_effort")))
+    execution = Execution(mode=kwargs.get("execution_mode", "heartbeat"),
+                          context=kwargs.get("iteration_context", "fresh"),
+                          validation_command=tuple(kwargs.get("validation_command", [])))
+    check("native Goal setting", kwargs.get("goals") == str(execution.native_goal).lower(), str(kwargs.get("goals")))
     check("web search disabled", kwargs.get("web_search") == "disabled", str(kwargs.get("web_search")))
 
     actual_commit = command(["git", "-C", str(args.loopx_src), "rev-parse", "HEAD"])[1]
