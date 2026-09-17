@@ -133,6 +133,33 @@ def test_cli_routes_work_requirements_without_display_dependency(tmp_path: Path,
 
 
 @pytest.mark.parametrize("promoted", [False, True])
+@pytest.mark.parametrize(("remote", "expected"), [
+    ("https://github.com:443/example/project", "git:github.com/example/project"),
+    ("ssh://git@github.com:22/example/project", "git:github.com/example/project"),
+    ("git://github.com:9418/example/project", "git:github.com/example/project"),
+    ("https://github.com:22/example/project", "git:github.com:22/example/project"),
+    ("ssh://git@github.com:443/example/project", "git:github.com:443/example/project"),
+    ("git://github.com:80/example/project", "git:github.com:80/example/project"),
+    ("git://github.com:0/example/project", "git:github.com:0/example/project"),
+])
+def test_cli_repository_ports_match_before_and_after_promotion(
+    tmp_path: Path, promoted: bool, remote: str, expected: str,
+) -> None:
+    registry, _state = fixture(tmp_path, promoted)
+    before = records(registry)
+    args = ["--task-repository", remote]
+    if promoted:
+        args += ["--update-operation-id", "repository-port-cli"]
+    update(registry, *args)
+    after = records(registry)
+    assert after["todo_target"]["task_repository"] == expected
+    assert after["todo_other"] == before["todo_other"]
+    if promoted:
+        assert update(registry, *args)["status"] == "replayed"
+        assert records(registry) == after
+
+
+@pytest.mark.parametrize("promoted", [False, True])
 @pytest.mark.parametrize("surface", ["cli", "python_api"])
 @pytest.mark.parametrize(("label", "note", "expected_note"), [
     ("omitted", None, "Preserved note"),

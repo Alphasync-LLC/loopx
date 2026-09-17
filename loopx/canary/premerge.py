@@ -502,6 +502,55 @@ def _diff_hygiene_checks(
     return checks
 
 
+def _module_ceiling_colocation_check(
+    *,
+    changed_files: list[str],
+    base_ref: str,
+    execute: bool,
+    repo_root: Path = REPO_ROOT,
+) -> dict[str, Any] | None:
+    python_files = [
+        str(path) for path in changed_files
+        if str(path).startswith("loopx/")
+        and str(path).endswith(".py")
+        and (repo_root / str(path)).is_file()
+    ]
+    if not python_files:
+        return None
+    base = (base_ref or "origin/main").strip() or "origin/main"
+    if not execute:
+        return {
+            "id": "module_ceiling_colocation",
+            "kind": "direct_import",
+            "command": "python3 examples/control_plane/control-plane-maintainability-ratchet-smoke.py",
+            "reason": "module growth that crossed its reviewed ceiling must settle in the same diff",
+            "status": "ready",
+            "ok": True,
+        }
+    from loopx.canary.maintainability_ratchet import diff_scoped_module_ceiling_violations
+
+    violations = diff_scoped_module_ceiling_violations(
+        repo_root, python_files, base_ref=base
+    )
+    ok = not violations
+    check: dict[str, Any] = {
+        "id": "module_ceiling_colocation",
+        "kind": "direct_import",
+        "command": "python3 examples/control_plane/control-plane-maintainability-ratchet-smoke.py",
+        "reason": "module growth that crossed its reviewed ceiling must settle in the same diff",
+        "status": "passed" if ok else "failed",
+        "ok": ok,
+    }
+    if violations:
+        check["detail"] = [
+            f"{item['path']}: grew {item['base_lines']} -> {item['head_lines']} lines "
+            f"past its inherited ceiling {item['base_ceiling']}; settle the ceiling in "
+            f"this diff (loopx/canary/module_metric_baseline.json)"
+            for item in violations
+        ]
+    return check
+
+
 def _py_compile_check(
     *,
     python_files: list[str],
@@ -804,6 +853,15 @@ def build_premerge_validation_gate(
     )
     if py_compile is not None:
         direct_checks.append(py_compile)
+
+    module_colocation = _module_ceiling_colocation_check(
+        changed_files=files,
+        base_ref=base_ref,
+        execute=execute,
+        repo_root=target_repo_root,
+    )
+    if module_colocation is not None:
+        direct_checks.append(module_colocation)
 
     if files:
         catalog_progress = _section_progress_callback(

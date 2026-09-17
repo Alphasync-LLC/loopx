@@ -737,18 +737,27 @@ TypeScript effective-action 绑定与[术语表](../../reference/glossary.md)通
 注册表预算或 smoke 可检查的词表属性。标为*未决*的行等待第 12 节的决策，这也
 是计划在那些决策记录之前只是骨架的原因。
 
-| 表面 | 基线（`1dc6ad8d8`） | 本 RFC 关闭时的目标 | 由谁达成 |
-| --- | --- | --- | --- |
-| `effective_action` 取值 | 33 个字面量，无 owner 符号 | 一个枚举 owner；`skip`、`observe_replay`、`block_replay` 与两个 `quota_action_selection_*` 码从判定槽位移出；计入五个此前漏记的生产值并移除合成 operator_gate 后，共 32 个决策值 | M1 |
-| 同一 envelope 里的 `effective_action` 槽位 | 一个字段名下 3 套词表 | 1，或在 Q6 保留字段时为一个已注册并集 | M1（Q6） |
-| Turn 词表 | 3 套、28 值、21 个不同值、7 个冗余拼法 | 保留 3 套；投影与决策表生成并校验；拼法不变，除非 Q10 决定合并 | M2（Q2、Q10 *未决*） |
-| 同运行时分叉（语义） | 18 个名字 | 0 | 基线窄 PR |
-| 冲突值（语义） | 2 个名字 | 0 | 基线窄 PR |
-| 多值分叉 | 4（1 个误分类） | `scope` 声明有界上下文名字后为 0 | M0.5 + 基线窄 PR |
-| 多值孪生 | 19 | 0 | 基线窄 PR |
-| 旧 should-run 字段 | 6 个字段，124 py / 10 ts 模块提及 | 0 个字段 | M3，按标识符计数 |
-| 合并候选组 | 32 组未评审 | 每组已分类；只合并 `same_semantics` 的组 | 分类表 PR，随后逐组 PR |
-| 控制面 py/ts 孪生 | 43 | 跟随 TypeScript 迁移 RFC；本 RFC 不设目标 | M4 |
+| 表面 | 基线（`1dc6ad8d8`） | 由什么度量 | 本 RFC 关闭时的目标 | 由谁达成 |
+| --- | --- | --- | --- | --- |
+| `effective_action` 取值 | 33 个字面量，无 owner 符号 | 注册表 `vocabularies.effective_action.values`；`semantic-vocabulary-drift-smoke.py` 在出现未注册字面量时失败 | 一个枚举 owner；`skip`、`observe_replay`、`block_replay` 与两个 `quota_action_selection_*` 码从判定槽位移出；计入五个此前漏记的生产值并移除合成 operator_gate 后，共 32 个决策值 | M1 |
+| 同一 envelope 里的 `effective_action` 槽位 | 一个字段名下 3 套词表 | 无计数器：拆槽是 Q6 的决策而非一个数字。读 `relations.shared_field_names` | 1，或在 Q6 保留字段时为一个已注册并集 | M1（Q6） |
+| Turn 词表 | 3 套、28 值、21 个不同值、7 个冗余拼法 | 注册表 `vocabularies`；拼法重叠见 `relations.same_concept` | 保留 3 套；投影与决策表生成并校验；拼法不变，除非 Q10 决定合并 | M2（Q2、Q10 *未决*） |
+| 同运行时分叉（语义） | 18 个名字 | `semantic-vocabulary-drift-smoke.py`：`same_runtime_forks_semantic` | 0 | 基线窄 PR |
+| 冲突值（语义） | 2 个名字 | `semantic-vocabulary-drift-smoke.py`：`conflicting_values_semantic` | 0 | 基线窄 PR |
+| 多值分叉 | 4（1 个误分类） | `semantic-vocabulary-drift-smoke.py`：`multi_value_forks` 与 `multi_value_forks_semantic`。今天只打印计数；#4614 增加 `divergent_value_sets` 以按名字列出存活的分叉 | `scope` 声明有界上下文名字后为 0 | M0.5 + 基线窄 PR |
+| 多值孪生 | 19 | `semantic-vocabulary-drift-smoke.py`：`multi_value_twins` | 0 | 基线窄 PR |
+| 旧 should-run 字段 | 6 个字段，124 py / 10 ts 模块提及 | `semantic-vocabulary-drift-smoke.py`：每个字段一对 `<字段>.py` / `<字段>.ts` | 0 个字段 | M3，按标识符计数 |
+| 合并候选组 | 32 组未评审 | `loopx/semantics/inventory.py` 的 `merge_candidate_groups()`；今天没有任何命令打印它，#4630 增加该 CLI 行。读可评审数而非原始数——注册的跨运行时词表本就同时拥有 Python 与 TypeScript 两个符号，这类配对是 I3 的要求而不是债务 | 每组已分类；只合并 `same_semantics` 的组 | 分类表 PR，随后逐组 PR |
+| 控制面 py/ts 孪生 | 43 | `semantic-vocabulary-drift-smoke.py`：`independently_maintained` | 跟随 TypeScript 迁移 RFC；本 RFC 不设目标 | M4 |
+
+*由什么度量* 列点明今天打印每个表面的命令与字段，与第 9 节为每条断言点明一个
+测试的写法一致。它**刻意不携带数值**：誊抄来的数字在下一次合并时就过期，而想
+知道当前状态的读者应当去跑那条命令，而不是相信一个日期。带日期的数值归交付
+追踪（issue #4447，它拥有交付状态）；本表保持为「真值在哪里被度量」的契约。
+
+合并候选要读**可评审数**而非原始数。原始分组会把任意两个携带相同值集的名字配
+成一组，其中包含注册的跨运行时词表按 I3 **必须**同时拥有的 Python 与 TypeScript
+两个符号。把它们当作债务是度量伪影，不是漂移。
 
 ### 两条执行轨道与强制层级
 

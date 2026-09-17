@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
+import subprocess
 
 from loopx.canary.maintainability_ratchet import (
     MODULE_METRIC_BASELINE_SCHEMA_VERSION,
@@ -8,6 +11,7 @@ from loopx.canary.maintainability_ratchet import (
     collect_dependency_debt,
     collect_module_metric_findings,
     collect_oversized_decision_functions,
+    diff_scoped_module_ceiling_violations,
     evaluate_maintainability_findings,
     module_metrics,
     render_control_plane_maintainability_report,
@@ -337,3 +341,111 @@ def test_decision_ratchet_covers_quota_cli_orchestration(tmp_path: Path) -> None
             },
         }
     ]
+
+
+def _git(repo: Path, args: list[str]) -> None:
+    subprocess.run(
+        ["git", "-C", str(repo), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@example.com",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@example.com",
+        },
+    )
+
+
+def _write_baseline(repo: Path, ceilings: dict[str, dict[str, int]]) -> None:
+    (repo / "loopx" / "canary" / "module_metric_baseline.json").write_text(
+        json.dumps(
+            {
+                "schema_version": MODULE_METRIC_BASELINE_SCHEMA_VERSION,
+                "default_limits": {"lines": 1500, "any_count": 300, "dict_any_count": 300},
+                "module_metric_ceilings": ceilings,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_module_ceiling_growth_must_settle_in_the_same_diff(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / "loopx" / "canary").mkdir(parents=True)
+    (repo / "loopx" / "grown.py").write_text("\n".join(["# x"] * 5) + "\n", encoding="utf-8")
+    _write_baseline(
+        repo,
+        {"loopx/grown.py": {"lines": 10, "any_count": 0, "dict_any_count": 0}},
+    )
+    _git(repo, ["init", "-q"])
+    _git(repo, ["add", "."])
+    _git(repo, ["commit", "-q", "-m", "base"])
+
+    # Grow past the inherited ceiling (10) without settling the ledger here.
+    (repo / "loopx" / "grown.py").write_text("\n".join(["# x"] * 20) + "\n", encoding="utf-8")
+    violations = diff_scoped_module_ceiling_violations(
+        repo, ["loopx/grown.py"], base_ref="HEAD"
+    )
+    assert [item["path"] for item in violations] == ["loopx/grown.py"]
+    assert violations[0]["base_lines"] == 5
+    assert violations[0]["base_ceiling"] == 10
+    assert violations[0]["head_lines"] == 20
+
+    # Settling the ceiling in the same tree clears the violation.
+    _write_baseline(
+        repo,
+        {"loopx/grown.py": {"lines": 20, "any_count": 0, "dict_any_count": 0}},
+    )
+    assert (
+        diff_scoped_module_ceiling_violations(
+            repo, ["loopx/grown.py"], base_ref="HEAD"
+        )
+        == []
+    )
+
+
+def test_module_ceiling_growth_below_ceiling_does_not_require_settlement(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / "loopx" / "canary").mkdir(parents=True)
+    (repo / "loopx" / "grown.py").write_text("\n".join(["# x"] * 5) + "\n", encoding="utf-8")
+    _write_baseline(
+        repo,
+        {"loopx/grown.py": {"lines": 100, "any_count": 0, "dict_any_count": 0}},
+    )
+    _git(repo, ["init", "-q"])
+    _git(repo, ["add", "."])
+    _git(repo, ["commit", "-q", "-m", "base"])
+
+    # Growth that stays under the inherited ceiling needs no ledger change.
+    (repo / "loopx" / "grown.py").write_text("\n".join(["# x"] * 50) + "\n", encoding="utf-8")
+    assert (
+        diff_scoped_module_ceiling_violations(
+            repo, ["loopx/grown.py"], base_ref="HEAD"
+        )
+        == []
+    )
+
+
+def test_module_ceiling_colocation_ignores_non_python_and_deleted_files(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / "loopx" / "canary").mkdir(parents=True)
+    _write_baseline(repo, {})
+    _git(repo, ["init", "-q"])
+    _git(repo, ["add", "."])
+    _git(repo, ["commit", "-q", "-m", "base"])
+
+    assert (
+        diff_scoped_module_ceiling_violations(
+            repo,
+            ["loopx/README.md", "loopx/removed.py", "docs/notes.py"],
+            base_ref="HEAD",
+        )
+        == []
+    )
