@@ -1074,14 +1074,12 @@ class ChatActionService(
                 ),
                 "turn": None,
             }
-        # The outcome is read from what the settlement actually produced, not
-        # from "the action was not a creation": a plan that created lanes beside
-        # a gap is a partial application, and reporting it as a full success
-        # told the owner the commitment was kept when part of it was not.
-        if gap_count:
-            outcome = "team_plan_partially_applied"
-        elif str(settlement.get("action") or "") == "reused":
+        # Recovery describes this attempt; original staffing gaps remain in the
+        # receipt so readback never implies that retry created the missing work.
+        if str(settlement.get("action") or "") == "reused":
             outcome = "team_plan_commit_recovered"
+        elif gap_count:
+            outcome = "team_plan_partially_applied"
         else:
             outcome = "team_plan_applied"
         receipt = {

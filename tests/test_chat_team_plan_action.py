@@ -268,17 +268,21 @@ def test_failed_batch_retries_same_card_without_partial_work(tmp_path: Path, mon
     assert _todos(project).count("loopx:todo ") == 2
 
 
-def test_lost_response_recovers_original_commit_after_work_changes(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("has_gap", [False, True])
+def test_lost_response_recovers_original_commit_after_work_changes(tmp_path: Path, monkeypatch, has_gap: bool) -> None:
     from loopx.control_plane.work_items import team_plan_adapter
     project, _, service = _fixture(tmp_path)
-    preview = _preview(service, _two_lane_plan())
+    plan = _two_lane_plan()
+    if has_gap:
+        plan["lanes"][1]["agent_id"] = "unregistered-agent"
+    preview = _preview(service, plan)
     real = team_plan_adapter.write_captured_todo_state
     def lose_response(*args, **kwargs):
         real(*args, **kwargs)
         raise OSError("response lost after commit")
     monkeypatch.setattr(team_plan_adapter, "write_captured_todo_state", lose_response)
     assert service.apply(preview["proposal_id"])["proposal"]["status"] == "failed"
-    assert _todos(project).count("loopx:todo ") == 2
+    assert _todos(project).count("loopx:todo ") == (1 if has_gap else 2)
     monkeypatch.undo()
     state = project / f".codex/goals/{GOAL_ID}/ACTIVE_GOAL_STATE.md"
     # A receiver's later edit must survive historical commit recovery.
@@ -287,6 +291,13 @@ def test_lost_response_recovers_original_commit_after_work_changes(tmp_path: Pat
     recovered = service.apply(preview["proposal_id"])["proposal"]
     assert recovered["status"] == "applied"
     assert recovered["receipt"]["outcome"] == "team_plan_commit_recovered"
+    assert recovered["receipt"].get("gap_count", 0) == int(has_gap)
+    if has_gap:
+        assert recovered["receipt"]["gap_lanes"] == [{
+            "lane_id": plan["lanes"][1]["lane_id"],
+            "agent_id": "unregistered-agent",
+            "reason_code": "agent_not_registered",
+        }]
     assert state.read_bytes() == before
 
 
