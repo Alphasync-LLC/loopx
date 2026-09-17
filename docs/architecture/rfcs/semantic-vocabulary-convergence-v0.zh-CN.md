@@ -641,7 +641,7 @@ owner 符号集合的组：`EffectiveAction` 与 `EFFECTIVE_ACTIONS` 是同一�
 | 退休预算按子串而非标识符计数 | 分别以 `in file.text` 与 `\bgoal_boundary\b` 统计 `goal_boundary` | 基线上 35 对 30 个 Python 模块 | 已知边界；M3 的零读者门需要标识符计数，见第 12 节 |
 | 退休指标把读者与提及分开（B3） | `check_reader_metric()` 把携带六个字段 token 的每个模块归为 reader、writer、binding、unresolved 或 mention | `goal_boundary`：30 个 token 模块解析为 8 读、4 写、3 承载、1 未定、14 提及，迁移面是 15 而非 30；`work_lane_contract` 仍是 29 中的 28 | 度量的是句法使用，不是数据流。角色被断言恰好划分 token 计数，因此更小的数字是同一批模块的重新分类，不是另一批更小的样本 |
 | 旧字段新增读者会在 PR 路径上失败 | 让一个模块读 `payload["protocol_action_packet"]` 从而超出预算 | `check_reader_metric` 失败并点名该字段与计数 | `tests/architecture/test_semantic_vocabulary_drift.py` 内的提交测试；锚点等值检查与 `RETIREMENT_ANCHOR` 同一套模式 |
-| 计算式键保持「未定」而非「不存在」 | 统计首参数不是字面量的 mapping 访问器 | `loopx/` 下 1712 处；某字段读者计为零时，是对着这个公开的未知数计零 | 这正是零读者本身不能授权删除的原因（Q11）。计算式下标不计入：`rows[index]` 与 `payload[key]` 是同一种语法 |
+| 计算式键保持「未定」而非「不存在」 | 统计首参数不是字面量的 mapping 访问器 | `loopx/` 下 1709 处；某字段读者计为零时，是对着这个公开的未知数计零 | 这正是零读者本身不能授权删除的原因（Q11）。计算式下标不计入：`rows[index]` 与 `payload[key]` 是同一种语法 |
 | 模块局部约定过滤器是一次代码修改 | 扩宽 `inventory.py` 的 `MODULE_LOCAL_CONVENTION` 并重新生成 | `*_semantic` 预算下降而别处无代码改动 | 已知边界；正则在代码里，扩宽是可评审的 diff，未过滤总数仍在预算内 |
 | 无人生产的注册值失败（M0.5） | 在基线上运行生产形式扫描 | 失败并点名 `effective_action` 与 `skip`；删除 `skip` 或列入 `compatibility_only` 后通过 | 第一个预期的 I12 失败；只被比较的值不算已携带 |
 | 生产未注册值失败（M0.5） | 在某个已列生产位点写 `effective_action: "brand_new"` | 即使无消费者比较它也失败，并点名位点与值 | I13；生产比比较更严 |
@@ -873,7 +873,7 @@ PR review 保留这些层级。普通改动记录检查范围和理由，无共�
    加入 `check_reader_metric()`：把同一批模块拆成读者、写方、形参/局部承载、
    未定名字载体与提及，并把前三者作为迁移面纳入预算。两个指标现在都在检查。
    仍然未决的是：当迁移面预算已经能排序删除工作后，是否退役 token 预算；以及
-   在 1712 处计算式键访问之下，迁移面为零的字段还欠哪些残余证据。
+   在 1709 处计算式键访问之下，迁移面为零的字段还欠哪些残余证据。
    Owner：内核维护者。
 
 ## 附录 A：执行账本（非规范）
@@ -901,7 +901,7 @@ token 计数掩盖掉的三个结果：
   个模块是提示词散文与模块路径导入，迁移根本不会碰到。
 - `protocol_action_packet` 只有一个 Python 读者和四个写方。它是代价最低的首个
   M3 删除对象，而 token 计数说不出这一点。
-- `loopx/` 下有 1712 处 mapping 访问器使用计算式键。任何按名字的扫描——词法的
+- `loopx/` 下有 1709 处 mapping 访问器使用计算式键。任何按名字的扫描——词法的
   还是句法的——都无法归属它们，因此 smoke 把这个数字与各字段计数一起打印。这
   就是「计数归零不授权删除」的可测形式；残余义务归 Q11。
 
@@ -916,14 +916,11 @@ Python 模块：计算式键总数是全仓范围的，一个从不提及任何�
 0.7s，并且会把 `check_inventory` 从 2.4s 拖到 5.4s，而那正是 #4628 刚刚变快的
 那一趟。
 
-TypeScript 用有界文法扫描，且先把字符串字面量与注释抹白再匹配代码文本，否则路
-径标签 `"decision.heartbeat_recommendation"` 会被算成属性读取。行首裸写的
-`field:` 报为提及而非写入：在这套文法看来，接口成员与对象字面量条目形状相同，
-把一处声明算作生产会恰好朝 I13 警告的方向高估。字符串与注释按源码顺序抹白；
-下标匹配的起点必须在两者之外，避免 URL 隐藏后续代码或散文中的示例变成读者。
-模板插值、正则字面量与计算式键的数据流不在此有界文法内；M3 删除字段前必须
-另行核查这些路径。
-
+TypeScript 一次批量复用 `scripts/semantic_production_scan.mjs` 的 TypeScript
+解析器，按 AST 属性和字面量下标区分读、写及复合更新，覆盖可选访问与模板插值。
+注释、引用示例与正则字面量不会变成访问，也不会遮住后续代码。裸对象／类型键
+仍计为提及：单凭语法不能断定该对象承载退休字段的 payload。计算式键的数据流
+与外部消费者仍在本指标之外，M3 删除前必须另行核查；token 预算保持不变。
 
 ### 2026-09-17 — 不变量表述收敛到各自已验证的值域
 
@@ -1126,7 +1123,7 @@ TypeScript 用有界文法扫描，且先把字符串字面量与注释抹白再
 | E21 | F1/F2 写成无条件，但只在一个层上被验证 | `3ca868193` | 从源码树读 `check_producers` 的跳过谓词与 producer 扫描根目录 | 26 个词表中 6 个声明了 `producers`，恰好是 `tier: kernel` 那几个；被跳过的 20 个全部是 `cross_runtime`；扫描触及 1203 个已跟踪 `loopx/**/*.{py,ts}` 中的 432 个（35.9%），未覆盖部分主要是 capabilities 285、其余控制面 192、extensions 83 | 计数来自注册表与已跟踪源码树；分母会随任何新模块移动，所以只上报、不钉住 |
 | E22 | 15 个被上报的未解析位点永远不可能成为证据 | `3ca868193` | smoke 报告的 `unresolved_producer_blockers` | 41 个未解析位点，其中 `argument_name_only` 10 个、`annotation_only` 5 个分别是以字段名命名的关键字参数和裸声明；其余 26 个是动态或跨过程的 | 按标签归组；这两个标签在扫描器里由代码持有，因此这个下界只能靠改代码移动 |
 | E23 | F4 写法本身不可能被违反 | `3ca868193` | 对照 F4 表述阅读 `check_scope_declarations` | 作用域是声明的、从不推断，所以 `conflict := collision ∧ scope_overlap` 是一条定义；真正被强制的是一份声明必须恰好枚举每个定义模块，范围是 1 份声明、4 个上下文 | 阅读检查后的判断；各上下文值集互斥故意*不*作为该性质，因为 `SOURCE_SURFACES` 正是合理地在四个上下文复用同一个名字（E19） |
-| E24 | 退休预算把提及算成了读者 | `e12e05fff` | 对六个旧字段运行 `check_reader_metric()`；断言角色划分 `count_identifier_modules()` | 109 个 py token 模块解析为 82 个迁移面模块；`goal_boundary` 30 → 15，`work_lane_contract` 29 → 28，`protocol_action_packet` 5 → 5 且只有一个读者 | 度量句法使用而非数据流；1712 处计算式键 mapping 访问仍无法归属，因此迁移面为零不等于读者为零 |
+| E24 | 退休预算把提及算成了读者 | B3 integration tree | 对六个旧字段运行 `check_reader_metric()`；断言角色划分 `count_identifier_modules()` | 109 个 py token 模块解析为 82 个迁移面模块；`goal_boundary` 30 → 15，`work_lane_contract` 29 → 28，`protocol_action_packet` 5 → 5 且只有一个读者 | 度量句法使用而非数据流；1709 处计算式键 mapping 访问仍无法归属，因此迁移面为零不等于读者为零 |
 | E13 | 冲突预算主要在度量局部命名 | `1dc6ad8d8` | 对 `conflicting_values` 与 `same_runtime_forks` 名字应用 `MODULE_LOCAL_CONVENTION` | 18 个冲突中 16 个、25 个分叉中 7 个是模块局部约定；语义子集分别为 2 与 18 | 分类是名字模式，已在扫描器中说明并由夹具测试钉住 |
 
 ## 附录 D：被否决或取代的方案

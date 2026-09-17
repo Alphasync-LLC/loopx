@@ -786,7 +786,7 @@ on the next full-tree scan; genuine shared-contract changes still need review.
 | Retirement budgets use standalone field tokens | `count_identifier_modules()` uses identifier boundaries for the six fields | `goal_boundary`: 30 Python modules under the new metric; the old substring metric was 35 | Conservative lexical measure; it removes compound-name false positives but does not prove semantic reader absence |
 | The retirement metric separates readers from mentions (B3) | `check_reader_metric()` classifies every module carrying one of the six field tokens as reader, writer, binding, unresolved or mention | `goal_boundary`: 30 token modules resolve to 8 readers, 4 writers, 3 bindings, 1 unresolved and 14 mentions, so its migration surface is 15, not 30; `work_lane_contract` stays at 28 of 29 | Syntactic use, not data flow. The roles are asserted to partition the token count, so the smaller number is a reclassification of the same modules and not a different population |
 | A new reader of a legacy field fails the pull-request path | Add a module reading `payload["protocol_action_packet"]` beyond the budget | `check_reader_metric` fails naming the field and the count | Committed fixture in `tests/architecture/test_semantic_vocabulary_drift.py`; the anchor equality check is the same pattern as `RETIREMENT_ANCHOR` |
-| A computed key stays unresolved rather than absent | Count mapping accessors whose first argument is not a literal | 1712 sites under `loopx/`; a field measured at zero readers is measured against that standing unknown | This is why zero readers cannot by itself authorize a removal (Q11). Subscripts with a computed key are excluded: `rows[index]` and `payload[key]` are the same syntax |
+| A computed key stays unresolved rather than absent | Count mapping accessors whose first argument is not a literal | 1709 sites under `loopx/`; a field measured at zero readers is measured against that standing unknown | This is why zero readers cannot by itself authorize a removal (Q11). Subscripts with a computed key are excluded: `rows[index]` and `payload[key]` are the same syntax |
 | The module-local convention filter is a code edit | Widen `MODULE_LOCAL_CONVENTION` in `inventory.py` and scan | `*_semantic` budgets fall with no code change elsewhere | Known boundary; the regex is in code so the widening is a reviewed diff, and the unfiltered totals stay budgeted |
 | A registered value nobody produces fails (M0.5) | Run the production-form scan on the baseline | Fails naming `effective_action` and `skip`; passes after `skip` is removed or listed `compatibility_only` | First expected I12 failure; a compared-only value is not carried |
 | A producer of an unregistered value fails (M0.5) | Write `effective_action: "brand_new"` in a listed producer site | Fails naming the site and the value even though no consumer compares it | I13; production is stricter than comparison |
@@ -1074,7 +1074,7 @@ introduce a competing target state.
    mentions and budgets the first three as the migration surface. Both metrics
    are now checked. What stays open is whether the token budget is retired once
    the surface budget has ordered a removal, and what residual evidence a field
-   at zero surface still owes given 1712 computed-key sites. Owner: kernel
+   at zero surface still owes given 1709 computed-key sites. Owner: kernel
    maintainers.
 
 ## Appendix A: Execution ledger (non-normative)
@@ -1104,7 +1104,7 @@ Three results the token count had hidden:
   and module-path imports that no migration touches.
 - `protocol_action_packet` has one Python reader and four writers. It is the
   cheapest first M3 removal, and the token count did not say so.
-- 1712 mapping accessors under `loopx/` take a computed key. No name-keyed scan,
+- 1709 mapping accessors under `loopx/` take a computed key. No name-keyed scan,
   lexical or syntactic, can attribute them, so the smoke prints that number
   beside the per-field counts. This is the measured form of "a zero count does
   not authorize a deletion"; the residual obligation is Q11's.
@@ -1123,18 +1123,14 @@ roughly two million AST nodes for the rest of the run measured 0.7s worse
 overall than parsing twice, and it slowed `check_inventory` from 2.4s to 5.4s,
 which is the pass #4628 had just made cheaper.
 
-TypeScript is scanned by bounded grammar over code text whose string literals
-and comments are blanked first, because the path label
-`"decision.heartbeat_recommendation"` would otherwise count as a property read.
-A bare `field:` at the head of a line is reported as a mention, not a write: an
-interface member and an object-literal entry are the same shape to this grammar,
-and crediting a declaration as production would overstate it in exactly the
-direction I13 warns about. Strings and comments are masked in source order;
-subscript matches must start outside either, so quoted URLs do not hide later
-code and access examples in prose do not become readers. Template interpolation,
-regular-expression literals and computed-key data flow are outside this bounded
-grammar; M3 must inspect those paths before removing a field.
-
+TypeScript reuses `scripts/semantic_production_scan.mjs` and its TypeScript
+parser in one batch. AST property and literal-subscript accesses distinguish
+reads, writes and compound updates, including optional access and template
+interpolation; comments, quoted examples and regex literals cannot become
+accesses or mask later code. Bare object/type keys remain mentions: syntax
+alone does not establish that the object carries the retired payload field.
+Computed-key data flow and external consumers remain outside this metric;
+M3 must inspect those paths before removal. The token budgets are unchanged.
 
 ### 2026-09-17 — Invariant statements bounded to their verified domains
 
@@ -1374,7 +1370,7 @@ result on the current tree; what changes is what the invariants claim.
 | E21 | F1/F2 were unconditional but verified over one tier | `3ca868193` | `check_producers`' skip predicate, and the producer scan roots, read from the tree | 6 of 26 vocabularies declare `producers`, exactly the `tier: kernel` ones; the 20 skipped are all `cross_runtime`; the scan reaches 432 of 1203 tracked `loopx/**/*.{py,ts}` files (35.9%), the uncovered bulk being capabilities 285, other control-plane 192, extensions 83 | Counts from the registry and the tracked tree; the reach denominator moves with any new module, so it is reported, not pinned |
 | E22 | Fifteen reported unresolved sites can never become evidence | `3ca868193` | smoke report `unresolved_producer_blockers` | 41 unresolved sites, of which `argument_name_only` 10 and `annotation_only` 5 are a field-named keyword argument and a bare declaration; the other 26 are dynamic or interprocedural | Label-keyed; the two labels are code-owned in the scanner, so the floor moves only by a code edit |
 | E23 | F4 as written could not be violated | `3ca868193` | read `check_scope_declarations` against the F4 statement | Scope is declared and never inferred, so `conflict := collision ∧ scope_overlap` is a definition; what is enforced is that a declaration names every defining module exactly once, over 1 declaration and 4 contexts | Judgement from reading the check; value-set disjointness across contexts is deliberately *not* the property, because `SOURCE_SURFACES` legitimately reuses one name in four contexts (E19) |
-| E24 | The retirement budget counted mentions as readers | `e12e05fff` | `check_reader_metric()` over the six legacy fields; roles asserted to partition `count_identifier_modules()` | 109 py token modules resolve to 82 surface modules; `goal_boundary` 30 → 15, `work_lane_contract` 29 → 28, `protocol_action_packet` 5 → 5 with one reader | Syntactic use, not data flow; 1712 computed-key mapping accessors stay unattributable, so zero surface is not zero readers |
+| E24 | The retirement budget counted mentions as readers | B3 integration tree | `check_reader_metric()` over the six legacy fields; roles asserted to partition `count_identifier_modules()` | 109 py token modules resolve to 82 surface modules; `goal_boundary` 30 → 15, `work_lane_contract` 29 → 28, `protocol_action_packet` 5 → 5 with one reader | Syntactic use, not data flow; 1709 computed-key mapping accessors stay unattributable, so zero surface is not zero readers |
 | E13 | The conflict budget mostly measured local naming | `1dc6ad8d8` | `MODULE_LOCAL_CONVENTION` applied to `conflicting_values` and `same_runtime_forks` names | 16 of 18 conflicts and 7 of 25 forks are module-local conventions; the semantic subsets are 2 and 18 | Classification is a name pattern, documented in the scanner and pinned by a fixture test |
 
 ## Appendix D: Rejected or superseded alternatives

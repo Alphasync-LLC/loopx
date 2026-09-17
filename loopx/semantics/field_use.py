@@ -26,13 +26,13 @@ These limits are part of the metric, not caveats around it:
   the same syntax, and counting sequence indexing as an unresolved mapping read
   would inflate the unknown until it stopped carrying information.
 * Same-prefix identifiers are different fields. ``legacy_field_repair`` is not
-  a use of ``legacy_field``; the AST compares whole keys, and the TypeScript
-  scan anchors on non-identifier boundaries.
+  a use of ``legacy_field``; both language AST scans compare whole keys.
 * A field this module measures must not be spelled out here. The scan reads
   tracked sources under ``loopx/``, this file is one of them, and a field name
   in a docstring would add a mention to that field's own budget. The examples
   above use ``legacy_field`` for that reason; the real names live in the
-  registry and in the smoke's anchors, both outside the scanned root.
+  registry and in the smoke's anchors, outside the scanned Python/TypeScript
+  sources.
 * A mention is evidence of nothing. Prompt prose and module paths carry the
   token without a recognized access. Locals and parameters are instead bindings:
   they may carry the value through a signature that a migration must inspect.
@@ -43,10 +43,12 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
 import re
 from typing import Any, Iterable
 
 from .inventory import SourceFile, parse_python
+from .production import run_typescript_scan
 
 # ``dict``/``Mapping`` accessors whose first literal argument names a field.
 MAPPING_READ_CALLS = frozenset({"get", "pop"})
@@ -71,31 +73,6 @@ BINDING_FORMS = frozenset({"local_binding", "local_reference", "parameter", "def
 UNRESOLVED_FORMS = frozenset({"name_constant"})
 MENTION_FORMS = frozenset({"module_import", "object_key", "prose"})
 USE_FORMS = READ_FORMS | WRITE_FORMS | BINDING_FORMS | UNRESOLVED_FORMS | MENTION_FORMS
-
-# TypeScript has no parser here, so it is scanned with a bounded grammar over
-# code text whose string literals and comments have been blanked out first --
-# otherwise a path label such as ``"decision.legacy_field"`` would be counted
-# as a property read. Each pattern is anchored on non-identifier boundaries, so
-# ``legacy_field_repair`` cannot match ``legacy_field``.
-#
-# ``object_key`` (a bare ``field:`` at the head of a line) is reported as a
-# mention, not a write. An interface member and an object-literal entry are the
-# same shape, and this grammar cannot separate them; crediting a declaration as
-# a write would overstate production in exactly the direction the RFC's
-# production obligation warns about. The token count still shows the module.
-_TS_READ_PATTERNS: tuple[tuple[str, str], ...] = (
-    ("property_read", r"\.\s*{field}(?![A-Za-z0-9_$])"),
-    ("subscript_read", r"""\[\s*["']{field}["']\s*\]"""),
-)
-# Each write pattern is its read pattern followed by an assignment, so a write
-# match always starts where the corresponding read match starts. That is how a
-# pure write is kept from also counting as a read.
-_TS_WRITE_SUFFIX = r"\s*(?:=[^=]|\+=)"
-_TS_OBJECT_KEY = r"^\s*{field}\??\s*:"
-_TS_LEXEME = re.compile(
-    r"""(?P<string>(?P<q>["'`])(?:\\.|(?!(?P=q)).)*(?P=q))|//[^\n]*|/\*.*?\*/""",
-    re.DOTALL,
-)
 
 
 @dataclass(frozen=True)
@@ -231,59 +208,6 @@ def python_module_scan(tree: ast.AST, fields: frozenset[str]) -> tuple[dict[str,
     return found, dynamic_sites
 
 
-def _blank_strings_and_comments(text: str) -> tuple[str, list[str]]:
-    """Split a TypeScript module into code text and its string literals.
-
-    String and comment bodies are replaced by a placeholder of the same length
-    so line structure survives for the line-anchored patterns, while the field
-    names inside them stop matching code forms.
-    """
-    literals: list[str] = []
-
-    def mask(body: str) -> str:
-        return "".join("\x00" if character != "\n" else "\n" for character in body)
-
-    def blank_lexeme(match: re.Match[str]) -> str:
-        if match.group("string") is not None:
-            literals.append(match.group(0))
-        return mask(match.group(0))
-
-    # Match in source order: comment delimiters inside a quoted URL are data,
-    # and quotes inside a comment cannot open a string in the following code.
-    code = _TS_LEXEME.sub(blank_lexeme, text)
-    return code, literals
-
-
-def typescript_field_forms(text: str, fields: frozenset[str]) -> dict[str, set[str]]:
-    """Recognized forms per field in one TypeScript module, by bounded grammar."""
-    found: dict[str, set[str]] = {}
-    code, literals = _blank_strings_and_comments(text)
-    # Subscript keys are string literals, which blanking removed, so they are
-    # matched against the original text only when the opening bracket survived
-    # masking. An example inside a comment/string is prose, not a field access.
-    for field in fields:
-        quoted = re.escape(field)
-        for form, template in _TS_READ_PATTERNS:
-            pattern = template.format(field=quoted)
-            subject = text if form.startswith("subscript") else code
-            reads = [match.start() for match in re.finditer(pattern, subject, re.MULTILINE)
-                     if code[match.start()] != "\x00"]
-            if not reads:
-                continue
-            writes = {match.start() for match in re.finditer(pattern + _TS_WRITE_SUFFIX, subject, re.MULTILINE)
-                      if match.start() in reads}
-            if writes:
-                found.setdefault(field, set()).add(form.replace("_read", "_write"))
-            if set(reads) - writes:
-                found.setdefault(field, set()).add(form)
-        if re.search(_TS_OBJECT_KEY.format(field=quoted), code, re.MULTILINE):
-            found.setdefault(field, set()).add("object_key")
-        token = re.compile(rf"(?<![A-Za-z0-9_]){quoted}(?![A-Za-z0-9_])")
-        if any(token.search(literal) for literal in literals):
-            found.setdefault(field, set()).add("prose")
-    return found
-
-
 @lru_cache(maxsize=256)
 def _token_pattern(field: str) -> re.Pattern[str]:
     return re.compile(rf"(?<![A-Za-z0-9_]){re.escape(field)}(?![A-Za-z0-9_])")
@@ -300,7 +224,16 @@ def scan_field_uses(fields: Iterable[str], sources: Iterable[SourceFile]) -> tup
     wanted = frozenset(fields)
     uses: list[FieldUse] = []
     dynamic_sites = 0
-    for source in sources:
+    materialized = list(sources)
+    ts_sources = [source for source in materialized if source.suffix == ".ts"
+                  and any(_token_pattern(field).search(source.text) for field in wanted)]
+    # One AST request for the complete TS population, not one Node process per
+    # module/field. Reuse the producer scanner's parser and safe error boundary.
+    ts_forms = {row["path"]: row["fields"] for row in run_typescript_scan(
+        Path(__file__).resolve().parents[2], ts_sources,
+        {"mode": "field_uses", "fields": sorted(wanted)},
+    )}
+    for source in materialized:
         # Every Python module contributes to the computed-key total whether or
         # not it names a field, so the cheap substring filter only narrows the
         # per-field work, never the standing unknown.
@@ -321,7 +254,7 @@ def scan_field_uses(fields: Iterable[str], sources: Iterable[SourceFile]) -> tup
             forms, module_dynamic_sites = python_module_scan(tree, present)
             dynamic_sites += module_dynamic_sites
         elif source.suffix == ".ts":
-            forms = typescript_field_forms(source.text, present)
+            forms = {field: set(observed) for field, observed in ts_forms.get(source.path, {}).items()}
         else:
             continue
         for field in present:

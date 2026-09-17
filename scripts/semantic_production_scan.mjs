@@ -61,6 +61,45 @@ for (const source of request.sources) {
     }
     return values(node).values;
   };
+  if (request.mode === 'field_uses') {
+    const fields = new Set(request.fields);
+    const forms = new Map();
+    const record = (key, form) => {
+      if (!fields.has(key)) return;
+      if (!forms.has(key)) forms.set(key, new Set());
+      forms.get(key).add(form);
+    };
+    const visit = node => {
+      if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+        const property = ts.isPropertyAccessExpression(node);
+        const key = property ? node.name.text : staticName(node.argumentExpression);
+        let target = node, parent = node.parent;
+        while (parent && unwrap(parent) === target) { target = parent; parent = parent.parent; }
+        const assignment = ts.isBinaryExpression(parent) && parent.left === target &&
+          parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+          parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment;
+        const update = (ts.isPrefixUnaryExpression(parent) || ts.isPostfixUnaryExpression(parent)) &&
+          [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(parent.operator);
+        const deletion = ts.isDeleteExpression(parent);
+        const prefix = property ? 'property' : 'subscript';
+        if (assignment || update || deletion) record(key, `${prefix}_write`);
+        if ((!assignment && !deletion) || update ||
+            (assignment && parent.operatorToken.kind !== ts.SyntaxKind.EqualsToken)) {
+          record(key, `${prefix}_read`);
+        }
+      } else if (ts.isPropertyAssignment(node) || ts.isPropertySignature(node)) {
+        // Preserve B3's declared metric: bare keys are mentions. AST shape
+        // alone does not prove this object carries the retired payload field.
+        record(named(node.name), 'object_key');
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(tree);
+    result.push({path: source.path, fields: Object.fromEntries(
+      [...forms].map(([key, observed]) => [key, [...observed].sort()]),
+    )});
+    continue;
+  }
   function walk(node, scope) {
     if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) scope = scope === '<module>' ? named(node.name) : `${scope}.${named(node.name)}`;
     else if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {

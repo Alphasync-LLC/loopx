@@ -17,7 +17,6 @@ from loopx.semantics.field_use import (
     field_use_summary,
     python_module_scan,
     scan_field_uses,
-    typescript_field_forms,
 )
 from loopx.semantics.inventory import SourceFile
 
@@ -140,14 +139,13 @@ def test_an_unparseable_module_is_recorded_rather_than_dropped() -> None:
     ("// goal_boundary is projected downstream", "mention"),
     ("const repaired = payload.goal_boundary_repair;", None),
 ])
-def test_typescript_forms_are_classified_by_the_bounded_grammar(text: str, expected: str | None) -> None:
+def test_typescript_forms_are_classified_by_the_bounded_ast_scan(text: str, expected: str | None) -> None:
     uses, _ = scan_field_uses([FIELD], [source(text, ".ts")])
     assert [use.role for use in uses] == ([expected] if expected else [])
 
 
 def test_typescript_string_paths_do_not_become_property_reads() -> None:
-    forms = typescript_field_forms('log("decision.goal_boundary");', FIELDS)
-    assert forms[FIELD] == {"prose"}
+    assert role('log("decision.goal_boundary");', ".ts") == "mention"
 
 
 @pytest.mark.parametrize("text, expected", [
@@ -158,6 +156,11 @@ def test_typescript_string_paths_do_not_become_property_reads() -> None:
     ('const url = "https://example.test"; const value = payload.goal_boundary;', "reader"),
     ('const marker = "/*"; payload["goal_boundary"] = value;', "writer"),
     ('// "unclosed quote\nconst value = payload["goal_boundary"];', "reader"),
+    ('const pattern = /["\\\']+/; const value = payload.goal_boundary;', "reader"),
+    ('const value = `${payload.goal_boundary}`;', "reader"),
+    ('const pattern = /payload.goal_boundary/;', "mention"),
+    ('const value = payload?.["goal_boundary"];', "reader"),
+    ('payload.goal_boundary += 1;', "reader"),
 ])
 def test_typescript_lexical_context_preserves_real_accesses(text: str, expected: str) -> None:
     assert role(text, ".ts") == expected
