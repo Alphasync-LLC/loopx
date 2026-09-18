@@ -1096,6 +1096,14 @@ export async function executeCoordinationTodoTerminalLifecycle(
       completion === null ? null : completion.completion_identity_source,
     completed_at: target.todo.completed_at,
     ...(acceptanceEvidence === null ? {} : {goal_acceptance_completion: acceptanceEvidence}),
+    // A preview that omits this would show an unconditional close for work the
+    // real call still gates. Name the criteria the real call must run; never
+    // their argv, which stays out of every projection.
+    ...(acceptanceRequirements !== null && acceptanceEvidence === null
+      ? {goal_acceptance_pending: {contract_revision: acceptanceRequirements.contract_revision,
+        contract_digest: acceptanceRequirements.contract_digest,
+        criterion_ids: acceptanceRequirements.criterion_ids}}
+      : {}),
   };
   const mutations: CoordinationProjectionMutation[] = changed ? [
     {kind: "todo_upsert", todo: target.todo, clear_fields: target.clear_fields},

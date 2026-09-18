@@ -341,3 +341,19 @@ def test_bound_work_cannot_be_closed_by_editing_its_way_out_of_the_gate(
     contract = cli("inspect")[1]["goal_acceptance_contract"]
     assert contract["status"] != "accepted"
     assert contract["verification"] is None
+
+
+def test_preview_discloses_the_criteria_the_real_call_will_run(acceptance_goal):
+    """A preview that hid this showed an unconditional close the real call gates."""
+    _, document, cli, run = acceptance_goal
+    configured = _configure(cli, document)
+    common = ("--todo-id", "todo_export", "--goal-id", "goal-acceptance", "--agent-id", "agent-a")
+    code, preview = run("todo", "complete", *common, "--dry-run")
+    assert code == 0, preview
+    assert preview["goal_acceptance_pending"] == {
+        "contract_revision": configured["goal_acceptance_contract"]["revision"],
+        "contract_digest": configured["goal_acceptance_contract"]["digest"],
+        "criterion_ids": ["export"],
+    }
+    assert "validation_argv" not in json.dumps(preview)
+    assert cli("inspect")[1]["goal_acceptance_contract"]["verification"] is None
