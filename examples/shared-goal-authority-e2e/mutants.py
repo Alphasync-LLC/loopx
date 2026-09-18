@@ -104,7 +104,7 @@ CASES = [
         '  if (todo.claimed_by !== null && todo.claimed_by !== actor) return "claim_owner_mismatch";',
         '  if (todo.claimed_by === null || todo.claimed_by !== actor) return "claim_owner_mismatch";')),),
          'tests/control_plane/test_shadow_observable_native_e2e.py::test_native_unclaimed_edit_and_explicit_note_clear[disabled]'),
-    Case('native_diagnostic_truncated', ((COORDINATION + 'todo_update.ts', replacement(
+    Case('native_diagnostic_truncated', ((COORDINATION + 'todo_update_admission.ts', replacement(
         '? "Todo update cannot edit another claim owner\'s work"',
         '? "Update rejected"')),),
          'tests/control_plane/test_shadow_observable_native_e2e.py::test_canonical_argument_intent_and_atomic_claim[disabled]'),
