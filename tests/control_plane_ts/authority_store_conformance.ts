@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import {registerCoordinationReceiptConformance} from "./coordination_receipt_conformance.ts";
+import {registerAuthoritySourceConformance} from "./authority_source_conformance.ts";
 import {registerNativePlanningUpdateConformance} from "./native_planning_update_conformance.ts";
 
 import type {
@@ -222,6 +223,7 @@ export function registerAuthorityStoreConformance(
   registerMonitorConfigurationConformance(providerName, factory);
   registerLeasedMonitorConformance(providerName, factory);
   registerCoordinationReceiptConformance(providerName, factory);
+  registerAuthoritySourceConformance(providerName, factory);
   registerHandoffModeConformance(providerName, factory);
   for (const native of [false, true]) test(`${providerName} conformance: standing revocation survives canonical ordering and archive (${native ? "native" : "legacy"})`, async (t) => {
     const {store} = await factory(t);
