@@ -84,21 +84,3 @@ def test_report_rejects_broken_dependencies(tmp_path, mutation):
     (tmp_path / "lead" / "report.json").write_bytes(encoded(report))
     with pytest.raises((ValueError, FileNotFoundError)):
         validate_report(tmp_path)
-
-
-def test_delegation_returns_actionable_oracle_failure_without_accepting_it(tmp_path, monkeypatch):
-    import research_team as demo
-
-    fixture(tmp_path)
-    (tmp_path / "accepted" / "analyst-initial.json").unlink()
-    (tmp_path / "settings.json").write_text(json.dumps({"dsh_model": "fixture"}))
-    work = tmp_path / "analyst" / "initial"
-    output = json.loads((work / "output.json").read_text())
-    output["independent_source_families"] = 2
-    (work / "output.json").write_bytes(encoded(output))
-    monkeypatch.setattr(demo, "canonical_tasks", lambda *args: {"todo_analyst-initial": {"done": False}})
-    monkeypatch.setattr(demo, "turn", lambda *args: {"status": "failed", "result_kind": "validation_failed"})
-    result = demo.delegate(tmp_path, "analyst", "initial", "Check current-period evidence.")
-    assert result["accepted"] is False
-    assert result["reason"] == "worker_evidence_rejected:independent_source_families"
-    assert not (tmp_path / "accepted" / "analyst-initial.json").exists()

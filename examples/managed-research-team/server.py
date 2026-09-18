@@ -1,7 +1,6 @@
-"""Trusted demo-only composition of canonical Todo + Turn; not a fleet service."""
+"""Synthetic domain tools composed with the reusable collaboration/Turn service."""
 from __future__ import annotations
 
-import asyncio
 import argparse
 from hashlib import sha256
 import json
@@ -16,7 +15,6 @@ from acceptance import validate_delivery, validate_member, canonical_tasks, requ
 
 server = FastMCP("synthetic-research-team")
 worker_server = FastMCP("synthetic-research-member")
-lock = asyncio.Lock()
 worker_identity: tuple[str, str] | None = None
 
 
@@ -33,7 +31,11 @@ def root(actor: str = "lead", revision: str = "report") -> Path:
 def read_assignment() -> dict:
     """Read synthetic inputs, authorized roster and independently checked report contract."""
     path = root()
-    return {"assignments": assignments(path), "inputs": [evidence(revision) for revision in REVISIONS],
+    return {"execution": "Use list_execution_bindings, then start_delegation for your bindings. "
+                         "Choose stable operation ids; wait_delegation returns running until finished. "
+                         "Cloud-analyst delegates local-reviewer itself; cloud-reviewer consumes completed local-analyst. "
+                         "Read the final four artifacts with read_accepted_evidence before write_report.",
+            "assignments": assignments(path), "inputs": [evidence(revision) for revision in REVISIONS],
             "objective": "Compare the initial and corrected evidence. Obtain an independently accepted result "
                          "for each authorized worker/revision assignment. You choose questions/order; revise rejected work. "
                          "Use all four accepted artifacts in the report. Count source families corroborating "
@@ -41,18 +43,20 @@ def read_assignment() -> dict:
             "report_fields": {"initial_normalized_fcf": "integer", "corrected_normalized_fcf": "integer",
                               "revision_delta": "corrected minus initial", "growth_supported": "boolean",
                               "independent_source_families": "integer", "repost_stale_after_correction": "boolean",
-                              "dependencies": {"worker/revision": "artifact_sha256 returned by delegate"}, "reason": "short explanation"}}
+                              "dependencies": {"worker/revision": "artifact_sha256 returned by read_accepted_evidence"}, "reason": "short explanation"}}
 
 
 @server.tool()
-async def delegate(worker: str, revision: str, question: str) -> dict:
-    """Assign a question to a registered member; return independently accepted evidence or rejection.
-
-    Use the exact worker/revision pairs from read_assignment. Two attempts per pair.
-    Exact accepted dependencies are reused, not rerun. Canonical Todo/Turn own admission and acceptance.
-    """
-    async with lock:
-        return await asyncio.to_thread(demo.delegate, root(), worker, revision, question)
+def read_accepted_evidence() -> dict:
+    """Read accepted canonical member outputs, including results returned through nested members."""
+    path = root()
+    rows = canonical_tasks(path)
+    results = []
+    for member in assignments(path):
+        actor, revision = member["worker"], member["revision"]
+        require_completed(rows, actor, revision)
+        results.append(demo.accepted_entry(actor, revision, validate_member(path, actor, revision)))
+    return {"results": results}
 
 
 @server.tool()
@@ -93,11 +97,16 @@ def read_input() -> dict:
     if dependency:
         actor, revision = dependency.split("/")
         path = workspace.parent.parent
-        require_completed(canonical_tasks(path), actor, revision)
-        artifact = validate_member(path, actor, revision)
-        adopted = {"identity": dependency, "artifact": artifact, "artifact_sha256": sha256(encoded(artifact)).hexdigest()}
+        try:
+            require_completed(canonical_tasks(path), actor, revision)
+        except ValueError:
+            adopted = {"identity": dependency, "status": "incomplete", "instruction": "Use your authorized execution binding to request this prerequisite, then wait for acceptance."}
+        else:
+            artifact = validate_member(path, actor, revision)
+            adopted = {"identity": dependency, "artifact": artifact, "artifact_sha256": sha256(encoded(artifact)).hexdigest()}
     return {"input": json.loads(raw), "input_sha256": sha256(raw).hexdigest(), "upstream": adopted,
             "task": (workspace / "TASK.md").read_text(),
+            "delegation": json.loads((workspace / "DELEGATION.json").read_text()) if (workspace / "DELEGATION.json").exists() else None,
             "instruction": "Use write_output to submit output.json. Host validation and canonical completion follow separately."}
 
 
@@ -117,24 +126,29 @@ def write_output(output: dict) -> dict:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--local-lead-root", type=Path)
+    parser.add_argument("--local-root", type=Path)
     parser.add_argument("--worker")
     parser.add_argument("--revision", choices=REVISIONS)
     args = parser.parse_args()
-    if args.local_lead_root:
-        if args.worker or args.revision:
-            parser.error("local lead and cloud member bindings are exclusive")
-        path = args.local_lead_root.resolve()
-        # The local operator's fixed Cordis command supplies this binding,
-        # like the existing collaboration MCP CLI. It is not model input.
+    if args.local_root:
+        path = args.local_root.resolve()
+        actor, revision = args.worker or "lead", args.revision or "report"
+        workspace = path / actor / revision if args.worker else path / "lead"
         os.environ.update({"LOOPX_RESEARCH_DEMO_ROOT": str(path), "LOOPX_TURN_GOAL_ID": demo.GOAL,
-                           "LOOPX_TURN_AGENT_ID": "lead", "LOOPX_TURN_WORKSPACE": str(path / "lead")})
-        if not os.environ.get("ARK_API_KEY") or not os.environ.get("DEEPSEEK_API_KEY"):
-            raise ValueError("local_team_tool_requires_explicit_provider_environment")
+                           "LOOPX_TURN_AGENT_ID": actor, "LOOPX_TURN_TODO_ID": demo.todo_id(actor, revision),
+                           "LOOPX_TURN_WORKSPACE": str(workspace)})
     if args.worker or args.revision:
         if not args.worker or not args.revision:
             parser.error("worker and revision required together")
         worker_identity = (args.worker, args.revision)
-        worker_server.run(transport="stdio")
-    else:
-        server.run(transport="stdio")
+    actor, revision = args.worker or "lead", args.revision or "report"
+    path = root(actor, revision)
+    workspace = path / actor / revision if args.worker else path / "lead"
+    selected = worker_server if args.worker else server
+    from loopx.collaboration_mcp import register_collaboration_tools
+    from loopx.control_plane.collaboration.delegation import Delegations, register_tools
+    register_collaboration_tools(selected, path / "runtime", path / "registry.json", demo.GOAL, actor, workspace)
+    if (path / "delegation-config.json").exists():
+        register_tools(selected, Delegations(path / "runtime", path / "registry.json", demo.GOAL,
+                                             actor, path / "delegation-config.json"))
+    selected.run(transport="stdio")

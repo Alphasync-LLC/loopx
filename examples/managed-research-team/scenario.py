@@ -13,9 +13,11 @@ def roster(topology: str) -> list[dict]:
     if topology == "local-led":
         members = [{"worker": worker, "revision": revision, "host": host} for worker, revision, host in (
             ("local-analyst", "initial", "dsh"), ("cloud-reviewer", "initial", "ark"),
-            ("cloud-analyst", "corrected", "ark"), ("local-reviewer", "corrected", "dsh"),
+            ("local-reviewer", "corrected", "dsh"), ("cloud-analyst", "corrected", "ark"),
         )]
         members[1]["upstream"] = "local-analyst/initial"
+        members[2]["requester"] = "cloud-analyst"
+        members[3]["upstream"] = "local-reviewer/corrected"
         return members
     if topology == "cloud-led":
         return [{"worker": worker, "revision": revision, "host": "dsh"}
@@ -66,6 +68,7 @@ def encoded(value: dict) -> bytes:
 def task(revision: str, question: str) -> str:
     return (
         f"Read input.json, a synthetic {revision} filing. {question}\n"
+        "Read DELEGATION.json and use read_context / assess_request to adopt or reject the specific request. "
         "Calculate and verify locally. Write output.json with keys input_sha256 (actual input file hash), "
         "revision, raw_fcf, normalized_fcf, period_comparable (boolean), growth_supported (boolean), "
         "independent_source_families (integer), repost_stale (boolean), source_refs (list including ALL three "

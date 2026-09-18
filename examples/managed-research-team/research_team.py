@@ -13,9 +13,9 @@ import subprocess
 import sys
 import uuid
 
-from scenario import REVISIONS, EvidenceRejected, assignments, roster, encoded, evidence, task, validate_worker
+from scenario import REVISIONS, roster, encoded, evidence, task
 from acceptance import GOAL, canonical_tasks, require_completed, todo_id, validate_delivery, validate_member
-from execution import host_arguments
+from execution import host_arguments, configure_delegations
 
 HERE = Path(__file__).resolve().parent
 
@@ -86,12 +86,22 @@ def prepare(root: Path, provider: str = "file", topology: str = "cloud-led") -> 
         identity = todo_id(actor, revision)
         text = (
             "Use the research_team MCP tools. Read the assignment with read_assignment. Organize the registered "
-            "members to analyze their authorized synthetic filing revisions. Decide delegation questions and order yourself. Review their "
+            "members with list_execution_bindings/start_delegation/wait_delegation to analyze their authorized revisions. "
+            "Use stable operation ids and collaboration_brief_v0 (purpose, context, constraints, inputs, acceptance, return_requirement). "
+            "Complete local-analyst before requesting cloud-reviewer, who must adopt its exact artifact. "
+            "Cloud-analyst is responsible for delegating its local-reviewer prerequisite through the same tools. "
+            "You can start independent branches concurrently. A running operation is not failure; wait for its original result. "
+            "Read all final artifacts with read_accepted_evidence. Decide questions and order yourself. Review their "
             "accepted results, resolve differences, then write_report with all four evidence hashes. "
             "Only return validated_progress after write_report confirms independent checks."
             if actor == "lead" else
-            "Read TASK.md locally, or use read_input/write_output when running remotely. Produce independently checked output.json for " + revision + "."
+            "Read TASK.md and DELEGATION.json, or use read_input/write_output. Read context and assess_request before working. "
+            "Use list_execution_bindings to find any authorized child. If present, start_delegation to the child "
+            "with a collaboration_brief_v0 and parent_request_id from DELEGATION.json; wait_delegation until accepted. "
+            "Then read_input again to obtain and adopt its exact artifact. Produce independently checked output.json for " + revision + "."
         )
+        if actor != "lead":
+            (root / actor / revision / "TASK.md").write_text(task(revision, text))
         tasks.append({"todo_id": identity, "text": text, "claimed_by": actor})
         criteria.append({"id": actor + "-" + revision, "description": "Independent checks for " + actor + " " + revision,
                          "validation_argv": [sys.executable, "validation/acceptance.py", str(root),
@@ -132,66 +142,6 @@ def turn(root: Path, actor: str, revision: str, workspace: Path, validator: list
                *host_args, "--execute", workspace=workspace, timeout=timeout + 60)
 
 
-def delegate(root: Path, worker: str, revision: str, question: str) -> dict:
-    member = next((row for row in assignments(root) if row["worker"] == worker and row["revision"] == revision), None)
-    if member is None or not question or len(question) > 1500:
-        raise ValueError("invalid_assignment")
-    accepted = root / "accepted" / (worker + "-" + revision + ".json")
-    workspace = root / worker / revision
-    rows = canonical_tasks(root)
-    if member.get("upstream"):
-        previous_actor, previous_revision = member["upstream"].split("/")
-        try:
-            require_completed(rows, previous_actor, previous_revision)
-        except ValueError:
-            return {"accepted": False, "reason": "complete_dependency_first:" + member["upstream"]}
-    if rows[todo_id(worker, revision)]["done"]:
-        require_completed(rows, worker, revision)
-        output = validate_member(root, worker, revision)
-        return accepted_entry(worker, revision, output)
-    attempts = root / "attempts" / (worker + "-" + revision + ".json")
-    count = json.loads(attempts.read_text())["count"] if attempts.exists() else 0
-    if count >= 2:
-        raise ValueError("worker_attempt_budget_exhausted")
-    write(attempts, {"count": count + 1})
-    (workspace / "TASK.md").write_text(task(revision, question))
-    if member.get("upstream"):
-        with (workspace / "TASK.md").open("a") as prompt:
-            prompt.write("\nUse read_input to obtain the accepted upstream artifact. Independently verify it against the filing. "
-                         "Include adopted_dependencies mapping its worker/revision identity to its exact artifact_sha256.\n")
-    result = turn(root, worker, revision, workspace,
-                  [sys.executable, str(HERE / "research_team.py"), "validate-worker", str(workspace), "--revision", revision],
-                  # Ark execution may use 220 seconds; session/Agent deletion
-                  # and absence readback need up to four further 10-second calls.
-                  # Leave cleanup and transport teardown room before the outer
-                  # generic-cli host deadline. The coordinator waits 420 seconds.
-                  host_arguments(root, worker, revision, host=member["host"], attempt=count), 300)
-    summary = {key: result.get(key) for key in ("status", "result_kind", "validation", "resume_turn_key", "error")}
-    write(root / "turns" / (worker + "-" + revision + "-" + str(count) + ".json"), summary)
-    if result.get("status") != "committed" or result.get("result_kind") != "validated_progress":
-        reason = "independent_turn_rejected"
-        if result.get("result_kind") == "validation_failed":
-            try:
-                validate_worker(workspace, revision)
-            except EvidenceRejected as exc:
-                reason = str(exc)
-            except ValueError:
-                reason = "invalid_worker_json"
-            except OSError:
-                reason = "worker_output_missing"
-        elif result.get("status") == "unavailable":
-            reason = "worker_runtime_unavailable"
-        return {"worker": worker, "revision": revision, "accepted": False, "reason": reason}
-    output = validate_member(root, worker, revision)
-    try:
-        complete(root, worker, revision)
-    except (RuntimeError, ValueError) as exc:
-        return {"worker": worker, "revision": revision, "accepted": False, "reason": str(exc)[:300]}
-    entry = accepted_entry(worker, revision, output)
-    write(accepted, entry)
-    return entry
-
-
 def accepted_entry(worker: str, revision: str, output: dict) -> dict:
     return {"worker": worker, "revision": revision, "accepted": True,
             "todo_id": todo_id(worker, revision), "todo_status": "done",
@@ -205,6 +155,7 @@ def launch(root: Path, model: str, environment_id: str, dsh_model: str, topology
         raise ValueError("ARK_API_KEY_and_DEEPSEEK_API_KEY_required")
     prepare(root, topology=topology)
     write(root / "settings.json", {"dsh_model": dsh_model, "ark_model": model, "environment_id": environment_id})
+    configure_delegations(root)
     os.environ["LOOPX_RESEARCH_DEMO_ROOT"] = str(root)
     result = turn(root, "lead", "report", root / "lead", [sys.executable, str(HERE / "research_team.py"), "validate-report", str(root)],
                   host_arguments(root, "lead", "report", host="dsh" if topology == "local-led" else "ark"), 1200)
