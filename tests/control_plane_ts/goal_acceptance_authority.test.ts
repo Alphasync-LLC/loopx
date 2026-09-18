@@ -46,6 +46,14 @@ function originalHead() {
     todo("todo_monitor", {task_class: "continuous_monitor"}),
     todo("todo_completed", {status: "done", done: true})], [], "native", {other_contract: {retained: true}});
 }
+test("terminal continuation observations preserve work while changed requirements invalidate it", () => {
+  const work = todo("todo_first");
+  const completed = {...work, status: "done", done: true, no_followup: true,
+    completion_continuation: "no_followup", note: "Bounded task completed"};
+  assert.equal(goalAcceptanceTodoDigest(completed), goalAcceptanceTodoDigest(work));
+  assert.notEqual(goalAcceptanceTodoDigest({...completed, text: "Deliver different work"}), goalAcceptanceTodoDigest(work));
+  assert.notEqual(goalAcceptanceTodoDigest({...completed, completion_validation_required: true}), goalAcceptanceTodoDigest(work));
+});
 async function seed(store: AuthorityStore) {
   assert.equal((await store.commitAuthority({operation_id: "seed", expected_provider_revision: null,
     events: [], receipts: [], next_projection: originalHead()})).status, "applied");
