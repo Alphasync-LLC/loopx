@@ -1159,7 +1159,7 @@ introduce a competing target state.
 ## Appendix A: Execution ledger (non-normative)
 
 New entries are files, not sections here. Each one lives in
-[`ledger/`](ledger/README.md) as `YYYY-MM-DD-slug.md` with a Chinese mirror
+[`ledger/<rfc-slug>/`](ledger/README.md) as `YYYY-MM-DD-slug.md` with a Chinese mirror
 beside it, and nothing enumerates them — the directory listing is the index.
 
 The reason is measured, not stylistic. This section was a single append cluster:
