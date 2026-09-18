@@ -80,8 +80,25 @@
       </section>
 
       <section id="benchmark">
-        <h2>Benchmark：三项研究，三个值得追查的信号</h2>
-        <p>三项研究分别观察续跑、交付和验证行为。任务、模型设置与统计口径不同，应分别理解；现有结果还不足以概括 LoopX 的普遍增益。</p>
+        <h2>Benchmark：从 LHTB 看长程工作，再看三个补充信号</h2>
+        <p>先看跨领域长程任务中的恢复与回退，再用三项软件工程研究补充续跑、交付和验证行为。四项研究的任务、模型设置与统计口径不同，应分别理解；现有结果还不足以概括 LoopX 的普遍增益。</p>
+
+        <div class="study-signal" id="benchmark-lhtb">
+          <h3>LHTB：工作能恢复，已有成果也要保住</h3>
+          <p class="study-setting">GPT-5.6 Sol / max · 46 个匹配任务、五种执行机制 · 每个任务 × 实验臂一条有效运行</p>
+          <p>Long-Horizon Terminal-Bench 覆盖软件、游戏、科学与专业工作流等九类任务，按最终产物给出 0–1 的连续 Reward；本研究以 Reward ≥ 0.95 计为通过。它把长程工作中的部分进展与完整验收分开呈现。</p>
+          <div class="table-scroll"><table class="benchmark-table"><caption>LHTB 五臂结果：平均 Reward 与严格通过数</caption><thead><tr><th scope="col">执行机制</th><th scope="col">平均 Reward</th><th scope="col">通过 / 46</th></tr></thead><tbody>
+            <tr><th scope="row">Plain</th><td>0.4218</td><td>7</td></tr>
+            <tr><th scope="row">原生 Goal</th><td>0.4475</td><td>4</td></tr>
+            <tr><th scope="row">LoopX SSH-Goal</th><td>0.4678</td><td>6</td></tr>
+            <tr><th scope="row">旧版 Heartbeat</th><td>0.4794</td><td>7</td></tr>
+            <tr><th scope="row">新版 Heartbeat</th><td>0.4948</td><td>7</td></tr>
+          </tbody></table></div>
+          <p><strong>观察：</strong>新版 Heartbeat 平均 Reward 最高，比旧版高 0.0154；严格通过数与 Plain、旧版相同，均为 7/46。平均进展增加，尚未转化为更多完全通过的任务。</p>
+          <p><strong>Insight：</strong>新版每次唤醒启动新的执行器，依靠工作区、Registry 与 Todo 恢复进度。简报记录了咨询任务中断后从 S27 接续的案例，也记录了 DuckDB 后续优化破坏正确性的退步。值得继续验证的是：外部化状态能否稳定支持恢复，以及检查点和回滚能否保住已有成果。</p>
+          <p class="signal-boundary"><strong>范围：</strong>新旧同时改变了传输、会话生命周期、LoopX 版本和 replan 策略；有效运行包含替代 trial，部分替代运行时限更长。没有重复 seed，成本记录口径也不同，不能据此归因单个机制或宣称同预算效率优势。</p>
+          <p class="study-link"><a href="../../../benchmarks/lhtb/?lang=zh">研究全文：五种执行机制、正反案例与 46 题矩阵 →</a></p>
+        </div>
 
         <div class="study-signal" id="benchmark-marathon">
           <h3>SWE-Marathon：续跑要补上真实缺口</h3>
@@ -110,8 +127,8 @@
           <p class="study-link"><a href="../../../benchmarks/deepswe/behavior-discovery/">研究全文：需求覆盖、行为案例与长时切片 →</a></p>
         </div>
 
-        <p class="takeaway">当前的信号是：有效续跑、可靠交付和反例驱动的修复值得继续研究。</p>
-        <p>三项研究提供了局部正向观察，也暴露了成本、失败与归因问题。下一步需要在匹配预算和重复实验中，判断哪些收益能够稳定复现。</p>
+        <p class="takeaway">让进度可恢复，让已有成果可保留，再检查续跑是否补上了验收缺口。</p>
+        <p>四项研究提供了局部正向观察，也暴露了回退、成本和归因问题。下一步需要在匹配预算和重复实验中，分别验证恢复、回滚、交付与反例驱动修复的收益。</p>
         <p class="small-note">SWE-Marathon 与 DeepSWE × Sol 已撤回的 SSH Goal、Codex CLI 成绩和结论均不用于这里的比较。</p>
       </section>
 
@@ -179,6 +196,7 @@
         <h2>公开依据与延伸阅读</h2>
         <p class="small-note">技术内容仅据公开仓库材料整理。源码与数据引用固定到本次读取修订；历史实验使用其自身版本。本页没有新增实验结果。</p>
         <ol class="source-list">
+          <li><a href="../../../benchmarks/lhtb/?lang=zh">LHTB：五种长程执行机制</a>；<a href="https://github.com/huangruiteng/loopx/blob/d60813451609ad28b2855fe7acda9a4701740c40/benchmark/LHTB/studies/five-arm-gpt56sol-max/data.json">46 题公开聚合数据</a>；<a href="https://github.com/huangruiteng/loopx/blob/d60813451609ad28b2855fe7acda9a4701740c40/benchmark/LHTB/studies/five-arm-gpt56sol-max/README.md">实验设置与范围</a>；<a href="https://github.com/huangruiteng/loopx/blob/d60813451609ad28b2855fe7acda9a4701740c40/apps/presentation/site/src/lhtb-copy.json">简报中的机制与正反案例</a>；<a href="https://zli12321.github.io/LHTB/index.html">LHTB 官方说明</a>。研究贡献者见原文。</li>
           <li><a href="../../../benchmarks/swe-marathon/?lang=zh">SWE-Marathon：持续自我验证</a>；<a href="https://github.com/huangruiteng/loopx/blob/56fa3f11b5bbe108e1bf4de254fcbdf74a84a505/benchmark/swe-marathon/README.md">设置、正反个案与局限</a>；<a href="https://github.com/huangruiteng/loopx/blob/56fa3f11b5bbe108e1bf4de254fcbdf74a84a505/benchmark/swe-marathon/data.json">公开聚合数据</a>。贡献者与案例来源见研究原文。</li>
           <li><a href="../../../benchmarks/deepswe-sol/">DeepSWE × Sol：从继续执行到有效交付</a>。独立研究简报，含 113 任务历史结果、机制图与固定修订的一手来源；研究归档贡献：<a href="https://github.com/huangruiteng/loopx/pull/4502">@gwh6669999，#4502</a>。</li>
           <li><a href="../../../benchmarks/deepswe/behavior-discovery/">DeepSWE × V4 Flash max：从提示到行为</a>；<a href="https://github.com/huangruiteng/loopx/blob/56fa3f11b5bbe108e1bf4de254fcbdf74a84a505/benchmark/deepswe/behavior-discovery/README.md">披露范围</a>；<a href="https://github.com/huangruiteng/loopx/blob/56fa3f11b5bbe108e1bf4de254fcbdf74a84a505/benchmark/deepswe/behavior-discovery/index.html">固定修订的图表、案例与指标</a>。</li>
