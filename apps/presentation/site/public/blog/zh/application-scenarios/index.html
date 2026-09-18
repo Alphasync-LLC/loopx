@@ -84,22 +84,19 @@
         <p>先看跨领域长程任务中的恢复与回退，再用三项软件工程研究补充续跑、交付和验证行为。四项研究的任务、模型设置与统计口径不同，应分别理解；现有结果还不足以概括 LoopX 的普遍增益。</p>
 
         <div class="study-signal" id="benchmark-lhtb">
-          <h3>LHTB：工作能恢复，已有成果也要保住</h3>
-          <p class="study-setting">GPT-5.6 Sol / max · 46 个匹配任务、五种执行机制 · 每个任务 × 实验臂一条有效运行</p>
-          <p><strong>LHTB 考什么：</strong>Long-Horizon Terminal-Bench 把 Agent 放进有状态的容器环境，要求它跨数百个相互依赖的终端动作完成工作。官方介绍页分为九类：软件与逆向工程、科学计算与仿真、地球/气候/能源、多模态与图像分析、研究复现与机器学习、系统/性能/安全、交互式游戏、APEX 专业工作流、逻辑与约束谜题。</p>
-          <p>具体会遇到旧版框架迁移、从科学图还原数据、复现论文实验、投行或法律事项，以及逐步玩 2048、搜索谜题解。<a href="../../../benchmarks/lhtb/?lang=zh#categories">九类任务与代表例子 →</a></p>
-          <p><strong>怎样评分：</strong>隐藏验证器检查最终产物或可重放结果，给出 0–1 的连续 Reward；本研究以 Reward ≥ 0.95 计为通过。因此，部分进展与完整验收可以分开观察。</p>
-          <div class="table-scroll"><table class="benchmark-table"><caption>LHTB 五臂结果：平均 Reward 与严格通过数</caption><thead><tr><th scope="col">执行机制</th><th scope="col">平均 Reward</th><th scope="col">通过 / 46</th></tr></thead><tbody>
+          <h3>LHTB：比 Plain 和原生 Goal 多做成了什么？</h3>
+          <p class="study-setting">GPT-5.6 Sol / max · 46 个匹配任务 · 每题每臂一条有效运行</p>
+          <p><strong>LHTB 考什么：</strong>Long-Horizon Terminal-Bench 要求 Agent 在有状态的容器中，跨数百个有依赖的终端动作完成工作。46 题覆盖九类：软件与逆向工程、科学计算、地球/气候/能源、多模态、研究复现、系统/性能/安全、游戏、APEX 专业工作流、逻辑谜题。比如迁移旧框架、复现论文、完成投行交付或逐步玩 2048。<a href="../../../benchmarks/lhtb/?lang=zh#categories">类别与代表任务 →</a></p>
+          <p><strong>怎样评分：</strong>隐藏验证器检查最终产物或可重放结果，给出 0–1 的 Reward；本研究以 ≥ 0.95 计为通过。平均进展与完整验收分别报告。</p>
+          <div class="table-scroll"><table class="benchmark-table"><caption>LHTB：LoopX Heartbeat 与两种基线</caption><thead><tr><th scope="col">执行方式</th><th scope="col">平均 Reward</th><th scope="col">通过 / 46</th></tr></thead><tbody>
             <tr><th scope="row">Plain</th><td>0.4218</td><td>7</td></tr>
             <tr><th scope="row">原生 Goal</th><td>0.4475</td><td>4</td></tr>
-            <tr><th scope="row">LoopX SSH-Goal</th><td>0.4678</td><td>6</td></tr>
-            <tr><th scope="row">旧版 Heartbeat</th><td>0.4794</td><td>7</td></tr>
-            <tr><th scope="row">新版 Heartbeat</th><td>0.4948</td><td>7</td></tr>
+            <tr><th scope="row">LoopX Heartbeat（1.0.3）</th><td>0.4948</td><td>7</td></tr>
           </tbody></table></div>
-          <p><strong>观察：</strong>新版 Heartbeat 平均 Reward 最高，比旧版高 0.0154；严格通过数与 Plain、旧版相同，均为 7/46。平均进展增加，尚未转化为更多完全通过的任务。</p>
-          <p><strong>Insight：</strong>新版每次唤醒启动新的执行器，依靠工作区、Registry 与 Todo 恢复进度。简报记录了咨询任务中断后从 S27 接续的案例，也记录了 DuckDB 后续优化破坏正确性的退步。值得继续验证的是：外部化状态能否稳定支持恢复，以及检查点和回滚能否保住已有成果。</p>
-          <p class="signal-boundary"><strong>范围：</strong>新旧同时改变了传输、会话生命周期、LoopX 版本和 replan 策略；有效运行包含替代 trial，部分替代运行时限更长。没有重复 seed，成本记录口径也不同，不能据此归因单个机制或宣称同预算效率优势。</p>
-          <p class="study-link"><a href="../../../benchmarks/lhtb/?lang=zh">研究全文：五种执行机制、正反案例与 46 题矩阵 →</a></p>
+          <p><strong>观察：</strong>相对 Plain，LoopX 均分增加 0.0731（17.3%），逐题为 17 胜、13 平、16 负，通过数相同；相对原生 Goal，均分增加 0.0473（10.6%），为 23 胜、13 平、10 负，通过数从 4 到 7。胜负按公开原始分数严格比较；均分提升不代表每题都更强。</p>
+          <p><strong>Insight：</strong>Plain 在会话内推进，原生 Goal 保留目标，LoopX 进一步用 Registry 与 Todo 组织后续工作。Tabular 与 Sokoban 相对两种基线均有收益；PoC 与原生 Goal 持平；DuckDB 却低于原生 Goal。值得验证的是，持久工作状态能否稳定增加有效进展，以及验收和回滚能否把进展变成保得住的结果。</p>
+          <p class="signal-boundary"><strong>范围：</strong>这里的 LoopX 是实验中的 1.0.3 fresh-exec Heartbeat。运行设置不同，且包含更长时限的替代 trial，没有重复 seed。LoopX 记录成本 $551.73，高于 Plain / Goal 的估算 $212.97 / $87.58；计费口径也不一致，尚不能宣称同预算效率优势。</p>
+          <p class="study-link"><a href="../../../benchmarks/lhtb/?lang=zh">研究全文：两种基线、正反案例、46 题矩阵与历史参照 →</a></p>
         </div>
 
         <div class="study-signal" id="benchmark-marathon">
@@ -198,7 +195,7 @@
         <h2>公开依据与延伸阅读</h2>
         <p class="small-note">技术内容仅据公开仓库材料整理。源码与数据引用固定到本次读取修订；历史实验使用其自身版本。本页没有新增实验结果。</p>
         <ol class="source-list">
-          <li><a href="../../../benchmarks/lhtb/?lang=zh">LHTB：五种长程执行机制</a>；<a href="https://github.com/huangruiteng/loopx/blob/d60813451609ad28b2855fe7acda9a4701740c40/benchmark/LHTB/studies/five-arm-gpt56sol-max/data.json">46 题公开聚合数据</a>；<a href="https://github.com/huangruiteng/loopx/blob/d60813451609ad28b2855fe7acda9a4701740c40/benchmark/LHTB/studies/five-arm-gpt56sol-max/README.md">实验设置与范围</a>；<a href="https://github.com/huangruiteng/loopx/blob/d60813451609ad28b2855fe7acda9a4701740c40/apps/presentation/site/src/lhtb-copy.json">简报中的机制与正反案例</a>；<a href="https://zli12321.github.io/LHTB/index.html">LHTB 官方说明</a>。研究贡献者见原文。</li>
+          <li><a href="../../../benchmarks/lhtb/?lang=zh">LHTB：与 Plain、原生 Goal 的对比</a>；<a href="https://github.com/huangruiteng/loopx/blob/d60813451609ad28b2855fe7acda9a4701740c40/benchmark/LHTB/studies/five-arm-gpt56sol-max/data.json">46 题公开聚合数据</a>；<a href="https://github.com/huangruiteng/loopx/blob/d60813451609ad28b2855fe7acda9a4701740c40/benchmark/LHTB/studies/five-arm-gpt56sol-max/README.md">实验设置与范围</a>；<a href="https://github.com/huangruiteng/loopx/blob/d60813451609ad28b2855fe7acda9a4701740c40/apps/presentation/site/src/lhtb-copy.json">简报中的机制与正反案例</a>；<a href="https://zli12321.github.io/LHTB/index.html">LHTB 官方说明</a>。研究贡献者见原文。</li>
           <li><a href="../../../benchmarks/swe-marathon/?lang=zh">SWE-Marathon：持续自我验证</a>；<a href="https://github.com/huangruiteng/loopx/blob/56fa3f11b5bbe108e1bf4de254fcbdf74a84a505/benchmark/swe-marathon/README.md">设置、正反个案与局限</a>；<a href="https://github.com/huangruiteng/loopx/blob/56fa3f11b5bbe108e1bf4de254fcbdf74a84a505/benchmark/swe-marathon/data.json">公开聚合数据</a>。贡献者与案例来源见研究原文。</li>
           <li><a href="../../../benchmarks/deepswe-sol/">DeepSWE × Sol：从继续执行到有效交付</a>。独立研究简报，含 113 任务历史结果、机制图与固定修订的一手来源；研究归档贡献：<a href="https://github.com/huangruiteng/loopx/pull/4502">@gwh6669999，#4502</a>。</li>
           <li><a href="../../../benchmarks/deepswe/behavior-discovery/">DeepSWE × V4 Flash max：从提示到行为</a>；<a href="https://github.com/huangruiteng/loopx/blob/56fa3f11b5bbe108e1bf4de254fcbdf74a84a505/benchmark/deepswe/behavior-discovery/README.md">披露范围</a>；<a href="https://github.com/huangruiteng/loopx/blob/56fa3f11b5bbe108e1bf4de254fcbdf74a84a505/benchmark/deepswe/behavior-discovery/index.html">固定修订的图表、案例与指标</a>。</li>

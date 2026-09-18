@@ -13,18 +13,24 @@ import { usePublicPageNavigation } from "./usePublicPageNavigation";
 import study from "../../../../benchmark/LHTB/studies/five-arm-gpt56sol-max/data.json";
 import copy from "./lhtb-copy.json";
 
-type Language = "en" | "zh";
 type ArmKey = keyof typeof study.arms;
-type TaskRow = (typeof study.tasks)[number];
-type TableMode = "all" | "spread" | "heartbeat";
+type Baseline = "plain" | "native_goal";
+type TableMode = "all" | Baseline;
 
-const armOrder: ArmKey[] = [
-  "plain",
-  "native_goal",
-  "ssh_goal",
-  "legacy_heartbeat",
-  "new_heartbeat",
-];
+const primaryArms: ArmKey[] = ["plain", "native_goal", "new_heartbeat"];
+const historicalArms: ArmKey[] = ["ssh_goal", "legacy_heartbeat"];
+const baselines: Baseline[] = ["plain", "native_goal"];
+const comparisons = baselines.map((baseline) => {
+  const deltas = study.tasks.map((row) => row.new_heartbeat - row[baseline]);
+  const meanDelta = deltas.reduce((sum, delta) => sum + delta, 0) / deltas.length;
+  const baselineMean = study.tasks.reduce((sum, row) => sum + row[baseline], 0) / deltas.length;
+  return {
+    baseline, meanDelta, relativeGain: meanDelta / baselineMean,
+    wins: deltas.filter((delta) => delta > 0).length,
+    ties: deltas.filter((delta) => delta === 0).length,
+    losses: deltas.filter((delta) => delta < 0).length,
+  };
+});
 
 const contributorLinks = [
   { label: "@shangzh0", href: "https://github.com/shangzh0" },
@@ -40,38 +46,67 @@ function formatMillions(value: number) {
 }
 
 function formatReward(value: number) {
-  return value.toFixed(3);
-}
-
-function rewardSpread(row: TaskRow) {
-  const values = armOrder.map((arm) => row[arm]);
-  return Math.max(...values) - Math.min(...values);
+  return value.toFixed(4);
 }
 
 export function LhtbBrief() {
   const [language, setLanguage] = usePublicPageNavigation();
   const [query, setQuery] = useState("");
   const [tableMode, setTableMode] = useState<TableMode>("all");
+  const [showHistory, setShowHistory] = useState(false);
   const c = copy[language];
+  const visibleArms = showHistory ? [...primaryArms, ...historicalArms] : primaryArms;
   const basePath = import.meta.env.BASE_URL;
 
   useEffect(() => {
     document.title = language === "zh"
-      ? "LoopX × LHTB：五种长程执行机制"
-      : "LoopX × LHTB: five long-horizon execution mechanisms";
+      ? "LoopX × LHTB：与 Plain、原生 Goal 的对比"
+      : "LoopX × LHTB: compared with Plain and native Goal";
   }, [language]);
 
   const visibleTasks = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return study.tasks.filter((row) => {
       if (normalized && !row.task.toLowerCase().includes(normalized)) return false;
-      if (tableMode === "spread") return rewardSpread(row) >= 0.2;
-      if (tableMode === "heartbeat") {
-        return Math.abs(row.new_heartbeat - row.legacy_heartbeat) >= 0.05;
-      }
+      if (tableMode !== "all") return Math.abs(row.new_heartbeat - row[tableMode]) >= 0.05;
       return true;
     });
   }, [query, tableMode]);
+
+  const summaryTable = (arms: ArmKey[]) => (
+    <div className="bm-table-wrap lhtb-summary-table">
+      <table>
+        <thead><tr>{c.summaryColumns.map((label) => <th scope="col" key={label}>{label}</th>)}</tr></thead>
+        <tbody>{arms.map((arm) => {
+          const row = study.arms[arm];
+          const tokens = "tokens" in row
+            ? formatMillions(row.tokens)
+            : `${formatMillions(row.input_tokens)} in / ${formatMillions(row.output_tokens)} out`;
+          const cost = "estimated_cost_usd" in row ? row.estimated_cost_usd : row.recorded_cost_usd;
+          return (
+            <tr className={arm === "new_heartbeat" ? "is-highlight" : undefined} key={arm}>
+              <th scope="row"><code>{c.armLabels[arm]}</code><span>{c.armKinds[arm]}</span></th>
+              <td><strong>{row.mean_reward.toFixed(4)}</strong></td>
+              <td>{row.pass_095}/{study.tasks.length}</td><td>{tokens}</td><td>${cost.toFixed(2)}</td>
+            </tr>
+          );
+        })}</tbody>
+      </table>
+    </div>
+  );
+
+  const caseCards = (cases: string[][]) => cases.map(([task, note]) => {
+    const row = study.tasks.find((item) => item.task === task)!;
+    return (
+      <article key={task}>
+        <h3>{task}</h3>
+        <dl className="lhtb-case-scores">{primaryArms.map((arm) => (
+          <div key={arm}><dt>{c.armLabels[arm]}</dt><dd>{formatReward(row[arm])}</dd></div>
+        ))}</dl>
+        <p>{note}</p>
+      </article>
+    );
+  });
 
   return (
     <div className="bm-page lhtb-page" id="top">
@@ -123,37 +158,21 @@ export function LhtbBrief() {
             <h2>{c.resultTitle}</h2>
             <p>{c.resultBody}</p>
           </div>
-          <div className="bm-table-wrap lhtb-summary-table">
-            <table>
-              <thead><tr>{c.summaryColumns.map((label) => <th key={label}>{label}</th>)}</tr></thead>
-              <tbody>
-                {armOrder.map((arm) => {
-                  const row = study.arms[arm];
-                  const isNew = arm === "new_heartbeat";
-                  const tokens = "tokens" in row
-                    ? formatMillions(row.tokens)
-                    : `${formatMillions(row.input_tokens)} in / ${formatMillions(row.output_tokens)} out`;
-                  const cost = "estimated_cost_usd" in row ? row.estimated_cost_usd : row.recorded_cost_usd;
-                  return (
-                    <tr className={isNew ? "is-highlight" : undefined} key={arm}>
-                      <th scope="row"><code>{c.armLabels[arm]}</code><span>{c.armKinds[arm]}</span></th>
-                      <td><strong>{row.mean_reward.toFixed(4)}</strong></td>
-                      <td>{row.pass_095}/46</td>
-                      <td>{tokens}</td>
-                      <td>${cost.toFixed(2)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          {summaryTable(primaryArms)}
+          <div className="lhtb-comparisons">
+            {comparisons.map((row) => (
+              <article key={row.baseline}>
+                <h3>{c.comparisonTitle.replace("{baseline}", c.armLabels[row.baseline])}</h3>
+                <strong>+{row.meanDelta.toFixed(4)}</strong><span>{c.deltaMean}</span>
+                <p>+{(row.relativeGain * 100).toFixed(1)}% {c.relativeGain}</p>
+                <p>{c.pairCounts.replace("{wins}", String(row.wins)).replace("{ties}", String(row.ties)).replace("{losses}", String(row.losses))}</p>
+                <p>{c.pairSolves.replace("{current}", `${study.arms.new_heartbeat.pass_095}/46`).replace("{baseline}", c.armLabels[row.baseline]).replace("{base}", `${study.arms[row.baseline].pass_095}/46`)}</p>
+              </article>
+            ))}
           </div>
-          <div className="lhtb-delta-strip">
-            <div><strong>+{study.heartbeat_comparison.mean_delta.toFixed(4)}</strong><span>{c.deltaMean}</span></div>
-            <div><strong>{study.heartbeat_comparison.wins}</strong><span>{c.deltaWins}</span></div>
-            <div><strong>{study.heartbeat_comparison.ties}</strong><span>{c.deltaTies}</span></div>
-            <div><strong>{study.heartbeat_comparison.losses}</strong><span>{c.deltaLosses}</span></div>
-          </div>
+          <p className="bm-runner-note">{c.comparisonNote}</p>
           <p className="bm-runner-note"><strong>{c.readingNoteLabel}</strong>{c.readingNote}</p>
+          <details className="lhtb-history"><summary>{c.historyTitle}</summary><p>{c.historyBody}</p>{summaryTable(historicalArms)}</details>
         </section>
 
         <section className="bm-section bm-shell" id="benchmark">
@@ -221,15 +240,11 @@ export function LhtbBrief() {
           <div className="lhtb-cases">
             <div>
               <p className="bm-kicker">{c.gainTitle}</p>
-              {c.gainCases.map(([task, before, after, note]) => (
-                <article key={task}><h3>{task}</h3><strong>{before} → {after}</strong><p>{note}</p></article>
-              ))}
+              {caseCards(c.gainCases)}
             </div>
             <div>
               <p className="bm-kicker lhtb-caution">{c.lossTitle}</p>
-              {c.lossCases.map(([task, before, after, note]) => (
-                <article key={task}><h3>{task}</h3><strong>{before} → {after}</strong><p>{note}</p></article>
-              ))}
+              {caseCards(c.lossCases)}
             </div>
           </div>
         </section>
@@ -243,23 +258,24 @@ export function LhtbBrief() {
           <div className="lhtb-table-tools">
             <label><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={c.searchPlaceholder} /></label>
             <div className="lhtb-segments" aria-label={c.filterLabel}>
-              {(["all", "spread", "heartbeat"] as TableMode[]).map((mode) => (
-                <button className={tableMode === mode ? "is-active" : undefined} onClick={() => setTableMode(mode)} type="button" key={mode}>
+              {(["all", ...baselines] as TableMode[]).map((mode) => (
+                <button aria-pressed={tableMode === mode} className={tableMode === mode ? "is-active" : undefined} onClick={() => setTableMode(mode)} type="button" key={mode}>
                   {c.filters[mode]}
                 </button>
               ))}
             </div>
           </div>
+          <button className="lhtb-history-toggle" type="button" aria-pressed={showHistory} onClick={() => setShowHistory(!showHistory)}>{showHistory ? c.hideHistory : c.showHistory}</button>
           <div className="bm-table-wrap lhtb-task-table">
             <table>
-              <thead><tr><th>{c.taskColumn}</th>{armOrder.map((arm) => <th key={arm}>{c.armLabels[arm]}</th>)}</tr></thead>
+              <thead><tr><th scope="col">{c.taskColumn}</th>{visibleArms.map((arm) => <th scope="col" key={arm}>{c.armLabels[arm]}</th>)}</tr></thead>
               <tbody>
                 {visibleTasks.map((row) => {
-                  const best = Math.max(...armOrder.map((arm) => row[arm]));
+                  const best = Math.max(...visibleArms.map((arm) => row[arm]));
                   return (
                     <tr key={row.task}>
                       <th scope="row"><code>{row.task}</code></th>
-                      {armOrder.map((arm) => (
+                      {visibleArms.map((arm) => (
                         <td className={row[arm] === best ? "is-best" : undefined} key={arm}>{formatReward(row[arm])}</td>
                       ))}
                     </tr>

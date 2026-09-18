@@ -20,8 +20,10 @@ gateway addresses, credentials, and verifier artifacts.
 
 - Each task-arm cell contributes one effective trial. This is not a
   repeated-seed estimate.
-- The New-vs-Legacy Heartbeat comparison changes multiple runtime dimensions;
-  it is mechanism evidence, not a single-variable causal ablation.
+- The primary reading compares the 1.0.3 Heartbeat arm with Plain and Native
+  Goal. Runtime and budget differences prevent a single-variable causal or
+  equal-budget efficiency interpretation. SSH-Goal and Legacy Heartbeat are
+  retained as historical context.
 - The effective aggregates include designated replacement trials. Some New
   Heartbeat replacements used longer budgets.
 - Historical cost is estimated from retained token telemetry. New Heartbeat
@@ -29,3 +31,24 @@ gateway addresses, credentials, and verifier artifacts.
 - LHTB reward and the `>= 0.95` solved threshold remain benchmark-native.
 
 The runnable current Heartbeat implementation lives in `benchmark/LHTB/`.
+
+## Reading the baseline comparisons
+
+The brief derives these comparisons from the 46 `tasks` rows in `data.json`,
+without modifying the experiment data:
+
+| LoopX 1.0.3 Heartbeat versus | Mean reward delta | Relative mean gain | Wins / ties / losses | Strict solves (LoopX / baseline) |
+| --- | ---: | ---: | --- | --- |
+| Plain | +0.0731 | +17.3% | 17 / 13 / 16 | 7 / 7 |
+| Native Goal | +0.0473 | +10.6% | 23 / 13 / 10 | 7 / 4 |
+
+Mean delta is the mean of per-task differences; relative gain divides that
+unrounded delta by the baseline mean. Wins, ties and losses compare published
+unrounded rewards strictly; equality is not statistical equivalence. Display
+rounding is applied only afterwards. The historical `heartbeat_comparison`
+summary is retained in the source archive but is not used for these comparisons.
+
+The task matrix defaults to Plain, Native Goal and LoopX Heartbeat; readers can
+expand both historical arms. Case scores come from the same task rows rather
+than a separate editorial copy. The recorded scores support outcome comparisons;
+reported recovery or regression cases are mechanism clues, not causal estimates.
