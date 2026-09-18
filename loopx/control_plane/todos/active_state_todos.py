@@ -133,8 +133,9 @@ def active_state_todo_fields(
     )
     if canonical is not None:
         fields = canonical_todo_summary_fields(canonical["todos"], rollout_events=rollout_events)
-        # Reading canonical Todos does not qualify legacy monitor writeback.
-        monitor_writeback_contract_writer(fields, supported=False, source="file_authority")
+        # Canonical observation/successor transactions now support current
+        # lease proof. Scheduling exposes due work; mutation admission still
+        # validates the caller's proof and never falls back to the old writer.
     elif event_fields.get("user_todos") or event_fields.get("agent_todos"):
         fields = event_fields
         markdown_fields = parse_active_state_todos(

@@ -1,4 +1,5 @@
 import {registerLeaseAcquisitionConformance} from "./lease_acquisition_conformance.ts";
+import {registerLeasedMonitorConformance} from "./monitor_poll_lease_conformance.ts";
 import {registerLeaseLifecycleConformance} from "./lease_lifecycle_conformance.ts";
 import {registerMonitorConfigurationConformance} from "./monitor_configuration_conformance.ts";
 import {registerAuthorityScanConformance} from "./authority_scan_conformance.ts";
@@ -217,6 +218,7 @@ export function registerAuthorityStoreConformance(
   registerOwnershipObservationConformance(providerName, factory);
   registerNativePlanningUpdateConformance(providerName, factory);
   registerMonitorConfigurationConformance(providerName, factory);
+  registerLeasedMonitorConformance(providerName, factory);
   registerCoordinationReceiptConformance(providerName, factory);
   registerHandoffModeConformance(providerName, factory);
   for (const native of [false, true]) test(`${providerName} conformance: standing revocation survives canonical ordering and archive (${native ? "native" : "legacy"})`, async (t) => {
@@ -256,11 +258,14 @@ export function registerAuthorityStoreConformance(
     assert.equal((await executeCoordinationTodoArchiveCompleted(store, request)).status, "replayed");
   });
 
-  for (const native of [false, true]) test(`${providerName} conformance: atomic Monitor observation and successor (${native ? "native" : "legacy"})`, async (t) => {
+  for (const native of [false, true]) test(`${providerName} conformance: lease-free legacy-mode Monitor observation and successor (${native ? "native" : "legacy"})`, async (t) => {
     const {store, contender} = await factory(t);
     const goal = "goal-monitor";
     const fixture = productionScaleCoordinationFixture(goal, native ? "native" : "legacy");
     const projection = structuredClone(fixture.projection);
+    // A lease-free observation is legal in legacy mode. Hard mode now requires
+    // current execution proof; its positive/negative cases have their own fixture.
+    projection.handoff_mode = "legacy";
     const records = projection.todos as Record<string, unknown>[];
     const monitor = records.find(todo => todo.task_class === "continuous_monitor" && todo.status !== "done" &&
       !(projection.leases as Record<string, unknown>[]).some(lease => lease.todo_id === todo.todo_id));
