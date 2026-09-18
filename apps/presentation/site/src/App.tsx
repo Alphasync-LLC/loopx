@@ -140,6 +140,7 @@ const content = {
       cards: [
         ["Product demo", "Personal Workspace", "A shared view of Goals, Tasks, Chat, and outputs. Watch the demo and start your own local workspace.", "Watch demo & read guide"],
         ["Research & evaluation", "SWE-Marathon", "Compare five execution modes across 15 matched tasks, with results, costs, and study limitations.", "Read the study"],
+        ["Research & evaluation", "LHTB × LoopX", "Compare five execution mechanisms across 46 long-horizon terminal tasks and inspect where recoverable state helps.", "Read the study"],
         ["Research · Chinese", "DeepSWE behavior discoveries", "Explore how domain hints affect implementation and validation in individual cases.", "Read the behavior analysis"],
         ["Cases", "All LoopX showcases", "Browse public cases, interactive walkthroughs, and their evidence boundaries.", "Browse all cases"],
       ],
@@ -253,6 +254,7 @@ const content = {
       cards: [
         ["产品演示", "Personal Workspace", "在一个工作区查看目标、任务、对话与产出。观看演示，开始使用本地工作区。", "观看演示与使用指南"],
         ["研究与评测", "SWE-Marathon", "查看五种执行模式在 15 个匹配任务上的结果、成本与研究局限。", "阅读研究简报"],
+        ["研究与评测", "LHTB × LoopX", "对比五种执行机制在 46 个长程终端任务上的结果，观察可恢复状态在什么场景有效。", "阅读研究简报"],
         ["研究与评测", "DeepSWE 行为分析", "从具体案例观察领域提示如何影响实现选择与验证行为。", "阅读行为分析"],
         ["案例", "完整案例目录", "浏览公开案例、交互式讲解及其证据边界。", "浏览全部案例"],
       ],
@@ -1009,6 +1011,7 @@ export function App() {
                 const paths = [
                   "docs/guides/personal-workspace-user-guide/",
                   `benchmarks/swe-marathon/${language === "zh" ? "?lang=zh" : ""}`,
+                  `benchmarks/lhtb/${language === "zh" ? "?lang=zh" : ""}`,
                   "benchmarks/deepswe/behavior-discovery/",
                   `docs/showcases/index${language === "en" ? ".en" : ""}.html`,
                 ];
