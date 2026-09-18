@@ -19,7 +19,8 @@ import {executeCanonicalTaskLeaseLifecycle} from "../../loopx/control_plane/coor
 import type {AuthorityStore} from "../../loopx/control_plane/coordination/authority_store.ts";
 import {taskLeaseOperationIdentity, taskLeaseOperationRequestDigest} from "../../loopx/control_plane/work_items/task_lease_operation_identity.ts";
 import {legacyCoordinationWriterFencePath} from "../../loopx/control_plane/coordination/legacy_writer_fence.ts";
-import {TASK_LEASE_CANONICAL_ACQUIRE_REQUEST_SCHEMA, TASK_LEASE_ACQUIRE_REQUEST_SCHEMA, TASK_LEASE_CANONICAL_RENEW_REQUEST_SCHEMA, TASK_LEASE_CANONICAL_LIFECYCLE_REQUEST_SCHEMA} from "../../loopx/control_plane/coordination/coordination_state_contract.generated.ts";
+import {TASK_LEASE_CANONICAL_ACQUIRE_REQUEST_SCHEMA, TASK_LEASE_ACQUIRE_REQUEST_SCHEMA, TASK_LEASE_CANONICAL_RENEW_REQUEST_SCHEMA, TASK_LEASE_CANONICAL_LIFECYCLE_REQUEST_SCHEMA,
+  TASK_LEASE_CANONICAL_CLAIM_TRANSFER_REQUEST_SCHEMA} from "../../loopx/control_plane/coordination/coordination_state_contract.generated.ts";
 import {shadowManagementStatePath} from "../../loopx/control_plane/coordination/shadow_management.ts";
 import {atomicWriteJson} from "../../loopx/control_plane/effect_runtime_io.ts";
 
@@ -314,6 +315,47 @@ for (const provider of ["file", "sqlite"] as const) {
         assert.deepEqual(await store.loadAuthority(), final);
       });
     }
+  }
+  providerTest(`${provider} claim transfer wire cannot downgrade or import legacy fence fields`, async t => {
+    const {store, request} = await fixture(t, provider);
+    const command = {...request, schema_version: TASK_LEASE_CANONICAL_CLAIM_TRANSFER_REQUEST_SCHEMA,
+      operation: "transfer", transfer_claim: true, new_owner: "agent-b", new_idempotency_key: "receiver-b"};
+    const before = await store.loadAuthority();
+    for (const patch of [
+      {schema_version: TASK_LEASE_LIFECYCLE_REQUEST_SCHEMA_VERSION},
+      {schema_version: TASK_LEASE_CANONICAL_LIFECYCLE_REQUEST_SCHEMA},
+      {operation: "renew"}, {transfer_claim: false}, {transfer_claim: "true"},
+      {release_lease: true}, {todo: {claimed_by: "agent-b"}},
+    ]) {
+      assert.equal((await executeTaskLeaseLifecycle({...command, ...patch}, {now: () => NOW})).ok, false);
+      assert.deepEqual(await store.loadAuthority(), before);
+    }
+    const accepted = await executeTaskLeaseLifecycle(command, {now: () => NOW});
+    assert.equal(accepted.ok, true, JSON.stringify(accepted));
+    assert.equal(accepted.claimed_by, "agent-b");
+    assert.equal(accepted.lease_path, undefined);
+  });
+  for (const boundary of ["before", "after"] as const) {
+    providerTest(`${provider} process death ${boundary} joint claim transfer commits both records or neither`, async t => {
+      const {root, store, request} = await fixture(t, provider);
+      const command = {...request, schema_version: TASK_LEASE_CANONICAL_CLAIM_TRANSFER_REQUEST_SCHEMA,
+        operation: "transfer", transfer_claim: true, new_owner: "agent-b", new_idempotency_key: "receiver-b"};
+      const config = join(root, "claim-transfer-child.json"); await writeFile(config, JSON.stringify({...command, now: NOW.toISOString()}));
+      const before = await store.loadAuthority();
+      const child = spawnSync(process.execPath, ["--no-warnings", "--experimental-sqlite", "--experimental-strip-types", CHILD,
+        config, boundary, "600"], {encoding: "utf8", timeout: 30000});
+      assert.equal(child.signal, "SIGKILL", child.stderr);
+      if (boundary === "before") assert.deepEqual(await store.loadAuthority(), before);
+      const recovered = await executeTaskLeaseLifecycle(command, {now: () => NOW});
+      assert.equal(recovered.ok, true, JSON.stringify(recovered));
+      assert.equal(recovered.status, boundary === "before" ? "applied" : "replayed");
+      const final = await store.loadAuthority(); if (final.status !== "loaded") throw new Error("missing head");
+      assert.equal(final.cursor, "2");
+      assert.equal((final.head.todos as Record<string, unknown>[])[0]!.claimed_by, "agent-b");
+      assert.equal((final.head.leases as Record<string, unknown>[])[0]!.owner, "agent-b");
+      assert.equal((await executeTaskLeaseLifecycle(command, {now: () => NOW})).status, "replayed");
+      assert.deepEqual(await store.loadAuthority(), final);
+    });
   }
   for (const differentIntent of [false, true]) {
     providerTest(`${provider} real processes arbitrate ${differentIntent ? "different" : "identical"} renew intent at one version`, async t => {
