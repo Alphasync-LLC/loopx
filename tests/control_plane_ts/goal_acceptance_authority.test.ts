@@ -13,6 +13,7 @@ import {SqliteAuthorityStore} from "../../loopx/control_plane/coordination/sqlit
 import {PostgreSqlAuthorityStore, installPostgreSqlAuthorityStoreSchema} from "../../loopx/control_plane/coordination/postgresql_authority_store.ts";
 import {prepareCoordinationProjectionCommit, validateCoordinationTodoReadModel} from "../../loopx/control_plane/coordination/coordination_projection.ts";
 import {openLocalAuthorityStore, selectLocalSqliteAuthority} from "../../loopx/control_plane/coordination/local_authority_provider.ts";
+import {sqliteRuntimeIdentity} from "../../loopx/control_plane/coordination/sqlite_runtime.ts";
 import {loadLegacyCoordinationWriterFence} from "../../loopx/control_plane/coordination/legacy_writer_fence.ts";
 import {shadowManagementStatePath} from "../../loopx/control_plane/coordination/shadow_management.ts";
 import {authorityProjectionFixture} from "./authority_projection_fixture.ts";
@@ -67,6 +68,10 @@ async function update(store: AuthorityStore, todoId: string, patch: JsonObject) 
   assert.equal(result.status, "applied");
 }
 const providers = ["file", "sqlite", "postgresql"] as const;
+// SQLite authority needs the WAL-reset driver; the public Node minimum ships
+// an older one. Skip those rows there rather than fail, and keep the file
+// rows running: the qualified runtime job executes every row for real.
+const sqliteQualified = sqliteRuntimeIdentity().sqlite_authority_qualified === true;
 async function fixture(t: TestContext, provider: typeof providers[number]): Promise<AuthorityStore> {
   if (provider !== "postgresql") {
     const dir = await mkdtemp(join(tmpdir(), "goal-acceptance-"));
@@ -92,7 +97,8 @@ async function fixture(t: TestContext, provider: typeof providers[number]): Prom
 }
 
 for (const provider of providers) {
-  const options = {skip: provider === "postgresql" && !process.env.LOOPX_TEST_POSTGRES_URL};
+  const options = {skip: (provider === "postgresql" && !process.env.LOOPX_TEST_POSTGRES_URL) ||
+    (provider === "sqlite" && !sqliteQualified)};
   test(`${provider}: default off, owner configure, private inspection and public held work`, options, async t => {
     const store = await fixture(t, provider); await seed(store);
     const before = await head(store);
@@ -415,7 +421,8 @@ test("work fingerprints ignore row permutations without weakening canonical read
 });
 
 for (const provider of ["file", "sqlite"] as const) {
-  test(`${provider}: local exported effects use selected store, writer gate and private inspection`, async t => {
+  test(`${provider}: local exported effects use selected store, writer gate and private inspection`,
+    {skip: provider === "sqlite" && !sqliteQualified}, async t => {
     const root = await mkdtemp(join(tmpdir(), "goal-acceptance-local-"));
     t.after(() => rm(root, {recursive: true, force: true}));
     if (provider === "sqlite") await selectLocalSqliteAuthority(root, goal, true);
