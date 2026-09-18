@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 import tomllib
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -356,14 +357,18 @@ def test_phase_bootstrap_uses_current_public_cli(tmp_path, monkeypatch, existing
         # launching a model or mutating any active project.
         build_parser().parse_args(args)
         calls.append(args)
-        return {"after": {"execution_profile": {"replan_after_completed_todos": 3}}}
+        return {"todo_id": "todo_fixture", "after": {"execution_profile": {"replan_after_completed_todos": 3}}}
 
     monkeypatch.setattr(agent, "_write_task_document", write_task)
     monkeypatch.setattr(agent, "_registry_exists", registry_exists)
     monkeypatch.setattr(agent, "_loopx", cli)
-    asyncio.run(agent._prepare_phase(None, "Synthetic task", cwd=str(tmp_path)))
+    async def no_pending(**kwargs):
+        return SimpleNamespace(return_code=1)
+
+    asyncio.run(agent._prepare_phase(SimpleNamespace(exec=no_pending), "Synthetic task", cwd=str(tmp_path)))
     assert any(args[:2] == ["todo", "add"] for args in calls)
     assert any(args[0] == "bootstrap" for args in calls) is not existing
+    assert all("--clear-waiting-on" not in args for args in calls)
 
 
 def test_staged_snapshot_keeps_observed_commit_when_branch_moves(tmp_path, monkeypatch):
