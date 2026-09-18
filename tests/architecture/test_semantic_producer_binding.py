@@ -298,3 +298,112 @@ def test_synthetic_selection_nodes_never_enter_the_shared_tree():
     second = scan_python_production(source, field='action', enums=ENUMS)
     assert first == second
     assert ast.dump(ast.parse(text)) == before
+
+
+# A write that textually follows a read still reaches it when a loop carries
+# control back. The preceding-writes filter reads file position as execution
+# order, so without these the scan reports the value that happens to appear
+# first and marks the site fully resolved -- the one failure mode that turns an
+# unknown into wrong evidence. F1 would then pass over a producer that emits an
+# unregistered value on every iteration after the first.
+@pytest.mark.parametrize('text', [
+    # for-loop back edge: iteration 2 emits 'leaked'
+    'def build(rows):\n'
+    '    chosen = "run"\n'
+    '    for row in rows:\n'
+    '        emit({"action": chosen})\n'
+    '        chosen = "leaked"\n',
+    # while-loop back edge
+    'def build(rows):\n'
+    '    chosen = "run"\n'
+    '    while rows:\n'
+    '        emit({"action": chosen})\n'
+    '        chosen = "leaked"\n'
+    '        rows = rows[1:]\n',
+    # the carrying write sits in the outer loop, the read in the inner one
+    'def build(rows):\n'
+    '    chosen = "run"\n'
+    '    for row in rows:\n'
+    '        for inner in row:\n'
+    '            emit({"action": chosen})\n'
+    '        chosen = "leaked"\n',
+    # finally runs after the read and feeds the next iteration
+    'def build(rows):\n'
+    '    chosen = "run"\n'
+    '    for row in rows:\n'
+    '        try:\n'
+    '            emit({"action": chosen})\n'
+    '        finally:\n'
+    '            chosen = "leaked"\n',
+])
+def test_a_loop_back_edge_leaves_the_local_unordered(text):
+    rows = [row for row in scan(text) if row.form == 'dict']
+    assert rows, 'the dict write must still be observed'
+    assert all(row.unresolved for row in rows), (
+        'a write the back edge carries past the read makes the writes unorderable; '
+        'reporting only the textually earlier value states a closed value set that is not closed'
+    )
+    assert blockers(rows) == {'unstable_local'}
+    assert 'leaked' not in known(rows)
+
+
+def test_a_straight_line_rebinding_still_resolves():
+    """The back-edge rule must not retract the ordering it was built for.
+
+    Without a loop the preceding-writes filter is execution order, so a local
+    written twice before the read is still a finite selection.
+    """
+    rows = [row for row in scan(
+        'def build(flag):\n'
+        '    chosen = "run"\n'
+        '    if flag:\n'
+        '        chosen = "wait"\n'
+        '    return {"action": chosen}\n',
+    ) if row.form == 'dict']
+    assert known(rows) == {'run', 'wait'} and not any(row.unresolved for row in rows)
+
+
+def test_a_single_write_inside_a_loop_is_still_its_only_value():
+    """One plain store is the only value a read can see, back edge or not."""
+    rows = [row for row in scan(
+        'def build(rows):\n'
+        '    for row in rows:\n'
+        '        chosen = "run"\n'
+        '        emit({"action": chosen})\n',
+    ) if row.form == 'dict']
+    assert known(rows) == {'run'} and not any(row.unresolved for row in rows)
+
+
+def test_a_negative_index_store_discards_the_container():
+    """``table[-1]`` names a slot whose number depends on the length.
+
+    Recording it against the key ``-1`` leaves a read of ``table[0]`` looking at
+    the untouched initializer, so a one-element list reports the value the write
+    replaced and calls the site resolved.
+    """
+    rows = [row for row in scan(
+        'def build():\n'
+        '    table = ["run"]\n'
+        '    table[-1] = "leaked"\n'
+        '    return {"action": table[0]}\n',
+    ) if row.form == 'dict']
+    assert rows and all(row.unresolved for row in rows)
+    assert 'run' not in known(rows), 'the initializer was overwritten by the negative store'
+
+
+def test_a_non_negative_index_store_still_carries_its_key():
+    """The negative-index rule must not discard the key map it was built on.
+
+    A written key carries the union of its initializer and the write, which is
+    this scan's documented answer: it reports syntactic possibilities, not the
+    one value a flow-sensitive reading would pick. What matters here is that the
+    site stays resolved and the write is visible, both of which the discard path
+    would have taken away.
+    """
+    rows = [row for row in scan(
+        'def build():\n'
+        '    table = ["run"]\n'
+        '    table[0] = "wait"\n'
+        '    return {"action": table[0]}\n',
+    ) if row.form == 'dict']
+    assert known(rows) == {'run', 'wait'} and not any(row.unresolved for row in rows)

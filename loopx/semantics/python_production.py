@@ -323,10 +323,15 @@ def scan_python_production(
     that textually precede the read, provided every store of that name is a
     plain ``name = expression`` (loop, ``with``, ``except``, walrus, augmented,
     unpacking, ``global`` and ``del`` rebindings are not ordered by this scan and
-    stay unknown). A local container mutated only through direct literal-key
-    subscript writes keeps its untouched keys, and a written key carries the
-    union of its initializer and every write; an alias, a method call, a deeper
-    or computed store, or passing the container to any call still discards it.
+    stay unknown) **and** no write shares an enclosing loop with the read.
+    Textual position is execution order only where no back edge crosses it: a
+    write later in a loop body reaches the read at the top of the next
+    iteration, so such a name is not a finite selection and stays unknown. A
+    local container mutated only through direct literal-key subscript writes
+    keeps its untouched keys, and a written key carries the union of its
+    initializer and every write; an alias, a method call, a deeper or computed
+    store, a negative index (which names a slot whose number depends on the
+    container's length), or passing the container to any call still discards it.
     A call to an undecorated, non-generator, plainly-defined top-level function
     of the same module resolves to the union of that function's own returns.
     Arguments are never bound to parameters, so a returned parameter stays
@@ -364,16 +369,23 @@ def scan_python_production(
             return cached
         nodes: list[ast.AST] = []
         nested: list[ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef] = []
+        # Which loops enclose each node. A write inside a loop reaches a read in
+        # the same loop through the back edge, so their textual order says
+        # nothing about which value the read sees.
+        enclosing_loops: dict[int, frozenset[int]] = {}
 
-        def collect(node: ast.AST) -> None:
+        def collect(node: ast.AST, loops: frozenset[int] = frozenset()) -> None:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 nested.append(node)
                 return
             if isinstance(node, ast.Lambda):
                 return
             nodes.append(node)
+            enclosing_loops[id(node)] = loops
+            if isinstance(node, (ast.For, ast.AsyncFor, ast.While)):
+                loops = loops | {id(node)}
             for child in ast.iter_child_nodes(node):
-                collect(child)
+                collect(child, loops)
         for statement in body:
             collect(statement)
         assigned = Counter(n.id for n in nodes if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store))
@@ -431,9 +443,14 @@ def scan_python_production(
         for node in nodes:
             if isinstance(node, ast.Assign) and len(node.targets) == 1:
                 store = node.targets[0]
+                # A negative index names the same slot as a non-negative one
+                # whose number depends on the container's length, so it cannot
+                # be recorded against a key. Leaving it unrecorded sends the
+                # container down the existing invalidation path below.
                 if (isinstance(store, ast.Subscript) and isinstance(store.value, ast.Name)
                         and not isinstance(store.slice, ast.Slice)
-                        and (key := _index_value(store.slice)) is not None):
+                        and (key := _index_value(store.slice)) is not None
+                        and not (type(key) is int and key < 0)):
                     recorded.add(id(store))
                     written.setdefault(store.value.id, {}).setdefault(key, []).append(node.value)
         containers = {name for name, values in definitions.items()
@@ -483,7 +500,19 @@ def scan_python_production(
 
         def bound(node: ast.AST | None, seen: frozenset[str]) -> tuple[ast.AST | None, frozenset[str]]:
             while isinstance(node, ast.Name) and node.id in definitions and node.id not in seen:
-                values = [value for value in definitions[node.id]
+                writes = definitions[node.id]
+                # Textual position is execution order only where no back edge
+                # crosses it. When a second write shares a loop with the read,
+                # the next iteration sees that write and the preceding-writes
+                # filter would drop a live value, so the name is not a finite
+                # selection and stays unknown.
+                if len(writes) > 1 and any(
+                    enclosing_loops.get(id(value), frozenset())
+                    & enclosing_loops.get(id(node), frozenset())
+                    for value in writes
+                ):
+                    break
+                values = [value for value in writes
                           if (value.lineno, value.col_offset) < (node.lineno, node.col_offset)]
                 if not values:
                     break

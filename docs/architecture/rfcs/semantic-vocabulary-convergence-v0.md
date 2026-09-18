@@ -399,14 +399,15 @@ that function's own returns, with arguments never bound to parameters, so a
 returned parameter stays unknown and the result is independent of the call site;
 a local written more than once resolves to the union of the writes that
 textually precede the read, and only when every store of that name is a plain
-`name = expression`; and a container mutated only through direct literal-key
-subscript writes keeps its untouched keys, with a written key carrying the union
-of its initializer and every write. Anything outside those conditions — a
-decorator, `async def`, a generator, recursion, an imported or attribute call, a
-loop, `with`, `except`, walrus, augmented, unpacking, `global` or `del`
-rebinding, an alias, a method call, a computed or deeper store, an escape into a
-call, or an unknown `**` spread — leaves the site unknown rather than admitting
-a value. TypeScript object writes, assignments
+`name = expression` **and** no write shares an enclosing loop with the read;
+and a container mutated only through direct literal-key subscript writes keeps
+its untouched keys, with a written key carrying the union of its initializer and
+every write. Anything outside those conditions — a decorator, `async def`, a
+generator, recursion, an imported or attribute call, a back edge that carries a
+later write to the read, a `with`, `except`, walrus, augmented, unpacking,
+`global` or `del` rebinding, an alias, a method call, a computed, negative or
+deeper store, an escape into a call, or an unknown `**` spread — leaves the site
+unknown rather than admitting a value. TypeScript object writes, assignments
 and declared returns use the repository's TypeScript parser rather than regex,
 and report the same blocker vocabulary as the Python scanner, so one residue
 taxonomy covers both runtimes.
@@ -1109,14 +1110,29 @@ introduce a competing target state.
      local rebinding and recursion all keep the `call_result` blocker.
   2. **Ordered rebinding of a local.** A local written more than once resolves to
      the union of the writes that textually precede the read, and only when every
-     store of that name is a plain `name = expression`. Loop, `with`, `except`,
-     walrus, augmented, unpacking, `global` and `del` rebindings are not ordered
-     by this scan and erase the local.
+     store of that name is a plain `name = expression` and no write shares an
+     enclosing loop with the read. `with`, `except`, walrus, augmented,
+     unpacking, `global` and `del` rebindings are not ordered by this scan and
+     erase the local.
+
+     Textual position is execution order only where no back edge crosses it. A
+     write later in a loop body reaches the read at the top of the next
+     iteration, so the preceding-writes filter dropped a live value and reported
+     a closed value set that was not closed: a producer emitting an unregistered
+     value on every iteration after the first read as fully resolved, which is
+     the one failure mode that turns an unknown into wrong evidence rather than
+     into a smaller residue. Four shapes are pinned as regressions — a `for`
+     back edge, a `while` back edge, a write carried by an outer loop, and a
+     `finally` that rebinds — beside two positives that keep the ordering this
+     form was built for.
   3. **Key-precise container writes.** A local container mutated only through
      direct literal-key subscript writes keeps its untouched keys, and a written
      key carries the union of its initializer and every write. An alias, a method
-     call, a computed or deeper store, a `del`, or passing the container to any
-     call still discards the container, as before. A `**` spread of statically
+     call, a computed or deeper store, a `del`, a negative index, or passing the
+     container to any call still discards the container. A negative index names
+     the same slot as a non-negative one whose number depends on the container's
+     length, so recording it against the key `-1` left a read of `table[0]`
+     looking at an initializer the write had already replaced. A `**` spread of statically
      known dict literals is flattened, so an optional spread no longer hides a
      sibling key; an unknown spread still makes every key dynamic.
 
@@ -1130,7 +1146,10 @@ introduce a competing target state.
   invisible in the report breakdown.
 - **Result:** unresolved sites **41 → 40**, split
   `annotation_only=5, argument_name_only=10, attribute_read=7, call_result=14,
-  other=1, unstable_local=3`. All eight TypeScript sites are reclassified (five
+  other=1, unstable_local=3`. The back-edge and negative-index rules were added
+  after that measurement and left every number in it unchanged, so no site on
+  the tree was resolving through the unsound path: the generality had bought
+  nothing that the soundness fix takes away. All eight TypeScript sites are reclassified (five
   `attribute_read`, three `call_result`); none was resolvable, so that part is a
   taxonomy, not a shrink. The one site that closes is
   `driver.py::build_loopx_turn_plan:500`, which needed all three forms and the
