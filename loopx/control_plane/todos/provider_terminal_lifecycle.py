@@ -34,11 +34,12 @@ from .completion_validation import (
 )
 from .contract import resolve_next_user_task_class
 from .mutation_authority import todo_lifecycle_facts
+from ..coordination.authority_source import authority_registry_source
 from .path_resolution import resolve_todo_state_path
 from .provider_projection import projection_delivery_requires_ack, settle_canonical_todo_projection
 from .successor_derivation import build_successor_intents
 
-_TERMINAL_REQUEST_SCHEMA = "loopx_local_coordination_todo_terminal_lifecycle_request_v0"
+_TERMINAL_REQUEST_SCHEMA = "loopx_local_coordination_todo_terminal_lifecycle_request_v1"
 _ARCHIVE_REQUEST_SCHEMA = "loopx_local_coordination_todo_archive_request_v0"
 _ARCHIVE_ACK_REQUEST_SCHEMA = "loopx_local_coordination_todo_archive_ack_request_v0"
 _ACCEPTED = {"applied", "recovered", "replayed", "no_change", "planned"}
@@ -321,94 +322,96 @@ def terminal_canonical_todo_if_promoted(
     # The canonical transaction owns missing/role/archive lifecycle decisions.
     # Keep only the optional local validation facts needed by the host adapter.
     target = _todo_by_id(todos, todo_id) or {}
-    registered, grants = todo_lifecycle_facts(registry_path, goal_id)
-    successor_intents = build_successor_intents(
-        next_agent_todo=next_agent_todo,
-        next_user_todo=next_user_todo,
-        next_user_task_class=next_user_task_class,
-        next_claimed_by=next_claimed_by,
-        next_task_class=next_task_class,
-        next_action_kind=next_action_kind,
-        next_task_repository=next_task_repository,
-        next_required_capabilities=next_required_capabilities,
-        next_continuation_policy=next_continuation_policy,
-        next_excluded_agents=next_excluded_agents,
-    )
-    linked = [
-        linked_successor_from_todo(todo)
-        for linked_id in successor_todo_ids
-        if (todo := _todo_by_id(todos, linked_id)) is not None
-    ]
-    completion_policy_request = (
-        build_completion_policy_request(
-            registry_path=registry_path,
-            goal_id=goal_id,
-            claimed_by=claimed_by,
-            next_claimed_by=next_claimed_by,
+    with authority_registry_source(registry_path) as registry_source:
+        registered, grants = todo_lifecycle_facts(registry_path, goal_id)
+        successor_intents = build_successor_intents(
             next_agent_todo=next_agent_todo,
+            next_user_todo=next_user_todo,
+            next_user_task_class=next_user_task_class,
+            next_claimed_by=next_claimed_by,
+            next_task_class=next_task_class,
             next_action_kind=next_action_kind,
+            next_task_repository=next_task_repository,
+            next_required_capabilities=next_required_capabilities,
             next_continuation_policy=next_continuation_policy,
-            next_excluded_agents=next_excluded_agents or [],
-            self_merged=self_merged,
-            evidence=evidence,
-            linked_successors=linked,
+            next_excluded_agents=next_excluded_agents,
         )
-        if command == "complete"
-        else None
-    )
-    validation_declaration = None
-    if command == "complete" and target.get("completion_validation_required") is True:
-        if state_file is None:
-            raise ValueError(
-                "canonical Todo completion validation requires its private state projection"
+        linked = [
+            linked_successor_from_todo(todo)
+            for linked_id in successor_todo_ids
+            if (todo := _todo_by_id(todos, linked_id)) is not None
+        ]
+        completion_policy_request = (
+            build_completion_policy_request(
+                registry_path=registry_path,
+                goal_id=goal_id,
+                claimed_by=claimed_by,
+                next_claimed_by=next_claimed_by,
+                next_agent_todo=next_agent_todo,
+                next_action_kind=next_action_kind,
+                next_continuation_policy=next_continuation_policy,
+                next_excluded_agents=next_excluded_agents or [],
+                self_merged=self_merged,
+                evidence=evidence,
+                linked_successors=linked,
             )
-        validation_declaration = resolve_private_completion_validation_declaration(
-            canonical_todo=target,
-            state_file=state_file,
-            runtime_root=runtime_root,
-            registry_path=registry_path,
+            if command == "complete"
+            else None
+        )
+        validation_declaration = None
+        if command == "complete" and target.get("completion_validation_required") is True:
+            if state_file is None:
+                raise ValueError(
+                    "canonical Todo completion validation requires its private state projection"
+                )
+            validation_declaration = resolve_private_completion_validation_declaration(
+                canonical_todo=target,
+                state_file=state_file,
+                runtime_root=runtime_root,
+                registry_path=registry_path,
+                goal_id=goal_id,
+                todo_id=todo_id,
+                role=role,
+                persist_if_resolved=not dry_run,
+            )
+        request = {
+            "schema_version": _TERMINAL_REQUEST_SCHEMA,
+            "runtime_root": str(runtime_root.expanduser().resolve(strict=False)),
+            "goal_id": goal_id,
+            "todo_id": todo_id,
+            "role": role,
+            "command": command,
+            "actor_agent_id": actor_agent_id,
+            "registered_agents": registered,
+            "lifecycle_grants": grants,
+            "registry_source": registry_source,
+            "authority_reason": authority_reason,
+            "decision_outcome": decision_outcome,
+            "operation_id": None,
+            "lease_idempotency_key": task_lease_idempotency_key,
+            "lease_expected_version": task_lease_expected_version,
+            "allow_user_gate_auto_acquire": command == "complete",
+            "requested_no_followup": no_followup,
+            "requested_completion_turn_key": completion_turn_key,
+            "requested_completion_identity_source": completion_identity_source,
+            "linked_successor_todo_ids": successor_todo_ids,
+            "successor_intents": successor_intents,
+            "note": note,
+            "evidence": evidence,
+            "reason": reason,
+            "clear_claim": clear_claim,
+            "validation_declaration": validation_declaration,
+            "validation_receipt": None,
+            "completion_policy_request": completion_policy_request,
+            "dry_run": dry_run,
+            "observed_at": now_local(),
+        }
+        request["operation_id"] = _terminal_operation_id(
+            command=command,
             goal_id=goal_id,
             todo_id=todo_id,
-            role=role,
-            persist_if_resolved=not dry_run,
+            completion_turn_key=completion_turn_key,
         )
-    request = {
-        "schema_version": _TERMINAL_REQUEST_SCHEMA,
-        "runtime_root": str(runtime_root.expanduser().resolve(strict=False)),
-        "goal_id": goal_id,
-        "todo_id": todo_id,
-        "role": role,
-        "command": command,
-        "actor_agent_id": actor_agent_id,
-        "registered_agents": registered,
-        "lifecycle_grants": grants,
-        "authority_reason": authority_reason,
-        "decision_outcome": decision_outcome,
-        "operation_id": None,
-        "lease_idempotency_key": task_lease_idempotency_key,
-        "lease_expected_version": task_lease_expected_version,
-        "allow_user_gate_auto_acquire": command == "complete",
-        "requested_no_followup": no_followup,
-        "requested_completion_turn_key": completion_turn_key,
-        "requested_completion_identity_source": completion_identity_source,
-        "linked_successor_todo_ids": successor_todo_ids,
-        "successor_intents": successor_intents,
-        "note": note,
-        "evidence": evidence,
-        "reason": reason,
-        "clear_claim": clear_claim,
-        "validation_declaration": validation_declaration,
-        "validation_receipt": None,
-        "completion_policy_request": completion_policy_request,
-        "dry_run": dry_run,
-        "observed_at": now_local(),
-    }
-    request["operation_id"] = _terminal_operation_id(
-        command=command,
-        goal_id=goal_id,
-        todo_id=todo_id,
-        completion_turn_key=completion_turn_key,
-    )
     result = effect_runtime_result(
         "coordination.local_authority.todo_terminal", request
     )

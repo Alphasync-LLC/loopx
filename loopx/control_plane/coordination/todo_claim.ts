@@ -1,3 +1,4 @@
+import {AUTHORITY_SOURCE_CHANGED, uncheckedAuthoritySource, type AuthoritySourceCheck} from "./authority_source.ts";
 import {canonicalTaskLeaseAcquireFacts} from "./task_lease_state.ts";
 import {evaluateTaskLeaseAcquireDecision, materializeTaskLeaseAcquire} from "../work_items/task_lease_acquire_decision.ts";
 import type { JsonObject } from "../effect_program.ts";
@@ -344,6 +345,7 @@ function activeLeaseForOwner(
 export async function executeCoordinationTodoClaim(
   store: AuthorityStore,
   rawInput: CoordinationTodoClaimInput,
+  authoritySourcesCurrent: AuthoritySourceCheck = uncheckedAuthoritySource,
 ): Promise<CoordinationTodoClaimResult> {
   let input: CoordinationTodoClaimInput;
   try {
@@ -411,6 +413,8 @@ export async function executeCoordinationTodoClaim(
       return {fields: {...result, original_receipt: original}, changed: result.changed !== false};
   }});
   const existing = await receipt.read(store);
+  if (!await authoritySourcesCurrent()) return failure(AUTHORITY_SOURCE_CHANGED.code, AUTHORITY_SOURCE_CHANGED.reason,
+    existing === null ? {} : {original_receipt: existing.original_receipt}, "decision_rejection");
   if (existing !== null) {
     // A historical claim receipt cannot grant work after its acceptance binding
     // changed. Preserve the original response when the contract is absent.
@@ -422,6 +426,8 @@ export async function executeCoordinationTodoClaim(
           {goal_acceptance_guard: guard}, "decision_rejection");
       }
     }
+    if (!await authoritySourcesCurrent()) return failure(AUTHORITY_SOURCE_CHANGED.code, AUTHORITY_SOURCE_CHANGED.reason,
+      {original_receipt: existing.original_receipt}, "decision_rejection");
     return existing;
   }
 
@@ -601,6 +607,7 @@ export async function executeCoordinationTodoClaim(
     }),
   };
 
+  if (!await authoritySourcesCurrent()) return failure(AUTHORITY_SOURCE_CHANGED.code, AUTHORITY_SOURCE_CHANGED.reason, {}, "decision_rejection");
   if (input.dry_run) {
     return {
       ...result,

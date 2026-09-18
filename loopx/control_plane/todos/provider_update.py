@@ -6,7 +6,6 @@ This adapter preserves CLI text encoding and drains the committed projection.
 
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -22,6 +21,7 @@ from .contract import compact_todo_text
 from .provider_projection import settle_canonical_todo_projection
 from .text import normalize_new_todo
 from .mutation_authority import todo_lifecycle_facts
+from ..coordination.authority_source import authority_registry_source
 
 
 def update_canonical_todo_if_promoted(
@@ -40,10 +40,8 @@ def update_canonical_todo_if_promoted(
         return None
     # The witness brackets fact projection and is rechecked by the native
     # transaction. Reviewed edits additionally bind the preview's registry hash.
-    registry_sha256 = hashlib.sha256(registry_path.read_bytes()).hexdigest()
-    registered, grants = todo_lifecycle_facts(registry_path, goal_id)
-    if hashlib.sha256(registry_path.read_bytes()).hexdigest() != registry_sha256:
-        raise ValueError("Todo authority registration changed while reading; retry")
+    with authority_registry_source(registry_path) as registry_source:
+        registered, grants = todo_lifecycle_facts(registry_path, goal_id)
     patch: dict[str, Any] = {}
     if text is not None:
         patch["text"] = normalize_new_todo(text)
@@ -60,7 +58,7 @@ def update_canonical_todo_if_promoted(
         "todo_id": todo_id, "role": role, "actor_agent_id": actor_agent_id,
         "registered_agents": registered, "lifecycle_grants": grants,
         "authority_reason": authority_reason,
-        "registry_source": {"path": str(registry_path.resolve()), "sha256": registry_sha256},
+        "registry_source": registry_source,
         "expected_provider_revision": expected_provider_revision,
         "expected_registry_sha256": expected_registry_sha256,
         "operation_id": operation_id if operation_id is not None else f"todo-update:{uuid4().hex}",

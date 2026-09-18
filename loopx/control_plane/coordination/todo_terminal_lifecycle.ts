@@ -1,3 +1,4 @@
+import {AUTHORITY_SOURCE_CHANGED, uncheckedAuthoritySource, type AuthoritySourceCheck} from "./authority_source.ts";
 import { createHash } from "node:crypto";
 import {acceptanceWorkGuard, acceptanceCompletionRequirements, validateAcceptanceCompletion,
   acceptanceRequire, type AcceptanceCompletionRequirements} from "../goals/acceptance_contract.ts";
@@ -456,7 +457,10 @@ async function commitTerminalResult(
   head: Extract<Awaited<ReturnType<AuthorityStore["loadAuthority"]>>, {status: "loaded"}>,
   result: JsonObject,
   mutations: readonly CoordinationProjectionMutation[],
+  authoritySourcesCurrent: AuthoritySourceCheck,
 ): Promise<CoordinationTodoTerminalLifecycleResult> {
+  if (!await authoritySourcesCurrent()) return terminalFailure(AUTHORITY_SOURCE_CHANGED.code,
+    AUTHORITY_SOURCE_CHANGED.reason, {}, "decision_rejection");
   if (input.dry_run) {
     return {
       ...result,
@@ -706,6 +710,7 @@ function semanticDuplicate(
 export async function executeCoordinationTodoTerminalLifecycle(
   store: AuthorityStore,
   rawInput: CoordinationTodoTerminalLifecycleInput,
+  authoritySourcesCurrent: AuthoritySourceCheck = uncheckedAuthoritySource,
 ): Promise<CoordinationTodoTerminalLifecycleResult> {
   let input: CoordinationTodoTerminalLifecycleInput;
   try {
@@ -727,6 +732,8 @@ export async function executeCoordinationTodoTerminalLifecycle(
   const replay = await terminalReceipt(input, requestSha).read(store);
   if (replay !== null) return replay;
 
+  if (!await authoritySourcesCurrent()) return terminalFailure(AUTHORITY_SOURCE_CHANGED.code,
+    AUTHORITY_SOURCE_CHANGED.reason, {}, "decision_rejection");
   const head = await store.loadAuthority();
   if (head.status !== "loaded") {
     return {
@@ -901,6 +908,8 @@ export async function executeCoordinationTodoTerminalLifecycle(
             {validation_timeout_seconds: callerTimeout + acceptanceTimeout}, "decision_rejection");
         }
       }
+      if (!await authoritySourcesCurrent()) return terminalFailure(AUTHORITY_SOURCE_CHANGED.code,
+        AUTHORITY_SOURCE_CHANGED.reason, {}, "decision_rejection");
       return {
         schema_version: COORDINATION_TODO_TERMINAL_LIFECYCLE_RESULT_SCHEMA,
         status: "execute_validation",
@@ -960,7 +969,7 @@ export async function executeCoordinationTodoTerminalLifecycle(
       completion_identity_source:
         completion === null ? null : completion.completion_identity_source,
       completed_at: typeof todo.completed_at === "string" ? todo.completed_at : null,
-    }, []);
+    }, [], authoritySourcesCurrent);
   }
 
   if (acceptanceRequirements !== null && !input.dry_run && acceptanceEvidence === null) {
@@ -1117,5 +1126,5 @@ export async function executeCoordinationTodoTerminalLifecycle(
     ...successorCandidates.map((successor) => ({kind: "todo_upsert" as const, todo: successor})),
     ...(released === null ? [] : [{kind: "lease_upsert" as const, lease: released}]),
   ] : [];
-  return commitTerminalResult(store, input, requestSha, head, result, mutations);
+  return commitTerminalResult(store, input, requestSha, head, result, mutations, authoritySourcesCurrent);
 }
