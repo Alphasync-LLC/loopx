@@ -45,15 +45,66 @@ loopx --registry registry.json task-lease release \
 ```
 
 The example assumes an active lease at version 3 and an unclaimed Todo or a Todo
-already assigned to the eligible receiver. Transfer does not reassign the Todo
-claim, override an exclusion, or widen write scopes. Use the actual readback
+already assigned to the eligible receiver. Without `--transfer-claim`, transfer does not reassign the Todo
+claim. Neither form overrides an exclusion or widens write scopes. Use the actual readback
 versions, not these example numbers.
+
+## Atomically hand over claimed work
+
+When the current canonical `hard_lease` Todo and lease both belong to the sender,
+explicitly transfer both in the same transaction:
+
+```bash
+loopx --registry registry.json task-lease transfer \
+  --goal-id example-goal --todo-id todo_work --owner agent-a \
+  --idempotency-key execution-a --expected-version 3 \
+  --new-owner agent-b --new-idempotency-key execution-b --ttl-seconds 600 \
+  --transfer-claim --format json
+loopx --registry registry.json task-lease inspect \
+  --goal-id example-goal --todo-id todo_work --format json
+loopx --registry registry.json todo update \
+  --goal-id example-goal --todo-id todo_work --agent-id agent-b \
+  --note 'Continue the verified work' \
+  --task-lease-idempotency-key execution-b --task-lease-expected-version 4
+```
+
+The sender must hold the exact active owner/key/version tuple and the open active
+Agent Todo claim. Both agents must satisfy the existing registration, exclusion
+and binding rules. A fixed `bound_agent` is preserved; this command cannot change
+that binding to force a handover. An unclaimed Todo uses the existing lease-only
+operation. The explicit option requires canonical `hard_lease` authority; legacy
+writers reject it instead of attempting two separate writes.
+
+One provider CAS commits `claimed_by`, source actor attribution, lease owner/key,
+version +1, epoch +1, events and the original receipt. Todo ID, dependencies,
+requirements, evidence and lease scopes remain intact. Existing continuation
+notes retain their bytes but become stale when their bound Todo facts change.
+A same-agent new execution advances the lease generation without fabricating a
+claim edit. The old execution cannot update/complete the handed-over Todo; the
+recipient still uses the ordinary proof-bearing update and completion commands.
+
+`transfer_claim`, `claimed_by` and `todo_changed` describe the committed result.
+The original request digest also binds the explicit option: adding/removing it,
+retargeting or changing TTL on retry is rejected. Historical replay can report
+the former recipient even after a later transfer or completion; inspect current
+authority before starting a new operation. An ambiguous response must be retried
+with the original arguments, including the original version.
+
+The CLI drains the existing Todo projection after the joint commit. A display
+failure reports `projection_delivery=pending` with `retry_business_mutation=false`;
+repair the display and use `todo project-markdown` or retry the original transfer.
+Recovery renders the current canonical head, never reinstates the historical
+claim. Omit the option to retain lease-only behavior. To transfer back, the current
+holder issues a new transfer with a new execution key and current version; do not
+restore old files or receipts. This is an ownership transaction, not automatic
+context delivery, peer acceptance, capability authorization or an external-effect fence.
 
 | Operation | State change | Admission |
 | --- | --- | --- |
 | Acquire / takeover | Version +1 and epoch +1; new execution identity and expiry | Open active Todo, registered eligible actor, no effective conflicting holder or overlapping execution; optional version CAS |
 | Renew | Version +1; owner/key/epoch/scopes unchanged; expiry is runtime clock + TTL | Active lease, current proof, registered eligible owner, active open Todo |
 | Transfer | Version +1 and epoch +1; replace owner/key; retain scopes; set expiry | Active lease, current proof, registered sender and eligible receiver; new execution key |
+| Transfer with `--transfer-claim` | Same lease transition plus atomic Todo claim/actor update | Canonical hard lease; matching source claim/proof; both actors satisfy Todo scope |
 | Release | Retain version/epoch; persist released status and timestamps | Current owner/key/version proof; expiry, removed registration and closed/archived Todo do not prevent cleanup |
 
 A missing lease at expected version 0 or an already released matching lease
@@ -88,12 +139,22 @@ readback. A transferred, expired or released execution cannot be revived by its
 old receipt. Claim receipts and maintenance receipts retain their historical
 semantics; they are not acquire responses.
 
-The canonical-only acquire and lifecycle requests are closed and versioned. The prior
+The canonical-only acquire and lifecycle requests are closed and versioned. Joint claim
+transfer uses `loopx_canonical_task_lease_claim_transfer_request_v0`, so an older
+runtime cannot silently perform only its lease half. The prior
 renew-only wire remains accepted for renewal only. An older runtime rejects the
 new schema entirely. Missing/invalid fences, changed registration facts before
 acquire/renew/transfer, unavailable providers and CAS conflicts fail closed. They never
 fall back to a lease file or stale/malformed Markdown. Release admission uses the existing proof without a registration snapshot.
 The CLI still resolves its runtime root from the registry or explicit override.
+
+The request decoder separates canonical commands from legacy held-fence requests
+as a discriminated union. Canonical commands never construct `lock_token`, PID,
+terminal-release or shadow-capture fields. The retained legacy executor shares
+the lease decision/materializer, while provider transactions own canonical CAS.
+Identity diagnostics now follow the field being decoded: a missing or non-string
+Todo ID reports `invalid_todo_id`, instead of being mislabeled `invalid_goal_id`
+when the validation message used an underscore.
 
 Responses expose provider/revision/cursor and current-versus-expected version
 on a version conflict. They do not invent a `lease_path`, write a second shadow
@@ -124,7 +185,8 @@ restore compatible code. Do not remove the fence or revive stale lease files.
 
 ## Validation
 
-The shared production-scale fixture covers fresh execution, takeover and handover while
+The shared production-scale fixture covers fresh execution, takeover and both lease-only
+and claimed-work handover while
 retaining its mixed status, decision and historical-lease population. Every
 AuthorityStore conformance arm covers native/imported records, negative
 admission, a live scope holder beyond display limits, stale senders, response loss, CAS competition, no-op sealing and
@@ -143,10 +205,12 @@ uv run --extra test python examples/control_plane/authority-lease-lifecycle-rehe
 ```
 
 Use the source-checkout Python environment and a qualified SQLite Node runtime.
-The runner adds two synthetic Todos and one initial lease only to disposable copies, compares
+The runner adds three synthetic Todos and two initial leases only to disposable copies, compares
 all operation results and non-target records, and verifies that the live source
-is unchanged. It separately reports the legacy create-CAS retry mismatch and maintenance
-historical-replay rejection as semantic improvements, not normalized parity. Optional `--private-diagnostics`
+is unchanged. It separately reports the legacy create-CAS retry mismatch, maintenance
+historical-replay rejection and unsupported joint transfer as semantic improvements,
+not normalized parity. The native arms prove old-owner rejection and recipient update.
+Optional `--private-diagnostics`
 keeps raw failures in an owner-only file that must not be published. This does
 not replace [D2 capacity and continuity qualification](sqlite-authority-store.md).
 
@@ -158,9 +222,31 @@ not replace [D2 capacity and continuity qualification](sqlite-authority-store.md
 
 新执行按上面的 acquire 命令领取；没有旧 lease 时 expected-version 为 0，否则
 用 inspect 的当前版本及新的 execution key。领取/接管同时增加 version 和 epoch，
-续约只增 version，转交同时增二者并换 key；释放保留 generation。转交不改变 Todo
-claim、不覆盖 exclusion 或扩大 scope；释放只凭匹配 proof，允许到期或注销 owner
+续约只增 version，转交同时增二者并换 key；释放保留 generation。默认转交不改变 Todo
+claim；两种转交都不覆盖 exclusion 或扩大 scope。释放只凭匹配 proof，允许到期或注销 owner
 清理。所有需递增的入口都拒绝安全整数耗尽，仍允许释放。
+
+已认领且持有有效租约的工作，可显式使用上面的 `--transfer-claim`，在同一 CAS 内
+转交 Todo claim 与 lease。仅限 canonical `hard_lease`、open/active Agent Todo，
+源 claim 必须属于当前持有者，执行 key/version 精确匹配；双方都必须满足注册、排除
+和绑定规则。固定 `bound_agent` 不会被偷偷改写。未认领任务继续使用原 lease-only
+操作，旧 writer 拒绝联合交接，不模拟两次独立写入。
+
+联合提交保留 Todo ID、依赖、要求、证据和 scope；旧 continuation note 保留原文，
+但 claim 改变后其 facts 校验失效。相同 Agent 换新 execution key 只推进租约，不伪造
+claim 修改。旧执行者不能继续更新/完成，新执行者沿用普通 proof-bearing 命令。
+回执中的 `claimed_by` 是历史交接结果；重放不会恢复旧归属。开始新操作前 inspect，
+丢响应重试则沿用原参数及原 version。digest 绑定显式选项、接收者/key 和 TTL，不能
+在重试时删除选项或改目标。
+
+CLI 联合提交后通过原投影器更新展示；失败返回 `projection_delivery=pending`、
+`retry_business_mutation=false`。修复展示后执行 `todo project-markdown` 或重试原
+交接，只渲染当前 head。需转回时由现任持有者凭当前版本和新 key 发起新的交接，
+不能恢复旧文件。该能力不包含上下文自动送达、接收方确认、capability 授权或外部
+effect fencing。新的专用 wire 保证旧 runtime 不会只执行 lease 半边；解码后的
+判别联合也让 canonical 命令不再携带旧式 lock token、PID、terminal release 字段。
+身份错误码直接对应正在解码的字段：缺失或非字符串 Todo ID 现在返回
+`invalid_todo_id`，不再因错误文案中的下划线而误报为 `invalid_goal_id`。
 
 完整 canonical Todo/lease 集合决定 scope 冲突，不能只看 UI 页面。归档、排除、
 注销或与当前 claim 冲突的 holder 不阻挡新的合格执行。独立 acquire 和原子的

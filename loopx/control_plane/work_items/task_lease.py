@@ -849,8 +849,12 @@ def transfer_task_lease(
     new_idempotency_key: str,
     ttl_seconds: int | None = None,
     expected_version: int | None = None,
+    transfer_claim: bool = False,
 ) -> dict[str, Any]:
-    """Transfer a local lease through the native TypeScript owner."""
+    """Transfer a local lease, optionally with its canonical Todo claim."""
+
+    if not isinstance(transfer_claim, bool):
+        raise TaskLeaseError("transfer_claim must be a boolean", code="invalid_claim_transfer_request")
 
     normalized_goal_id = normalize_goal_id(goal_id)
     normalized_todo_id = normalize_lease_todo_id(todo_id)
@@ -871,6 +875,7 @@ def transfer_task_lease(
         idempotency_key=normalized_key,
         new_owner=normalized_new_owner,
         new_idempotency_key=normalized_new_key,
+        **({"transfer_claim": True} if transfer_claim else {}),
         ttl_seconds=normalized_ttl,
         expected_version=normalized_expected_version,
     )
