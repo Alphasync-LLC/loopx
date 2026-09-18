@@ -310,6 +310,55 @@ CLI, frontend and Lark configuration owners/projections where affected; a
 backend field alone does not complete that user journey. Existing defaults and
 explicit host choices remain unchanged until a disclosed implementation lands.
 
+### Effective launch context and recoverable presence
+
+Refine creation/attachment in the existing profile and binding owners; this is
+proposed qualification, not a new factory API or an implemented residency policy.
+Three independent inputs must remain distinguishable:
+
+| Input | Resolution and readback |
+| --- | --- |
+| Context selection | A bounded semantic brief or a host-supported history projection, with source revision, coverage and omissions. A history fork is not a process checkpoint or a copy of pending tools, claims or authority. Rebuild receiver instructions; do not inherit a parent coordinator role as a grant. |
+| Execution preferences | Resolve model, effort and supported tools from the current effective profile, not a stale initial configuration. The shared resolver owns explicit/omitted/clear intent and precedence; record requested, resolved and provider-observed values plus their source. A role name or parseable option is not evidence it took effect. |
+| Execution authority | Reapply the current resource, tool, environment and budget scope after preference resolution. Role/context inheritance cannot broaden it. Workspace sharing or isolation is an explicit host fact; a separate model context does not imply a separate worktree or sandbox. |
+
+Readiness requires both the actual binding's capabilities and permission to use
+them. Model catalog availability, exposed tool schema, owner activation and
+successful host readback are different observations. A child capable of inference
+may still lack delegation or steering. Discover that before dispatch and return
+the missing condition; do not repair it by silently changing provider or authority.
+Use the same resolution for a steward, project coordinator and nested member.
+
+Do not collapse identity, residency and execution into a single Agent status:
+
+| Dimension | Existing source and invariant |
+| --- | --- |
+| Registered identity | Registry/directory owns identity and scope. A missing live-runtime row or a truncated display cannot prove the Agent was deleted. |
+| Loaded runtime | Host supervisor observes resident, unloaded, unavailable or unknown instances. These are conceptual distinctions, not new registry enum values. |
+| Active execution | Binding/Turn owner identifies the active execution and its generation. Turn completion or interruption does not itself delete identity, release a work lease or prove all descendant effects stopped. |
+
+Any future capacity controller must declare what it counts: active executions,
+resident instances, pending reservations and root inclusion are distinct from
+registered identity count and display limits. Do not introduce eviction merely
+to expose these observations. If a host later supports unloading, qualify it only
+after no active execution/pending input and a durable recovery basis are verified.
+Capacity exhaustion returns an explicit disposition; it does not promise a queue.
+
+Creation retries first reconcile the original operation and provider identity;
+a lost response cannot justify a second runtime. Recovery rechecks binding
+version/generation, current scope, environment and durable context before an
+execution effect. Restoring an identity roster does not start every member.
+Unavailable history or an unsupported resume leaves a specific gap and preserves
+pending work; use the separately qualified replacement path, never a guessed
+session or broader policy. This reuses the existing operation journal and
+supervisor, not another lifecycle ledger.
+
+The creation/profile slice must exercise changed parent preferences, unsupported
+child tools, filtered/compacted context, shared workspace assumptions, ambiguous
+creation response, unloaded versus absent identity, and revoked scope on resume.
+Use actual local and cloud adapter readback; list length and role prose are not
+acceptance evidence.
+
 ### State model and schema
 
 The binding is the unit of mode ownership. Its canonical fields:

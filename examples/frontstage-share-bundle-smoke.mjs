@@ -6,6 +6,7 @@ import { readFile, readdir, rm, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { validateBilingualBlog } from "./blog-bilingual-index-smoke.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = resolve("/tmp", "loopx-frontstage-share-bundle-smoke");
@@ -133,9 +134,10 @@ for (const route of ["benchmarks/deepswe-sol/"]) {
 }
 // Editorial pages must ship their text and locale navigation without an SPA
 // fallback or client-side execution, including on repository-base hosting.
-const blogArticle = "from-one-shot-agents-to-long-horizon-control/";
+const blogDir = resolve(siteDir, "blog");
+const { articleSlugs: englishBlogArticles } = await validateBilingualBlog(blogDir);
 for (const locale of ["", "zh/"]) {
-  const articles = locale ? ["", blogArticle, "agent-facing-kanban/", "application-scenarios/"] : ["", blogArticle];
+  const articles = ["", ...englishBlogArticles.map((slug) => `${slug}/`)];
   for (const article of articles) {
     const pagePath = resolve(siteDir, "blog", locale, article, "index.html");
     assertExists(pagePath);
@@ -151,11 +153,6 @@ for (const locale of ["", "zh/"]) {
         throw new Error("Application article must keep enhancement in its local deferred script");
       }
       assertExists(resolve(dirname(pagePath), "presentation.js"));
-    }
-    // A single-language article must not advertise a nonexistent translation.
-    const alternates = ["agent-facing-kanban/", "application-scenarios/"].includes(article) ? [] : ["en", "zh-CN", "x-default"];
-    for (const hreflang of alternates) {
-      if (!html.includes(`hreflang="${hreflang}"`)) throw new Error(`Missing Blog language alternate: ${hreflang}`);
     }
     const stylesheet = html.match(/<link rel="stylesheet" href="([^"]+)"/);
     if (!stylesheet) throw new Error("Blog stylesheet is missing");

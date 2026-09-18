@@ -376,6 +376,44 @@ Observation {
 
 Validate reference access before presenting context. A summary may be model-authored but retains its sources, authorship and revision; a host validates envelope identity and authority. Oversized context is retained as an access-controlled artifact and a disclosed projection; if it cannot be stored/read, reject with a recoverable context error rather than claim a complete handoff. Existing summaries need no global budget increase.
 
+#### Request identity and result routing across a team
+
+Keep creation ancestry, work dependencies and communication routes distinct.
+The Agent that created a worker need not be the requester of its next work.
+A peer can address another authorized peer without relaying through the parent
+model; that address grants neither resource access nor a work claim. The proposed contract's
+`request_id`, `attempt_id`, `sender_ref`, `target_ref` and `return_ref` represent the needed relations. Do not add a parallel work-ID scheme or infer
+return ownership from the runtime tree.
+
+A host may consume several messages in one model turn. Distinct requests still
+retain independent assessment, result and acceptance relations; a turn ID or
+one final answer cannot settle all of them. A correction to one request remains
+a revision of that request, not a new task merely because another turn starts.
+
+Commit the result and its scoped artifact references before notifying the
+requester. Activity events may update a historical UI turn, but are hints to
+read the result, not its body or acceptance. Preserve/re-offer the committed
+result through the existing outbox until the exact return is acknowledged;
+transport delivery, receiver consumption and work acceptance are separate facts.
+If the originating session is gone, resolve its logical return route under the
+same audience boundary. Do not rerun completed work just to regenerate a reply.
+
+Waiting is observation, not a join or another scheduling owner. Subscribe before
+checking durable pending results, then recheck after wake/reconnect; coalesced
+notifications cannot replace result storage. A join uses canonical dependency
+identities, current artifact versions and independent acceptance. Interrupted,
+rejected or missing results must remain visible even without a final answer.
+Only the binding's continuation owner may admit a new execution opportunity;
+a final-answer event cannot implicitly restart an idle coordinator.
+
+Extend A8/A10/A18 with one sibling-request fixture: a root creates B, A and D
+request distinct work from B, and B receives both in one host turn. Each requester
+must recover only its own result after disconnect; the root's activity view
+cannot substitute for either return. Include a result arriving during coordinator
+finalization, an interrupted member with no answer, and a lost notification after
+result commit. These remain proposed cross-host acceptance, not a claim that
+all current adapters provide durable wakeup.
+
 State is projected from accepted observations along independent axes:
 
 | Axis | Legal evolution and invariant |
