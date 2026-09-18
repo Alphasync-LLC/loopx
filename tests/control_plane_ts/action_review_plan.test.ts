@@ -8,7 +8,7 @@ import {
   isStaleActionFailure,
 } from "../../loopx/control_plane/presentation/action_review_plan.ts";
 
-test("canonical edit recovery is visible without changing generic action authority", () => {
+test("canonical update recovery includes User completion without changing generic action authority", () => {
   const proposal = {proposal_id: "reviewed", expected_state_fingerprint: "review-basis",
     action_kind: "todo.update", status: "failed", normalized_parameters: {operation: "edit"},
     canonical_update_basis: {schema_version: "loopx_chat_canonical_update_basis_v0",
@@ -19,8 +19,12 @@ test("canonical edit recovery is visible without changing generic action authori
   assert.equal(plan.canApply, true);
   assert.equal(plan.reason, "canonical_update_projection_pending");
   assert.equal(compileActionReviewPlan({...proposal, status: "applying"}).retryOriginal, true);
+  const completedUpdate = compileActionReviewPlan({...proposal, normalized_parameters: {operation: "complete"}});
+  assert.equal(completedUpdate.retryOriginal, true);
+  assert.equal(completedUpdate.canApply, true);
+  assert.equal(completedUpdate.interaction, "review");
   for (const change of [{canonical_update_basis: undefined}, {action_kind: "operation.execute"},
-    {normalized_parameters: {operation: "complete"}}, {status: "stale"}, {status: "gated"},
+    {normalized_parameters: {operation: "complete"}, canonical_update_basis: undefined}, {status: "stale"}, {status: "gated"},
     {status: "applied", receipt: {projection_verified: true}}]) {
     assert.equal(compileActionReviewPlan({...proposal, ...change}).retryOriginal, undefined);
   }
