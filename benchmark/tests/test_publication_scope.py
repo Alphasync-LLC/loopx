@@ -85,16 +85,17 @@ def test_published_data_and_bilingual_tables_share_scope(exporters):
 def test_lhtb_published_data_and_bilingual_copy_share_scope():
     study = STUDY.parent / "LHTB" / "studies" / "five-arm-gpt56sol-max"
     data = json.loads((study / "data.json").read_text())
-    arms = {
+    all_arms = {
         "plain",
         "native_goal",
         "ssh_goal",
         "legacy_heartbeat",
         "new_heartbeat",
     }
-    assert set(data["arms"]) == arms
+    main_comparison_arms = {"plain", "native_goal", "new_heartbeat"}
+    assert set(data["arms"]) == all_arms
     assert len(data["tasks"]) == len({row["task"] for row in data["tasks"]}) == 46
-    assert all(set(row) == arms | {"task"} for row in data["tasks"])
+    assert all(set(row) == all_arms | {"task"} for row in data["tasks"])
 
     for arm, summary in data["arms"].items():
         rewards = [row[arm] for row in data["tasks"]]
@@ -105,6 +106,11 @@ def test_lhtb_published_data_and_bilingual_copy_share_scope():
     localized_copy = json.loads((site / "lhtb-copy.json").read_text())
     assert set(localized_copy) == {"en", "zh"}
     for localized in localized_copy.values():
-        assert set(localized["armLabels"]) == arms
-        assert set(localized["armKinds"]) == arms
-        assert {row[0] for row in localized["mechanismRows"]} == arms
+        assert set(localized["armLabels"]) == all_arms
+        assert set(localized["armKinds"]) == all_arms
+        assert {row[0] for row in localized["mechanismRows"]} == main_comparison_arms
+
+    assert localized_copy["en"]["resultTitle"] == "Higher mean reward than Plain and native Goal."
+    assert "7, 7, and 4 tasks" in localized_copy["en"]["resultBody"]
+    assert localized_copy["zh"]["resultTitle"] == "均分高于 Plain 和原生 Goal。"
+    assert "7、7、4 题" in localized_copy["zh"]["resultBody"]
