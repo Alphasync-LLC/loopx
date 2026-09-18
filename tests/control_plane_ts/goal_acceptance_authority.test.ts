@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {randomUUID} from "node:crypto";
-import {mkdtemp, rm, writeFile} from "node:fs/promises";
+import {mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {spawnSync} from "node:child_process";
@@ -23,6 +23,13 @@ import {commitGoalAcceptanceVerification, commitLocalGoalAcceptance, commitLocal
   configureGoalAcceptance, inspectGoalAcceptance, inspectLocalGoalAcceptance} from "../../loopx/control_plane/goals/acceptance_authority.ts";
 
 const goal = "goal-acceptance-test";
+test("documented owner configuration satisfies the canonical acceptance contract", async () => {
+  const reference = await readFile(new URL("../../docs/reference/goal-acceptance-observations.md", import.meta.url), "utf8");
+  const example = reference.match(/```json\n([\s\S]*?)\n```/);
+  assert.ok(example, "the operation guide must include a runnable configuration");
+  assert.doesNotThrow(() => normalizeGoalAcceptanceDocument(JSON.parse(example[1])));
+});
+
 function todo(todo_id: string, extra: JsonObject = {}): JsonObject {
   return {todo_id, role: "agent", status: "open", done: false, archive_state: "active",
     text: `Implement ${todo_id}`, task_class: "advancement_task", action_kind: "implement", ...extra};

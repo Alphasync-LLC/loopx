@@ -91,7 +91,7 @@ check and task ID with the actual artifact checks and existing advancement task:
     "id": "artifact-present",
     "description": "The delivered text artifact exists and is nonempty.",
     "validation_argv": ["python3", "-c", "from pathlib import Path; assert Path('deliverable.txt').read_text().strip()"],
-    "validation_timeout_seconds": 29
+    "validation_timeout_seconds": 5
   }],
   "bindings": [{"todo_id": "todo_deliver", "criterion_ids": ["artifact-present"]}]
 }
@@ -100,6 +100,9 @@ check and task ID with the actual artifact checks and existing advancement task:
 Keep executable declarations in the owner's local file; public readback omits
 command arguments and output. The configured checks run as bounded argv commands
 without a shell, using the existing delivery-workspace validation rules.
+Each criterion allows 1–25 seconds and defaults to 5 seconds. The sum of all
+criterion timeouts must not exceed 25 seconds. Run longer evaluations outside
+the completion wrapper and configure a bounded check of their resulting artifact.
 
 The inline Python example binds its code text in the versioned document. For a
 script validator, optionally run `sha256sum verify.py` and add
@@ -239,7 +242,8 @@ status 同时在独立的 `run_history.goals[].artifact_lifecycle` 和 Markdown 
 并用 `loopx --format json todo list --goal-id example-goal` 查看任务。
 按上方 JSON 示例准备所有者审阅过的 `acceptance.json`，将文件检查与任务 ID 替换为实际产物
 检查和已有推进任务。argv 检查不经过 shell，沿用既有交付工作区验证规则；命令声明保留在本地，
-公开读回不含参数、输出或原始日志。
+公开读回不含参数、输出或原始日志。每个条件允许 1–25 秒，默认 5 秒；所有条件的
+超时总和不得超过 25 秒。较长评估在完成包装器之外运行，再配置有界的产物检查。
 
 上方内联 Python 示例的代码文本绑定在版本化文档中。脚本型验证器可选地运行
 `sha256sum verify.py`，并在该条件中加入
