@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 import re
 from typing import Any
@@ -199,6 +200,7 @@ from .control_plane.todos.todo_summary import (
     todo_projection_sort_key as todo_projection_sort_key,
 )
 from .control_plane.todos.todo_index import (
+    EventsForGoal,
     MAX_TODO_INDEX_ITEMS,
     MAX_TODO_INDEX_ROLLOUT_EVENTS_PER_GOAL,
 )
@@ -688,10 +690,12 @@ def active_state_todo_fields(
     goal: dict[str, Any],
     *,
     runtime_root: Path | None = None,
+    rollout_events: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     return _active_state_todo_fields_read_model(
         goal,
         runtime_root=runtime_root,
+        rollout_events=rollout_events,
         resolve_goal_local_path=resolve_goal_local_path,
         active_state_next_action_entries=active_state_next_action_entries,
         active_next_action_todo_ids=active_next_action_todo_ids,
@@ -1062,13 +1066,34 @@ def build_attention_queue(
     include_task_graph: bool = False,
     goal_id_filter: str | None = None,
     include_stopped_goal_context: bool = False,
+    events_for_goal: EventsForGoal | None = None,
 ) -> dict[str, Any]:
+    def request_active_state_todo_fields(
+        goal: dict[str, Any],
+        *,
+        runtime_root: Path | None = None,
+    ) -> dict[str, Any]:
+        goal_id = str(goal.get("id") or "").strip()
+        supplied_events = (
+            events_for_goal(
+                goal_id,
+                limit=MAX_TODO_INDEX_ROLLOUT_EVENTS_PER_GOAL,
+            )
+            if events_for_goal is not None and runtime_root is not None and goal_id
+            else None
+        )
+        return active_state_todo_fields(
+            goal,
+            runtime_root=runtime_root,
+            rollout_events=supplied_events,
+        )
+
     queue = _build_attention_queue_read_model(
         contract=contract,
         history=history,
         global_registry=global_registry,
         context=AttentionQueueContext(
-            active_state_todo_fields=active_state_todo_fields,
+            active_state_todo_fields=request_active_state_todo_fields,
             active_state_todo_attention_item=active_state_todo_attention_item,
             latest_run=latest_run,
             goal_attention=goal_attention,
@@ -1112,11 +1137,19 @@ def build_attention_queue(
             goal_id = str(item.get("goal_id") or "").strip()
             if not goal_id:
                 continue
-            receipts = project_evidence_log_read_receipts(
-                load_rollout_events(
+            events = (
+                events_for_goal(
+                    goal_id,
+                    limit=MAX_TODO_INDEX_ROLLOUT_EVENTS_PER_GOAL,
+                )
+                if events_for_goal is not None
+                else load_rollout_events(
                     rollout_event_log_path(runtime_root, goal_id),
                     limit=MAX_TODO_INDEX_ROLLOUT_EVENTS_PER_GOAL,
-                ),
+                )
+            )
+            receipts = project_evidence_log_read_receipts(
+                events,
                 limit=MAX_PROJECTED_READ_RECEIPTS,
             )
             if receipts:
@@ -1199,6 +1232,7 @@ def build_status_runtime_summaries(
     todo_index_limit: int,
     recent_run_limit: int | None = None,
     include_goal_subagent_configuration: bool = False,
+    events_for_goal: EventsForGoal | None = None,
 ) -> dict[str, Any]:
     return _build_status_runtime_summaries_read_model(
         history=history,
@@ -1211,6 +1245,7 @@ def build_status_runtime_summaries(
         include_goal_subagent_configuration=(
             include_goal_subagent_configuration
         ),
+        events_for_goal=events_for_goal,
         context=build_status_runtime_summary_context(),
     )
 

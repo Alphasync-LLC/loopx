@@ -484,6 +484,35 @@ def load_rollout_events(log_path: Path, *, limit: int | None = None) -> list[dic
     return list(deque(events, maxlen=limit))
 
 
+class RolloutEventSnapshot:
+    def __init__(self, runtime_root: Path, *, limit: int) -> None:
+        if limit <= 0:
+            raise ValueError("rollout event snapshot limit must be positive")
+        self._runtime_root = runtime_root
+        self._limit = limit
+        self._events_by_goal: dict[str, tuple[Mapping[str, Any], ...]] = {}
+
+    def events_for_goal(
+        self,
+        goal_id: str,
+        *,
+        limit: int,
+    ) -> Sequence[Mapping[str, Any]]:
+        if limit != self._limit:
+            raise ValueError(
+                "rollout event snapshot limit mismatch: "
+                f"configured {self._limit}, requested {limit}"
+            )
+        if goal_id not in self._events_by_goal:
+            self._events_by_goal[goal_id] = tuple(
+                load_rollout_events(
+                    rollout_event_log_path(self._runtime_root, goal_id),
+                    limit=self._limit,
+                )
+            )
+        return self._events_by_goal[goal_id]
+
+
 def _safe_event_view(event: Mapping[str, Any]) -> dict[str, Any]:
     keys = (
         "event_id",
