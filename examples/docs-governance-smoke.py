@@ -202,6 +202,40 @@ def check_rfc_language_mirrors() -> None:
         assert "语义镜像" in chinese_text, chinese.name
 
 
+LEDGER_ENTRY_NAME = re.compile(r"^\d{4}-\d{2}-\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+def check_rfc_ledger_entries() -> None:
+    """Validate the per-file RFC execution ledger.
+
+    The ledger exists so that two branches adding an entry on the same day touch
+    two different files instead of the same append cluster. That only holds while
+    every entry is its own file with a sortable name, so the naming is checked
+    rather than described. Nothing enumerates the entries: an index line would
+    reintroduce exactly the shared line this directory removes.
+    """
+    ledger = DOCS / "architecture" / "rfcs" / "ledger"
+    if not ledger.is_dir():
+        return
+    for entry in sorted(ledger.glob("*.md")):
+        if entry.name.endswith(".zh-CN.md"):
+            english = entry.with_name(entry.name[: -len(".zh-CN.md")] + ".md")
+            assert english.exists(), (
+                f"ledger entry has a Chinese mirror with no English original: {entry.name}"
+            )
+            continue
+        if entry.name == "README.md":
+            assert (ledger / "README.zh-CN.md").exists(), "ledger README missing its Chinese mirror"
+            continue
+        assert LEDGER_ENTRY_NAME.match(entry.stem), (
+            f"ledger entry must be named YYYY-MM-DD-slug.md, got: {entry.name}"
+        )
+        chinese = entry.with_name(f"{entry.stem}.zh-CN.md")
+        assert chinese.exists(), f"ledger entry missing required Chinese mirror: {entry.name}"
+        assert entry.read_text(encoding="utf-8").strip(), f"empty ledger entry: {entry.name}"
+        assert chinese.read_text(encoding="utf-8").strip(), f"empty ledger entry: {chinese.name}"
+
+
 def mkdocs_nav_paths(mkdocs_text: str) -> set[str]:
     assert "\nnav:\n" in mkdocs_text or mkdocs_text.startswith("nav:\n"), mkdocs_text
     nav_body = mkdocs_text.split("nav:", 1)[1]
@@ -853,6 +887,7 @@ def main() -> int:
         assert required in compact_multi_agent_product_recipe, required
 
     check_rfc_language_mirrors()
+    check_rfc_ledger_entries()
     print("docs-governance-smoke ok")
     return 0
 
