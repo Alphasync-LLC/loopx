@@ -1,5 +1,5 @@
 /** Explicit local execution bindings. Registration/messages alone grant no launch.
- * These are host observations; canonical Todo/Turn/acceptance remain authoritative. */
+ * These are host observations; canonical task/Turn/acceptance remain authoritative. */
 import type {JsonObject} from "../effect_program.ts";
 import {requireJsonObject} from "../runtime_decode.ts";
 import {EffectRuntimeRequestError} from "../effect_runtime_errors.ts";

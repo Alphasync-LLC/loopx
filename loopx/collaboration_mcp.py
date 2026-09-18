@@ -36,6 +36,7 @@ from .control_plane.collaboration.peers import (
     consume_return,
     read_inbox,
     request,
+    require_operation_id,
 )
 
 
@@ -171,10 +172,11 @@ class Delegations:
     def _spawn(self, operation_id: str) -> None:
         # No inherited stdio pipes: closing the conversation cannot cancel or
         # hang this bounded execution. The worker owns a kernel single-flight lock.
+        operation_id = require_operation_id(operation_id)
         subprocess.Popen([
             sys.executable, "-m", "loopx.collaboration_mcp", "--delegation-action", "worker", "--runtime-root", str(self.root),
             "--registry", str(self.registry), "--goal-id", self.goal_id,
-            "--agent-id", self.agent_id, "--execution-config", str(self.config), "--operation-id", operation_id,
+            "--agent-id", self.agent_id, "--execution-config", str(self.config), "--operation-id=" + operation_id,
             "--workspace", _read(self.path(operation_id))["identity"]["binding"]["workspace"],
         ], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True, close_fds=True)
@@ -199,10 +201,9 @@ class Delegations:
             raise ValueError("unknown delegation operation; start_delegation returns the operation_id to read")
         row = _read(path)
         binding = self._bound(row)
-        active = False
         try:
             with exclusive_file_lock(path, policy=LockAcquisitionPolicy.SINGLE_FLIGHT):
-                pass
+                active = False
         except LockAcquireTimeoutError:
             active = True
         result = {"operation_id": operation_id, "request_id": row["identity"]["request_id"],
@@ -390,7 +391,7 @@ def register_delegation_tools(server, delegations: Delegations) -> None:
         for _ in range(5):
             result = await asyncio.to_thread(delegations.read, operation_id)
             if result["status"] in {"accepted", "rejected"} or result["recovery_required"]:
-                return result
+                break
             await asyncio.sleep(3)
         return result
 

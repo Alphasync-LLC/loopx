@@ -172,6 +172,28 @@ def parse_model_json(text: str) -> dict[str, Any] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+def _complete_material_fields(result: dict[str, Any], kind: str) -> None:
+    """Fill the required delivery fields of a material host candidate."""
+    result["delivery_batch_scale"] = "single_surface"
+    result["delivery_outcome"] = "outcome_progress"
+    # Material results require these bounded text fields; fill them from
+    # adjacent fields if the model returned a sparse block.
+    if not result.get("recommended_action"):
+        result["recommended_action"] = _bounded(
+            result.get("next_action") or result.get("classification") or kind,
+            limit=TEXT_LIMITS["recommended_action"],
+        )
+    if not result.get("next_action"):
+        result["next_action"] = _bounded(
+            result.get("recommended_action"),
+            limit=TEXT_LIMITS["next_action"],
+        )
+    if not result.get("classification"):
+        result["classification"] = _bounded(
+            kind, limit=TEXT_LIMITS["classification"]
+        )
+
+
 def build_result(
     request: Mapping[str, Any],
     candidate: Mapping[str, Any] | None,
@@ -236,24 +258,7 @@ def build_result(
             result[field] = text
 
     if kind in MATERIAL_KINDS:
-        result["delivery_batch_scale"] = "single_surface"
-        result["delivery_outcome"] = "outcome_progress"
-        # Material results require these bounded text fields; fill them from
-        # adjacent fields if the model returned a sparse block.
-        if not result.get("recommended_action"):
-            result["recommended_action"] = _bounded(
-                result.get("next_action") or result.get("classification") or kind,
-                limit=TEXT_LIMITS["recommended_action"],
-            )
-        if not result.get("next_action"):
-            result["next_action"] = _bounded(
-                result.get("recommended_action"),
-                limit=TEXT_LIMITS["next_action"],
-            )
-        if not result.get("classification"):
-            result["classification"] = _bounded(
-                kind, limit=TEXT_LIMITS["classification"]
-            )
+        _complete_material_fields(result, kind)
     # This adapter has no goal-vision packet, so the executor treats the path
     # delta as unchanged and requires a bounded reason for material results.
     result["vision_unchanged_reason"] = _bounded(

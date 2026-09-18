@@ -23,6 +23,8 @@ from ..todos.completion_validation import (
 )
 
 
+_INSPECT_METHOD = "goal.acceptance.inspect"
+
 def _routing(
     registry_path: Path,
     goal_id: str,
@@ -73,7 +75,7 @@ def inspect_goal_acceptance(
 ) -> dict[str, Any]:
     """Read one canonical basis; command declarations stay inside the host."""
     return _result(
-        "goal.acceptance.inspect",
+        _INSPECT_METHOD,
         _routing(registry_path, goal_id, runtime_root, agent_id),
     )
 
@@ -101,14 +103,14 @@ def validate_goal_task_acceptance(
     entrypoint cannot accept supplied commands, pass flags or saved receipts.
     """
     route = {**_routing(registry_path, goal_id, runtime_root, agent_id), "todo_id": todo_id}
-    basis = _result("goal.acceptance.inspect", route).get("completion_requirements")
+    basis = _result(_INSPECT_METHOD, route).get("completion_requirements")
     if not isinstance(basis, dict) or not basis.get("criteria"):
         raise ValueError("delegated task requires enabled owner-bound acceptance")
     results = run_goal_acceptance_effects(
         effects=_criterion_effects(basis["criteria"]),
         registry_path=registry_path, goal_id=goal_id,
     )
-    current = _result("goal.acceptance.inspect", route).get("completion_requirements")
+    current = _result(_INSPECT_METHOD, route).get("completion_requirements")
     if current != basis:
         raise ValueError("delegated task acceptance changed during validation")
     return {"passed": all(row["passed"] for row in results), "results": results}
@@ -287,7 +289,7 @@ def verify_goal_acceptance(
 ) -> dict[str, Any]:
     """Run the configured acceptance checks against a frozen canonical basis."""
     route = _routing(registry_path, goal_id, runtime_root, agent_id)
-    basis = _result("goal.acceptance.inspect", route)
+    basis = _result(_INSPECT_METHOD, route)
     contract = basis.get("contract")
     if contract is None:
         raise ValueError("Goal acceptance is not enabled")
