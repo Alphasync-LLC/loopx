@@ -30,7 +30,8 @@ from .completion_policy import (
 from .completion_transaction import require_completion_successor_todo_ids
 from .completion_validation import (
     resolve_private_completion_validation_declaration,
-    run_declared_completion_validation_effect,
+    execute_completion_validation_effects,
+    completion_validation_failure,
 )
 from .contract import resolve_next_user_task_class
 from .mutation_authority import todo_lifecycle_facts
@@ -188,30 +189,6 @@ def _todo_by_id(
         (dict(todo) for todo in todos if str(todo.get("todo_id") or "") == todo_id),
         None,
     )
-
-
-def _terminal_failure_payload(
-    result: Mapping[str, Any], *, goal_id: str, todo_id: str, dry_run: bool
-) -> dict[str, Any] | None:
-    if result.get("status") != "failed":
-        return None
-    if result.get("reason_code") not in {
-        "validation_declaration_invalid",
-        "validation_failed",
-    }:
-        return None
-    return {
-        "ok": False,
-        "dry_run": dry_run,
-        "completed": False,
-        "changed": False,
-        "goal_id": goal_id,
-        "todo_id": todo_id,
-        "validation_blocked_completion": True,
-        "reason": result.get("reason"),
-        "validation_failure": result.get("validation_failure"),
-        **dict(result),
-    }
 
 
 def _projection_payload(value: Any) -> dict[str, Any]:
@@ -416,38 +393,11 @@ def terminal_canonical_todo_if_promoted(
         "coordination.local_authority.todo_terminal", request
     )
     if isinstance(result, Mapping) and result.get("status") == "execute_validation":
-        effect = result.get("validation_effect")
-        acceptance_effects = result.get("goal_acceptance_validation_effects")
-        if not isinstance(effect, Mapping) and not isinstance(acceptance_effects, list):
-            raise RuntimeError("Todo terminal validation effect shape mismatch")
-        if isinstance(effect, Mapping):
-            request["validation_receipt"] = run_declared_completion_validation_effect(
-                effect=effect,
-                registry_path=registry_path,
-                goal_id=goal_id,
-                delivery_workspace=completion_delivery_workspace,
-                validation_workspace_path=completion_validation_workspace_path,
-            )
-        if acceptance_effects is not None:
-            from ..goals.acceptance import run_goal_acceptance_validation_effect
-
-            if not isinstance(acceptance_effects, list) or not acceptance_effects:
-                raise RuntimeError("Goal acceptance validation effects are missing")
-            source_binding = result.get("goal_acceptance_source_binding")
-            if not isinstance(source_binding, Mapping):
-                raise RuntimeError("Goal acceptance validation omitted its source basis")
-            receipts = []
-            for row in acceptance_effects:
-                if not isinstance(row, Mapping) or not isinstance(row.get("effect"), Mapping):
-                    raise RuntimeError("Goal acceptance validation effect shape mismatch")
-                receipt = run_goal_acceptance_validation_effect(
-                    effect=row["effect"], registry_path=registry_path, goal_id=goal_id,
-                    delivery_workspace=completion_delivery_workspace,
-                    validation_workspace_path=completion_validation_workspace_path,
-                )
-                receipts.append({"criterion_id": row.get("criterion_id"), "receipt": receipt})
-            request["goal_acceptance_source_binding"] = dict(source_binding)
-            request["goal_acceptance_validation_receipts"] = receipts
+        request.update(execute_completion_validation_effects(
+            result, registry_path=registry_path, goal_id=goal_id,
+            delivery_workspace=completion_delivery_workspace,
+            validation_workspace_path=completion_validation_workspace_path,
+        ))
         result = effect_runtime_result(
             "coordination.local_authority.todo_terminal", request
         )
@@ -457,7 +407,7 @@ def terminal_canonical_todo_if_promoted(
             code="local_authority_todo_terminal_invalid_result",
             payload={"source_authority": "file_v0"},
         )
-    validation_failure = _terminal_failure_payload(
+    validation_failure = completion_validation_failure(
         result, goal_id=goal_id, todo_id=todo_id, dry_run=dry_run
     )
     if validation_failure is not None:

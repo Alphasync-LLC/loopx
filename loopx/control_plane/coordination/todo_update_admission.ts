@@ -1,7 +1,8 @@
-/** Admission for nonterminal Todo edits. Grants may cross a claim owner;
+/** Admission for Todo edits; terminal completion retains its own lease proof.
+ * Grants may cross a claim owner;
  * exclusions, bindings and execution lineage remain independent restrictions. */
 import type {JsonObject} from "../effect_program.ts";
-import type {CoordinationTodoUpdateInput} from "./todo_update.ts";
+import type {CoordinationTodoUpdateInput} from "./todo_update_intent.ts";
 import {TODO_WORK_REQUIREMENT_FIELDS} from "../todos/work_requirements.ts";
 import {TODO_OWNERSHIP_INTENT_FIELDS} from "../todos/authoring_scope.ts";
 import {evaluateCoordinationTodoMutationDecision,
@@ -13,7 +14,7 @@ const reject = (code: string, reason: string): TodoUpdateRejection => ({code, re
 
 export function todoUpdateAdmissionRejection(
   head: JsonObject, todo: JsonObject, leases: ReadonlyMap<string, JsonObject>,
-  input: CoordinationTodoUpdateInput,
+  input: CoordinationTodoUpdateInput, kind: "planning" | "user_completion" = "planning",
 ): TodoUpdateRejection | null {
   if (input.expected_role !== null && todo.role !== input.expected_role) {
     return reject("todo_role_mismatch", "Todo does not have the requested role");
@@ -21,7 +22,7 @@ export function todoUpdateAdmissionRejection(
   if (todo.archive_state !== "active") {
     return reject("todo_archived", "Todo update requires an active Todo");
   }
-  if (todo.status === "done") {
+  if (todo.status === "done" && kind === "planning") {
     return reject("unsupported_todo_update_target",
       "native metadata update cannot complete a Todo; use the terminal lifecycle command");
   }
@@ -34,6 +35,10 @@ export function todoUpdateAdmissionRejection(
   const ownershipMutation = ["claimed_by", "clear_claim", "excluded_agents", "bound_agent",
     "goal_bound", "blocks_agent", "clear_blocks_agent", "global_gate", "clear_global_gate"]
     .some(field => Object.hasOwn(intent, field));
+  if (kind === "user_completion" && (lease !== undefined || mode === "hard_lease") && ownershipMutation) {
+    return reject("update_lease_ownership_transition_unsupported",
+      "Ownership/exclusion edits require a lease lifecycle transaction; complete before changing the execution grant");
+  }
   const authorityDecision = evaluateCoordinationTodoMutationDecision({
     schema_version: COORDINATION_TODO_MUTATION_DECISION_REQUEST_SCHEMA,
     command: "update", handoff_mode: mode, registered_agents: input.registered_agents,
@@ -80,6 +85,14 @@ export function todoUpdateAdmissionRejection(
     Object.hasOwn(input.planning_intent ?? {}, field))) {
     return reject("update_lease_ownership_transition_unsupported",
       "Ownership/exclusion edits require a lease lifecycle transaction; metadata update cannot rewrite an execution grant");
+  }
+  // Completion has its own terminal lease proof and atomic release. It still
+  // cannot rewrite an execution grant's ownership or work requirements.
+  if (kind === "user_completion") {
+    if (lease !== undefined && TODO_WORK_REQUIREMENT_FIELDS.some(field => Object.hasOwn(intent, field))) {
+      return reject("update_lease_requirements_transition_unsupported", "Complete leased work before changing its requirements");
+    }
+    return null;
   }
   if (lease !== undefined || mode === "hard_lease" ||
       input.lease_idempotency_key != null || input.lease_expected_version != null) {

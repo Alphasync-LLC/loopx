@@ -727,3 +727,69 @@ def locked_todo_completion_source(
     todo = dict(event_context["item"])
     todo["role"] = event_context["role"]
     return None, todo, event_context
+
+
+def execute_completion_validation_effects(
+    result: Mapping[str, Any], *, registry_path: Path, goal_id: str,
+    delivery_workspace: Mapping[str, Any] | None = None,
+    validation_workspace_path: Path | None = None,
+) -> dict[str, Any]:
+    """Execute only the declared effects; the TS caller owns admission/resume."""
+    updates: dict[str, Any] = {}
+    effect = result.get("validation_effect")
+    acceptance_effects = result.get("goal_acceptance_validation_effects")
+    if not isinstance(effect, Mapping) and not isinstance(acceptance_effects, list):
+        raise RuntimeError("Todo terminal validation effect shape mismatch")
+    if isinstance(effect, Mapping):
+        updates["validation_receipt"] = run_declared_completion_validation_effect(
+            effect=effect,
+            registry_path=registry_path,
+            goal_id=goal_id,
+            delivery_workspace=delivery_workspace,
+            validation_workspace_path=validation_workspace_path,
+        )
+    if acceptance_effects is not None:
+        from ..goals.acceptance import run_goal_acceptance_validation_effect
+
+        if not isinstance(acceptance_effects, list) or not acceptance_effects:
+            raise RuntimeError("Goal acceptance validation effects are missing")
+        source_binding = result.get("goal_acceptance_source_binding")
+        if not isinstance(source_binding, Mapping):
+            raise RuntimeError("Goal acceptance validation omitted its source basis")
+        receipts = []
+        for row in acceptance_effects:
+            if not isinstance(row, Mapping) or not isinstance(row.get("effect"), Mapping):
+                raise RuntimeError("Goal acceptance validation effect shape mismatch")
+            receipt = run_goal_acceptance_validation_effect(
+                effect=row["effect"], registry_path=registry_path, goal_id=goal_id,
+                delivery_workspace=delivery_workspace,
+                validation_workspace_path=validation_workspace_path,
+            )
+            receipts.append({"criterion_id": row.get("criterion_id"), "receipt": receipt})
+        updates["goal_acceptance_source_binding"] = dict(source_binding)
+        updates["goal_acceptance_validation_receipts"] = receipts
+    return updates
+
+
+def completion_validation_failure(
+    result: Mapping[str, Any], *, goal_id: str, todo_id: str, dry_run: bool
+) -> dict[str, Any] | None:
+    if result.get("status") != "failed":
+        return None
+    if result.get("reason_code") not in {
+        "validation_declaration_invalid",
+        "validation_failed",
+    }:
+        return None
+    return {
+        "ok": False,
+        "dry_run": dry_run,
+        "completed": False,
+        "changed": False,
+        "goal_id": goal_id,
+        "todo_id": todo_id,
+        "validation_blocked_completion": True,
+        "reason": result.get("reason"),
+        "validation_failure": result.get("validation_failure"),
+        **dict(result),
+    }

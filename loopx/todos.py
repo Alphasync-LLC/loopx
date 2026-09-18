@@ -1130,8 +1130,8 @@ def update_goal_todo(
             return canonical_claim
     # Translate the compatibility-sized CLI signature exactly once.  The
     # canonical transaction now owns ordinary role/binding/work-declaration
-    # edits as well as text/note corrections; monitor observations and terminal
-    # completion remain effect-owned and therefore stay off this route.
+    # edits as well as text/note corrections. User completion is dispatched to
+    # the terminal owner; Monitor observations retain their dedicated route.
     planning_intent = build_canonical_update_intent(
         status=status, evidence=evidence, reason=reason, task_class=task_class,
         action_kind=action_kind, task_domain=task_domain,
@@ -1155,7 +1155,6 @@ def update_goal_todo(
     if not claim_only and canonical_update_is_supported(
         text=text, note=note, intent=planning_intent,
         monitor_metadata=monitor_metadata,
-        status=status,
     ):
         canonical_edit = update_canonical_todo_if_promoted(
             registry_path=registry_path, runtime_root=shadow_runtime_root,
