@@ -307,6 +307,7 @@ def collect_history(
     include_runtime_goals: bool = True,
     activation_state_filter: GoalActivationState | str | None = None,
     agent_lane_id: str | None = None,
+    registry: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from .capabilities.machine_configuration.builtins import (
         build_builtin_machine_configuration_registry,
@@ -314,7 +315,8 @@ def collect_history(
     )
     from .capabilities.machine_configuration.store import read_machine_configuration
 
-    registry = load_registry(registry_path)
+    if registry is None:
+        registry = load_registry(registry_path)
     machine_configuration = read_machine_configuration(
         runtime_root,
         registry=build_builtin_machine_configuration_registry(),
@@ -515,6 +517,7 @@ def collect_status_history(
     status_include_runtime_goals: bool,
     activation_state_filter: GoalActivationState | str | None = None,
     agent_lane_id: str | None = None,
+    registry: dict[str, Any] | None = None,
 ) -> StatusHistoryCollection:
     history = collect_history(
         registry_path=registry_path,
@@ -524,6 +527,7 @@ def collect_status_history(
         include_runtime_goals=True,
         activation_state_filter=activation_state_filter,
         agent_lane_id=agent_lane_id,
+        registry=registry,
     )
     audit = build_run_history_audit(
         history,

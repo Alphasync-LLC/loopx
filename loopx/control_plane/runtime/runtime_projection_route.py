@@ -501,8 +501,10 @@ def _source_routes_for_registry(
     goal_id: str | None,
     activation_state_filter: GoalActivationState | str | None = None,
     source_registry_read_timeout_seconds: float = SOURCE_REGISTRY_READ_TIMEOUT_SECONDS,
+    registry: dict[str, Any] | None = None,
 ) -> list[tuple[Path, Path, str, str | None]]:
-    registry = load_registry(registry_path)
+    if registry is None:
+        registry = load_registry(registry_path)
     is_global = bool(registry.get("registry_role") == "global-local") or _same_path(
         registry_path,
         global_registry_path(runtime_root),
@@ -598,6 +600,7 @@ def collect_runtime_projection_route_diagnostics(
     goal_id: str | None = None,
     activation_state_filter: GoalActivationState | str | None = None,
     source_registry_read_timeout_seconds: float = SOURCE_REGISTRY_READ_TIMEOUT_SECONDS,
+    registry: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     items: list[dict[str, Any]] = []
     source_routes = _source_routes_for_registry(
@@ -606,8 +609,10 @@ def collect_runtime_projection_route_diagnostics(
         goal_id=goal_id,
         activation_state_filter=activation_state_filter,
         source_registry_read_timeout_seconds=source_registry_read_timeout_seconds,
+        registry=registry,
     )
-    registry = load_registry(registry_path)
+    if registry is None:
+        registry = load_registry(registry_path)
     registry_is_global = bool(registry.get("registry_role") == "global-local") or _same_path(
         registry_path,
         global_registry_path(runtime_root),
