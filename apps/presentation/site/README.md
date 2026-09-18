@@ -19,6 +19,10 @@ alternate-language metadata, and the complete article in HTML. Reading and
 navigation work without JavaScript. Vite copies these pages into both the local
 build and the existing Pages export; no separate hosting or content service is
 needed. Relative navigation supports both root and repository base paths.
+Both locale indexes list every article. The
+frontstage share-bundle smoke discovers article directories rather than relying
+on a hand-maintained allowlist, and fails when a translation, index entry, or
+language alternate is missing or when paired article sections drift.
 
 The Chinese DeepSWE × Sol research brief is a static page at
 `public/benchmarks/deepswe-sol/`, linked from the homepage research collection.
