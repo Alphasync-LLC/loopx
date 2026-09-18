@@ -16,7 +16,7 @@ from .chat_manager_details import read_manager_goal_details
 from .chat_manager_history import read_manager_delivery_history
 from .goal_portfolio import build_goal_portfolio
 from .chat import redact_local_paths
-from .control_plane.collaboration.conversation_scope import conversation_scope
+from .control_plane.collaboration import conversation_scope
 
 
 # A progress question needs a bounded window, not a single day. One day of

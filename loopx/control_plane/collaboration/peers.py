@@ -14,7 +14,7 @@ from pathlib import Path
 
 from .inbox import ENTRY_SCHEMA, _hash, _read, _root, _write, normalize_request
 from .inbox import _entry, _now
-from .conversation_scope import conversation_scope
+from . import conversation_scope
 from ...agent_registry import registered_agent_ids_for_goal
 from ...file_lock import exclusive_file_lock
 from ...history import load_registry

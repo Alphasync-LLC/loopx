@@ -15,8 +15,8 @@ export function resolveConversationScope(input: JsonObject): ConversationScope {
   if (channel === "manager") {
     return {kind: "owner_portfolio", goal_ids: null, private_conversation: true};
   }
-  if (typeof goal === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/.test(goal)
-      && goal !== "loopx-manager" && channel === `goal.${goal}`
+  if (typeof goal === "string" && /^[A-Za-z0-9._-]{1,160}$/.test(goal)
+      && goal !== "." && goal !== ".." && goal !== "loopx-manager" && channel === `goal.${goal}`
       && (input.origin === undefined || input.origin === "web")) {
     return {kind: "owner_goal", goal_ids: [goal], private_conversation: true};
   }

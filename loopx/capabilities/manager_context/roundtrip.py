@@ -14,7 +14,7 @@ from datetime import datetime, timezone, timedelta
 from . import _root, _read, _write, _hash, authority
 from .tracking import _entry, _now
 from ...file_lock import exclusive_file_lock
-from ...control_plane.collaboration.conversation_scope import conversation_scope
+from ...control_plane.collaboration import conversation_scope
 from ...presentation.public_safety import scan_public_boundary_text
 from ...control_plane.effect_runtime import EffectRuntimeRejected, effect_runtime_result
 

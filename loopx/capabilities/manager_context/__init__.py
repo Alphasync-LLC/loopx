@@ -9,7 +9,7 @@ import shlex
 from ...agent_registry import registered_agent_ids_for_goal
 from ...file_lock import exclusive_file_lock
 from ...history import load_registry
-from ...control_plane.collaboration.conversation_scope import conversation_scope
+from ...control_plane.collaboration import conversation_scope
 
 # Retained imports are the shipped manager-context API; the shared owner is neutral.
 from ...control_plane.collaboration.inbox import (

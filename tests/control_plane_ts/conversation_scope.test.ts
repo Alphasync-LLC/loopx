@@ -5,8 +5,10 @@ import {resolveConversationScope} from "../../loopx/control_plane/collaboration/
 test("owner steward is independent of the selected project; project scope is exact", () => {
   assert.deepEqual(resolveConversationScope({channel_id: "manager", goal_id: "alpha"}),
     {kind: "owner_portfolio", goal_ids: null, private_conversation: true});
-  assert.deepEqual(resolveConversationScope({channel_id: "goal.alpha", goal_id: "alpha"}),
-    {kind: "owner_goal", goal_ids: ["alpha"], private_conversation: true});
+  for (const goal of ["alpha", "_alpha", ".alpha", "-alpha"]) {
+    assert.deepEqual(resolveConversationScope({channel_id: `goal.${goal}`, goal_id: goal}),
+      {kind: "owner_goal", goal_ids: [goal], private_conversation: true});
+  }
 });
 
 test("a project name, role label or external anchor cannot grant a wider scope", () => {
@@ -17,6 +19,8 @@ test("a project name, role label or external anchor cannot grant a wider scope",
     {channel_id: "task.alpha", goal_id: "alpha", role: "manager"},
     {channel_id: "manager.external.", goal_id: "alpha"},
     {channel_id: "goal.a/../b", goal_id: "a/../b"},
+    {channel_id: "goal..", goal_id: "."},
+    {channel_id: "goal...", goal_id: ".."},
     {channel_id: "goal.alpha", goal_id: "alpha", origin: "lark"},
     {channel_id: "goal.alpha", goal_id: "alpha", origin: "unknown"},
   ]) {

@@ -16,7 +16,7 @@ from .chat_manager import (
     manager_workspace, manager_skill_text, operator_credential_pair, operator_credential_resolution,
 )
 from .chat_coordination import PROJECT_COORDINATION_GUIDANCE, PROJECT_CONTEXT_VERSION
-from .control_plane.collaboration.conversation_scope import conversation_scope
+from .control_plane.collaboration import conversation_scope
 from .capabilities.manager_runtime import (
     load_effective_manager_runtime_profile, manager_runtime_session_fields,
 )
