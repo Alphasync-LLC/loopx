@@ -45,6 +45,9 @@ from loopx.chat_runtime import ChatRuntimeController
 from loopx.chat_server import ChatHTTPServer, ChatRequestHandler
 from loopx.chat_store import ChatSessionStore
 from loopx.control_plane.turn_driver import host_binding
+from loopx.control_plane.turn_driver.host_binding import (
+    RUNTIME_PROBE_SCOPE_INTERPRETER,
+)
 from loopx.extensions.lark.cli_resolution import LarkCliResolution
 
 
@@ -563,7 +566,7 @@ def test_a_managed_host_without_a_credential_raises_the_credential_gate(
     assert "DEEPSEEK_API_KEY" in error.gate["next_action"]
 
 
-def test_a_managed_host_without_its_runtime_names_the_install_step(
+def test_missing_runtime_gate_identifies_the_service_environment(
     tmp_path, monkeypatch
 ):
     # The credential is configured and the runtime is missing, so the launch is
@@ -575,7 +578,10 @@ def test_a_managed_host_without_its_runtime_names_the_install_step(
 
     assert error.error_code == "agent_endpoint_unavailable"
     assert error.gate["kind"] == "host_tool_gate"
-    assert "pip install" in error.gate["next_action"]
+    assert "service interpreter" in error.gate["next_action"]
+    assert "loopx doctor" in error.gate["next_action"]
+    assert "python.executable" in error.gate["next_action"]
+    assert "same environment" in error.gate["next_action"]
 
 
 def test_unknown_endpoint_keeps_the_untyped_lookup_error(tmp_path):
@@ -651,6 +657,10 @@ def test_a_channel_without_a_session_reads_as_unbound(monkeypatch):
         MANAGER_CHANNEL_SESSION_MODE_SOURCE_UNBOUND
     )
     assert binding["session_status"] is None
+    # The channel quotes the governed Turn surface's probe scope, so a surface
+    # showing `dsh_runtime_unavailable` can say which environment answered.
+    assert binding["runtime_probe"]["scope"] == RUNTIME_PROBE_SCOPE_INTERPRETER
+    assert binding["runtime_probe"]["available"] is True
 
 
 def test_an_unrecognized_session_mode_is_named_rather_than_coerced():

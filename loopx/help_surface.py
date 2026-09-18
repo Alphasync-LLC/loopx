@@ -258,6 +258,10 @@ COMMAND_GROUPS: list[dict[str, object]] = [
                 "purpose": "Safely retire explicitly named orphaned global goal routes.",
             },
             {"command": "loopx register-agent", "purpose": "Register an automation agent."},
+            {
+                "command": "loopx agent-directory",
+                "purpose": "Produce the local, goal-scoped peer agent directory this host can hand work to.",
+            },
             {"command": "loopx lark-kanban", "purpose": "Project LoopX state into a Feishu/Lark Base board."},
             {
                 "command": "loopx presentation",

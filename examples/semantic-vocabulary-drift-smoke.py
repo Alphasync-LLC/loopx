@@ -16,7 +16,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -36,6 +36,7 @@ from loopx.semantics.inventory import (  # noqa: E402
 
 from loopx.semantics.production import (  # noqa: E402
     collect_production, validate_production, INPUT_WITNESSES, quota_action_domain, collect_literal_uses,
+    PRODUCER_FILES, PRODUCER_ROOTS,
 )
 from loopx.semantics.python_production import scan_python_production  # noqa: E402
 from scripts.generate_semantic_bindings import build_artifacts  # noqa: E402
@@ -84,6 +85,59 @@ FORMAL_INVARIANTS = {
     "F6_persistence_version_compatibility",
 }
 FORMAL_ENFORCEMENT = {"m0", "m0_5", "m1", "advisory", "unproved"}
+# Each formal invariant names the set it quantifies over. The selector is code
+# owned, so registry data cannot invent a domain, and both counts are derived
+# from the registry on every run rather than trusted: a declared size that no
+# longer matches the tree fails in the same diff that changed the tree.
+# ``verified`` is the sub-domain the invariant's enforcement stage actually
+# walks; ``registered`` is the whole population of the same unit. An advisory or
+# unproved stage walks nothing, so its ``verified`` count must be 0 -- that is
+# what those stages mean, and it is checked here instead of asserted in prose.
+FORMAL_DOMAIN_KEYS = {"quantifies_over", "verified", "registered", "evidence_bound"}
+FORMAL_DOMAIN_SELECTORS: dict[str, Callable[[dict[str, Any]], tuple[int, int]]] = {
+    # ``check_producers`` walks exactly the vocabularies that declare producers.
+    # Today that predicate selects the kernel tier and nothing else, so F1/F2
+    # quantify over 6 of 26 vocabularies, not over V.
+    "vocabularies[tier=kernel].producers": lambda registry: (
+        sum(1 for entry in registry["vocabularies"].values()
+            if entry["tier"] == "kernel" and "producers" in entry),
+        len(registry["vocabularies"]),
+    ),
+    "vocabularies[*]": lambda registry: (
+        len(registry["vocabularies"]), len(registry["vocabularies"]),
+    ),
+    "scope_declarations[*].contexts": lambda registry: (
+        sum(len(entry["contexts"]) for entry in registry["scope_declarations"].values()),
+        sum(len(entry["contexts"]) for entry in registry["scope_declarations"].values()),
+    ),
+    "projections[*]": lambda registry: (len(registry["projections"]), len(registry["projections"])),
+    # No site declares a persists edge, so F6 has an empty domain, not a small one.
+    "persists_edges[*]": lambda registry: (0, 0),
+}
+FORMAL_ENFORCED_STAGES = frozenset(FORMAL_ENFORCEMENT - {"advisory", "unproved"})
+# What a verified sub-domain rests on, and which stages may claim it. The first
+# three describe evidence something actually walked, so only an enforced stage
+# can hold one; the last two say nothing is walked and belong to one stage each.
+FORMAL_EVIDENCE_BOUNDS: dict[str, frozenset[str]] = {
+    "producer_scan_reach": FORMAL_ENFORCED_STAGES,
+    "declared_defining_modules": FORMAL_ENFORCED_STAGES,
+    "executable_owner_function": FORMAL_ENFORCED_STAGES,
+    "inventory_only": frozenset({"advisory"}),
+    "unmodelled": frozenset({"unproved"}),
+}
+# Which set each invariant is about, pinned in code for the same reason as
+# COVERAGE_ANCHOR and BUDGET_ANCHOR: the registry value must equal the anchor, so
+# an invariant cannot quietly widen its own claim by choosing a looser selector
+# in a data-only edit. Restating an invariant over a different domain is a
+# normative change and edits this literal in the same diff.
+FORMAL_DOMAIN_ANCHOR = {
+    "F1_producer_closedness": ("vocabularies[tier=kernel].producers", "producer_scan_reach"),
+    "F2_canonical_value_liveness": ("vocabularies[tier=kernel].producers", "producer_scan_reach"),
+    "F3_consumer_domain_closedness": ("vocabularies[*]", "inventory_only"),
+    "F4_scope_separation": ("scope_declarations[*].contexts", "declared_defining_modules"),
+    "F5_projection_totality": ("projections[*]", "executable_owner_function"),
+    "F6_persistence_version_compatibility": ("persists_edges[*]", "unmodelled"),
+}
 FORMAL_POLICY_KEYS = {"blocking_now", "blocking_next", "advisory", "unproved"}
 FORMAL_CANDIDATE_DECISIONS = {
     "reuse_existing",
@@ -147,13 +201,13 @@ TWIN_BUDGET_ANCHOR = 43
 BUDGET_ANCHOR = {
     "same_runtime_forks": 18,
     "same_runtime_fork_definitions": 41,
-    "conflicting_values": 18,
-    "conflicting_definitions": 59,
+    "conflicting_values": 16,
+    "conflicting_definitions": 55,
     "schema_version_same_runtime_forks": 7,
     "multi_value_twins": 13,
-    "multi_value_forks": 4,
-    "multi_value_forks_semantic": 3,
-    "multi_value_fork_definitions": 10,
+    "multi_value_forks": 2,
+    "multi_value_forks_semantic": 1,
+    "multi_value_fork_definitions": 6,
     "same_runtime_forks_semantic": 11,
     "conflicting_values_semantic": 0,
 }
@@ -203,7 +257,6 @@ def load_registry() -> dict[str, Any]:
     registry = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
     require(set(registry) == REGISTRY_KEYS, f"registry keys must be exactly {sorted(REGISTRY_KEYS)}")
     require(registry["schema_version"] == REGISTRY_SCHEMA_VERSION, f"registry schema_version must be {REGISTRY_SCHEMA_VERSION}")
-    check_formal_model(registry["formal_model"])
     require((REPO_ROOT / registry["rfc"]).is_file(), f"registry must point at an existing RFC: {registry['rfc']}")
     for name, vocabulary in registry["vocabularies"].items():
         require(VALUE_SHAPE.match(name) is not None, f"vocabulary name must be lower snake_case: {name}")
@@ -259,15 +312,19 @@ def load_registry() -> dict[str, Any]:
         if scan is not None:
             require(set(scan) == {"field", "roots", "suffixes"}, f"{name}: literal_scan keys must be field, roots, suffixes")
             require(VALUE_SHAPE.match(scan["field"]) is not None, f"{name}: literal_scan.field must be an identifier")
+    # Last: the formal model derives its domain sizes from the sets checked above.
+    check_formal_model(registry["formal_model"], registry)
     return registry
 
 
-def check_formal_model(model: dict[str, Any]) -> None:
+def check_formal_model(model: dict[str, Any], registry: dict[str, Any]) -> None:
     """Validate the formal vocabulary model's finite signature and proof ledger.
 
     This is deliberately a schema check, not a claim that the current scanner
-    proves every property. Each property carries an enforcement stage and the
-    proof boundary records what remains unproved.
+    proves every property. Each property carries an enforcement stage, a declared
+    domain whose size is derived from ``registry`` rather than trusted, and the
+    proof boundary records what remains unproved. The registry is required, not
+    optional: a domain nobody counts is the defect this field exists to prevent.
     """
     require(set(model) == FORMAL_MODEL_KEYS, f"formal_model keys must be exactly {sorted(FORMAL_MODEL_KEYS)}")
     require(model["schema_version"] == FORMAL_MODEL_SCHEMA_VERSION, "formal_model schema_version drift")
@@ -277,15 +334,25 @@ def check_formal_model(model: dict[str, Any]) -> None:
             "formal_model role_hierarchy must classify interpreter and pass_through as consumers")
     require(set(model["relations"]) == FORMAL_RELATIONS, "formal_model relations must be the declared edge kinds")
     invariants = model["invariants"]
-    require(isinstance(invariants, list) and {item.get("id") for item in invariants} == FORMAL_INVARIANTS,
-            "formal_model invariants must cover exactly F1-F6")
+    require(isinstance(invariants, list), "formal_model invariants must be a list")
+    invariant_ids = [item.get("id") for item in invariants]
+    require(set(invariant_ids) == FORMAL_INVARIANTS, "formal_model invariants must cover exactly F1-F6")
+    # Every dict below is built by id, so a repeated entry is silently reduced to
+    # its last occurrence: two entries for one id would both validate while only
+    # one of them is reported, and a reader could not tell which statement,
+    # evidence boundary or stage the smoke actually walked.
+    require(len(invariant_ids) == len(set(invariant_ids)),
+            "formal_model invariants must state each of F1-F6 exactly once")
+    require(set(FORMAL_DOMAIN_ANCHOR) == FORMAL_INVARIANTS,
+            "FORMAL_DOMAIN_ANCHOR must pin a domain for every formal invariant")
     for item in invariants:
-        require(set(item) == {"id", "statement", "enforcement", "evidence"},
+        require(set(item) == {"id", "statement", "enforcement", "evidence", "domain"},
                 f"formal invariant {item.get('id')} has an invalid shape")
         require(item["enforcement"] in FORMAL_ENFORCEMENT,
                 f"formal invariant {item['id']} has unknown enforcement stage")
         require(item["statement"].strip() and item["evidence"].strip(),
                 f"formal invariant {item['id']} needs a statement and evidence boundary")
+        check_invariant_domain(item, registry)
     policy = model["enforcement_policy"]
     require(set(policy) == FORMAL_POLICY_KEYS,
             "formal_model enforcement_policy must separate current, next, advisory, and unproved checks")
@@ -316,6 +383,56 @@ def check_formal_model(model: dict[str, Any]) -> None:
     for key in boundary:
         require(isinstance(boundary[key], list) and all(isinstance(value, str) and value.strip() for value in boundary[key]),
                 f"formal_model proof_boundary.{key} must contain non-empty claim names")
+
+
+def check_invariant_domain(invariant: dict[str, Any], registry: dict[str, Any]) -> None:
+    """Require a declared invariant domain to match the set actually walked.
+
+    An unconditional statement over a domain the checker never visits is the
+    defect this field exists to catch: the quantifier in ``statement`` has to be
+    bounded by the set counted here. Both counts are derived from the registry,
+    so widening the registry without widening the claim -- or the reverse -- is a
+    one-diff failure rather than silent rot.
+    """
+    name = invariant["id"]
+    domain = invariant["domain"]
+    require(isinstance(domain, dict) and set(domain) == FORMAL_DOMAIN_KEYS,
+            f"formal invariant {name} domain keys must be exactly {sorted(FORMAL_DOMAIN_KEYS)}")
+    selector = domain["quantifies_over"]
+    require(selector in FORMAL_DOMAIN_SELECTORS,
+            f"formal invariant {name} quantifies over an unknown domain {selector!r}; "
+            f"selectors are code owned, not registry data: {sorted(FORMAL_DOMAIN_SELECTORS)}")
+    bound = domain["evidence_bound"]
+    require(bound in FORMAL_EVIDENCE_BOUNDS,
+            f"formal invariant {name} has an unknown evidence bound {bound!r}; "
+            f"bounds are code owned: {sorted(FORMAL_EVIDENCE_BOUNDS)}")
+    require((selector, bound) == FORMAL_DOMAIN_ANCHOR[name],
+            f"formal invariant {name} declares domain {(selector, bound)} but FORMAL_DOMAIN_ANCHOR "
+            f"pins {FORMAL_DOMAIN_ANCHOR[name]}; restating an invariant over another domain is a "
+            "normative change and moves the anchor in the same diff")
+    stage = invariant["enforcement"]
+    allowed = FORMAL_EVIDENCE_BOUNDS[bound]
+    require(stage in allowed,
+            f"formal invariant {name} claims evidence bound {bound}, which only "
+            f"{sorted(allowed)} may hold; its stage is {stage}")
+    require(all(type(domain[key]) is int and domain[key] >= 0 for key in ("verified", "registered")),
+            f"formal invariant {name} domain sizes must be non-negative integers")
+    walked, population = FORMAL_DOMAIN_SELECTORS[selector](registry)
+    require(domain["registered"] == population,
+            f"formal invariant {name} declares {domain['registered']} registered members of "
+            f"{selector}; the registry holds {population}")
+    if stage not in FORMAL_ENFORCED_STAGES:
+        require(domain["verified"] == 0,
+                f"formal invariant {name} is {stage} but claims {domain['verified']} verified "
+                f"members of {selector}; an unenforced stage walks nothing")
+    else:
+        require(domain["verified"] == walked,
+                f"formal invariant {name} claims {domain['verified']} verified members of "
+                f"{selector}; the {stage} check walks {walked}")
+        require(domain["verified"] > 0,
+                f"formal invariant {name} is enforced at {stage} over an empty domain")
+    require(domain["verified"] <= domain["registered"],
+            f"formal invariant {name} cannot verify more members than the registry holds")
 
 
 def check_coverage_floor(registry: dict[str, Any]) -> str:
@@ -463,6 +580,35 @@ def _producer_literals(field: str, source: SourceFile) -> set[str]:
     return set().union(*(row.values for row in rows))
 
 
+# The blocker labels ``summarise_blockers`` explains as unable to become evidence,
+# named once so the report can count them instead of restating the rule. They are
+# the floor under the unresolved total, not a backlog anyone can work down.
+PERMANENTLY_UNRESOLVABLE_BLOCKERS = ('annotation_only', 'argument_name_only')
+
+
+def blocker_label(site: str) -> str:
+    return site.rpartition('[')[2].rstrip(']') or 'other'
+
+
+def count_permanently_unresolvable(sites: list[str]) -> int:
+    """Count reported sites that can never become evidence, however wide the scan."""
+    return sum(1 for site in sites if blocker_label(site) in PERMANENTLY_UNRESOLVABLE_BLOCKERS)
+
+
+def producer_scan_reach(sources: list[SourceFile]) -> tuple[int, int]:
+    """Files the F1/F2 producer scan reaches, out of the tracked ``loopx/`` tree.
+
+    Derived on every run, never pinned in the registry: the denominator moves
+    with any new module, so a literal here would fail diffs that have nothing to
+    do with semantics. This reach is the evidence bound F1 and F2 declare, so the
+    report states it instead of leaving the bound implicit.
+    """
+    scanned = sum(1 for source in sources
+                  if source.path in PRODUCER_FILES
+                  or any(source.path.startswith(root + '/') for root in PRODUCER_ROOTS))
+    return scanned, len(sources)
+
+
 def summarise_blockers(sites: list[str]) -> str:
     """Count reported sites by blocker so the total is actionable, not opaque.
 
@@ -473,16 +619,49 @@ def summarise_blockers(sites: list[str]) -> str:
 
     counts: dict[str, int] = {}
     for site in sites:
-        label = site.rpartition('[')[2].rstrip(']') or 'other'
+        label = blocker_label(site)
         counts[label] = counts.get(label, 0) + 1
     return ','.join(f"{label}={counts[label]}" for label in sorted(counts))
+
+
+def summarise_formal_domains(registry: dict[str, Any], sources: list[SourceFile]) -> str:
+    """Print how much each formal invariant actually quantifies over.
+
+    The sizes are the ones ``check_invariant_domain`` derived, so the report and
+    the registry cannot disagree. The scan reach is measured here because it is
+    a property of the tree rather than of the registry.
+    """
+    invariants = registry['formal_model']['invariants']
+    sizes = ','.join(
+        f"{item['id'].split('_')[0]}:{item['domain']['verified']}/{item['domain']['registered']}"
+        for item in sorted(invariants, key=lambda item: item['id'])
+    )
+    vocabularies = registry['vocabularies']
+    kernel = [name for name, v in vocabularies.items() if v['tier'] == 'kernel']
+    cross_runtime = [name for name, v in vocabularies.items() if v['tier'] == 'cross_runtime']
+    covered = [name for name in kernel if 'producers' in vocabularies[name]]
+    unverified = [name for name in cross_runtime if 'producers' not in vocabularies[name]]
+    scanned, tracked = producer_scan_reach(sources)
+    projections = len(registry['projections'])
+    contexts = sum(len(entry['contexts']) for entry in registry['scope_declarations'].values())
+    return (
+        f"formal_domain={sizes} (verified/registered)\n"
+        f"  formal_domain_bounds: kernel_with_producers={len(covered)}/{len(kernel)}"
+        f" cross_runtime_unverified={len(unverified)}/{len(cross_runtime)}"
+        f" producer_scan_reach={scanned}/{tracked}_files"
+        f" projections={projections}/{projections}"
+        f" scope_declarations={len(registry['scope_declarations'])} declared_contexts={contexts}/{contexts}"
+    )
 
 
 def check_producers(registry: dict[str, Any], sources: list[SourceFile]) -> list[str]:
     unknown: list[str] = []
     for name, vocabulary in registry['vocabularies'].items():
         if 'producers' not in vocabulary:
-            continue  # Other kernel families retain an explicit M0.5 coverage gap.
+            # Skipped: the whole cross_runtime tier, which declares no producers.
+            # F1/F2 therefore hold over the kernel tier only, which is the domain
+            # the registry's formal_model states -- not an unconditional claim.
+            continue
         try:
             rows = collect_production(REPO_ROOT, vocabulary, sources)
             field_domain = quota_action_domain(registry) if name == 'effective_action' else None
@@ -692,9 +871,17 @@ def check_inventory(registry: dict[str, Any], sources: list[SourceFile]) -> tupl
                  for item in review['magnitude_regressions']]
     require(review['ok'], '; '.join(failures))
     parts = []
+    slack = []
     for key in RATCHET_KEYS:
         actual = semantic_multi_value_forks if key == "multi_value_forks_semantic" else summary[key]
         parts.append(f"{key}={actual}/{ratchets[key]}")
+        if ratchets[key] > actual:
+            # Disclose unlocked headroom so a merge that reverts a tightened
+            # budget shows up as new slack in this line instead of passing
+            # silently (the guard only fails on overflow, never on slack).
+            slack.append(f"{key}={ratchets[key] - actual}")
+    if slack:
+        parts.append("slack=" + ",".join(slack))
     if review['reviewed_exception_count']:
         parts.append(f"reviewed_inventory_exceptions={review['reviewed_exception_count']}")
     return inventory, " ".join(parts)
@@ -724,10 +911,13 @@ def main() -> int:
     print("  " + ratchets)
     print("  " + " ".join(budgets))
     print("  " + twins)
-    print(f"  unresolved_producer_sites={len(unknown_producers)} (not proven safe)")
+    permanent = count_permanently_unresolvable(unknown_producers)
+    print(f"  unresolved_producer_sites={len(unknown_producers)} (not proven safe; "
+          f"{permanent} can never become evidence)")
     print("  unresolved_producer_blockers=" + summarise_blockers(unknown_producers))
     uncovered = [name for name, v in registry['vocabularies'].items() if v['tier'] == 'kernel' and 'producers' not in v]
     print(f"  kernel_producer_coverage_pending={','.join(uncovered)}")
+    print("  " + summarise_formal_domains(registry, sources))
     if '--report' in sys.argv[1:]:
         for site in unknown_producers:
             print(f"  unknown_producer: {site}")
