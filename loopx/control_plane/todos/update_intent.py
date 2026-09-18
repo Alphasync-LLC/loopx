@@ -90,7 +90,6 @@ def canonical_update_is_supported(
     note: str | None,
     intent: dict[str, Any],
     monitor_metadata: Any,
-    authority_reason: str | None,
     status: str | None,
 ) -> bool:
     """Whether an ordinary update can use the canonical transaction.
@@ -101,7 +100,7 @@ def canonical_update_is_supported(
     They must not silently fall back to Markdown after authority promotion.
     """
 
-    if isinstance(monitor_metadata, MonitorPollObservation) or authority_reason:
+    if isinstance(monitor_metadata, MonitorPollObservation):
         return False
     if status is not None and status.strip().lower() == "done":
         return False

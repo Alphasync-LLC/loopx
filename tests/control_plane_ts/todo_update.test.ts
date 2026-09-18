@@ -21,6 +21,38 @@ test("planning transport is explicitly versioned before any provider access", as
   assert.match(String(result.reason), /requires the v1/);
 });
 
+test("review admission and CAS cannot be downgraded to a partial old-wire edit", async () => {
+  for (const schema_version of ["loopx_local_coordination_todo_update_request_v0",
+    "loopx_local_coordination_todo_update_request_v1"]) {
+    for (const added of [{authority_reason: "Reviewed"}, {lifecycle_grants: []},
+      {expected_provider_revision: "basis"}, {expected_registry_sha256: "a".repeat(64)}]) {
+      const result = await updateLocalCoordinationTodo({schema_version,
+        patch: {text: "No partial write"}, ...added},
+      {createStore: () => {throw new Error("must not open a store");}});
+      assert.equal(result.status, "failed");
+      assert.match(String(result.reason), /require request v2/);
+    }
+  }
+});
+
+test("delegated reassign cannot smuggle a copy edit or override exclusion/binding", async () => {
+  const {store, request} = await seeded();
+  const transfer = {...request, actor_agent_id: "agent-b", patch: {}, clear_fields: [],
+    planning_intent: {claimed_by: "agent-b"}, authority_reason: "Reviewed reassignment",
+    lifecycle_grants: [{agent_id: "agent-b", actions: ["reassign"], requires_reason: true}]};
+  const before = await store.loadAuthority();
+  assert.equal((await executeCoordinationTodoUpdate(store, {...transfer, patch: {note: "Bundled edit"}})).reason_code,
+    "delegation_action_not_granted");
+  assert.deepEqual(await store.loadAuthority(), before);
+  assert.equal((await executeCoordinationTodoUpdate(store, transfer)).status, "applied");
+  for (const [facts, code] of [[{excluded_agents: ["agent-b"]}, "actor_excluded"],
+    [{bound_agent: "agent-a"}, "bound_agent_mismatch"]] as const) {
+    const scoped = await seeded(facts);
+    assert.equal((await executeCoordinationTodoUpdate(scoped.store, transfer)).reason_code, code);
+    assert.equal((await scoped.store.readReceipt(transfer.operation_id)).status, "missing");
+  }
+});
+
 test("native planning edit commits nonterminal state and clears its wait atomically", async () => {
   const {store, request} = await seeded({task_class: "advancement_task"});
   const edit = {...request, patch: {text: "Old text"}, clear_fields: [], planning_intent: {

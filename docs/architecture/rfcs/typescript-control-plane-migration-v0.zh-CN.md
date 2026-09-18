@@ -33,15 +33,20 @@ read record 现在只有一个 Python 语义 owner，而 TypeScript 仍是事务
 projection 模块只保留 import-only 兼容 facade。这样继续遵守 replacement-first：
 兼容路径仍可用，但不能静默形成第二份语义实现。
 
-Native update 现通过 `todos/public_update.ts` 组合有界的非终态 planning intent
-（status、evidence/reason、resume/clear、successor links），使用权限检查与 CAS
-同一份完整 canonical head。独立 intent 命名空间不扩大原 text/note patch allowlist，
-不改变旧回执指纹。规划使用 v1 请求 envelope，让旧 runtime 拒绝整个请求，避免只
-提交其中的 text/note。删除 Python 的合成 Markdown 编解码与事务前目标查询；adapter
-只规范化 CLI 文本、传递意图并排空已提交的展示投影。
-Active lease 下的状态改变、Monitor 规划/观察、ownership/routing/capability 编辑及
-terminal transition 仍未开放。这是 T1 的一个阶段，不是完整 update 闭合，不改变
-provider 默认，也不授予 promotion 权限。
+Native update 通过 `todos/public_update.ts` 组合非终态 planning intent，在同一份
+完整 canonical head 上校验权限并 CAS。独立 intent 命名空间保留 text/note 限制
+及旧回执指纹。v2 transport 携带 lifecycle grant、authority reason、registry 来源
+见证及可选的审阅 provider revision；v0/v1 保留旧身份，不能夹带新约束。
+`todo_update_admission.ts` 组合既有 lifecycle/lease 规则；Python 投影 registry
+事实、传递意图并排空展示 outbox。
+Chat Todo/Monitor 非终态预览与应用执行同一更新，绑定 canonical revision 和注册
+事实，不再依赖 Markdown。响应丢失后重用原 operation ID，先恢复历史回执，再对新
+写入检查当前权限；投影恢复读取当前 head。展示失败的提案在 Dashboard 重载后仍可
+发现并重试。频率对应时间由 TS 事务派生，不再由 Chat 每次重试重算。Monitor 预览
+不再未经 dry-run 就宣称已校验，Chat 也不把 pending outbox 标为展示已验证。
+Lease 的 ownership/requirements/status 转换、terminal 与 observation effect
+保留各自 owner。本批闭合一个经过审阅的编辑 T1/L5 链路，不代表全部 T1、provider
+默认或 promotion。Registry 见证是乐观来源检查，不是配置与 provider 的跨资源原子事务。
 
 Provider-first text/note 更新现可携带当前执行 key 和租约版本，复用 terminal fence，
 禁用自动获取及委托覆盖。修改和回执受同一个 provider revision 保护，租约不变。

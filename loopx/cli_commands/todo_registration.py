@@ -69,7 +69,11 @@ def register_todo_command(
         "--update-operation-id",
         help=("For promoted text/note or nonterminal planning update, reuse this operation id after a lost response; "
               "changed intent is rejected. Planning supports status, evidence, reason, resume conditions and successor links; "
-              "leased status changes and Monitor planning remain unsupported."),
+              "leased status changes remain unsupported."),
+    )
+    todo_parser.add_argument(
+        "--update-expected-provider-revision",
+        help="For promoted todo update, require this canonical revision; reuse it with the operation id when recovering a lost response.",
     )
     todo_parser.add_argument(
         "--claim-operation-id",

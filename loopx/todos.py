@@ -1047,6 +1047,8 @@ def update_goal_todo(
     claim_only: bool = False,
     claim_operation_id: str | None = None,
     update_operation_id: str | None = None,
+    update_expected_provider_revision: str | None = None,
+    update_expected_registry_sha256: str | None = None,
     task_lease_idempotency_key: str | None = None,
     task_lease_expected_version: int | None = None,
     project: Path | None = None,
@@ -1054,6 +1056,10 @@ def update_goal_todo(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     shadow_runtime_root = effective_runtime_root(registry_path, runtime_root_arg)
+    if claim_only and any(value is not None for value in (
+        update_operation_id, update_expected_provider_revision, update_expected_registry_sha256,
+    )):
+        raise ValueError("Todo update identity and review basis cannot be used for todo claim")
     if excluded_agents and clear_excluded_agents:
         raise ValueError(
             "todo update accepts either excluded_agents or clear_excluded_agents, not both"
@@ -1148,7 +1154,7 @@ def update_goal_todo(
     )
     if not claim_only and canonical_update_is_supported(
         text=text, note=note, intent=planning_intent,
-        monitor_metadata=monitor_metadata, authority_reason=authority_reason,
+        monitor_metadata=monitor_metadata,
         status=status,
     ):
         canonical_edit = update_canonical_todo_if_promoted(
@@ -1157,6 +1163,9 @@ def update_goal_todo(
             actor_agent_id=agent_id, role=role, text=text, note=note, dry_run=dry_run,
             project=project, state_file=state_file,
             operation_id=update_operation_id,
+            authority_reason=authority_reason,
+            expected_provider_revision=update_expected_provider_revision,
+            expected_registry_sha256=update_expected_registry_sha256,
             task_lease_idempotency_key=task_lease_idempotency_key,
             task_lease_expected_version=task_lease_expected_version,
             planning_intent={**planning_intent, **(
@@ -1165,7 +1174,8 @@ def update_goal_todo(
         )
         if canonical_edit is not None:
             return canonical_edit
-    if update_operation_id is not None or (not claim_only and (
+    if (update_operation_id is not None or update_expected_provider_revision is not None
+        or update_expected_registry_sha256 is not None) or (not claim_only and (
         task_lease_idempotency_key is not None or task_lease_expected_version is not None
     )):
         raise ValueError("update operation id and lease proof require a supported promoted update; no legacy write attempted")

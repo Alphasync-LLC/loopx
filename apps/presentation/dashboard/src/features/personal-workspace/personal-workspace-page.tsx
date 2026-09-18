@@ -596,7 +596,7 @@ function workspaceProposal(proposal: TypedActionProposal, t: WorkspaceTranslate)
       ? teamPlanFields(proposal.normalized_parameters, t)
       : proposalFields(proposal.normalized_parameters, t),
     goalId: typeof proposal.normalized_parameters.goal_id === "string" ? proposal.normalized_parameters.goal_id : undefined,
-    impact: proposal.action_kind === "operation.execute"
+    impact: reviewPlan.retryOriginal ? t(`actionReview.${reviewPlan.reason}`) : proposal.action_kind === "operation.execute"
       ? t("proposal.impact.operation")
       : proposal.action_kind === "team.plan"
       ? proposal.status === "applied" ? t("proposal.teamPlan.assignedHint") : t("proposal.impact.teamPlan")
@@ -618,7 +618,7 @@ function workspaceProposal(proposal: TypedActionProposal, t: WorkspaceTranslate)
       nextAction: typeof proposal.gate.next_action === "string" ? proposal.gate.next_action : undefined,
       summary: String(proposal.gate.summary ?? t("proposal.gate.default")),
     } : undefined,
-    primaryLabel: proposal.action_kind === "operation.execute"
+    primaryLabel: reviewPlan.retryOriginal ? t("drawer.retryOriginal") : proposal.action_kind === "operation.execute"
       ? operationFrame?.kind === "result"
         ? operationFrame.resultDeliveryVerified
           ? t("proposal.primary.operationResultVerified")
@@ -635,7 +635,7 @@ function workspaceProposal(proposal: TypedActionProposal, t: WorkspaceTranslate)
       : proposal.action_kind === "todo.create" && proposal.normalized_parameters.start_execution === true
         ? t("proposal.primary.todoStart")
         : t("proposal.primary.apply"),
-    status: proposal.status === "applied"
+    status: reviewPlan.retryOriginal ? "error" : proposal.status === "applied"
       && proposal.action_kind !== "operation.execute"
       && reviewPlan.interaction !== "completed"
       ? "error"
@@ -948,6 +948,7 @@ export function PersonalWorkspacePage({
     const projected = [...new Map(merged.map((item) => [item.id, item])).values()]
       .filter((item) => item.kind !== "proposal"
         || !["stale", "error"].includes(item.proposal.status)
+        || item.proposal.reviewPlan?.retryOriginal === true
         || sessionProposalIds.includes(item.proposal.previewId));
     return projected.filter((item) => {
       if (!selectedGoalId) return true;
@@ -1104,6 +1105,7 @@ export function PersonalWorkspacePage({
         if (cancelled) return;
         const restoreable = stored
           .filter((proposal) => ["preview_ready", "gated", "deferred", "applying"].includes(proposal.status)
+            || compileActionReviewPlan(proposal).retryOriginal === true
             || (proposal.action_kind === "operation.execute" && proposal.status === "applied"))
           .map((proposal) => workspaceProposal(proposal, t));
         const restored = Object.fromEntries(restoreable.map((proposal) => [proposal.previewId, proposal]));
