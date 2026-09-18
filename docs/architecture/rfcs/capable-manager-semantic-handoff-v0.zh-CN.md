@@ -145,6 +145,12 @@ flowchart LR
 
 ### 5.2 目标边界：围绕工作重构，不围绕管家堆实现
 
+[管家、coordinator 与项目对话](../../reference/project-coordination.md) 明确了产品边界：
+管家负责跨项目的所有者意图、优先级和注意力；普通注册 coordinator 负责具体 Goal
+的调查、依赖整合与交付，也可用相同 peer 协作能力协调子问题。本地 Goal Chat
+复用证据、交接和原会话回传，范围限定为当前 Goal；它不是注册 coordinator 的
+替身，不会因收件启动 worker 或继承管家主机权限。持续自主执行仍按 R2/R3/R4/R6 验收。
+
 目标分成三个产品/技术 owner：
 
 1. **管家 Agent 应用：** 负责对话连续性、调查、判断、委托、综合和用户反馈。AGENTS/skill 教它使用 LoopX 状态发现与协作；普通工具来自 host runtime。不独占另一份 handoff 账本，也不替每句用户需求发明底层工作流步骤。

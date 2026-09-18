@@ -150,6 +150,12 @@ At session start, expose the effective host, model/effort, accessible resource c
 
 ### 5.2 Target boundaries: refactor around work, not the manager
 
+The steward's cross-project relationship and a project coordinator's scoped
+delivery commitment are distinct product responsibilities. Neither is a new
+authority rank or runtime type. The [project coordination contract](../../reference/project-coordination.md)
+records the shared operations, local Goal Chat reuse, limits and next delivery
+order. A Chat endpoint never impersonates the registered coordinator it contacts.
+
 The target has three product/technical owners:
 
 1. **Manager agent application:** conversation continuity, investigation, judgment, delegation, synthesis and user feedback. Its AGENTS/skills teach LoopX state discovery and collaboration. Its ordinary tools come from the host runtime. It does not own an independent handoff ledger or invent low-level workflow steps for every user request.

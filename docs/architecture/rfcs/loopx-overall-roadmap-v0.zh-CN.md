@@ -224,6 +224,12 @@ R2 的一条依赖必须通过真实 LoopX Agent 间的请求/产物交接完成
 
 ### R2：小团队持续执行
 
+**产品职责。** 管家负责所有者跨项目的上下文、取舍和注意力；项目 coordinator 是
+对有范围目标、实质调查与综合负责的普通注册 Agent。成员可以用同一操作协调更小
+范围的工作。本地 Goal Chat 已复用范围内证据、语义交接和原对话返回；它不等于
+持久 coordinator，也不隐式启动 worker。见[共用能力、本地路径与实施顺序](../../reference/project-coordination.md)。
+这一进展补齐 R3 本地入口，不关闭 R2/G1，也不新增 Lark 资格声明。
+
 - **入口与 owner：** 现有 session binding、Turn driver、quota/scheduler、manager runtime 配置；复用已有设置 editor，不新建 profile。
 - **交付：** 区分 registered、可接收请求、已绑定、可启动、正在执行和阻塞；计划 ready 不能暗示正在工作。对已授权且具备资格的 managed binding，沿现有 launch/supervision 路径启动下一有界 Turn。attached host 继续由其原 host 驱动。
 - **资格：** 用真实选定 runtime 执行至少两轮“取工作→产物→独立验证→settle→下一工作”，中断并重启一个 worker，另一个保持推进；验证旧执行器返回时的 fence、取消及停止后不再启动。DSH 单段 read-only Chat 与 Codex `trusted_owner` 分别验收，不互借资格。

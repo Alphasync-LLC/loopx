@@ -228,6 +228,15 @@ These priorities do not change live Goal quota or authorize experiments/cloud re
 
 ### R2: Continuous Small-team Execution
 
+**Product responsibility.** The steward owns the owner's cross-project context,
+priorities and attention; a project coordinator is an ordinary registered Agent
+accountable for a scoped objective, substantive investigation and synthesis.
+Members may coordinate narrower work through the same operations. Local Goal Chat
+now reuses scoped evidence, semantic handoff and original-conversation return;
+it is not the persistent coordinator or an implicit worker launch. See
+[shared capabilities, local path and implementation order](../../reference/project-coordination.md).
+This advances R3's local entrypoint without closing R2/G1 or new Lark qualification.
+
 - **Entrypoint/owner:** existing session binding, Turn driver, quota/scheduler and manager runtime configuration; reuse the current settings editor/profile owner.
 - **Delivery:** distinguish registered, addressable, bound, launchable, executing and blocked. Plan readiness cannot imply running work. For authorized, qualified managed bindings, launch the next bounded Turn through existing launch/supervision. Attached hosts retain their original execution driver.
 - **Qualification:** use the actual selected runtime for at least two work→artifact→independent validation→settlement→successor cycles; interrupt/restart one worker while another progresses. Verify returning stale-executor fences, cancellation and no new launches after stop. Qualify DSH single-segment read-only Chat separately from Codex `trusted_owner`.
