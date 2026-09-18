@@ -94,10 +94,12 @@ for (const [fault, source, reason] of [
 // Valid transport to each owning runtime entrypoint; failed opening must be
 // independent of dry-run, command family, and the caller's requested mutation.
 function providerCalls(directory: string, revision: string, dryRun: boolean) {
-  const input = {runtime_root: directory, goal_id: "goal-a", todo_id: "todo-a", role: "agent",
-    operation_id: "open-failure", expected_provider_revision: revision, dry_run: dryRun,
+  const updateInput = {runtime_root: directory, goal_id: "goal-a", todo_id: "todo-a", role: "agent",
+    operation_id: "open-failure", dry_run: dryRun,
     registered_agents: ["agent-a"], actor_agent_id: "agent-a", claimed_by: "agent-a",
-    observed_at: "2026-09-08T01:00:00Z", clear_fields: [], patch: {text: "Correction"},
+    observed_at: "2026-09-08T01:00:00Z", clear_fields: [], patch: {text: "Correction"}};
+  // Legacy update requests must reach provider opening without v2-only fields.
+  const input = {...updateInput, expected_provider_revision: revision,
     lifecycle_grants: [], successor_intents: [], linked_successor_todo_ids: []};
   type Entrypoint = {[K in keyof typeof runtime]: typeof runtime[K] extends
     (value: unknown) => Promise<unknown> ? K : never}[keyof typeof runtime];
@@ -111,8 +113,8 @@ function providerCalls(directory: string, revision: string, dryRun: boolean) {
     createLocalCoordinationTodo: [{...input, schema_version: "loopx_local_coordination_todo_create_request_v0", todo: {}}],
     claimLocalCoordinationTodo: [{...input, schema_version: runtime.LOCAL_COORDINATION_TODO_CLAIM_REQUEST_SCHEMA}],
     updateLocalCoordinationTodo: [
-      {...input, schema_version: "loopx_local_coordination_todo_update_request_v0"},
-      {...input, schema_version: "loopx_local_coordination_todo_update_request_v1", planning_intent: {status: "blocked"}}],
+      {...updateInput, schema_version: "loopx_local_coordination_todo_update_request_v0"},
+      {...updateInput, schema_version: "loopx_local_coordination_todo_update_request_v1", planning_intent: {status: "blocked"}}],
     editLocalCoordinationTodo: [input],
     terminalLifecycleLocalCoordinationTodo: [{...input, schema_version: runtime.LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_REQUEST_SCHEMA}],
     archiveLocalCoordinationTodos: [{...input, schema_version: runtime.LOCAL_COORDINATION_TODO_ARCHIVE_REQUEST_SCHEMA, max_active_done: 0}],
