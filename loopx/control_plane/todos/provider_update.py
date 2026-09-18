@@ -21,7 +21,7 @@ from .contract import compact_todo_text
 from .provider_projection import settle_canonical_todo_projection
 from .text import normalize_new_todo
 from .mutation_authority import todo_lifecycle_facts
-from ..coordination.authority_source import authority_registry_source
+from ..coordination.authority_source_capture import authority_registry_source
 
 
 def update_canonical_todo_if_promoted(

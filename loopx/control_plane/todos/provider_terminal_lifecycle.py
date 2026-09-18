@@ -34,7 +34,7 @@ from .completion_validation import (
 )
 from .contract import resolve_next_user_task_class
 from .mutation_authority import todo_lifecycle_facts
-from ..coordination.authority_source import authority_registry_source
+from ..coordination.authority_source_capture import authority_registry_source
 from .path_resolution import resolve_todo_state_path
 from .provider_projection import projection_delivery_requires_ack, settle_canonical_todo_projection
 from .successor_derivation import build_successor_intents

@@ -7,7 +7,7 @@ from typing import Any, cast
 from uuid import uuid4
 
 from ...agent_registry import registered_agent_ids_from_registry
-from ..coordination.authority_source import authority_registry_source
+from ..coordination.authority_source_capture import authority_registry_source
 from ...state_refresh import now_local
 from ..coordination.local_authority import (
     LOCAL_AUTHORITY_SOURCES,

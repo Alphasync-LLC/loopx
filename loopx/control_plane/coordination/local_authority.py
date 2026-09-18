@@ -13,7 +13,7 @@ from typing import Any
 from uuid import uuid4
 
 from ...agent_registry import registered_agent_ids_from_registry
-from .authority_source import authority_registry_source
+from .authority_source_capture import authority_registry_source
 from ..runtime.time import now_local_iso as now_local
 from ..effect_runtime import effect_runtime_result
 from .coordination_state_contract import (
@@ -29,7 +29,7 @@ from .legacy_writer_fence import legacy_coordination_writer_fence_path
 
 
 LOCAL_COORDINATION_TODO_LIST_METHOD = "coordination.local_authority.todo_list"
-LOCAL_COORDINATION_TODO_CLAIM_REQUEST_SCHEMA = (
+LOCAL_COORDINATION_TODO_CLAIM_WITNESSED_REQUEST_SCHEMA = (
     "loopx_local_coordination_todo_claim_request_v1"
 )
 LOCAL_COORDINATION_TODO_CLAIM_METHOD = "coordination.local_authority.todo_claim"
@@ -109,7 +109,7 @@ def claim_canonical_todo_if_promoted(
     result = effect_runtime_result(
         LOCAL_COORDINATION_TODO_CLAIM_METHOD,
         {
-            "schema_version": LOCAL_COORDINATION_TODO_CLAIM_REQUEST_SCHEMA,
+            "schema_version": LOCAL_COORDINATION_TODO_CLAIM_WITNESSED_REQUEST_SCHEMA,
             "runtime_root": str(runtime_root.expanduser().resolve(strict=False)),
             "goal_id": goal_id,
             "todo_id": todo_id,
