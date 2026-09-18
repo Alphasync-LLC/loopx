@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import {acceptanceWorkGuard, acceptanceCompletionRequirements, validateAcceptanceCompletion,
+  acceptanceRequire, type AcceptanceCompletionRequirements} from "../goals/acceptance_contract.ts";
 import {CoordinationCommandReceipt, commandReceiptResult} from "./command_receipt.ts";
 
 import type { JsonObject } from "../effect_program.ts";
@@ -93,6 +95,8 @@ export interface CoordinationTodoTerminalLifecycleInput {
   readonly clear_claim: boolean;
   readonly validation_declaration: JsonObject | null;
   readonly validation_receipt: JsonObject | null;
+  readonly goal_acceptance_source_binding?: JsonObject | null;
+  readonly goal_acceptance_validation_receipts?: unknown;
   readonly completion_policy_request: JsonObject | null;
   readonly dry_run: boolean;
   readonly now: Date;
@@ -395,6 +399,56 @@ function terminalReceipt(input: CoordinationTodoTerminalLifecycleInput, requestS
     decode: commandReceiptResult});
 }
 
+function acceptanceSourceBinding(input: CoordinationTodoTerminalLifecycleInput,
+  requirements: AcceptanceCompletionRequirements, providerRevision: string): JsonObject {
+  return {goal_id: input.goal_id, todo_id: input.todo_id, operation_id: input.operation_id,
+    provider_revision: providerRevision, contract_revision: requirements.contract_revision,
+    contract_digest: requirements.contract_digest, todo_semantic_digest: requirements.todo_semantic_digest};
+}
+
+function acceptanceValidationEffects(requirements: AcceptanceCompletionRequirements, todo: JsonObject): JsonObject[] {
+  return requirements.criteria.map(criterion => ({criterion_id: criterion.id, effect: {
+    kind: "caller_validation", validation_command: null, validation_argv: criterion.validation_argv,
+    validation_label: criterion.id, validation_timeout_seconds: criterion.validation_timeout_seconds,
+    ...(criterion.validation_files == null ? {} : {validation_files: criterion.validation_files}),
+    task_repository: todo.task_repository ?? null,
+  }}));
+}
+
+/** Only the trusted execution adapter supplies these fresh, structured runner
+ * receipts. Save the public-safe criterion results, never command output. */
+function acceptanceCompletionEvidence(head: JsonObject, input: CoordinationTodoTerminalLifecycleInput,
+  requirements: AcceptanceCompletionRequirements, binding: JsonObject): JsonObject {
+  acceptanceRequire(input.goal_acceptance_source_binding != null &&
+    canonicalAuthoritySha256(input.goal_acceptance_source_binding) === canonicalAuthoritySha256(binding),
+    "Acceptance completion source changed; run the configured criteria again against the current work.");
+  const receipts = input.goal_acceptance_validation_receipts;
+  acceptanceRequire(Array.isArray(receipts), "Acceptance completion requires fresh validation receipts.");
+  const results = receipts.map(value => {
+    const row = canonicalAuthorityObject(value, "acceptance validation receipt");
+    const receipt = canonicalAuthorityObject(row.receipt, "acceptance criterion runner receipt");
+    acceptanceRequire(receipt.schema_version === "issue_fix_validation_command_v0" &&
+      typeof row.criterion_id === "string" && receipt.command_label === row.criterion_id &&
+      receipt.stdout_captured === false && receipt.stderr_captured === false && receipt.local_path_captured === false,
+      "Acceptance completion requires the configured criterion's public-safe runner receipt.");
+    return {criterion_id: row.criterion_id, passed: receipt.passed, exit_code: receipt.exit_code};
+  });
+  const validationReceipts = receipts.map(value => {
+    const row = canonicalAuthorityObject(value, "acceptance validation receipt");
+    const receipt = canonicalAuthorityObject(row.receipt, "acceptance criterion runner receipt");
+    return {criterion_id: row.criterion_id, receipt: Object.fromEntries([
+      "schema_version", "command_label", "passed", "exit_code", "status", "summary",
+      "stdout_captured", "stderr_captured", "local_path_captured",
+    ].flatMap(key => receipt[key] === undefined ? [] : [[key, receipt[key]]]))};
+  });
+  const evidence = validateAcceptanceCompletion(head, input.goal_id, input.todo_id, {
+    contract_revision: requirements.contract_revision, contract_digest: requirements.contract_digest,
+    todo_id: input.todo_id, todo_semantic_digest: requirements.todo_semantic_digest, results,
+  });
+  acceptanceRequire(evidence !== null, "Acceptance completion requirements disappeared.");
+  return {source_binding: binding, ...evidence, validation_receipts: validationReceipts};
+}
+
 async function commitTerminalResult(
   store: AuthorityStore,
   input: CoordinationTodoTerminalLifecycleInput,
@@ -663,6 +717,13 @@ export async function executeCoordinationTodoTerminalLifecycle(
     );
   }
   const requestSha = terminalRequestSha(input);
+  // Unlike `todo_claim`, this replay needs no post-replay acceptance re-check.
+  // A claim receipt grants work going forward, so replaying one after its
+  // binding changed would resume work acceptance now holds. A terminal receipt
+  // only reports a transition that already committed: it cannot exist for work
+  // that never closed, a closed Todo cannot be reopened
+  // (`unsupported_todo_update_target`), and a replay returns `changed: false`.
+  // Re-checking here would add a load per replay and protect nothing.
   const replay = await terminalReceipt(input, requestSha).read(store);
   if (replay !== null) return replay;
 
@@ -748,6 +809,32 @@ export async function executeCoordinationTodoTerminalLifecycle(
     );
   }
 
+  // Acceptance constrains a state transition, not a verb. Every TERMINAL_COMMANDS
+  // entry reaches `terminalTarget`, which writes `status: "done", done: true`,
+  // so the guard follows that write instead of one command name. A future
+  // terminal command then inherits it rather than silently bypassing it.
+  const acceptance = acceptanceWorkGuard(head.head, input.goal_id, input.todo_id);
+  if (acceptance !== null && !acceptance.allowed) {
+    return terminalFailure(String(acceptance.reason_code), `${String(acceptance.reason)} Inspect Goal acceptance and ask the owner to configure or rebind this Todo.`,
+      {goal_acceptance_guard: acceptance}, "decision_rejection");
+  }
+  const acceptanceRequirements = acceptanceCompletionRequirements(head.head, input.goal_id, input.todo_id);
+  const acceptanceBinding = acceptanceRequirements === null ? null
+    : acceptanceSourceBinding(input, acceptanceRequirements, head.provider_revision);
+  let acceptanceEvidence: JsonObject | null = null;
+  if (acceptanceRequirements !== null && acceptanceBinding !== null &&
+      input.goal_acceptance_validation_receipts != null) {
+    try {
+      acceptanceEvidence = acceptanceCompletionEvidence(head.head, input, acceptanceRequirements, acceptanceBinding);
+    } catch (error) {
+      return terminalFailure("goal_acceptance_validation_rejected",
+        error instanceof Error ? error.message : "Acceptance completion validation failed.", {}, "decision_rejection");
+    }
+  } else if (input.goal_acceptance_source_binding != null || input.goal_acceptance_validation_receipts != null) {
+    return terminalFailure("goal_acceptance_validation_unexpected",
+      "This terminal operation has no applicable acceptance validation requirements.", {}, "decision_rejection");
+  }
+
   let completion: ReturnType<typeof reduceTodoCompletionTransaction> | null = null;
   if (input.command === "complete") {
     const validationRequired = todo.completion_validation_required === true;
@@ -800,14 +887,31 @@ export async function executeCoordinationTodoTerminalLifecycle(
         error instanceof Error ? error.message : "invalid Todo completion transaction",
       );
     }
-    if (completion.decision === "execute_validation") {
+    if (completion.decision === "execute_validation" ||
+        (completion.decision === "commit" && acceptanceRequirements !== null &&
+          acceptanceEvidence === null && !input.dry_run)) {
+      if (acceptanceRequirements !== null) {
+        const callerTimeout = completion.decision === "execute_validation"
+          ? completion.validation_effect.validation_timeout_seconds ?? 20 : 0;
+        const acceptanceTimeout = acceptanceRequirements.criteria.reduce(
+          (total, criterion) => total + criterion.validation_timeout_seconds, 0);
+        if (callerTimeout + acceptanceTimeout > 29) {
+          return terminalFailure("goal_acceptance_validation_budget_exceeded",
+            "Combined validation exceeds the completion budget of 29 seconds; ask the owner to configure criteria and caller validation within that budget.",
+            {validation_timeout_seconds: callerTimeout + acceptanceTimeout}, "decision_rejection");
+        }
+      }
       return {
         schema_version: COORDINATION_TODO_TERMINAL_LIFECYCLE_RESULT_SCHEMA,
         status: "execute_validation",
         changed: false,
         todo_id: input.todo_id,
         command: input.command,
-        validation_effect: completion.validation_effect,
+        validation_effect: completion.decision === "execute_validation" ? completion.validation_effect : null,
+        ...(acceptanceRequirements === null ? {} : {
+          goal_acceptance_source_binding: acceptanceBinding,
+          goal_acceptance_validation_effects: acceptanceValidationEffects(acceptanceRequirements, todo),
+        }),
         completion_identity_key: completion.completion_identity_key,
         completion_identity_source: completion.completion_identity_source,
         provider_revision: head.provider_revision,
@@ -859,6 +963,13 @@ export async function executeCoordinationTodoTerminalLifecycle(
     }, []);
   }
 
+  if (acceptanceRequirements !== null && !input.dry_run && acceptanceEvidence === null) {
+    return terminalFailure("goal_acceptance_validation_required",
+      input.command === "complete"
+        ? "Completion requires fresh execution of the owner-configured acceptance criteria."
+        : `${input.command} would close this work as done without running the owner-configured acceptance criteria. Complete it so the criteria run, or ask the owner to rebind or disable acceptance for this Todo.`,
+      {}, "decision_rejection");
+  }
   const domainReadModel = readModel.schema_version === TODO_DOMAIN_READ_RECORD_SCHEMA;
   const completionPolicy = completion?.decision === "commit" &&
       completion.completion_policy !== undefined
@@ -991,6 +1102,15 @@ export async function executeCoordinationTodoTerminalLifecycle(
     completion_identity_source:
       completion === null ? null : completion.completion_identity_source,
     completed_at: target.todo.completed_at,
+    ...(acceptanceEvidence === null ? {} : {goal_acceptance_completion: acceptanceEvidence}),
+    // A preview that omits this would show an unconditional close for work the
+    // real call still gates. Name the criteria the real call must run; never
+    // their argv, which stays out of every projection.
+    ...(acceptanceRequirements !== null && acceptanceEvidence === null
+      ? {goal_acceptance_pending: {contract_revision: acceptanceRequirements.contract_revision,
+        contract_digest: acceptanceRequirements.contract_digest,
+        criterion_ids: acceptanceRequirements.criterion_ids}}
+      : {}),
   };
   const mutations: CoordinationProjectionMutation[] = changed ? [
     {kind: "todo_upsert", todo: target.todo, clear_fields: target.clear_fields},

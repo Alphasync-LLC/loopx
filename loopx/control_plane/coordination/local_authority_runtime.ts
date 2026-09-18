@@ -7,6 +7,7 @@ import { ShadowManagementError } from "./shadow_management.ts";
 import { isAbsolute, join } from "node:path";
 
 import type { JsonObject } from "../effect_program.ts";
+import {acceptanceWorkGuard, projectGoalAcceptance} from "../goals/acceptance_contract.ts";
 import {executeCoordinationMonitorPoll, COORDINATION_MONITOR_POLL_REQUEST_SCHEMA, COORDINATION_LEASED_MONITOR_POLL_REQUEST_SCHEMA,
   COORDINATION_MONITOR_POLL_RESULT_SCHEMA} from "./todo_monitor_poll.ts";
 import { requireJsonObject } from "../runtime_decode.ts";
@@ -945,6 +946,9 @@ export async function terminalLifecycleLocalCoordinationTodo(
             ? null : requireJsonObject(input.validation_declaration, "validation_declaration"),
         validation_receipt: input.validation_receipt === null || input.validation_receipt === undefined
           ? null : requireJsonObject(input.validation_receipt, "validation_receipt"),
+        goal_acceptance_source_binding: input.goal_acceptance_source_binding == null
+          ? null : requireJsonObject(input.goal_acceptance_source_binding, "goal_acceptance_source_binding"),
+        goal_acceptance_validation_receipts: input.goal_acceptance_validation_receipts,
         completion_policy_request:
           input.completion_policy_request === null || input.completion_policy_request === undefined
             ? null : requireJsonObject(input.completion_policy_request, "completion_policy_request"),
@@ -1100,11 +1104,13 @@ export async function readLocalCoordinationTodo(
     const projection = indexCoordinationProjectionTodos(head.head, goalId);
     validateCoordinationTodoReadModel(head.head, goalId);
     const todo = projection.todos.get(todoId);
+    const acceptance = todo === undefined ? null : acceptanceWorkGuard(head.head, goalId, todoId);
     return {
       schema_version: LOCAL_COORDINATION_TODO_READ_RESULT_SCHEMA,
       status: todo === undefined ? "missing" : "found",
       todo_id: todoId,
       ...(todo === undefined ? {} : { todo }),
+      ...(acceptance === null ? {} : {goal_acceptance_guard: acceptance}),
       todo_ids: projection.todo_ids,
       provider_revision: head.provider_revision,
       cursor: head.cursor,
@@ -1158,12 +1164,18 @@ export async function listLocalCoordinationTodos(
     const todoReadModel = validateCoordinationTodoReadModel(head.head, goalId);
     const leaseIndex = input.include_leases === true
       ? indexCoordinationProjection(head.head, goalId) : null;
+    const acceptance = projectGoalAcceptance(head.head, goalId);
     return {
       schema_version: LOCAL_COORDINATION_TODO_LIST_RESULT_SCHEMA,
       status: "loaded",
       todos: projection.todo_ids.map((todoId) => projection.todos.get(todoId)!),
       todo_ids: projection.todo_ids,
       todo_read_model: todoReadModel,
+      ...(acceptance.enabled !== true ? {} : {goal_acceptance_contract: acceptance,
+        goal_acceptance_work_guards: Object.fromEntries(projection.todo_ids.flatMap(id => {
+          const guard = acceptanceWorkGuard(head.head, goalId, id);
+          return guard === null ? [] : [[id, guard]];
+        }))}),
       ...(leaseIndex === null ? {} : {
         leases: leaseIndex.lease_todo_ids.map((id) => leaseIndex.leases.get(id)!),
         handoff_mode: head.head.handoff_mode ?? "legacy",

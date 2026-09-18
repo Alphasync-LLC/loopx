@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { goalAcceptanceObservationSchema } from "./goal-acceptance-observation.js";
+import { goalAcceptanceObservationSchema, type GoalAcceptanceContract } from "./goal-acceptance-observation.js";
 
 const refsSchema = z.record(z.string(), z.array(z.string()));
 const nodeSchema = z.object({
@@ -93,7 +93,15 @@ export function reviewNodeColumn(node: ReviewNode) {
   return ["gate", "gate_summary", "lease"].includes(node.kind) ? 0 : node.kind === "deliverable" ? 1 : 2;
 }
 
+type EnabledContract = Extract<GoalAcceptanceContract, { enabled: true }>;
+type ContractExportLabels = Record<"title" | "boundary" | "source" | "revision" | "digest" | "objective" | "criteria"
+  | "nonGoals" | "tasks" | "verification" | "unknown" | "noTasks" | "noCriteria" | "notApplicable"
+  | "heldTasks" | "receipt" | "receiptNote" | "operation" | "verificationScope" | "allCriteria" | "passed" | "failed" | "exitCode", string> & {
+  taskState: Record<EnabledContract["tasks"][number]["state"], string>;
+  verificationState: Record<EnabledContract["status"], string>;
+};
 export type ReviewExportLabels = {
+  contract: ContractExportLabels;
   title: string; scope: string; observed: string; chain: string; relations: string;
   acceptance: string; acceptanceBoundary: string; noGraph: string; incomplete: string;
   unavailable: string; refs: string; required: string; guards: string; next: string;
@@ -145,6 +153,35 @@ export function deliveryReviewMarkdown(snapshot: DeliveryReviewSnapshot, labels:
     rows.push("", `${labels.observedScope}: ${line(acceptance.coverage)}; truncated=${acceptance.truncated}`,
       `${labels.missingSources}: ${line(acceptance.missing_sources.join(", "))}`,
       `${labels.next}: ${line(acceptance.next_action)} (${line(acceptance.next_action_source)})`);
+  }
+  const contract = acceptance?.goal_acceptance_contract;
+  if (contract?.enabled === true) {
+    const copy = labels.contract;
+    rows.push("", `## ${copy.title}`, "", copy.boundary,
+      `${copy.source}: ${line(snapshot.goal_id)}`, `${copy.revision}: ${contract.revision}`, `${copy.digest}: ${line(contract.digest)}`,
+      "", `### ${copy.objective}`, line(contract.objective || copy.unknown), "", `### ${copy.criteria}`);
+    if (contract.non_goals.length) rows.push(`${copy.nonGoals}: ${line(contract.non_goals.join("; "))}`);
+    if (!contract.criteria.length) rows.push(copy.noCriteria);
+    for (const criterion of contract.criteria) rows.push(`- ${line(criterion.id)}: ${line(criterion.description)}`);
+    rows.push("", `### ${copy.tasks}`);
+    if (!contract.tasks.length) rows.push(copy.noTasks);
+    for (const task of contract.tasks) {
+      rows.push(`- ${line(task.todo_id)}: ${copy.taskState[task.state]}`,
+        `  ${copy.criteria}: ${line(task.criterion_ids.join(", ") || copy.unknown)}`);
+      if (task.reason) rows.push(`  ${line(task.reason)}`);
+      if (task.applicable === false) rows.push(`  ${copy.notApplicable}`);
+    }
+    rows.push("", `### ${copy.verification}`, copy.verificationState[contract.status]);
+    if (contract.held_todo_ids.length) rows.push(`${copy.heldTasks}: ${line(contract.held_todo_ids.join(", "))}`);
+    rows.push("", `### ${copy.receipt}`);
+    const receipt = contract.verification;
+    if (!receipt) rows.push(copy.unknown);
+    else {
+      rows.push(copy.receiptNote, `${copy.operation}: ${line(receipt.operation_id)}`,
+        `${copy.revision}: ${receipt.contract_revision}`, `${copy.digest}: ${line(receipt.contract_digest)}`,
+        `${copy.verificationScope}: ${line(receipt.todo_id ?? copy.allCriteria)}`);
+      for (const result of receipt.results) rows.push(`- ${line(result.criterion_id)}: ${result.passed ? copy.passed : copy.failed}; ${copy.exitCode}: ${result.exit_code ?? copy.unknown}`);
+    }
   }
   return rows.join("\n") + "\n";
 }
