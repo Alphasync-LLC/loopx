@@ -8,6 +8,7 @@ import pytest
 
 import loopx.rollout_event_log as rollout_event_log_module
 import loopx.status as status_module
+from loopx.control_plane import effect_runtime
 from loopx.control_plane.todos.todo_index import build_todo_index
 from loopx.rollout_event_log import (
     ROLLOUT_EVENT_SCHEMA_VERSION,
@@ -343,3 +344,37 @@ def test_todo_index_rejects_a_supplied_lookup_with_a_different_tail(
             public_safe_compact_text=status_module.public_safe_compact_text,
             events_for_goal=snapshot.events_for_goal,
         )
+
+
+def test_collect_status_scans_effect_runtime_sources_once_per_request(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry_path, runtime_root, _goal = _write_fixture(tmp_path)
+    original_scan = effect_runtime._scan_runtime_source_files
+    scanned_roots: list[Path] = []
+
+    def counted_scan(root: Path) -> tuple[str, ...]:
+        scanned_roots.append(root)
+        return original_scan(root)
+
+    monkeypatch.setattr(
+        effect_runtime,
+        "_scan_runtime_source_files",
+        counted_scan,
+    )
+
+    for _request in range(2):
+        status_module.collect_status(
+            registry_path=registry_path,
+            runtime_root_override=str(runtime_root),
+            scan_roots=[tmp_path],
+            limit=20,
+            goal_id=GOAL_ID,
+            include_public_boundary_scan=False,
+        )
+
+    assert scanned_roots == [
+        Path(effect_runtime.__file__).resolve().parent,
+        Path(effect_runtime.__file__).resolve().parent,
+    ]
