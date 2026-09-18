@@ -33,7 +33,6 @@ def test_update_route_promotes_declarative_decision_metadata() -> None:
         note=None,
         intent=supported,
         monitor_metadata=None,
-        status=None,
     )
 
     # Declarative scope metadata now crosses the same typed planning
@@ -46,32 +45,25 @@ def test_update_route_promotes_declarative_decision_metadata() -> None:
         note=None,
         intent=governance,
         monitor_metadata=None,
-        status=None,
     )
 
 
-def test_terminal_and_monitor_observations_stay_off_canonical_route() -> None:
+def test_completion_intent_routes_to_canonical_but_monitor_observations_do_not() -> None:
     intent = build_canonical_update_intent(reason="ordinary")
     assert not canonical_update_is_supported(
         text=None,
         note=None,
         intent=intent,
         monitor_metadata=MonitorPollObservation(generated_at="2030-01-01T00:00:00Z", result_hash="observed", material_change=True),
-        status=None,
     )
-    assert not canonical_update_is_supported(
-        text=None,
-        note=None,
-        intent=intent,
-        monitor_metadata=None,
-        status="done",
+    assert canonical_update_is_supported(
+        text=None, note=None, intent=build_canonical_update_intent(status="done"), monitor_metadata=None,
     )
     assert not canonical_update_is_supported(
         text=None,
         note="   ",
         intent={},
         monitor_metadata=None,
-        status=None,
     )
 
 
@@ -79,4 +71,4 @@ def test_configuration_field_admission_belongs_to_the_typed_transaction() -> Non
     # Even malformed/unknown fields must reach the rejecting TS decoder;
     # they cannot divert a promoted request into a Markdown business writer.
     assert canonical_update_is_supported(text=None, note=None, intent={},
-        monitor_metadata={"material_change_generation": 99}, status=None)
+        monitor_metadata={"material_change_generation": 99})

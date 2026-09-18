@@ -67,9 +67,9 @@ def register_todo_command(
     todo_parser.add_argument("--todo-id", help="Structured todo id from status/quota, such as todo_ab12cd34ef56.")
     todo_parser.add_argument(
         "--update-operation-id",
-        help=("For promoted text/note or nonterminal planning update, reuse this operation id after a lost response; "
+        help=("For promoted text/note, planning or User completion update, reuse this operation id after a lost response; "
               "changed intent is rejected. Planning supports status, evidence, reason, resume conditions and successor links; "
-              "leased status changes remain unsupported."),
+              "User status=done uses terminal validation and lease release; other leased status changes remain unsupported."),
     )
     todo_parser.add_argument(
         "--update-expected-provider-revision",

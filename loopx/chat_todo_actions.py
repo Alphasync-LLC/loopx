@@ -21,7 +21,7 @@ class ChatTodoActionMixin:
     ) -> dict[str, Any]:
         goal_id = str(parameters["goal_id"])
         operation = str(parameters.get("operation") or "edit")
-        if operation == "complete":
+        if operation == "complete" and basis is None:
             return complete_goal_todo(
                 registry_path=self.registry_path,
                 goal_id=goal_id,
@@ -34,7 +34,9 @@ class ChatTodoActionMixin:
                 dry_run=dry_run,
             )
         status = parameters.get("status")
-        if operation == "block":
+        if operation == "complete":
+            status = "done"
+        elif operation == "block":
             status = "blocked"
         elif operation == "defer":
             status = "deferred"
@@ -44,6 +46,8 @@ class ChatTodoActionMixin:
             todo_id=str(parameters["todo_id"]),
             text=parameters.get("text"),
             status=status,
+            **({"role": "user", "no_followup": bool(parameters.get("no_followup", True))}
+               if operation == "complete" else {}),
             note=parameters.get("note"),
             claimed_by=(
                 parameters.get("agent_id") if operation == "reassign" else None
@@ -70,7 +74,9 @@ class ChatTodoActionMixin:
             "update_expected_registry_sha256": basis["registry_sha256"],
         }
 
-    def _canonical_update_basis(self, goal_id: str) -> dict[str, Any] | None:
+    def _canonical_update_basis(
+        self, goal_id: str, *, user_completion_todo_id: str | None = None,
+    ) -> dict[str, Any] | None:
         registry_sha256 = self._registry_fingerprint()
         authority = read_canonical_todos_if_promoted(
             runtime_root=effective_runtime_root(self.registry_path, None),
@@ -79,6 +85,13 @@ class ChatTodoActionMixin:
         if self._registry_fingerprint() != registry_sha256:
             raise ValueError("Todo authority registration changed while reading; retry")
         if authority is None:
+            return None
+        # Select the User completion transport from this same preview revision.
+        # The TS transaction rechecks role and authority; this is not admission.
+        if user_completion_todo_id is not None and not any(
+            todo.get("todo_id") == user_completion_todo_id and todo.get("role") == "user"
+            for todo in authority["todos"]
+        ):
             return None
         return {
             "schema_version": "loopx_chat_canonical_update_basis_v0",
@@ -103,6 +116,16 @@ class ChatTodoActionMixin:
         try:
             result = run(parameters, dry_run=False, basis=basis, operation_id=operation_id)
         except LocalCoordinationAuthorityUnavailable as error:
+            if (parameters.get("operation") == "complete" and error.code == "authority_source_changed"
+                    and error.payload.get("completion_validation_executed") is True):
+                self.store.mark_failed(
+                    proposal_id, error_code="canonical_update_validation_source_changed",
+                    message="Todo authority registration changed during completion validation; retry",
+                    details={"operation_id": operation_id, "reason_code": error.code},
+                )
+                raise ValueError(
+                    "Todo authority registration changed during completion validation; retry"
+                ) from error
             if error.code in {"provider_revision_mismatch", "authority_source_changed", "provider_revision_conflict"}:
                 # The native transaction first established that no matching
                 # historical receipt exists. This is a rejected new edit.
@@ -116,6 +139,11 @@ class ChatTodoActionMixin:
                 message="The edit is not yet verified. Retry this proposal to recover the original operation.",
                 details={"operation_id": operation_id, "reason_code": error.code},
             )
+            return {"proposal": failed, "turn": None}
+        if result.get("ok") is not True:
+            failed = self.store.mark_failed(proposal_id, error_code="canonical_update_validation_failed",
+                message="Completion validation did not pass. The Todo was not completed; retry after resolving the validation failure.",
+                details={"operation_id": operation_id, "reason_code": result.get("reason_code")})
             return {"proposal": failed, "turn": None}
         original = result.get("original_receipt") or result
         todo_id = _opaque(result.get("todo_id"), field="todo_id")
@@ -133,6 +161,7 @@ class ChatTodoActionMixin:
         operation = parameters.get("operation", "edit")
         outcome = ({"pause": "monitor_paused", "resume": "monitor_resumed", "edit": "monitor_updated"}[operation]
                    if proposal["action_kind"] == "monitor.update" else
+                   "todo_completed" if operation == "complete" else
                    "todo_updated" if original.get("changed") else "todo_unchanged")
         stored = self.store.apply(proposal_id,
             current_state_fingerprint=str(proposal["expected_state_fingerprint"]), receipt={

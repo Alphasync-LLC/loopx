@@ -90,19 +90,17 @@ def canonical_update_is_supported(
     note: str | None,
     intent: dict[str, Any],
     monitor_metadata: Any,
-    status: str | None,
 ) -> bool:
     """Whether an ordinary update can use the canonical transaction.
 
-    Terminal completion and monitor polling retain their effect-owned paths.
+    User completion is routed to the typed terminal owner; Monitor observations
+    retain their dedicated effect-owned path.
     Ordinary metadata is validated by the typed transaction, including rejection
     of unsupported fields; this transport must not duplicate its field catalog.
     They must not silently fall back to Markdown after authority promotion.
     """
 
     if isinstance(monitor_metadata, MonitorPollObservation):
-        return False
-    if status is not None and status.strip().lower() == "done":
         return False
     # Empty notes are the long-standing compatibility spelling for omission;
     # routing them to the canonical adapter would produce an empty patch and a

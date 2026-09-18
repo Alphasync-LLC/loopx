@@ -69,14 +69,18 @@ export function normalizeNativePlanningIntent(value: unknown): JsonObject {
 }
 
 export function planNativeTodoUpdate(todo: JsonObject, intent: JsonObject,
-  head: JsonObject, actor: string | null, agents: readonly string[], updatedAt: string): JsonObject {
+  head: JsonObject, actor: string | null, agents: readonly string[], updatedAt: string,
+  kind: "planning" | "user_completion" = "planning"): JsonObject {
+  if (kind === "user_completion" && todo.role !== "user") {
+    throw new AuthorityStoreProtocolError("agent todo completion must use complete_goal_todo (loopx todo complete)");
+  }
   validateTodoDecisionMetadata(todo, intent);
   const planned = planPublicTodoUpdate({schema_version: TODO_PUBLIC_UPDATE_REQUEST_SCHEMA,
     todo, intent, updated_at: updatedAt,
     context: {goal_id: head.goal_id, role: todo.role, actor_agent_id: actor,
       registered_agents: [...agents], items: head.todos,
       monitor_observation: null, enforce_monitor_boundedness: true}});
-  if (planned.target_status === "done" || planned.monitor_poll_transition != null) {
+  if ((planned.target_status === "done" && kind === "planning") || planned.monitor_poll_transition != null) {
     throw new AuthorityStoreProtocolError("native planning update cannot complete work or commit a Monitor observation");
   }
   return requireJsonObject(planned.metadata_updates, "Todo planning metadata updates");
