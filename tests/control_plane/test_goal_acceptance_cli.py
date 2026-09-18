@@ -80,21 +80,21 @@ def acceptance_goal(tmp_path, monkeypatch, request):
     document_path = tmp_path / "acceptance.json"
     document_path.write_text(json.dumps(document))
 
-    def cli(*arguments):
+    def run(*arguments):
         return run_json_cli_result(
-            "goal-acceptance",
             *arguments,
-            "--goal-id",
-            "goal-acceptance",
             registry_path=registry,
             runtime_root=runtime,
         )
 
-    return project, document_path, cli
+    def cli(*arguments):
+        return run("goal-acceptance", *arguments, "--goal-id", "goal-acceptance")
+
+    return project, document_path, cli, run
 
 
 def test_owner_configure_validation_failure_success_and_disable(acceptance_goal):
-    project, document, cli = acceptance_goal
+    project, document, cli, _ = acceptance_goal
     code, before = cli("inspect")
     assert code == 0 and before["goal_acceptance_contract"] == {"enabled": False}
     revision = before["provider_revision"]
@@ -142,7 +142,7 @@ def test_owner_configure_validation_failure_success_and_disable(acceptance_goal)
 def test_agents_cannot_rewrite_acceptance_and_stale_owner_write_rejects(
     acceptance_goal,
 ):
-    _, document, cli = acceptance_goal
+    _, document, cli, _ = acceptance_goal
     original = cli("inspect")[1]
     args = (
         "configure",
@@ -163,7 +163,7 @@ def test_agents_cannot_rewrite_acceptance_and_stale_owner_write_rejects(
 
 
 def test_cli_rejects_claimed_results_and_missing_configuration_basis(acceptance_goal):
-    _, document, cli = acceptance_goal
+    _, document, cli, _ = acceptance_goal
     code, result = cli("configure", "--document", str(document), "--execute")
     assert code == 1 and "expected-provider-revision" in result["error"]
     code, result = cli("verify", "--document", str(document), "--execute")
@@ -174,7 +174,7 @@ def test_cli_rejects_claimed_results_and_missing_configuration_basis(acceptance_
 def test_changed_verifier_cannot_turn_missing_artifact_into_acceptance(
     acceptance_goal, change
 ):
-    project, document_path, cli = acceptance_goal
+    project, document_path, cli, _ = acceptance_goal
     verifier = project / "verify.py"
     verifier.write_text(
         "from pathlib import Path\nPath(__file__).write_text('pass\\n')\n"
@@ -209,7 +209,7 @@ def test_changed_verifier_cannot_turn_missing_artifact_into_acceptance(
 
 
 def test_passing_artifact_check_does_not_hide_unconfirmed_work(acceptance_goal):
-    project, document_path, cli = acceptance_goal
+    project, document_path, cli, _ = acceptance_goal
     document = json.loads(document_path.read_text())
     document["bindings"] = []
     document_path.write_text(json.dumps(document))
@@ -231,3 +231,56 @@ def test_passing_artifact_check_does_not_hide_unconfirmed_work(acceptance_goal):
         and result["acceptance_ready"] is False
     )
     assert result["goal_acceptance_contract"]["status"] == "held"
+
+
+def test_bound_todo_completes_only_after_its_criteria_actually_run(acceptance_goal):
+    """The completion plan names criteria; this proves the host runs them.
+
+    Only real execution separates the two attempts below: the configuration,
+    the binding and the command are identical, and just the artifact differs.
+    """
+    project, document, cli, run = acceptance_goal
+    code, configured = cli(
+        "configure",
+        "--document",
+        str(document),
+        "--expected-provider-revision",
+        cli("inspect")[1]["provider_revision"],
+        "--execute",
+    )
+    assert code == 0 and configured["goal_acceptance_contract"]["tasks"] == [
+        {
+            "todo_id": "todo_export",
+            "state": "ready",
+            "criterion_ids": ["export"],
+            "reason": "The owner confirmed this work's current acceptance association.",
+            "reason_code": "goal_acceptance_ready",
+            "applicable": True,
+        }
+    ], configured
+    complete = (
+        "todo",
+        "complete",
+        "--todo-id",
+        "todo_export",
+        "--goal-id",
+        "goal-acceptance",
+        "--agent-id",
+        "agent-a",
+    )
+    code, refused = run(*complete)
+    assert code == 1 and refused["reason_code"] == "goal_acceptance_validation_rejected", refused
+    assert "validation_argv" not in json.dumps(refused)
+
+    (project / "artifact.txt").write_text("accepted")
+    code, completed = run(*complete)
+    assert code == 0 and completed["changed"] is True, completed
+    evidence = completed["goal_acceptance_completion"]
+    assert evidence["results"] == [
+        {"criterion_id": "export", "exit_code": 0, "passed": True}
+    ]
+    assert evidence["contract_digest"] == configured["goal_acceptance_contract"]["digest"]
+    assert evidence["source_binding"]["todo_id"] == "todo_export"
+    assert "validation_argv" not in json.dumps(completed)
+    # Todo criteria passing is not an independent judgment that the Goal is met.
+    assert cli("inspect")[1]["goal_acceptance_contract"]["status"] == "unverified"
