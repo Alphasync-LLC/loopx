@@ -187,6 +187,17 @@ cloud managed work against one governed Turn contract first, while retaining
 native Goal and same-session driver profiles as distinct qualified paths. A
 team's total resource allowance is not copied to each child coordinator.
 
+The next R2/R3 integration should qualify one reusable contract chain, rather
+than add more coordinator-specific tools: effective profile/context resolution
+and registered/resident/active readback ([session RFC](agent-session-execution-modes-v0.md#effective-launch-context-and-recoverable-presence));
+request identity independent of creation ancestry and recoverable requester
+results ([handoff RFC](capable-manager-semantic-handoff-v0.md#request-identity-and-result-routing-across-a-team));
+and delivery intent independent of wake admission ([frontend RFC](desktop-execution-frontends-v0.md#delivery-intent-does-not-choose-the-wake-policy)).
+Reuse current operation, request, ingress and outbox owners. Prioritize sibling
+requests, coalesced inputs, interrupted/no-answer members and result-commit versus
+notification restart races before residency optimization. These are proposed
+acceptance refinements, not new runtime guarantees or changes to G1–G4 gates.
+
 ### Collaboration and Handoff Between LoopX Agents
 
 Participants are long-running LoopX Agents with their own goals, commitments, frontiers and execution bindings, not merely temporary subtasks inside the steward process. Manager→worker and worker→worker share one collaboration contract. Workers can request help, provide results, challenge dependencies and propose replanning without asking the steward to relay every message. The steward owns overall progress and synthesis, not a serial transit point for every message or commit.
