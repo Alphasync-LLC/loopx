@@ -281,11 +281,18 @@ export function projectGoalAcceptance(head: JsonObject, goalId: string): JsonObj
       contract_digest: receipt.contract_digest, todo_id: receipt.todo_id, results: receipt.results} : null};
 }
 
+/** An owner-confirmed binding governs its work until the owner changes it.
+ * Mutable Todo fields can make a binding stale; they must not make it
+ * inapplicable, or the guarded party could edit its way out of the guard. */
+function acceptanceBound(state: AcceptanceState, todoId: string): boolean {
+  return state.bindings.some(binding => binding.todo_id === todoId);
+}
+
 export function acceptanceWorkGuard(head: JsonObject, goalId: string, todoId: string): JsonObject | null {
   const state = readGoalAcceptance(head, goalId);
   if (!state?.enabled) return null;
   const todo = acceptanceTodos(head, goalId).get(todoId);
-  if (todo && !acceptanceApplies(todo)) return null;
+  if (todo && !acceptanceApplies(todo) && !acceptanceBound(state, todoId)) return null;
   const task = acceptanceTask(todoId, todo, state);
   return {allowed: task.state === "ready", ...task, revision: state.revision, digest: state.digest};
 }
@@ -297,7 +304,11 @@ export function acceptanceCompletionRequirements(head: JsonObject, goalId: strin
   if (!state?.enabled) return null;
   const todo = acceptanceTodos(head, goalId).get(todoId);
   acceptanceRequire(todo, "acceptance completion Todo is missing");
-  if (!acceptanceApplies(todo)) return null;
+  // Applicability follows the owner's binding, not the Todo's current shape:
+  // `acceptanceApplies` reads task_class and status, which the guarded party
+  // may rewrite. Its remaining job is to decide which *unbound* work must be
+  // held, so it stays as the fallback for Todos the owner never bound.
+  if (!acceptanceApplies(todo) && !acceptanceBound(state, todoId)) return null;
   const task = acceptanceTask(todoId, todo, state);
   acceptanceRequire(task.state === "ready", task.reason_code);
   return {contract_revision: state.revision, contract_digest: state.digest, todo_id: todoId,

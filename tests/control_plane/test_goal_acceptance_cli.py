@@ -284,3 +284,60 @@ def test_bound_todo_completes_only_after_its_criteria_actually_run(acceptance_go
     assert "validation_argv" not in json.dumps(completed)
     # Todo criteria passing is not an independent judgment that the Goal is met.
     assert cli("inspect")[1]["goal_acceptance_contract"]["status"] == "unverified"
+
+
+def _configure(cli, document):
+    code, configured = cli(
+        "configure",
+        "--document",
+        str(document),
+        "--expected-provider-revision",
+        cli("inspect")[1]["provider_revision"],
+        "--execute",
+    )
+    assert code == 0, configured
+    return configured
+
+
+@pytest.mark.parametrize(
+    "escape",
+    [
+        pytest.param((), id="supersede"),
+        pytest.param(("--task-class", "blocker"), id="task_class"),
+        pytest.param(
+            ("--status", "deferred", "--resume-when", "resume_at:2099-01-01T00:00:00Z"),
+            id="deferred",
+        ),
+    ],
+)
+def test_bound_work_cannot_be_closed_by_editing_its_way_out_of_the_gate(
+    acceptance_goal, escape
+):
+    """Acceptance binds work, so neither a second terminal verb nor a field the
+    guarded party may rewrite can close it without the criteria running.
+
+    `supersede` reaches the same `done: true` write as `complete`; `task_class`
+    and `status` are inputs to the old applicability test. Each row closes the
+    Todo terminally in the absence of `artifact.txt` if the gate is keyed on the
+    command name or on the Todo's current shape.
+    """
+    _, document, cli, run = acceptance_goal
+    _configure(cli, document)
+    common = ("--todo-id", "todo_export", "--goal-id", "goal-acceptance", "--agent-id", "agent-a")
+    if escape:
+        code, updated = run("todo", "update", *common, *escape)
+        assert code == 0, updated
+        terminal = ("todo", "complete", *common)
+    else:
+        terminal = ("todo", "supersede", *common, "--reason", "pivot")
+    code, refused = run(*terminal)
+    assert code == 1, refused
+    assert refused["reason_code"] in {
+        "goal_acceptance_validation_required",
+        "goal_acceptance_stale",
+    }, refused
+    assert "validation_argv" not in json.dumps(refused)
+    # The refusal must be a refusal, not a report: the work stays open.
+    contract = cli("inspect")[1]["goal_acceptance_contract"]
+    assert contract["status"] != "accepted"
+    assert contract["verification"] is None

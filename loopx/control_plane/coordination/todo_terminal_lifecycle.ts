@@ -802,14 +802,16 @@ export async function executeCoordinationTodoTerminalLifecycle(
     );
   }
 
-  const acceptance = input.command === "complete"
-    ? acceptanceWorkGuard(head.head, input.goal_id, input.todo_id) : null;
+  // Acceptance constrains a state transition, not a verb. Every TERMINAL_COMMANDS
+  // entry reaches `terminalTarget`, which writes `status: "done", done: true`,
+  // so the guard follows that write instead of one command name. A future
+  // terminal command then inherits it rather than silently bypassing it.
+  const acceptance = acceptanceWorkGuard(head.head, input.goal_id, input.todo_id);
   if (acceptance !== null && !acceptance.allowed) {
     return terminalFailure(String(acceptance.reason_code), `${String(acceptance.reason)} Inspect Goal acceptance and ask the owner to configure or rebind this Todo.`,
       {goal_acceptance_guard: acceptance}, "decision_rejection");
   }
-  const acceptanceRequirements = input.command === "complete"
-    ? acceptanceCompletionRequirements(head.head, input.goal_id, input.todo_id) : null;
+  const acceptanceRequirements = acceptanceCompletionRequirements(head.head, input.goal_id, input.todo_id);
   const acceptanceBinding = acceptanceRequirements === null ? null
     : acceptanceSourceBinding(input, acceptanceRequirements, head.provider_revision);
   let acceptanceEvidence: JsonObject | null = null;
@@ -956,7 +958,10 @@ export async function executeCoordinationTodoTerminalLifecycle(
 
   if (acceptanceRequirements !== null && !input.dry_run && acceptanceEvidence === null) {
     return terminalFailure("goal_acceptance_validation_required",
-      "Completion requires fresh execution of the owner-configured acceptance criteria.", {}, "decision_rejection");
+      input.command === "complete"
+        ? "Completion requires fresh execution of the owner-configured acceptance criteria."
+        : `${input.command} would close this work as done without running the owner-configured acceptance criteria. Complete it so the criteria run, or ask the owner to rebind or disable acceptance for this Todo.`,
+      {}, "decision_rejection");
   }
   const domainReadModel = readModel.schema_version === TODO_DOMAIN_READ_RECORD_SCHEMA;
   const completionPolicy = completion?.decision === "commit" &&
