@@ -183,6 +183,14 @@ Agent 决定并修订工作图；通用 host 服务负责准入、派送、预�
 phase。先让本地/云端 managed 工作通过同一 governed Turn 合同，同时保留分别
 资格化的 native Goal、同会话 driver 路径。整队资源额度不能复制给每个子协调者。
 
+下一轮 R2/R3 集成优先验收一条可复用契约链，而不是增加 coordinator 专用工具：
+实际 profile/上下文解析及注册/驻留/活跃读回，由[会话 RFC](agent-session-execution-modes-v0.zh-CN.md#创建时的实际上下文与可恢复驻留)拥有；
+独立于创建父子关系的请求身份、请求者可恢复结果，由[交接 RFC](capable-manager-semantic-handoff-v0.zh-CN.md#团队中的请求身份与结果路由)拥有；
+独立于唤醒准入的投递意图，由[前端 RFC](desktop-execution-frontends-v0.zh-CN.md#投递意图不决定唤醒策略)拥有。
+复用现有 operation、request、ingress 和 outbox owner。先覆盖兄弟请求、多输入合流、
+成员中断且无答案、结果提交与通知之间重启，再考虑驻留优化。这些是提议中的验收
+细化，不新增运行时保证，不改变 G1–G4 门槛。
+
 ### 多个 LoopX Agent 的协作与 handoff 验收
 
 协调对象是各自持有目标、承诺、frontier 与执行绑定的长程 LoopX Agent，不只是管家进程中的临时子任务。管家→worker 与 worker→worker 使用同一协作合同；worker 可以主动求助、提供结果、质疑依赖和提出重规划，无需每次让管家转发。管家负责整体推进与综合，不能成为每条消息或每次状态提交的串行中转站。

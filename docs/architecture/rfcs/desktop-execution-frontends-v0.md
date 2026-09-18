@@ -334,6 +334,34 @@ HTTP success is not a consumption receipt. Unknown capabilities fail explicitly.
 Frontend, CLI and Lark show the effective mode, waiting reason and result on the
 original work/conversation surface, rather than creating a separate team board.
 
+### Delivery intent does not choose the wake policy
+
+The mode determines where input may be consumed; the binding's existing
+continuation owner determines whether another execution opportunity is admitted.
+This proposed matrix qualifies adapters without adding a fourth ingress mode:
+
+| Recipient condition | Required behavior |
+| --- | --- |
+| Active turn or pending tool | Inbox remains for explicit drain; queue waits for a subsequent turn; steer targets the exact active generation and declared safe input boundary. Acceptance cannot imply that an already submitted model/tool request was preempted. |
+| Idle or turn complete | Persist eligible inbox/queue input. Only the configured continuation owner may admit a new turn after scope/budget checks; without that policy, show pending input. Steer is unavailable without an active target. |
+| Finalizing or interrupted | Preserve late input/result identity without reopening the finishing turn. Recheck after finalization; explicit interruption cannot be undone by a notification. Resume follows the existing owner and pause policy. |
+| Unloaded or disconnected | Persistence does not prove a live session. Recover only through the qualified binding path, revalidate scope and generation, and retain an actionable pending/unavailable observation when recovery is unsupported. |
+
+A queued input is not a promise to start a turn; a provider's trigger flag is
+not LoopX admission. Multiple accepted messages may enter one eligible turn,
+but independent work requests retain their identities and return obligations.
+Use the [handoff contract](capable-manager-semantic-handoff-v0.md#request-identity-and-result-routing-across-a-team)
+for those relations, rather than treating one transport receipt as a join.
+
+Project three separate facts: the ingress receipt, the actual execution/wakeup
+observation, and the work result/acceptance. Never show a saved message as
+"the Agent is working" or a wake notification as "result received". Notification
+loss must leave the saved input/result discoverable through readback; replay or
+reconnect must deduplicate application by ingress/result identity and cannot start a second executor. Extend the existing
+corrected-input fixture with idle input without a wake policy, finalization races,
+coalesced notifications and restart between result commit and notification.
+These are design requirements; every host still needs its own qualification.
+
 ### Capture, ingress, and reply are orthogonal
 
 Provider selection and Agent delivery must not reuse one overloaded flag. The
