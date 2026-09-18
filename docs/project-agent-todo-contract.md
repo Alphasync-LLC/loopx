@@ -1015,6 +1015,42 @@ promotion，也不回退 Markdown；不带新选项的 legacy 更新保持原行
 空字符串或仅含 Unicode 空白的 `--note` 视为省略 note 更新，在 promotion 前后都保留
 已持久化 note；它不表示清空。清空 note 需要另行定义显式契约。
 
+### Reviewed canonical edits and recovery
+
+For promoted updates, `--authority-reason` now stays on the canonical path.
+Registry lifecycle grants can authorize `update` or reassign-only intent;
+combining a reassignment with copy/planning changes requires `update` authority.
+A reason never bypasses registration, exclusion, binding or lease-proof checks.
+Use the `provider_revision` returned by `todo list` to bind a reviewed edit:
+
+```sh
+loopx todo update --goal-id <goal> --todo-id <todo> --agent-id <agent> \
+  --note 'Reviewed correction' --authority-reason 'Verified the requested correction' \
+  --update-expected-provider-revision <reviewed-revision> \
+  --update-operation-id <stable-edit-id> --dry-run
+```
+
+Remove `--dry-run` to commit. Repeat the **same** revision, operation ID, reason
+and intent after a lost response. A matching receipt is historical success;
+without it, a stale revision rejects the new write. Reverse a change through a
+new reviewed operation, never by editing a stale Markdown projection. The v2
+wire fails closed on older runtimes; old v0/v1 receipt identities remain valid.
+
+Chat stores this basis itself; caller context cannot supply authority. Its Todo
+and Monitor nonterminal previews run the real dry-run, and pending display never
+becomes `projection_verified=true`. Retry the original card to recover its
+receipt and project the current head. Completion and run-now keep their separate
+owners; these changes neither create lease proof nor enable provider promotion.
+
+晋升后的 `--authority-reason` 保持 canonical 路由。Registry grant 可授权 update
+或纯 reassign；重分配夹带其他修改需要 update 权限，理由不替代注册、exclusion、
+binding 或 lease proof。上例用 `todo list` 的 provider_revision 绑定审阅基线；
+去掉 dry-run 执行，丢响应后原 revision、ID、理由和意图一起重试。匹配回执证明
+历史成功；没有回执时，陈旧 revision 拒绝新写入。撤销使用新的审阅操作。
+Chat 自行记录基线，不能从 caller context 注入权限。非终态预览执行真实 dry-run；
+展示 pending 不冒充验证成功，原卡片重试恢复回执并投影当前 head。完成和立即运行
+仍归各自 owner，不补造 lease proof，也不开启 provider promotion。
+
 ### Canonical nonterminal planning updates
 
 An explicitly promoted agent Todo also accepts a bounded planning update through
@@ -1037,8 +1073,8 @@ arrays and explicit `no_followup=false` in API intent remain meaningful values.
 Dependency validation sees the complete canonical inventory, not a hot-path
 summary or a Markdown buffer. A satisfied Monitor wait is not silently re-armed
 by an evidence edit; changing its topology requires clearing that old condition.
-Planning is transported in the v1 request envelope: an older runtime rejects the
-whole request instead of silently applying only an accompanying text/note patch.
+Planning uses a versioned request envelope (current transport: v2): an older
+runtime rejects the whole request instead of silently applying only its copy patch.
 A planning-only update preserves the existing `last_actor_agent_id`, matching the
 legacy public planner; a combined raw text/note correction retains its established
 copy-edit attribution behavior.

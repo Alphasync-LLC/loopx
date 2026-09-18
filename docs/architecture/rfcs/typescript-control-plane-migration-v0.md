@@ -41,15 +41,23 @@ silently become a second semantic implementation.
 Native update now composes `todos/public_update.ts` for a bounded nonterminal
 planning intent (status, evidence/reason, resume/clear and successor links),
 against the same complete canonical head used for authority checks and CAS.
-The separate intent namespace leaves the raw text/note patch allowlist and old
-receipt fingerprints unchanged. Planning uses the v1 request envelope, so older
-runtimes reject the entire request rather than apply only its text/note part.
-Python's synthetic Markdown round-trip and
-pre-transaction target lookup are retired; its adapter only normalizes CLI
-text, transports intent and drains the committed display projection.
-Active-lease status changes, Monitor planning/observations, ownership/routing/
-capability edits and terminal transitions remain held. This is a T1 stage,
-not full update closure, a provider-default change or permission to promote.
+The separate intent namespace preserves raw text/note limits and old receipt
+fingerprints. The v2 transport carries lifecycle grants, the authority reason,
+a registry source witness and optional reviewed provider revision; v0/v1 requests
+retain their established identity and cannot smuggle these new obligations.
+`todo_update_admission.ts` composes the existing lifecycle/lease rule owners;
+Python projects registry facts, transports intent and drains the display outbox.
+Chat Todo and Monitor nonterminal previews execute the same update as apply,
+bind canonical revision/registration rather than Markdown, and reuse one operation
+ID after response loss. Historical recovery precedes current admission; projection
+recovery drains the current head. Failed delivery stays recoverable on a reloaded
+Dashboard. Cadence timestamps are derived in the TS transaction, not regenerated
+inside Chat retry intent. Monitor preview no longer claims validation without
+running it, and Chat does not claim verified display for a pending outbox.
+Lease ownership/requirements/status transitions and terminal/observation effects
+retain their own owners. This closes a reviewed-edit T1/L5 journey, not all T1,
+provider defaults or promotion. Registry witnessing is an optimistic source check,
+not an atomic transaction spanning registry configuration and provider storage.
 
 Provider-first text/note updates now accept the active execution key and lease
 version through the existing terminal fence, with automatic acquisition and

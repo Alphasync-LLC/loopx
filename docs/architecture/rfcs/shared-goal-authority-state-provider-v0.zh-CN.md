@@ -2284,8 +2284,14 @@ promotion 后不再读取本地旧 lease 文件；canonical 空租约集合保�
 资格化，不改变 CAS/replay 或 D1–D3；永久 Markdown 展示与后续规划继续保留。
 ownership 编辑在 promotion 后现在与现有 update transaction 共用 typed authoring
 和 lifecycle 边界。claim/exclusion 门禁保留，带 lease 的 ownership 重写继续拒绝；
-promotion 前仍保留 Markdown writer 兼容路径。这删除了一条重复决策路径，但不代表
-provider 已资格化、不改变 promotion 默认值，也不放宽 D1–D3。
+promotion 前仍保留 Markdown writer 兼容路径。经过审阅的 Chat Todo/Monitor 非终态
+编辑现通过该 owner 传递已验证的 lifecycle grant/reason，不再落入被 fence 的旧
+writer。Preview 绑定 provider revision 与 registry 见证；apply 通过 CAS 提交新
+操作，或恢复原不可变回执。当前 head 的展示恢复、Dashboard 重载后可发现的重试
+闭合这一 L2/L5 链路；exclusion/binding 与 lease 限制不因 grant 而消失。这删除了
+重复决策路径，但不代表 provider 已资格化、不改变默认值，也不放宽 D1–D3。
+PostgreSQL 经隔离 service/store factory 验证同一事务，不代表 Python 生产路由或
+默认 provider 已完成切换。
 
 命令清单、update/monitor 事务和 consumer 删除统一按
 [TS 执行卡](typescript-control-plane-migration-v0.zh-CN.md#当前-stack-合入后的执行卡)
