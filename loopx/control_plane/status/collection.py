@@ -116,6 +116,7 @@ def collect_status(
         status_include_runtime_goals=include_runtime_goals,
         activation_state_filter=activation_filter,
         agent_lane_id=agent_lane_id,
+        registry=registry,
     )
     history = history_collection.status_history
     contract = context.check_contract(
@@ -127,6 +128,7 @@ def collect_status(
         include_public_boundary_scan=include_public_boundary_scan,
         activation_state_filter=activation_filter,
         history_audit=history_collection.contract_audit,
+        registry=registry,
     )
     contract = project_contract_health_for_goal(contract, goal_id=goal_filter)
     queue = context.build_attention_queue(
@@ -157,12 +159,14 @@ def collect_status(
     promotion_gate = context.build_promotion_gate(
         registry_path=registry_path,
         runtime_root_override=str(runtime_root),
+        registry=registry,
     )
     runtime_projection_routes = collect_runtime_projection_route_diagnostics(
         registry_path=registry_path,
         runtime_root=runtime_root,
         goal_id=goal_filter,
         activation_state_filter=activation_filter,
+        registry=registry,
     )
     runtime_projection_route_health = {
         "healthy": (
