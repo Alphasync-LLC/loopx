@@ -137,6 +137,21 @@ A prior verification receipt or a confirmed association cannot complete a task.
 Use `loopx todo claim --help` and `loopx todo complete --help` for the existing
 task arguments; this contract adds no bypass flags.
 
+Terminal observations, including `no_followup`, do not change the work digest:
+finishing a task must not stale the binding that just admitted its completion.
+Text, validation requirements and unknown future work fields still invalidate
+the association. Existing enabled contracts configured with a persisted
+`no_followup` field under the earlier digest rule require owner inspection and
+reconfiguration; no historical receipt is rewritten or automatically accepted.
+Disabled/absent acceptance retains its existing behavior.
+
+For an already authorized delegation, `turn plan --todo-id todo_example` and
+`turn run-once --todo-id todo_example` select that exact currently eligible work
+through the existing quota owner. Omitting the option retains controller
+selection. An unavailable task cannot silently select a different one.
+The option does not retarget resumed Turns or host sessions and is not exposed
+by `turn managed-step`; it grants no new task, lease, budget or completion authority.
+
 Run all configured Goal checks and read back their recorded basis:
 
 ```bash

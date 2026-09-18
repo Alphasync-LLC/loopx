@@ -108,6 +108,7 @@ def register_turn_commands(
         host_choices=list(RUN_ONCE_TURN_HOST_CHOICES),
         execution_mode_choices=["isolated-headless"],
         default_execution_mode="isolated-headless",
+        allow_todo_selection=False,
     )
     managed_step.add_argument(
         "--turn-key",
@@ -293,6 +294,7 @@ def _add_turn_decision_arguments(
     host_choices: list[str] | None = None,
     execution_mode_choices: list[str] | None = None,
     default_execution_mode: str = "interactive-visible",
+    allow_todo_selection: bool = True,
 ) -> None:
     parser.add_argument("--goal-id", required=True)
     parser.add_argument("--agent-id", required=True)
@@ -314,6 +316,11 @@ def _add_turn_decision_arguments(
             "agent_cli_loop otherwise."
         ),
     )
+    if allow_todo_selection:
+        parser.add_argument(
+            "--todo-id",
+            help="Select this currently eligible Todo through the existing quota owner; never fall back to another task.",
+        )
     parser.add_argument(
         "--turn-instance-id",
         help=(

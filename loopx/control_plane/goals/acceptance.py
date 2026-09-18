@@ -23,6 +23,8 @@ from ..todos.completion_validation import (
 )
 
 
+_INSPECT_METHOD = "goal.acceptance.inspect"
+
 def _routing(
     registry_path: Path,
     goal_id: str,
@@ -73,9 +75,45 @@ def inspect_goal_acceptance(
 ) -> dict[str, Any]:
     """Read one canonical basis; command declarations stay inside the host."""
     return _result(
-        "goal.acceptance.inspect",
+        _INSPECT_METHOD,
         _routing(registry_path, goal_id, runtime_root, agent_id),
     )
+
+
+def _criterion_effects(criteria: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "kind": "caller_validation",
+            "criterion_id": row["id"],
+            "validation_argv": row["validation_argv"],
+            "validation_label": f"Goal acceptance: {row['id']}",
+            "validation_timeout_seconds": row.get("validation_timeout_seconds", 29),
+            "validation_files": row.get("validation_files", []),
+        }
+        for row in criteria
+    ]
+
+
+def validate_goal_task_acceptance(
+    *, registry_path: Path, runtime_root: str, goal_id: str, agent_id: str, todo_id: str,
+) -> dict[str, Any]:
+    """Read-only Turn validator for a task's current owner-pinned criteria.
+
+    Completion still runs its own fresh validation and atomic TS commit. This
+    entrypoint cannot accept supplied commands, pass flags or saved receipts.
+    """
+    route = {**_routing(registry_path, goal_id, runtime_root, agent_id), "todo_id": todo_id}
+    basis = _result(_INSPECT_METHOD, route).get("completion_requirements")
+    if not isinstance(basis, dict) or not basis.get("criteria"):
+        raise ValueError("delegated task requires enabled owner-bound acceptance")
+    results = run_goal_acceptance_effects(
+        effects=_criterion_effects(basis["criteria"]),
+        registry_path=registry_path, goal_id=goal_id,
+    )
+    current = _result(_INSPECT_METHOD, route).get("completion_requirements")
+    if current != basis:
+        raise ValueError("delegated task acceptance changed during validation")
+    return {"passed": all(row["passed"] for row in results), "results": results}
 
 
 def configure_goal_acceptance(
@@ -251,7 +289,7 @@ def verify_goal_acceptance(
 ) -> dict[str, Any]:
     """Run the configured acceptance checks against a frozen canonical basis."""
     route = _routing(registry_path, goal_id, runtime_root, agent_id)
-    basis = _result("goal.acceptance.inspect", route)
+    basis = _result(_INSPECT_METHOD, route)
     contract = basis.get("contract")
     if contract is None:
         raise ValueError("Goal acceptance is not enabled")
@@ -262,17 +300,7 @@ def verify_goal_acceptance(
         raise ValueError("Goal acceptance authority omitted its criteria")
     if not execute:
         return {**public_goal_acceptance(basis), "status": "planned", "executed": False}
-    effects = [
-        {
-            "kind": "caller_validation",
-            "criterion_id": row["id"],
-            "validation_argv": row["validation_argv"],
-            "validation_label": f"Goal acceptance: {row['id']}",
-            "validation_timeout_seconds": row.get("validation_timeout_seconds", 29),
-            "validation_files": row.get("validation_files", []),
-        }
-        for row in criteria
-    ]
+    effects = _criterion_effects(criteria)
     receipts = run_goal_acceptance_effects(
         effects=effects, registry_path=registry_path, goal_id=goal_id
     )

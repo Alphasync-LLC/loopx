@@ -10,7 +10,7 @@ import {CoordinationCommandReceipt} from "../coordination/command_receipt.ts";
 import {withCanonicalWriter} from "../coordination/local_authority_write.ts";
 import {openLocalAuthorityStore, localAuthorityOpenFailure} from "../coordination/local_authority_provider.ts";
 import {GOAL_ACCEPTANCE_SCHEMA, acceptanceKeys, acceptanceRequire, acceptanceTask, acceptanceText, acceptanceTodos,
-  goalAcceptanceTodoDigest, goalAcceptanceWorkDigest, normalizeAcceptanceResults,
+  acceptanceCompletionRequirements, goalAcceptanceTodoDigest, goalAcceptanceWorkDigest, normalizeAcceptanceResults,
   normalizeGoalAcceptanceDocument, projectGoalAcceptance, readGoalAcceptance,
   type AcceptanceState, type AcceptanceVerification} from "./acceptance_contract.ts";
 
@@ -157,6 +157,7 @@ export async function inspectGoalAcceptance(store: AuthorityStore, goalId: strin
   return source(store, {status: "loaded", provider_revision: head.provider_revision,
     revision: state?.revision ?? null, contract_digest: state?.digest ?? null,
     contract: state?.enabled ? state.document : null, tasks,
+    ...(todoId === undefined ? {} : {completion_requirements: acceptanceCompletionRequirements(head.head, goalId, todoId)}),
     goal_acceptance_contract: projectGoalAcceptance(head.head, goalId)});
 }
 

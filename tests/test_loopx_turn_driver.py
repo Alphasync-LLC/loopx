@@ -1659,6 +1659,62 @@ def test_turn_cli_binds_advisory_primary_without_hiding_portfolio(
     assert envelope["writeback"].get("selection_required") is None
 
 
+@pytest.mark.parametrize("selection", [None, "todo_fixture0002", "todo_missing"])
+def test_turn_cli_explicit_todo_keeps_default_and_never_falls_back(tmp_path, selection):
+    project, runtime, registry = _write_live_fixture(tmp_path, extra_agent_todo_lines=(
+        "- [ ] [P2] Check the second public fixture.",
+        "  <!-- loopx:todo todo_id=todo_fixture0002 status=open task_class=advancement_task "
+        "action_kind=fixture claimed_by=codex-fixture priority=P2 -->",
+    ))
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        code = cli_main(["--registry", str(registry), "--runtime-root", str(runtime), "--format", "json",
+                         "turn", "plan", "--goal-id", "loopx-turn-fixture", "--agent-id", "codex-fixture",
+                         "--scan-root", str(project), *(["--todo-id", selection] if selection else [])])
+    result = json.loads(output.getvalue())
+    if selection == "todo_missing":
+        assert code == 1
+        assert "no alternate task" in result["error"]
+    else:
+        assert code == 0, result
+        selected = result["turn_envelope"]["action"]["selected_todo"]
+        assert selected["todo_id"] == (selection or "todo_fixture0001")
+        assert selected["selected_by"] == ("turn_explicit_todo" if selection else "turn_controller_advisory_primary")
+
+
+@pytest.mark.parametrize("extra", [
+    ["--resume-turn-key", "sha256:fixture"],
+    ["--resume-goal-id", "loopx-turn-fixture", "--resume-agent-id", "codex-fixture",
+     "--resume-todo-id", "todo_fixture0001"],
+])
+def test_turn_explicit_selection_cannot_retarget_resumption(tmp_path, extra):
+    project, runtime, registry = _write_live_fixture(tmp_path)
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        code = cli_main(["--registry", str(registry), "--runtime-root", str(runtime), "--format", "json",
+                         "turn", "run-once", "--goal-id", "loopx-turn-fixture", "--agent-id", "codex-fixture",
+                         "--project", str(project), "--scan-root", str(project), "--todo-id", "todo_fixture0002", *extra])
+    assert code == 1
+    assert "cannot retarget" in json.loads(output.getvalue())["error"]
+
+
+@pytest.mark.parametrize("status,claim", [("done", "codex-fixture"), ("open", "other-agent")])
+def test_explicit_turn_todo_does_not_bypass_completion_or_actor_scope(tmp_path, status, claim):
+    project, runtime, registry = _write_live_fixture(tmp_path, extra_agent_todo_lines=(
+        f"- [{'x' if status == 'done' else ' '}] [P2] Scoped second fixture.",
+        f"  <!-- loopx:todo todo_id=todo_fixture0002 status={status} task_class=advancement_task "
+        f"action_kind=fixture claimed_by={claim} priority=P2 -->",
+    ))
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        code = cli_main(["--registry", str(registry), "--runtime-root", str(runtime), "--format", "json",
+                         "turn", "plan", "--goal-id", "loopx-turn-fixture", "--agent-id", "codex-fixture",
+                         "--scan-root", str(project), "--todo-id", "todo_fixture0002"])
+    result = json.loads(output.getvalue())
+    assert code == 1, result
+    assert "no alternate task" in result["error"]
+
+
 def test_turn_cli_omits_transaction_detail_by_default(tmp_path: Path) -> None:
     project, runtime, registry = _write_live_fixture(tmp_path)
     output = io.StringIO()

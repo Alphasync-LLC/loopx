@@ -50,7 +50,7 @@ def cli(registry: Path, runtime: Path, *arguments: str, success: bool = True) ->
     assert completed.stdout.strip(), completed.stderr
     payload = json.loads(completed.stdout)
     if success:
-        assert completed.returncode == 0, (completed.stderr, payload)
+        assert completed.returncode == 0, completed.stderr + "\n" + json.dumps(payload, indent=2)
         assert payload.get("ok") is True, payload
     return payload
 

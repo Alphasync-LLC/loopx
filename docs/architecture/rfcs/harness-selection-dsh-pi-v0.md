@@ -70,6 +70,35 @@ dated 2026-09-15 and is written to land with the managed stack:
 | L1 event source and session-owning runtime candidate | DSH | opt-in, not promoted; the bounded Turn host role is the default row above | the C0, C1, overhead, retention and Mode B rows in this document being run and reviewed |
 | Optional visible host loop | Pi | not a managed runtime | declare a per-binding session mode with readback, prove single-executor behavior under restart, "conversation is not a receipt", non-authoritative host-local state, and one real-host restart row |
 
+### Optional Ark governed Turn profile
+
+[`loopx-ark-turn`](../../../packages/loopx-ark-turn/README.md) is a separately
+installed provider selected explicitly through `--host generic-cli` with fresh
+iteration context. It shares DSH's signed request/candidate conversion; LoopX
+still owns admission, independent validation, work writeback and quota. A
+per-Turn stdio MCP process exposes only operator-selected tools with bound work
+identity. Provider model usage and resource-cleanup receipts are observations,
+not accepted-work quota or a second task lifecycle.
+
+This profile does not change the default host or the native Ark `goal_once`
+profile. Native Goal continuation and outer LoopX Turn continuation must not
+drive the same binding. The [research composition example](../../../examples/managed-research-team/README.md)
+exercises a managed coordinator delegating to local workers; it does not promote
+a persistent steward Chat transport, recursive fleet supervision, full live
+steering, or a shared authority service. Use its explicit setup/readback/cleanup
+instructions and preserve failed versus untested qualification boundaries.
+
+The example's integrated acceptance path uses five preauthorized canonical
+tasks and startup-only owner configuration. Both hosts select exact work via
+`turn --todo-id`; fresh TS Todo completion precedes accepted result return.
+Synthesis checks current child completion, binding and artifact hashes.
+Provider cleanup, Turn progress and canonical completion remain separate.
+This does not supply dynamic work derivation or another Python lifecycle owner.
+Its default profile uses a local DSH lead with two DSH and two Ark members;
+the cloud reviewer consumes a completed local analysis before returning its own
+result. A secondary cloud-led profile tests the inverse delegation direction.
+Both reuse the same Turn host adapters; neither changes the steward default.
+
 ### Managed host binding and live qualification (2026-09-15)
 
 A managed host binding names four things: the host adapter, the provider, the
