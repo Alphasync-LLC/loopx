@@ -161,7 +161,11 @@ def delegate(root: Path, worker: str, revision: str, question: str) -> dict:
                          "Include adopted_dependencies mapping its worker/revision identity to its exact artifact_sha256.\n")
     result = turn(root, worker, revision, workspace,
                   [sys.executable, str(HERE / "demo.py"), "validate-worker", str(workspace), "--revision", revision],
-                  host_arguments(root, worker, revision, host=member["host"], attempt=count), 240)
+                  # Ark execution may use 220 seconds; session/Agent deletion
+                  # and absence readback need up to four further 10-second calls.
+                  # Leave cleanup and transport teardown room before the outer
+                  # generic-cli host deadline. The coordinator waits 420 seconds.
+                  host_arguments(root, worker, revision, host=member["host"], attempt=count), 300)
     summary = {key: result.get(key) for key in ("status", "result_kind", "validation", "resume_turn_key", "error")}
     write(root / "turns" / (worker + "-" + revision + "-" + str(count) + ".json"), summary)
     if result.get("status") != "committed" or result.get("result_kind") != "validated_progress":

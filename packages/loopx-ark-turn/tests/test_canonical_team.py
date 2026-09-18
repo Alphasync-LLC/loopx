@@ -151,6 +151,12 @@ def test_local_lead_mixed_members_use_the_same_completion_boundary(tmp_path, mon
         selected = plan(root, actor, revision)["turn_envelope"]["action"]["selected_todo"]
         assert selected["todo_id"] == todo_id(actor, revision)
         calls.append((actor, host_args[host_args.index("--host") + 1]))
+        if "--host-command-json" in host_args:
+            command = json.loads(host_args[host_args.index("--host-command-json") + 1])
+            execution_limit = float(command[command.index("--timeout-seconds") + 1])
+            # Two owned resources: delete + absence readback, 10 seconds each.
+            assert timeout >= execution_limit + 40
+            assert timeout + 60 < 420  # CLI completion fits the coordinator wait.
         return {"status": "committed", "result_kind": "validated_progress"}
     monkeypatch.setattr(demo, "turn", model_turn)
     from scenario import assignments

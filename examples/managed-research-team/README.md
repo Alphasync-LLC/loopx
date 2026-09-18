@@ -180,6 +180,14 @@ names the mismatched dependency. Uncertain *creation* still requires manual
 reconciliation. These are bounded successes after repairs, not reliability,
 throughput, cancellation-supervision or arbitrary-scale claims.
 
+A final mixed run rejected a malformed source list and a cloud execution
+timeout; the local lead retried both and reached five independently verified
+completions. The timed-out cloud attempt left a known pending session, which
+the experiment owner reconciled and confirmed absent before deleting the
+Environment. The child host deadline now reserves room beyond Ark execution
+for deletion and absence checks. This does not guarantee immediate provider
+deletion or replace receipt-based reconciliation.
+
 Deterministic checks use the real SDK over synthetic HTTP fixtures plus a real
 stdio MCP process. They cover input/capability mismatch, duplicate and changed
 event identities, pagination beyond 200 events, timeout/cancellation, competing
@@ -193,7 +201,7 @@ The model does not choose an executable, credential, workspace, roster or
 validator. The trusted MCP service binds the caller and permits only the fixed
 worker/revision assignments. It serializes delegated Turns and permits two
 attempts per worker/revision. It deliberately does not implement a new queue,
-Inbox, lease owner or continuation mechanism. The three Agent identities and
+Inbox, lease owner or continuation mechanism. The configured Agent identities and
 all canonical work remain in LoopX; ephemeral provider sessions are execution
 resources. MCP tool execution uses local OS permissions and requires a trusted
 server; the cloud sandbox does not isolate local subprocesses.
