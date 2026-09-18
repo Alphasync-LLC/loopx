@@ -100,8 +100,22 @@ check and task ID with the actual artifact checks and existing advancement task:
 Keep executable declarations in the owner's local file; public readback omits
 command arguments and output. The configured checks run as bounded argv commands
 without a shell, using the existing delivery-workspace validation rules.
-Configure without `--agent-id`: registered Agents can inspect and verify, but
-cannot configure or disable the owner's contract. Substitute the exact
+
+The inline Python example binds its code text in the versioned document. For a
+script validator, optionally run `sha256sum verify.py` and add
+`"validation_files": [{"path": "verify.py", "sha256": "<64-hex-digest>"}]`
+to that criterion, using a delivery-workspace-relative path. The host checks the
+declared file bytes before and after the real run to detect changes. This bounded
+check does not prove all transitive imports or interpreter/external-tool identity.
+
+Configure without `--agent-id`: registered Agent-role invocations can inspect
+and verify, but cannot configure or disable the contract. **This is a trusted
+local invocation role, not an authentication boundary.** The CLI relies on
+existing local-process and private-runtime filesystem permissions; omitting
+`--agent-id` is not authentication. Processes with the same private-runtime
+permissions are not isolated from owner operations.
+
+Substitute the exact
 `provider_revision` from the preceding inspect, not the acceptance revision:
 
 ```bash
@@ -227,10 +241,19 @@ status 同时在独立的 `run_history.goals[].artifact_lifecycle` 和 Markdown 
 检查和已有推进任务。argv 检查不经过 shell，沿用既有交付工作区验证规则；命令声明保留在本地，
 公开读回不含参数、输出或原始日志。
 
+上方内联 Python 示例的代码文本绑定在版本化文档中。脚本型验证器可选地运行
+`sha256sum verify.py`，并在该条件中加入
+`"validation_files": [{"path": "verify.py", "sha256": "<64-hex-digest>"}]`，
+路径相对于交付工作区。host 在真实运行前后检查声明文件的字节以发现变更；
+这项有界检查不证明全部传递导入或解释器/外部工具身份。
+
 所有者使用 `goal-acceptance configure --goal-id example-goal --document acceptance.json
 --expected-provider-revision '<provider_revision>'` 预览，再加 `--execute` 启用；
-这里填写最近 inspect 返回的 provider revision，不是合同版本。不要传 `--agent-id`：
-已注册 Agent 可 inspect/verify，但不能配置或停用所有者合同。发生版本冲突时重新 inspect，
+这里填写最近 inspect 返回的 provider revision，不是合同版本。配置时不传 `--agent-id`：
+已注册 Agent 角色调用可 inspect/verify，但不能配置或停用合同。
+**所有者角色依赖受信任的本地调用，不是身份认证边界。** CLI 沿用本地进程与私有 runtime
+文件系统权限；省略 `--agent-id` 不构成身份认证，具有相同私有 runtime 权限的进程
+不会与所有者操作隔离。发生版本冲突时重新 inspect，
 审阅变化后再重试，配置后再次 inspect 确认。
 
 启用后，现有任务 claim/complete 路径执行真实门禁：适用任务缺少关联或关联过期时受阻，
