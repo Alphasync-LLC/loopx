@@ -748,6 +748,37 @@ def test_migration_surface_budget_cannot_move_without_its_anchor() -> None:
         smoke["check_reader_metric"](_retirement_registry(6, 2), [])
 
 
+def test_the_reader_metric_reports_all_five_facts_beside_the_role_labels() -> None:
+    smoke = runpy.run_path(str(SMOKE))
+    sources = [smoke["SourceFile"](
+        "loopx/projection.py", ".py",
+        'payload["protocol_action_packet"] = payload.get("protocol_action_packet")',
+    )]
+    _, detail = smoke["check_reader_metric"](_retirement_registry(5, 2), sources)
+    line = next(item for item in detail if item.startswith("protocol_action_packet.py"))
+    assert "reader=1 writer=0" in line, line
+    assert "reads=1 writes=1" in line, (
+        "one module both reads and writes the field; the role label keeps only the first, "
+        f"so the overlapping facts have to be reported beside it: {line}"
+    )
+    for label in ("binds", "unresolved_use", "mention_only"):
+        assert f"{label}=" in line, f"{label} missing from the reported facts: {line}"
+
+
+def test_an_unresolved_name_carrier_is_inside_the_migration_surface() -> None:
+    smoke = runpy.run_path(str(SMOKE))
+    sources = [smoke["SourceFile"](
+        "loopx/carrier.py", ".py",
+        'LEGACY = ["protocol_action_packet"]\nfor name in LEGACY:\n    emit(name)\n',
+    )]
+    _, detail = smoke["check_reader_metric"](_retirement_registry(5, 2), sources)
+    line = next(item for item in detail if item.startswith("protocol_action_packet.py"))
+    assert "surface=1/5" in line and "unresolved=1" in line, (
+        "the field name is in this module as data; that is work to investigate before the "
+        f"field can go, so it belongs to the surface: {line}"
+    )
+
+
 def test_prose_and_same_prefix_identifiers_do_not_consume_the_migration_surface() -> None:
     smoke = runpy.run_path(str(SMOKE))
     sources = [

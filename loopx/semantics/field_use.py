@@ -69,11 +69,15 @@ BINDING_FORMS = frozenset({
     "local_binding", "local_reference", "parameter", "definition",
     "property_signature",
 })
-# The field name travels as data here: a string constant that no recognized key
+# This module's use of the field is not proven either way. ``name_constant`` is
+# the field name travelling as data: a string constant that no recognized key
 # position consumed -- a name in a field list a loop will index with, or a label
-# in an emitted record. Which one it is needs a reader, so the module is
-# reported as unresolved rather than silently counted as a mention.
-UNRESOLVED_FORMS = frozenset({"name_constant"})
+# in an emitted record. ``unparsed_module`` is a module the scan could not parse
+# at all. Both are field-specific: someone has to open *this* module and decide
+# before *this* field can be removed, which is why they join the migration
+# surface rather than being counted as mentions. The repository-wide computed-key
+# totals in ``UnresolvedKeySites`` are the other kind and stay out of it.
+UNRESOLVED_FORMS = frozenset({"name_constant", "unparsed_module"})
 MENTION_FORMS = frozenset({"module_import", "prose"})
 USE_FORMS = READ_FORMS | WRITE_FORMS | BINDING_FORMS | UNRESOLVED_FORMS | MENTION_FORMS
 
@@ -121,8 +125,21 @@ class FieldUse:
         return bool(self.forms & BINDING_FORMS)
 
     @property
+    def mention_only(self) -> bool:
+        """True when nothing but prose or an import carries the name here."""
+        return not (self.reads or self.writes or self.binds or self.unresolved)
+
+    @property
     def role(self) -> str:
-        """The single label that orders migration work for this module."""
+        """A single label for ordering and printing -- never a fact set.
+
+        Facts overlap: a projection module both reads and writes. This label
+        keeps only the first of ``reader > writer > binding > unresolved >
+        mention``, so it can order a work queue and print one line per module,
+        and it is the wrong thing to count a population with. ``reads``,
+        ``writes``, ``binds``, ``unresolved`` and ``mention_only`` are the
+        orthogonal facts; ``field_use_summary`` counts those beside it.
+        """
         if self.reads:
             return "reader"
         if self.writes:
@@ -135,8 +152,17 @@ class FieldUse:
 
     @property
     def in_migration_surface(self) -> bool:
-        """True when removing the field requires changing this module."""
-        return self.reads or self.writes or self.binds
+        """True when removing the field requires work in this module.
+
+        Readers, writers and bindings have to change. ``unresolved`` modules
+        have to be *investigated*: the field name is here as data, or the module
+        did not parse, and nobody can say the field is absent without opening
+        it. That is field-specific work, so it is counted. The repository-wide
+        ``UnresolvedKeySites`` totals are not: they are attributable to no
+        single field, so they stay a standing unknown beside every field's
+        budget and can never authorize a deletion on their own.
+        """
+        return self.reads or self.writes or self.binds or self.unresolved
 
 
 def _literal_key(node: ast.AST) -> str | None:
@@ -273,14 +299,18 @@ def scan_field_uses(
             try:
                 tree = parse_python(source)
             except (SyntaxError, ValueError):
-                # An unparseable tracked module is a measurement gap, not a
-                # module without readers; fall back to the token so the field
-                # is not silently credited with one fewer mention. The inventory
-                # scan rejects such a module first, so this path is for direct
-                # callers rather than the drift smoke.
+                # An unparseable tracked module is a measurement gap, and a gap
+                # may hold readers. Calling it a mention would shrink the
+                # migration surface on the strength of a parse failure, so it is
+                # recorded as this field's unknown and stays in the surface
+                # until someone reads the module. Failing closed here is worse:
+                # a direct caller scanning a work-in-progress tree would get an
+                # exception instead of a measurement. The inventory scan rejects
+                # such a module first, so the drift smoke never reaches this.
                 for field in wanted:
                     if lexical_module_count(field, ".py", [source]):
-                        uses.append(FieldUse(field=field, module=source.path, forms=frozenset({"prose"})))
+                        uses.append(FieldUse(field=field, module=source.path,
+                                             forms=frozenset({"unparsed_module"})))
                 continue
             forms, module_dynamic_sites = python_module_scan(tree, present)
             dynamic_sites += module_dynamic_sites
@@ -309,27 +339,50 @@ def scan_field_uses(
     )
 
 
+# Print and ordering labels. Single-valued by construction, so they partition
+# the classified population -- useful for a work queue, useless for asking how
+# many modules read the field.
 ROLES = ("reader", "writer", "binding", "unresolved", "mention")
+# The orthogonal facts: each is a property of ``FieldUse``, and a module is
+# counted in every one that holds of it. They overlap on purpose, so their
+# counts do not sum to the population; only ``mention_only`` is disjoint from
+# the rest. The summary key for each is ``{runtime}_{key}_modules``.
+FACTS = (
+    ("reads", "reads"),
+    ("writes", "writes"),
+    ("binds", "binds"),
+    ("unresolved", "unresolved_use"),
+    ("mention_only", "mention_only"),
+)
 
 
 def field_use_summary(fields: Iterable[str], sources: Iterable[SourceFile]) -> dict[str, Any]:
     """Per-field use counts and migration surface, beside the old token count.
 
-    ``migration_surface`` is the number of modules that must change before the
-    field can be removed: every reader, writer and binding. Mentions are prose
-    and imports, and ``unresolved`` modules carry the field name as data, so
-    they are reported separately rather than folded into a budget that would
-    then move when a comment is reworded.
+    ``migration_surface`` is the number of modules that must be changed or at
+    least investigated before the field can be removed: every reader, writer
+    and binding, plus the field-specific unknowns. Only mentions -- prose and
+    imports -- are outside it. The repository-wide ``UnresolvedKeySites``
+    totals are reported beside the budgets and are part of no field's surface,
+    because they are attributable to no field and emptying one can never retire
+    them.
 
-    Two counts are reported per runtime and they answer different questions.
-    ``*_reads_modules``/``*_writes_modules`` are the direct answer to "how many
-    modules read this" and "how many write it"; a module that does both is in
-    both, because a retirement has to fix both sites. ``*_{role}_modules`` is
-    instead a partition by the first role in ``ROLES`` that a module matches,
-    so the five counts sum to the token count and the ledger can assert that
-    the roles reclassify that population rather than sample a smaller one. A
-    reader that also writes is a ``reader`` there and invisible in ``writer``,
-    which is why the partition must not be read as a producer count.
+    Two families of count are reported per runtime and they answer different
+    questions.
+
+    ``*_reads_modules``, ``*_writes_modules``, ``*_binds_modules``,
+    ``*_unresolved_use_modules`` and ``*_mention_only_modules`` are the
+    orthogonal facts, one per entry in ``FACTS``: a module is counted in every
+    set it belongs to, because a retirement has to fix every site it has. They
+    overlap, so they do not sum to the population; ``*_classified_modules`` is
+    their union and equals the token count.
+
+    ``*_{role}_modules`` is instead a partition by the first role in ``ROLES``
+    that a module matches, so those five counts do sum to the token count and
+    the ledger can assert that the roles reclassify that population rather than
+    sample a smaller one. A reader that also writes is a ``reader`` there and
+    invisible in ``writer``, which is why the partition must not be read as a
+    producer count.
     """
     materialized = list(sources)
     ordered = sorted(fields)
@@ -346,12 +399,11 @@ def field_use_summary(fields: Iterable[str], sources: Iterable[SourceFile]) -> d
             roles = [use.role for use in selected]
             for role in ROLES:
                 entry[f"{runtime}_{role}_modules"] = roles.count(role)
-            for label, predicate in (
-                ("reads", lambda use: use.reads),
-                ("writes", lambda use: use.writes),
-                ("binds", lambda use: use.binds),
-            ):
-                entry[f"{runtime}_{label}_modules"] = sum(1 for use in selected if predicate(use))
+            for fact, label in FACTS:
+                entry[f"{runtime}_{label}_modules"] = sum(1 for use in selected if getattr(use, fact))
+            # One FieldUse per (field, module), and every use carries at least
+            # one fact, so this is the union of the overlapping sets above.
+            entry[f"{runtime}_classified_modules"] = len(selected)
             entry[f"{runtime}_migration_surface"] = sum(1 for use in selected if use.in_migration_surface)
             entry[f"{runtime}_token_modules"] = lexical_module_count(field, suffix, materialized)
         summary["fields"][field] = entry

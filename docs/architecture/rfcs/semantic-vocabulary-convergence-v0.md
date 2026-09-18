@@ -825,9 +825,9 @@ on the next full-tree scan; genuine shared-contract changes still need review.
 | No behavior change from the two owner fixes | `uv run --extra test python -m pytest tests/test_loopx_turn_transaction.py tests/test_loop_turn_loop_controller.py tests/test_turn_loop_disposition.py tests/test_loopx_turn_managed_step.py tests/control_plane -k authority` and `uv run --extra test loopx canary premerge --from-git-diff` | pass | Environment failures already present on `main` are excluded when reproduced on a clean tree |
 | Docs governance accepts the RFC pair | `python3 examples/docs-governance-smoke.py` | pass | Checks mirror, links, index |
 | Retirement budgets use standalone field tokens | `count_identifier_modules()` uses identifier boundaries for the six fields | `goal_boundary`: 30 Python modules under the new metric; the old substring metric was 35 | Conservative lexical measure; it removes compound-name false positives but does not prove semantic reader absence |
-| The retirement metric separates readers from mentions (B3) | `check_reader_metric()` classifies every module carrying one of the six field tokens as reader, writer, binding, unresolved or mention, and reports the overlapping read/write/bind counts beside that partition | `goal_boundary`: 30 token modules resolve to 8 readers, 4 writers, 3 bindings, 1 unresolved and 14 mentions, so its migration surface is 15, not 30; `work_lane_contract` stays at 28 of 29 | Syntactic use, not data flow. The roles are asserted to partition the token count, so the smaller number is a reclassification of the same modules and not a different population |
+| The retirement metric separates readers from mentions (B3) | `check_reader_metric()` records every fact that holds of each module carrying one of the six field tokens -- reads, writes, binds, unresolved, mention only -- beside a single-label role partition | `goal_boundary`: 30 token modules resolve to 8 reading, 7 writing, 9 binding, 1 unresolved and 14 mention-only, so its migration surface is 16, not 30; `work_lane_contract` is 29 of 29 | Syntactic use, not data flow. The facts overlap, so they are asserted to *cover* the token population; the role partition is asserted to sum to it and is for ordering and printing only |
 | A new reader of a legacy field fails the pull-request path | Add a module reading `payload["protocol_action_packet"]` beyond the budget | `check_reader_metric` fails naming the field and the count | Committed fixture in `tests/architecture/test_semantic_vocabulary_drift.py`; the anchor equality check is the same pattern as `RETIREMENT_ANCHOR` |
-| A computed key stays unresolved rather than absent | Count mapping accessors whose first argument is not a literal | 1709 sites under `loopx/`; a field measured at zero readers is measured against that standing unknown | This is why zero readers cannot by itself authorize a removal (Q11). Subscripts with a computed key are excluded: `rows[index]` and `payload[key]` are the same syntax |
+| A computed key stays unresolved rather than absent | Count Python mapping accessors whose first argument is not a literal, and TypeScript computed member accesses | 1711 Python sites and 400 TypeScript sites under `loopx/`; a field measured at zero readers is measured against that standing unknown | This is why zero readers cannot by itself authorize a removal (Q11). It is attributable to no field, so unlike a field-specific unknown it never enters a surface. Python subscripts with a computed key are excluded: `rows[index]` and `payload[key]` are the same syntax |
 | The module-local convention filter is a code edit | Widen `MODULE_LOCAL_CONVENTION` in `inventory.py` and scan | `*_semantic` budgets fall with no code change elsewhere | Known boundary; the regex is in code so the widening is a reviewed diff, and the unfiltered totals stay budgeted |
 | A registered value nobody produces fails (M0.5) | Run the production-form scan on the baseline | Fails naming `effective_action` and `skip`; passes after `skip` is removed or listed `compatibility_only` | First expected I12 failure; a compared-only value is not carried |
 | A producer of an unregistered value fails (M0.5) | Write `effective_action: "brand_new"` in a listed producer site | Fails naming the site and the value even though no consumer compares it | I13; production is stricter than comparison |
@@ -1121,13 +1121,17 @@ introduce a competing target state.
 11. **Retirement budgets by identifier.** The six legacy-field budgets use
    `count_identifier_modules()`, so `goal_boundary_repair` is not counted as
    `goal_boundary`. This is a conservative lexical metric, not proof of zero
-   semantic readers. B3 adds `check_reader_metric()` beside it, which splits the
-   same modules into readers, writers, bindings, unresolved name carriers and
-   mentions and budgets the first three as the migration surface. Both metrics
-   are now checked. What stays open is whether the token budget is retired once
-   the surface budget has ordered a removal, and what residual evidence a field
-   at zero surface still owes given 1709 computed-key sites. Owner: kernel
-   maintainers.
+   semantic readers. B3 adds `check_reader_metric()` beside it, which records
+   every fact that holds of each module -- reads, writes, binds, unresolved,
+   mention only -- and budgets as the migration surface every module that is not
+   mention-only. That includes the field-specific unknowns: a module holding the
+   field name as data, or one the scan could not parse, is work someone must do
+   before this field can go, and its shape rather than its existence is what is
+   unknown. Both metrics are now checked. What stays open is whether the token
+   budget is retired once the surface budget has ordered a removal, and what
+   residual evidence a field at zero surface still owes given 1711 Python
+   computed-key sites and 400 TypeScript computed members, which belong to no
+   field and so can never be retired by emptying one. Owner: kernel maintainers.
 
 ## Appendix A: Execution ledger (non-normative)
 
@@ -1136,33 +1140,37 @@ introduce a competing target state.
 The six legacy should-run fields were budgeted by a token count: modules whose
 text contains the standalone field name. That number answers "does this name
 appear here", which is not the question a retirement asks. `check_reader_metric`
-classifies the same modules by syntactic role and budgets the three roles that
-have to change before a field can be removed.
+classifies the same modules by syntactic use and budgets every module that is
+not a bare mention as the work owed before a field can be removed. The role
+column below is a single label in a fixed precedence, for ordering and
+printing; the counts a retirement reads are the overlapping facts beside it.
 
 | Field | Python token | reader | writer | binding | unresolved | mention | surface | TS token | surface |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `protocol_action_packet` | 5 | 1 | 4 | 0 | 0 | 0 | 5 | 2 | 2 |
-| `external_evidence_observation` | 8 | 4 | 1 | 1 | 1 | 1 | 6 | 1 | 1 |
+| `external_evidence_observation` | 8 | 4 | 1 | 1 | 1 | 1 | 7 | 1 | 1 |
 | `heartbeat_recommendation` | 17 | 8 | 4 | 1 | 0 | 4 | 13 | 1 | 1 |
 | `execution_obligation` | 20 | 8 | 7 | 0 | 0 | 5 | 15 | 1 | 1 |
-| `work_lane_contract` | 29 | 11 | 8 | 9 | 1 | 0 | 28 | 3 | 3 |
-| `goal_boundary` | 30 | 8 | 4 | 3 | 1 | 14 | 15 | 2 | 1 |
+| `work_lane_contract` | 29 | 11 | 8 | 9 | 1 | 0 | 29 | 3 | 3 |
+| `goal_boundary` | 30 | 8 | 4 | 3 | 1 | 14 | 16 | 2 | 1 |
 
 Three results the token count had hidden:
 
 - `goal_boundary` and `work_lane_contract` were within one module of each other
   at 30 and 29, so the plan ordered them as equally expensive. Their real
-  surfaces are 15 and 28. Fourteen of `goal_boundary`'s modules are prompt prose
-  and module-path imports that no migration touches.
+  surfaces are 16 and 29. Fourteen of `goal_boundary`'s modules are prompt prose
+  and module-path imports that no migration touches; `work_lane_contract` has no
+  such module at all.
 - `protocol_action_packet` has one Python reader and four writers. It is the
   cheapest first M3 removal, and the token count did not say so.
-- 1709 mapping accessors under `loopx/` take a computed key, and 395 TypeScript
+- 1711 mapping accessors under `loopx/` take a computed key, and 400 TypeScript
   computed member accesses are that runtime's equivalent. No name-keyed scan,
-  lexical or syntactic, can attribute them, so the smoke prints both numbers
-  beside the per-field counts. This is the measured form of "a zero count does
-  not authorize a deletion"; the residual obligation is Q11's.
+  lexical or syntactic, can attribute them to a field, so neither is part of any
+  field's surface and the smoke prints both numbers beside the per-field counts.
+  This is the measured form of "a zero count does not authorize a deletion";
+  the residual obligation is Q11's.
 
-Two corrections were measured after the first implementation, both of which had
+Five corrections were measured after the first implementation, all of which had
 made the surface smaller than the work:
 
 - The TypeScript scan recognized a member access and nothing else, so the
@@ -1178,6 +1186,31 @@ made the surface smaller than the work:
 - The TypeScript half of the standing unknown was drawn only from modules that
   spelled a field, 4 of 145. Widening it to every tracked module raised the
   count from 82 sites to 395 and cost 0.52s.
+- The summary counted role labels. The label is single-valued, so a module that
+  both read and wrote the field was counted only as a reader and read/write
+  overlap could not appear at all. Each of the five facts -- reads, writes,
+  binds, unresolved, mention only -- is now counted separately and a module is
+  in every set it belongs to. The sets overlap, so the smoke asserts they
+  *cover* the token population rather than sum to it, and the partition keeps
+  its own sum-to-token assertion beside them. The overlap is large:
+  `heartbeat_recommendation` has 8 modules reading and 8 writing within a
+  surface of 13, which the labels reported as 8 readers and 4 writers.
+- A module holding the field name as data was reported `unresolved` and then
+  excluded from the migration surface, on the reasoning that it was not *known*
+  to need migration. It is known to need investigation: nobody can say the field
+  is absent from that module without opening it, and that is field-specific work
+  either way. Excluding it also let the surface fall when a reader was rewritten
+  into a form the scan could not resolve. Field-specific unknowns now count;
+  `external_evidence_observation` 6 → 7, `goal_boundary` 15 → 16 and
+  `work_lane_contract` 28 → 29 follow, each one module. The repository-wide
+  computed-key totals stay outside every surface, because they belong to no
+  field and emptying one can never retire them.
+- An unparseable tracked Python module was credited as a mention. It may hold
+  readers, so calling it prose shrank the surface on the strength of a parse
+  failure. It is now that field's unknown and stays in the surface. Raising
+  instead was considered and rejected: it fails the scan for a direct caller
+  working on a half-written tree, and unknown is the honest classification
+  rather than a louder one.
 
 The roles are asserted to partition the token count exactly, per field and per
 runtime, on every run. The new metric therefore reclassifies one population
@@ -1191,7 +1224,12 @@ read it and the partition calls them readers. A retirement looking for every
 producer reads the overlapping `reads`/`writes`/`binds` counts printed beside
 the partition, not the partition itself.
 
-The check costs 7.5s on a 29.4s guard, measured twice on each tree. The scan
+The check costs 8.5s of a 36.9s guard, the median of five runs that time the
+function inside the guard rather than subtracting two whole-guard runs; the five
+spanned 8.4-9.2s of 35.8-39.8s, or 21-25% of the guard. Subtraction was tried
+first and abandoned: on a shared machine it put the same cost anywhere
+between 4s and 32s, because it differences two numbers that both move with
+whatever else is running. The scan
 must walk every tracked Python module, because the computed-key total is
 repository-wide and a module that never names a field still contributes to it.
 `parse_python` was factored out of `python_facts` so both scans raise the same
@@ -1453,6 +1491,7 @@ result on the current tree; what changes is what the invariants claim.
 | --- | --- | --- | --- | --- |
 | 2026-09-16 | Q9: compute the full inventory on demand; retire the committed census | Implementation for [maintainer feedback](https://github.com/huangruiteng/loopx/pull/4360#issuecomment-5692062394); PR review pending | Committed snapshot with post-merge regeneration; diff-only scan rejected | 1, I6, 3, 5, 9, 10, 12 |
 | 2026-09-16 | B2: bind one unrenamed re-export hop in the Python producer scanner | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B2; PR review pending | Require every consumer to import the owner module (fragile; failed silently in M2); unbounded multi-hop resolution rejected | 5, Appendix A |
+| 2026-09-17 | B3 repair: count all five orthogonal use facts rather than the role labels, and put field-specific unknowns inside the migration surface | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B3; PR review pending | Keep counting the role labels and add an overlap column (rejected: the label is single-valued, so any count built from it under-reports whichever fact sorted second, and one more column would not change that); leave `unresolved` outside the surface as "not known to need migration" (rejected: it is known to need investigation, and a budget that excludes it falls when a reader is rewritten into a form the scan cannot resolve); raise on an unparseable module (rejected: it fails the scan for a direct caller working on a half-written tree, and unknown is the honest classification, not a louder one); rely on the cross-runtime equivalence test alone (rejected: it asserts agreement, and two runtimes that both read a destructuring as prose agree) | 11, Appendix A, Appendix B |
 | 2026-09-17 | B3: budget the migration surface beside the token count; keep both until Q11 | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B3; PR review pending | Replacing the token budget outright (rejected: the token count is the anchor that proves the new roles partition the same population, and dropping it in the same diff that introduces them would make the smaller number unauditable); counting Python computed-key subscripts as unresolved reads (rejected: `rows[index]` and `payload[key]` are one syntax, and the unknown would stop carrying information; TypeScript has no mapping-accessor convention, so its computed member access is counted separately and stated as an upper bound) | 5, 9, 11, 12 |
 | 2026-09-16 | B1 rename invariance: add the name-keyed divergence advisory; state the limit it does not close | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B1; PR review pending | Keying the budget on value sets (rejected: `CONFIDENCE_LEVELS` and `EDGE_CASE_COMPLEXITIES` share `high/low/medium` with different meanings); a committed name ledger (rejected at M0: Q9 retired the committed census). The advisory lists surviving forks by name; it was first described as catching a one-sided rename, which measurement disproved, so both mirrors state the limit as it behaves | 9 |
 | 2026-09-17 | B0: state schema validation, implementation stage, evidence status and blocking behaviour separately for I2/I11-I14 and the enforcement lanes; require each formal invariant id exactly once | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B0; PR review pending | Rename the `blocking_next` lane to match its behaviour (rejected: the lane name is the milestone that owns the check, and renaming it would lose that and collapse the two readings the other way); add a `blocks_today` boolean to `formal_model` (rejected: it would be one more declared field a reader could mistake for a measurement, and the fact is a property of the smoke's `main()`, which no registry edit can change); leave the lane gloss and note the gap in the ledger only (rejected: the gloss is the sentence a reviewer quotes) | 2, 5, 11, Appendix A, Appendix B |
@@ -1484,7 +1523,8 @@ result on the current tree; what changes is what the invariants claim.
 | E21 | F1/F2 were unconditional but verified over one tier | `3ca868193` | `check_producers`' skip predicate, and the producer scan roots, read from the tree | 6 of 26 vocabularies declare `producers`, exactly the `tier: kernel` ones; the 20 skipped are all `cross_runtime`; the scan reaches 432 of 1203 tracked `loopx/**/*.{py,ts}` files (35.9%), the uncovered bulk being capabilities 285, other control-plane 192, extensions 83 | Counts from the registry and the tracked tree; the reach denominator moves with any new module, so it is reported, not pinned |
 | E22 | Fifteen reported unresolved sites can never become evidence | `3ca868193` | smoke report `unresolved_producer_blockers` | 41 unresolved sites, of which `argument_name_only` 10 and `annotation_only` 5 are a field-named keyword argument and a bare declaration; the other 26 are dynamic or interprocedural | Label-keyed; the two labels are code-owned in the scanner, so the floor moves only by a code edit |
 | E23 | F4 as written could not be violated | `3ca868193` | read `check_scope_declarations` against the F4 statement | Scope is declared and never inferred, so `conflict := collision ∧ scope_overlap` is a definition; what is enforced is that a declaration names every defining module exactly once, over 1 declaration and 4 contexts | Judgement from reading the check; value-set disjointness across contexts is deliberately *not* the property, because `SOURCE_SURFACES` legitimately reuses one name in four contexts (E19) |
-| E24 | The retirement budget counted mentions as readers | B3 integration tree | `check_reader_metric()` over the six legacy fields; roles asserted to partition `count_identifier_modules()`; both runtimes asserted to classify one access identically | 109 py token modules resolve to 82 surface modules; `goal_boundary` 30 → 15, `work_lane_contract` 29 → 28, `protocol_action_packet` 5 → 5 with one reader; 8 of 12 equivalent accesses had disagreed across the runtimes, and all six fields had measured zero TypeScript writers | Syntactic use, not data flow; 1709 Python computed-key accessors and 395 TypeScript computed members stay unattributable, so zero surface is not zero readers; the role partition is not a producer count |
+| E24 | The retirement budget counted mentions as readers | B3 integration tree | `check_reader_metric()` over the six legacy fields; the five facts asserted to cover `count_identifier_modules()` and the role labels to partition it; both runtimes asserted to classify one access identically | 109 py token modules resolve to 85 surface modules; `goal_boundary` 30 → 16, `work_lane_contract` 29 → 29, `protocol_action_packet` 5 → 5 with one module reading it; 8 of 12 equivalent accesses had disagreed across the runtimes, and all six fields had measured zero TypeScript writers | Syntactic use, not data flow; 1711 Python computed-key accessors and 400 TypeScript computed members stay unattributable and belong to no field, so zero surface is not zero readers; the role partition is not a producer count |
+| E27 | Agreement between runtimes does not by itself keep an access in the surface | B3 repair tree | Seven spellings of one TypeScript access, each scanned alone and each required to land in a named class that is inside the migration surface: dotted read, subscript read, shorthand and aliased destructuring, object-literal key, type property, name carried to a subscript | All seven are in the surface; none is a mention. The cross-runtime equivalence test alone would have passed with both runtimes reading a destructuring as prose, which is the shape the first implementation actually had | A counterexample set, not a proof of completeness: an eighth spelling nobody wrote down is still unmeasured, which is why an unprovable use lands in `unresolved` rather than in a confident default |
 | E13 | The conflict budget mostly measured local naming | `1dc6ad8d8` | `MODULE_LOCAL_CONVENTION` applied to `conflicting_values` and `same_runtime_forks` names | 16 of 18 conflicts and 7 of 25 forks are module-local conventions; the semantic subsets are 2 and 18 | Classification is a name pattern, documented in the scanner and pinned by a fixture test |
 
 ## Appendix D: Rejected or superseded alternatives

@@ -948,7 +948,7 @@
   },
   "retirement_ledger": {
     "should_run_legacy_decision_fields": {
-      "meaning": "Decision fields the should-run documentation already calls legacy. module_budget counts modules under loopx/ whose text carries the standalone field token; migration_surface counts the modules that read, write or bind it and must change before removal. Both are budgeted; the token count stays until Q11 decides whether the syntactic metric replaces it.",
+      "meaning": "Decision fields the should-run documentation already calls legacy. module_budget counts modules under loopx/ whose text carries the standalone field token; migration_surface counts the modules that read, write or bind the field, plus the modules holding its name unresolved and so owing an investigation, all of which is work owed before removal. The repository-wide computed-key totals are attributable to no single field and are never part of a surface. Both budgets are checked; the token count stays until Q11 decides whether the syntactic metric replaces it.",
       "fields": {
         "execution_obligation": {
           "python_module_budget": 20,
@@ -965,19 +965,19 @@
         "work_lane_contract": {
           "python_module_budget": 29,
           "typescript_module_budget": 3,
-          "python_migration_surface": 28,
+          "python_migration_surface": 29,
           "typescript_migration_surface": 3
         },
         "external_evidence_observation": {
           "python_module_budget": 8,
           "typescript_module_budget": 1,
-          "python_migration_surface": 6,
+          "python_migration_surface": 7,
           "typescript_migration_surface": 1
         },
         "goal_boundary": {
           "python_module_budget": 30,
           "typescript_module_budget": 2,
-          "python_migration_surface": 15,
+          "python_migration_surface": 16,
           "typescript_migration_surface": 1
         },
         "protocol_action_packet": {

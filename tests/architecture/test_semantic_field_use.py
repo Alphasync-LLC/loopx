@@ -13,6 +13,7 @@ import ast
 import pytest
 
 from loopx.semantics.field_use import (
+    FACTS,
     ROLES,
     field_use_summary,
     python_module_scan,
@@ -93,8 +94,9 @@ def test_a_field_name_carried_as_data_is_unresolved_rather_than_absent() -> None
     uses, _ = scan_field_uses([FIELD], [source(text)])
     assert uses[0].role == "unresolved"
     assert "name_constant" in uses[0].forms
-    assert not uses[0].in_migration_surface, (
-        "an unresolved module is not known to need migration; it is known to be unproven"
+    assert uses[0].in_migration_surface, (
+        "the field name is in this module as data; someone has to read it before the field "
+        "can be removed, and that is field-specific migration work whichever way it resolves"
     )
 
 
@@ -124,9 +126,23 @@ def test_computed_keys_are_counted_in_modules_that_never_name_the_field() -> Non
     )
 
 
-def test_an_unparseable_module_is_recorded_rather_than_dropped() -> None:
+def test_an_unparseable_module_is_an_unknown_rather_than_a_mention() -> None:
     uses, _ = scan_field_uses([FIELD], [source('def broken(:\n    "goal_boundary"\n')])
-    assert [use.role for use in uses] == ["mention"]
+    assert [use.role for use in uses] == ["unresolved"]
+    assert uses[0].forms == frozenset({"unparsed_module"})
+    assert uses[0].in_migration_surface, (
+        "a module the scan could not read may hold readers; calling it a mention would "
+        "shrink the surface on the strength of a parse failure"
+    )
+
+
+def test_an_unparseable_module_does_not_fail_the_scan_for_its_callers() -> None:
+    uses, _ = scan_field_uses(
+        [FIELD],
+        [source('def broken(:\n    "goal_boundary"\n', path="loopx/broken"),
+         source('value = payload["goal_boundary"]', path="loopx/reader")],
+    )
+    assert [use.role for use in uses] == ["unresolved", "reader"]
 
 
 @pytest.mark.parametrize("text, expected", [
@@ -184,7 +200,10 @@ def test_roles_partition_the_token_count_so_the_metric_reclassifies_one_populati
     summary = field_use_summary([FIELD], sources)["fields"][FIELD]
     classified = sum(summary[f"python_{role}_modules"] for role in ROLES)
     assert classified == summary["python_token_modules"] == 5
-    assert summary["python_migration_surface"] == 3
+    # Reader, writer, binding and the unresolved name carrier; only the prose
+    # mention is outside. The unresolved module is work whose shape is unknown,
+    # not work that is known to be absent.
+    assert summary["python_migration_surface"] == 4
 
 
 # One access, written the way each runtime writes it. The metric exists to say
@@ -301,4 +320,79 @@ def test_the_roles_still_partition_the_token_count_over_the_typescript_forms() -
     summary = field_use_summary([FIELD], sources)["fields"][FIELD]
     classified = sum(summary[f"typescript_{role}_modules"] for role in ROLES)
     assert classified == summary["typescript_token_modules"] == 5
-    assert summary["typescript_migration_surface"] == 3
+    assert summary["typescript_migration_surface"] == 4, (
+        "reader, writer, binding and the unresolved name carrier; only the comment is out"
+    )
+
+
+def test_the_five_fact_sets_overlap_and_their_union_is_the_whole_population() -> None:
+    """Every module carrying the token owes at least one fact, and may owe several.
+
+    The role label is single-valued, so counting labels under-reports whichever
+    fact sorted second. The fact sets are the answer to "how many modules do
+    X", they overlap, and only their union has to match the token count.
+    """
+    sources = [
+        source('payload["goal_boundary"] = payload.get("goal_boundary")', path="loopx/projection"),
+        source('value = payload["goal_boundary"]', path="loopx/reader"),
+        source('payload["goal_boundary"] = built', path="loopx/writer"),
+        source('def build(goal_boundary):\n    return goal_boundary\n', path="loopx/binding"),
+        source('LEGACY = ["goal_boundary"]', path="loopx/unresolved"),
+        source('# goal_boundary', path="loopx/mention"),
+    ]
+    entry = field_use_summary([FIELD], sources)["fields"][FIELD]
+    assert entry["python_reads_modules"] == 2 and entry["python_writes_modules"] == 2
+    assert entry["python_reader_modules"] == 2 and entry["python_writer_modules"] == 1, (
+        "the role label keeps only the first fact, which is why it cannot be the count"
+    )
+    # Overlapping sets over-count the population; that is what makes them facts.
+    assert sum(entry[f"python_{label}_modules"] for _, label in FACTS) == 7
+    assert entry["python_classified_modules"] == entry["python_token_modules"] == 6
+    assert entry["python_migration_surface"] == 5
+
+    uses, _ = scan_field_uses([FIELD], sources)
+    members = {fact: {use.module for use in uses if getattr(use, fact)} for fact, _ in FACTS}
+    assert members["reads"] & members["writes"] == {"loopx/projection.py"}
+    assert set().union(*members.values()) == {use.module for use in uses}
+    assert not members["mention_only"] & (
+        members["reads"] | members["writes"] | members["binds"] | members["unresolved"]
+    )
+
+
+# One logical access spelled every way TypeScript spells it, plus the type
+# declaration that is not an access. `test_an_equivalent_rewrite_does_not_change_
+# the_answer` pins the two runtimes to the same answer; this pins what that
+# answer may be. Agreement alone is not enough: if both runtimes read a
+# destructuring as prose they would agree and the surface would still shrink
+# every time someone reformatted a reader.
+EQUIVALENT_TYPESCRIPT_WRITINGS = [
+    ("dotted_read", "const value = payload.goal_boundary;", "reader"),
+    ("subscript_read", 'const value = payload["goal_boundary"];', "reader"),
+    ("destructured_read", "const {goal_boundary} = payload;", "reader"),
+    ("aliased_destructured_read", "const {goal_boundary: bound} = payload;\nuse(bound);", "reader"),
+    ("object_literal_write", "const outbound = {goal_boundary: value};", "writer"),
+    ("type_declaration", "type Payload = {goal_boundary: JsonObject};", "binding"),
+    ("name_carried_to_a_subscript", 'const key = "goal_boundary";\nconst value = payload[key];', "unresolved"),
+]
+
+
+@pytest.mark.parametrize("name, text, expected", EQUIVALENT_TYPESCRIPT_WRITINGS)
+def test_equivalent_writings_do_not_manufacture_retirement_progress(
+    name: str, text: str, expected: str,
+) -> None:
+    uses, _ = scan_field_uses([FIELD], [source(text, ".ts")])
+    assert len(uses) == 1, (name, uses)
+    assert uses[0].role == expected, (name, sorted(uses[0].forms))
+    assert uses[0].role != "mention", (
+        f"{name} degraded to a mention; rewriting an access would shrink the migration "
+        "surface with nothing migrated"
+    )
+    assert uses[0].in_migration_surface, (name, sorted(uses[0].forms))
+
+
+def test_every_equivalent_writing_of_one_access_is_still_one_module_of_work() -> None:
+    text = "\n".join(text for _, text, _ in EQUIVALENT_TYPESCRIPT_WRITINGS)
+    uses, _ = scan_field_uses([FIELD], [source(text, ".ts")])
+    assert len(uses) == 1, uses
+    assert uses[0].reads and uses[0].writes and uses[0].binds and uses[0].unresolved
+    assert uses[0].role == "reader" and uses[0].in_migration_surface
