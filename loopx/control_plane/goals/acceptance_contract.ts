@@ -184,14 +184,8 @@ export function readGoalAcceptance(head: JsonObject, goalId: string): Acceptance
   acceptanceKeys(state, ["schema_version", "enabled", "revision", "digest", "document", "bindings", "verification"]);
   acceptanceRequire(state.schema_version === GOAL_ACCEPTANCE_SCHEMA && typeof state.enabled === "boolean" &&
     Number.isSafeInteger(state.revision) && Number(state.revision) > 0, "invalid acceptance state version");
-  const storedDocument = canonicalAuthorityObject(state.document, "stored acceptance document");
-  const document = normalizeGoalAcceptanceDocument(storedDocument);
-  // Read the pre-pin representation without rewriting its historical digest or
-  // receipts. New configurations always hash the normalized validation_files.
-  const beforeFilePins = (storedDocument.criteria as JsonObject[]).every(item => !Object.hasOwn(item, "validation_files"));
-  acceptanceRequire(state.digest === canonicalAuthoritySha256(document) || (beforeFilePins &&
-    state.digest === canonicalAuthoritySha256({...document,
-      criteria: document.criteria.map(({validation_files, ...criterion}) => criterion)})), "acceptance contract digest mismatch");
+  const document = normalizeGoalAcceptanceDocument(state.document);
+  acceptanceRequire(state.digest === canonicalAuthoritySha256(document), "acceptance contract digest mismatch");
   const bindings = list(state.bindings, "canonical bindings", 4096).map(value => {
     const binding = canonicalAuthorityObject(value, "canonical binding");
     acceptanceKeys(binding, ["todo_id", "todo_semantic_digest", "revision", "criterion_ids", "confirmed_by"]);

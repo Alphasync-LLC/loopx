@@ -14,7 +14,6 @@ import {PostgreSqlAuthorityStore, installPostgreSqlAuthorityStoreSchema} from ".
 import {prepareCoordinationProjectionCommit, validateCoordinationTodoReadModel} from "../../loopx/control_plane/coordination/coordination_projection.ts";
 import {openLocalAuthorityStore, selectLocalSqliteAuthority} from "../../loopx/control_plane/coordination/local_authority_provider.ts";
 import {loadLegacyCoordinationWriterFence} from "../../loopx/control_plane/coordination/legacy_writer_fence.ts";
-import {canonicalAuthoritySha256} from "../../loopx/control_plane/coordination/authority_store_codec.ts";
 import {shadowManagementStatePath} from "../../loopx/control_plane/coordination/shadow_management.ts";
 import {authorityProjectionFixture} from "./authority_projection_fixture.ts";
 import {acceptanceCompletionRequirements, acceptanceWorkGuard, goalAcceptanceTodoDigest, goalAcceptanceWorkDigest,
@@ -342,6 +341,11 @@ for (const provider of providers) {
     const requirements = acceptanceCompletionRequirements(current.head, goal, "todo_first")!;
     assert.deepEqual(requirements.criteria[0].validation_files, criterion.validation_files);
     assert.ok(!JSON.stringify(projectGoalAcceptance(current.head, goal)).includes("checks/verify.py"));
+    const tampered = structuredClone(current.head);
+    const tamperedDocument = (tampered.goal_acceptance as JsonObject).document as JsonObject;
+    (tamperedDocument.criteria as JsonObject[]).find(item => item.id === "prerequisite")!.validation_files =
+      [{path: "checks/verify.py", sha256: "b".repeat(64)}];
+    assert.throws(() => readGoalAcceptance(tampered, goal), /contract digest mismatch/);
     await commitGoalAcceptanceVerification(store, await verifyRequest(store));
     const verified = await head(store);
     criterion.validation_files = [{path: "checks/verify.py", sha256: "b".repeat(64)}];
@@ -354,22 +358,6 @@ for (const provider of providers) {
       (verified.head.goal_acceptance as JsonObject).verification);
   });
 
-  test(`${provider}: pre-pin stored contracts retain their exact historical digest and verification`, options, async t => {
-    const store = await fixture(t, provider); await seed(store);
-    await configureGoalAcceptance(store, await configureRequest(store));
-    await commitGoalAcceptanceVerification(store, await verifyRequest(store));
-    const previous = (await head(store)).head;
-    const state = previous.goal_acceptance as JsonObject;
-    const oldDocument = structuredClone(state.document) as JsonObject;
-    for (const criterion of oldDocument.criteria as JsonObject[]) delete criterion.validation_files;
-    const oldDigest = canonicalAuthoritySha256(oldDocument);
-    const legacy = {...previous, goal_acceptance: {...state, document: oldDocument, digest: oldDigest,
-      verification: {...state.verification as JsonObject, contract_digest: oldDigest}}};
-    const decoded = readGoalAcceptance(legacy, goal)!;
-    assert.equal(decoded.digest, oldDigest);
-    assert.ok(decoded.document.criteria.every(item => item.validation_files.length === 0));
-    assert.equal(projectGoalAcceptance(legacy, goal).status, "accepted");
-  });
 }
 
 test("file pins are bounded, safe relative paths with exact hashes and deterministic ordering", () => {
