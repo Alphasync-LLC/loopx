@@ -647,6 +647,8 @@ owner. A full TS launcher is not required: a bounded Python input/effect adapter
 is acceptable while one coarse TS request owns the transaction. Do not turn
 these packages into repeated leaf-RPC additions or bypass a retained caller.
 
+Canonical lease request decoding now separates provider mutations from legacy held-fence requests with a discriminated union. The existing lease lifecycle owner composes explicit claim handover with its proven lease transition and one CAS/receipt; Python transports the opt-in and drains the existing projection. Shared registered-Todo restrictions remain the source and recipient eligibility owner. This removes legacy lock/PID/terminal-release parameters from canonical commands and completes the bounded claimed-work handover; automatic continuation/context delivery and executor-held external-effect fences remain separate. See [lease operation and recovery](../../reference/canonical-lease-renew.md#atomically-hand-over-claimed-work).
+
 **T2 — close monitor writeback and its atomic follow-up.**
 
 Bounded prerequisite delivered: `scheduler/monitor_successor.ts` owns successor

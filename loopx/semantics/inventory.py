@@ -116,6 +116,21 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
     return None
 
 
+def parse_python(source: SourceFile) -> ast.AST:
+    """Parse one tracked Python source, rejecting an unparseable one by path.
+
+    Deliberately not cached. Caching the trees would hold roughly two million
+    AST nodes for the rest of the run, and measured on this tree that costs
+    ``check_inventory`` more than sharing the parse with the retirement scan
+    saves. ``python_facts`` caches its small fact dicts instead, so the
+    inventory still parses each file once per scan.
+    """
+    try:
+        return ast.parse(source.text)
+    except SyntaxError as error:
+        raise ValueError(f"cannot inventory invalid Python source: {source.path}:{error.lineno}") from None
+
+
 @lru_cache(maxsize=4096)
 def python_facts(source: SourceFile) -> dict[str, list[dict[str, Any]]]:
     """Inventory the Python facts of one source file.
@@ -131,10 +146,7 @@ def python_facts(source: SourceFile) -> dict[str, list[dict[str, Any]]]:
         "literal_aliases": [],
         "string_constants": [],
     }
-    try:
-        tree = ast.parse(source.text)
-    except SyntaxError as error:
-        raise ValueError(f"cannot inventory invalid Python source: {source.path}:{error.lineno}") from None
+    tree = parse_python(source)
     for node in tree.body:
         if isinstance(node, ast.ClassDef) and _is_enum_class(node):
             values: list[str] = []

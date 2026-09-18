@@ -82,6 +82,7 @@ export const TASK_LEASE_CANONICAL_ACQUIRE_REQUEST_SCHEMA = "loopx_canonical_task
 export const TASK_LEASE_LIFECYCLE_REQUEST_SCHEMA = "loopx_task_lease_lifecycle_native_v0";
 export const TASK_LEASE_CANONICAL_RENEW_REQUEST_SCHEMA = "loopx_canonical_task_lease_renew_request_v0";
 export const TASK_LEASE_CANONICAL_LIFECYCLE_REQUEST_SCHEMA = "loopx_canonical_task_lease_lifecycle_request_v0";
+export const TASK_LEASE_CANONICAL_CLAIM_TRANSFER_REQUEST_SCHEMA = "loopx_canonical_task_lease_claim_transfer_request_v0";
 
 export const CAPABILITY_HOOK_REGISTRATION_SCHEMA = "loopx_capability_hook_registration_v0";
 export const CAPABILITY_HOOK_INTERACTION_RESULT_SCHEMA = "loopx_interaction_projection_hook_result_v0";
@@ -299,7 +300,8 @@ export const COORDINATION_STATE_CONTRACT = deepFreeze({
     "canonical_acquire_request_schema": TASK_LEASE_CANONICAL_ACQUIRE_REQUEST_SCHEMA,
     "lifecycle_request_schema": TASK_LEASE_LIFECYCLE_REQUEST_SCHEMA,
     "canonical_renew_request_schema": TASK_LEASE_CANONICAL_RENEW_REQUEST_SCHEMA,
-    "canonical_lifecycle_request_schema": TASK_LEASE_CANONICAL_LIFECYCLE_REQUEST_SCHEMA
+    "canonical_lifecycle_request_schema": TASK_LEASE_CANONICAL_LIFECYCLE_REQUEST_SCHEMA,
+    "canonical_claim_transfer_request_schema": TASK_LEASE_CANONICAL_CLAIM_TRANSFER_REQUEST_SCHEMA
   },
   "capability_hook_protocol": {
     "registration_schema": CAPABILITY_HOOK_REGISTRATION_SCHEMA,
