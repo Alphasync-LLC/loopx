@@ -173,4 +173,26 @@ def test_model_success_without_receiver_adoption_cannot_complete(service):
     result = wait(runner)
     assert result["status"] == "rejected" and "did not adopt" in result["error"]
     assert not demo.canonical_tasks(root)["todo_analyst-initial"]["done"]
+
+
+def test_rejected_operation_publishes_reason_with_terminal_state(service, monkeypatch):
+    """A reader may stop polling as soon as it sees a terminal observation."""
+    root, runner = service
+    (root / "skip-adoption").touch()
+    monkeypatch.setattr(runner, "_spawn", lambda _: None)
+    runner.start("analysis", "analysis-1", brief())
+    observe = runner._observe
+    terminal_reads = []
+
+    def read_on_publish(path, row, status, **facts):
+        observe(path, row, status, **facts)
+        if status == "rejected":
+            result = runner.read("analysis-1")
+            terminal_reads.append(result)
+            assert "did not adopt" in result.get("error", "")
+
+    monkeypatch.setattr(runner, "_observe", read_on_publish)
+    runner.execute("analysis-1")
+    assert len(terminal_reads) == 1
+    assert not demo.canonical_tasks(root)["todo_analyst-initial"]["done"]
     assert returns(runner.root, runner.goal_id, "lead")["items"] == []

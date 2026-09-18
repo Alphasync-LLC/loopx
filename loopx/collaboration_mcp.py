@@ -337,12 +337,14 @@ class Delegations:
                 self._observe(path, row, "turn_returned")
             result = row["turn_result"]
             if result.get("status") != "committed" or result.get("result_kind") != "validated_progress":
+                row["error"] = "delegation Turn rejected; inspect the original Turn before retrying"
                 self._observe(path, row, "rejected")
-                raise ValueError("delegation Turn rejected; inspect the original Turn before retrying")
+                return
             decision, error = _receipt(self.root, "decisions", _entry(self.root, self.goal_id, binding["agent_id"], request_id))
             if error or not decision or decision["decision"] != "adopt":
+                row["error"] = "delegation receiver did not adopt the request"
                 self._observe(path, row, "rejected")
-                raise ValueError("delegation receiver did not adopt the request")
+                return
             self._bound(row, require_active=True)  # revocation or rebinding while the model ran
             self._cli(binding, "todo", "complete", *common, "--todo-id", binding["todo_id"],
                       "--no-follow-up", "--note", "Bounded delegated work; requester owns synthesis.")
