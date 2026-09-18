@@ -7,6 +7,9 @@ on:
       - "packages/loopx-ark-turn/**"
       - "loopx/control_plane/turn_driver/**"
       - "loopx/dsh_goal_mode/**"
+      - "loopx/cli_commands/turn*.py"
+      - "loopx/control_plane/goals/acceptance*.ts"
+      - "loopx/control_plane/goals/acceptance.py"
       - "examples/managed-research-team/**"
       - "pyproject.toml"
   workflow_dispatch:
@@ -23,6 +26,9 @@ jobs:
         python: ["3.11", "3.13"]
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.21.0"
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
@@ -32,5 +38,6 @@ jobs:
           python -m pytest -q packages/loopx-ark-turn/tests
           tests/test_dsh_goal_mode.py tests/test_turn_managed_executor_binding.py
           tests/test_ark_managed_agent_host.py
+          tests/test_loopx_turn_driver.py
       - name: Lint optional package and example
         run: python -m ruff check packages/loopx-ark-turn examples/managed-research-team
