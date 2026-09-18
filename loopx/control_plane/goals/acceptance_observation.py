@@ -204,6 +204,11 @@ def build_goal_acceptance_observation(
         sources_missing.append("todo_projection")
     if item.get("stale_latest_run_warning"):
         sources_missing.append("current_run")
+    acceptance_contract = next((candidate for candidate in (
+        item.get("goal_acceptance_contract"), asset.get("goal_acceptance_contract"),
+        _dict(item.get("agent_todos")).get("goal_acceptance_contract"),
+        _dict(asset.get("agent_todos")).get("goal_acceptance_contract"),
+    ) if isinstance(candidate, dict) and candidate.get("enabled") is True), None)
     return {
         "schema_version": GOAL_ACCEPTANCE_OBSERVATION_SCHEMA_VERSION,
         "goal_id": goal_id,
@@ -219,6 +224,9 @@ def build_goal_acceptance_observation(
             asset.get("next_action") or item.get("recommended_action")
         ),
         "next_action_source": "attention_queue" if item else None,
+        # Executed configured checks are narrower than independent Goal
+        # acceptance. Keep acceptance_assessed false and preserve their basis.
+        **({"goal_acceptance_contract": acceptance_contract} if acceptance_contract is not None else {}),
     }
 
 

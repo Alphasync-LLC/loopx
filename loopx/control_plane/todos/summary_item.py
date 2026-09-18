@@ -22,6 +22,7 @@ from .todo_semantics import todo_item_task_class
 from .frontier_revision import FRONTIER_REVISION_FIELDS
 
 TODO_SUMMARY_COMPACT_FIELDS = (
+    "goal_acceptance_guard",
     "schema_version",
     "todo_id",
     "role",
