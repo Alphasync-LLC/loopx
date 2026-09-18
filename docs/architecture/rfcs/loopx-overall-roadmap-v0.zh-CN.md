@@ -238,10 +238,16 @@ Provider 回执只管理执行与清理。这交付可复用的有界宿主，�
 完整 inbox/queue/steer、共享权威及 packaged frontend/Lark 团队交付仍归 R2/R3/R6。
 示例 MCP 服务组合已有 Todo 与 Turn owner；持久 peer 请求、采用与返回仍待集成。
 本切片不增加另一份 Inbox、管家工厂或默认执行器选择。
-[#4683](https://github.com/huangruiteng/loopx/pull/4683) 的共享验收工作提供可复用的
-所有者配置、绑定与完成门禁，不应另建管家专属验收库。示例记录了 File/SQLite
-组合验证及尚需补齐的工作身份、有范围派生授权。Turn 进展、Todo 完成与 Goal 验收
-保持区别；语义规则归 TS Goal/work owner，Python 执行验证器与宿主/provider IO。
+示例已接入 [#4683](https://github.com/huangruiteng/loopx/pull/4683) 合并后的 TS 验收
+权威：五个稳定预授权任务、一次启动配置、精确 Turn 选任务、子任务独立完成与总报告
+完成前的 canonical 依赖读回。File/SQLite 集成拒绝伪造证据副本、过期工作、被改写
+验证器和失败 Turn。Turn 进展、Todo 完成与 Goal 验收保持区别；语义规则归 TS
+Goal/work owner，Python 执行领域验证器与宿主/provider IO。隔离 bootstrap 不晋升
+已有 Goal；新工作有范围派生、持久 peer adoption/return 仍归 R2/R3/R4，协调员不能
+在委派时冒充 owner 重配验收。
+示例主档位为本地 DSH 协调员组织两个本地 DSH 与两个云端 Ark 成员，包含云端核验员
+采用本地分析产物后返回本地汇总；云端协调员委派本地成员保留为辅助档位。两者均不
+接管已有长期 Codex 任务或修改管家已配置执行器，持久接入继续归 R2/R3。
 
 ### R3：语义请求与自动回报
 

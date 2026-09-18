@@ -88,6 +88,17 @@ a persistent steward Chat transport, recursive fleet supervision, full live
 steering, or a shared authority service. Use its explicit setup/readback/cleanup
 instructions and preserve failed versus untested qualification boundaries.
 
+The example's integrated acceptance path uses five preauthorized canonical
+tasks and startup-only owner configuration. Both hosts select exact work via
+`turn --todo-id`; fresh TS Todo completion precedes accepted result return.
+Synthesis checks current child completion, binding and artifact hashes.
+Provider cleanup, Turn progress and canonical completion remain separate.
+This does not supply dynamic work derivation or another Python lifecycle owner.
+Its default profile uses a local DSH lead with two DSH and two Ark members;
+the cloud reviewer consumes a completed local analysis before returning its own
+result. A secondary cloud-led profile tests the inverse delegation direction.
+Both reuse the same Turn host adapters; neither changes the steward default.
+
 ### Managed host binding and live qualification (2026-09-15)
 
 A managed host binding names four things: the host adapter, the provider, the

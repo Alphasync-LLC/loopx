@@ -245,12 +245,21 @@ shared authority and packaged frontend/Lark team delivery remain R2/R3/R6 work.
 The demo MCP service composes the existing Todo and Turn owners; durable peer
 request/adoption/return remains an integration step. It adds no alternative
 Inbox, manager factory or default executor selection. Shared acceptance work in
-[#4683](https://github.com/huangruiteng/loopx/pull/4683) supplies an owner-configured
-binding and completion boundary to reuse, not a manager-specific validator
-store. The example documents its File/SQLite composition check and remaining
-work-identity and scoped-derivation requirements. Turn progress, Todo completion
-and Goal acceptance remain distinct; semantic rules stay in the TS Goal/work
-owners while Python executes validators and host/provider IO.
+The example now consumes [#4683](https://github.com/huangruiteng/loopx/pull/4683)'s
+merged TS acceptance authority: five stable, preauthorized tasks, one startup
+owner configuration, exact Turn task selection, fresh child completion and
+canonical dependency readback before synthesis completion. File/SQLite
+integration rejects forged evidence copies, stale work, changed validators and
+failed Turns. Turn progress, Todo completion and Goal acceptance remain distinct;
+semantic rules stay in the TS Goal/work owners while Python executes domain
+validators and host/provider IO. This disposable bootstrap does not promote
+existing Goals. Scoped derivation for new work and durable peer adoption/return
+remain with R2/R3/R4; the coordinator never reconfigures itself as owner.
+The primary example profile is a local DSH lead with two local DSH and two
+cloud Ark members, including adoption of a local analysis by a cloud reviewer
+before local synthesis. Cloud-lead-to-local delegation is a secondary profile.
+Neither profile attaches an existing persistent Codex task or changes the
+steward's configured executor; those are separate R2/R3 integration work.
 
 ### R3: Semantic Requests and Automatic Return
 
