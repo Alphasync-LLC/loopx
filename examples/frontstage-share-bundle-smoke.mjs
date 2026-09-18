@@ -6,6 +6,7 @@ import { readFile, readdir, rm, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { validateBilingualBlog } from "./blog-bilingual-index-smoke.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = resolve("/tmp", "loopx-frontstage-share-bundle-smoke");
@@ -134,43 +135,9 @@ for (const route of ["benchmarks/deepswe-sol/"]) {
 // Editorial pages must ship their text and locale navigation without an SPA
 // fallback or client-side execution, including on repository-base hosting.
 const blogDir = resolve(siteDir, "blog");
-async function collectBlogArticleSlugs(locale) {
-  const localeDir = resolve(blogDir, locale);
-  const entries = await readdir(localeDir, { withFileTypes: true });
-  return entries
-    .filter(
-      (entry) =>
-        entry.isDirectory() &&
-        entry.name !== "zh" &&
-        existsSync(resolve(localeDir, entry.name, "index.html")),
-    )
-    .map((entry) => entry.name)
-    .sort();
-}
-const englishBlogArticles = await collectBlogArticleSlugs("");
-const chineseBlogArticles = await collectBlogArticleSlugs("zh");
-if (JSON.stringify(englishBlogArticles) !== JSON.stringify(chineseBlogArticles)) {
-  throw new Error(
-    `Every Blog article must ship paired English and Chinese editions: en=${englishBlogArticles.join(",")} zh=${chineseBlogArticles.join(",")}`,
-  );
-}
-for (const slug of englishBlogArticles) {
-  const englishHtml = await readFile(resolve(blogDir, slug, "index.html"), "utf8");
-  const chineseHtml = await readFile(resolve(blogDir, "zh", slug, "index.html"), "utf8");
-  const sectionIds = (html) => [...html.matchAll(/<section\s+id="([^"]+)"/g)].map((match) => match[1]);
-  if (JSON.stringify(sectionIds(englishHtml)) !== JSON.stringify(sectionIds(chineseHtml))) {
-    throw new Error(`Paired Blog article sections must match: ${slug}`);
-  }
-}
+const { articleSlugs: englishBlogArticles } = await validateBilingualBlog(blogDir);
 for (const locale of ["", "zh/"]) {
   const articles = ["", ...englishBlogArticles.map((slug) => `${slug}/`)];
-  const indexPath = resolve(blogDir, locale, "index.html");
-  const indexHtml = await readFile(indexPath, "utf8");
-  for (const slug of englishBlogArticles) {
-    if (!indexHtml.includes(`href="${slug}/"`)) {
-      throw new Error(`Blog index must link every ${locale || "English "}article: ${slug}`);
-    }
-  }
   for (const article of articles) {
     const pagePath = resolve(siteDir, "blog", locale, article, "index.html");
     assertExists(pagePath);
@@ -186,15 +153,6 @@ for (const locale of ["", "zh/"]) {
         throw new Error("Application article must keep enhancement in its local deferred script");
       }
       assertExists(resolve(dirname(pagePath), "presentation.js"));
-    }
-    for (const hreflang of ["en", "zh-CN", "x-default"]) {
-      if (!html.includes(`hreflang="${hreflang}"`)) throw new Error(`Missing Blog language alternate: ${hreflang}`);
-    }
-    if (article) {
-      const counterpart = locale ? `../../../blog/${article}` : `../../blog/zh/${article}`;
-      if (!html.includes(`href="${counterpart}"`)) {
-        throw new Error(`Blog article must link its paired edition: ${pagePath}`);
-      }
     }
     const stylesheet = html.match(/<link rel="stylesheet" href="([^"]+)"/);
     if (!stylesheet) throw new Error("Blog stylesheet is missing");
