@@ -234,6 +234,34 @@ These priorities do not change live Goal quota or authorize experiments/cloud re
 - **Exit:** 2–3 workers, one dependency, one failure and one direction correction; Agents select and revise delegation without manual phase input or result forwarding. Inspect through packaged frontend and independent CLI readback. An authorized Lark entry reads the corresponding audience-visible feedback. Untested Lark remains explicitly unqualified.
 - **Rollback:** stop new admission, drain accepted work and retain bindings/receipts; attached fallback cannot be used to simulate availability.
 
+**Optional mixed-team Turn slice.** The [Ark adapter](../../../packages/loopx-ark-turn/README.md)
+uses the existing generic-cli Turn boundary alongside DSH. The
+[shared local delegation interface](../../reference/local-delegation.md) now
+composes semantic peer requests/adoption/return, explicit operator execution
+bindings and the merged TS acceptance owner. It replaces demo-owned delegation;
+coordinators and ordinary members use the same grant contract. Disabled stdio
+servers retain their original five non-executing tools. Configuration files
+compact provider launch arguments without changing default executor selection.
+
+The [synthetic research example](../../../examples/managed-research-team/README.md)
+uses a local lead, two DSH members and two Ark members. One cloud reviewer adopts
+local analysis; another Ark member delegates to DSH before returning to local
+synthesis. Five stable preauthorized tasks bind exact criteria once. Turn
+validation and ordinary Todo completion independently execute current pinned
+checks; accepted returns read canonical completion and exact artifacts. All
+business questions/order remain model decisions; the Goal stays active.
+
+Durable operation ids and existing Turn journals recover results after a source
+conversation disappears. A real process-group interruption after Ark input ACK
+has been resumed on the original Session/input to canonical completion; cloud
+waiting for a local tool was observed, and owned resources were cleaned.
+Uncertain creation/input acknowledgements or tool effects remain reconciliation
+cases. The adapter retains the original deadline and does not resend work.
+This is a local trusted-host foundation, not G1/G3 completion: attached persistent
+sessions, generic Agent creation, dynamic governed work derivation, complete
+inbox/queue/steer, authenticated remote authority and packaged frontend/Lark
+companion work remain R2/R3/R4/R6 boundaries. Existing Goals are not promoted.
+
 ### R3: Semantic Requests and Automatic Return
 
 - **Owner:** manager RFC M2/M3; migrate existing `manager_context` request/tracking/return into one typed collaboration transaction, incorporating the #4094 adapter.

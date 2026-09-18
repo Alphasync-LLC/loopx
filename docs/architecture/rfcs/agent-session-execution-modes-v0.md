@@ -269,6 +269,47 @@ This is a delivery priority, not a default migration. The
 Reuse the existing profile editor and session projections; do not add a
 manager-only creation service, task ledger or scheduling loop.
 
+### Model selection within Agent creation and attachment
+
+This is a proposed refinement of the reusable Agent operations above, not a
+shipped model-catalog API. Model selection belongs to an Agent's execution
+profile and binding, independently of whether that Agent coordinates others.
+Reuse the existing managed execution profile, subagent launch preferences and
+profile editor; the steward's machine defaults are one caller's defaults, not
+the universal configuration owner. A model change does not create a new logical
+Agent or grant permission to launch one.
+
+| Step | Owner and required observation |
+| --- | --- |
+| Discover choices | The selected executor/provider adapter reports model IDs, supported parameters, capability limits, discovery scope and freshness. Keep provider catalog presence, managed-host compatibility and account authorization separate; unknown or failed discovery is not an empty supported list. |
+| Request and resolve a profile | The shared typed TS boundary validates caller scope, allowed profiles, budget constraints and explicit configuration precedence. Retain the requested model and parameters separately from resolved values and their sources. SDK/network discovery remains in the adapter; do not copy selection or admission rules into each Python launcher. |
+| Create or attach | Creation uses the resolved profile through the selected adapter. Attachment observes the existing host's actual profile; it cannot silently change its model, start a replacement executor or claim that a requested preference already took effect. Repeated creation reuses the existing identity/binding contract. |
+| Start and read back | Bind the profile revision to the execution generation and read back the provider-reported model and effective parameters. A visible catalog row or successful Agent-definition creation does not establish that an inference session can run. A mismatch or unsupported option produces an actionable failure, never an implicit model fallback. |
+
+Parameter support is provider-specific: the same reasoning-effort label need
+not have the same meaning across hosts, and speed, thinking mode, context limits
+and tool support are not universal knobs. Use a small common selection contract
+with validated provider-owned options rather than a core list of vendor models
+or one global parameter enum. Credentials remain in the selected provider's
+credential scope and never enter an Agent profile or public projection.
+
+Mutable model aliases require explicit readback. Record a resolved version only
+when the provider exposes it; otherwise record that the backing version is
+unknown rather than treating the alias as a reproducible snapshot. Profile
+changes use the existing binding revision/generation and rebind boundary;
+running work retains its admitted profile until a qualified transition occurs.
+Changing the parent profile does not silently change existing children. An
+authorized child coordinator may choose only within its inherited profile and
+budget scope, using the same operation as the lead.
+
+The next implementation slice must connect discovery, selection, creation or
+attachment, launch and readback for both a local and a cloud executor. Qualify
+unsupported parameters, stale discovery, unavailable authorization, retry,
+mutable aliases, and profile changes during active work. Reuse the existing
+CLI, frontend and Lark configuration owners/projections where affected; a
+backend field alone does not complete that user journey. Existing defaults and
+explicit host choices remain unchanged until a disclosed implementation lands.
+
 ### State model and schema
 
 The binding is the unit of mode ownership. Its canonical fields:
@@ -516,6 +557,16 @@ Preserve feature-off behavior for every existing profile and entrypoint.
 [Roadmap](loopx-overall-roadmap-v0.md) R2 first qualifies a steward and 2–3 actual managed workers across Turns; R6 qualifies local/cloud execution on one authority, then R7 expands active scale. M1–M4 here retain host admission ownership. Team-plan `ready` cannot replace binding, qualification, claim/lease or actual process readback.
 
 DSH steward Chat is currently single-segment, read-only and without cross-turn host sessions; `turn run-once` is a separate bounded execution path. The next slice proves successor wake, cancellation/stop, crash recovery and returning stale-executor fences with packaged frontend/CLI/Lark readback. An executor name, one segment or multiple registrations cannot establish continuous managed execution. Disconnection never switches attached hosts to managed, and unqualified hosts retain their existing boundary.
+
+The opt-in [local delegation interface](../../reference/local-delegation.md)
+now provides durable operations around bounded Turns, including member-to-member
+launch grants and TS task acceptance. Its Ark process-loss drill resumes the
+original Session/input after cloud tool waiting; it does not resend acknowledged
+effects or reset the deadline. This qualifies local execution recovery, not
+successor wake, attached-host takeover or full fleet cancellation. Provider file
+profiles preserve the existing model/tool configuration boundary; the general
+Agent creation/model discovery proposal above remains separate.
+
 
 ## 12. Normative delivery plan
 

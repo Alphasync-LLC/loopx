@@ -113,6 +113,11 @@ def handle_turn_command(
             output_format=output_format, print_payload=print_payload,
         )
     try:
+        if getattr(args, "todo_id", None) is not None and (
+            getattr(args, "resume_turn_key", None)
+            or any(getattr(args, key, None) for key in ("resume_goal_id", "resume_agent_id", "resume_todo_id"))
+        ):
+            raise ValueError("--todo-id selects fresh work and cannot retarget a resumed Turn or session")
         runtime_root = resolve_status_projection_cache_runtime_root(
             registry_path=registry_path,
             runtime_root_override=runtime_root_arg,

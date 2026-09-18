@@ -154,11 +154,19 @@ class FreshTurnDecisionOwner:
     scheduler_execution_context: Mapping[str, Any]
     operator_inbox_urgency_projector: Callable[..., dict[str, Any]]
     build_turn_decision: Callable[..., dict[str, Any]]
+    requested_todo_id: str | None = None
 
     def resolve(self) -> dict[str, Any]:
-        """The current governing decision, controller advisory primary applied."""
+        """Use an explicit eligible Todo, or preserve controller selection."""
 
-        return apply_controller_advisory_primary(self.build_turn_decision)
+        if self.requested_todo_id is None:
+            return apply_controller_advisory_primary(self.build_turn_decision)
+        decision = self.build_turn_decision(requested_action_todo_id=self.requested_todo_id)
+        selected = decision.get("selected_todo")
+        if not isinstance(selected, dict) or selected.get("todo_id") != self.requested_todo_id:
+            raise ValueError("Requested Turn Todo is not currently eligible; no alternate task was selected")
+        selected["selected_by"] = "turn_explicit_todo"
+        return decision
 
 
 def build_fresh_turn_decision_owner(
@@ -205,6 +213,7 @@ def build_fresh_turn_decision_owner(
             operator_inbox_urgency_projector=operator_inbox_urgency_projector,
             turn_start_hook_dispatch=turn_start_hook_dispatch,
         ),
+        requested_todo_id=getattr(args, "todo_id", None),
     )
 
 

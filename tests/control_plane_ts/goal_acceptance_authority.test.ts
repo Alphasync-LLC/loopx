@@ -46,6 +46,14 @@ function originalHead() {
     todo("todo_monitor", {task_class: "continuous_monitor"}),
     todo("todo_completed", {status: "done", done: true})], [], "native", {other_contract: {retained: true}});
 }
+test("terminal continuation observations preserve work while changed requirements invalidate it", () => {
+  const work = todo("todo_first");
+  const completed = {...work, status: "done", done: true, no_followup: true,
+    completion_continuation: "no_followup", note: "Bounded task completed"};
+  assert.equal(goalAcceptanceTodoDigest(completed), goalAcceptanceTodoDigest(work));
+  assert.notEqual(goalAcceptanceTodoDigest({...completed, text: "Deliver different work"}), goalAcceptanceTodoDigest(work));
+  assert.notEqual(goalAcceptanceTodoDigest({...completed, completion_validation_required: true}), goalAcceptanceTodoDigest(work));
+});
 async function seed(store: AuthorityStore) {
   assert.equal((await store.commitAuthority({operation_id: "seed", expected_provider_revision: null,
     events: [], receipts: [], next_projection: originalHead()})).status, "applied");
@@ -125,6 +133,11 @@ for (const provider of providers) {
     assert.ok(goal_acceptance);
     const inspection = await inspectGoalAcceptance(store, goal);
     assert.equal(inspection.provider_revision, after.provider_revision);
+    assert.equal(Object.hasOwn(inspection, "completion_requirements"), false, "ordinary inspection stays unchanged");
+    const taskInspection = await inspectGoalAcceptance(store, goal, "todo_first");
+    assert.deepEqual((taskInspection.completion_requirements as JsonObject).criterion_ids, ["prerequisite"]);
+    await assert.rejects(inspectGoalAcceptance(store, goal, "todo_second"), /unbound/);
+    assert.deepEqual(await head(store), after, "task-scoped planning has no provider write");
     assert.equal(((inspection.contract as JsonObject).criteria as JsonObject[])[0].validation_timeout_seconds, 5);
     assert.ok((inspection.tasks as JsonObject[]).every(task => typeof task.todo_semantic_digest === "string"));
     const projection = projectGoalAcceptance(after.head, goal);

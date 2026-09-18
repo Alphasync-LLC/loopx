@@ -58,6 +58,27 @@ C1、开销、保留与 Mode B 各行。
 | L1 事件源与会话归属 runtime 候选 | DSH | opt-in，未晋级；有界 Turn 宿主角色见上一行默认值 | 本文 C0、C1、开销、保留与 Mode B 各行被真实执行并通过评审 |
 | 可选的可见宿主循环 | Pi | 不是 managed runtime | 先声明按绑定持久化且可回读的会话模式，证明重启下的单执行器行为、"对话不是回执"、宿主本地状态非权威，并提供一条真实宿主重启行 |
 
+### 可选 Ark 受控 Turn 档位
+
+[`loopx-ark-turn`](../../../packages/loopx-ark-turn/README.md)单独安装，通过
+`--host generic-cli` 显式选择并使用 fresh iteration context。它复用 dsh 的签名
+请求/候选转换；admission、独立验收、工作写回及 quota 仍由 LoopX 拥有。每次 Turn
+绑定一个 stdio MCP 进程，只暴露 operator 选择的工具和绑定的工作身份。Provider
+模型用量、资源清理回执是观测，不是已验收工作 quota 或第二份任务生命周期。
+
+本档位不改变默认宿主，也不改变原有 Ark `goal_once` 档位。原生 Goal 自驱和外层
+LoopX Turn 驱动不能同时驱动同一绑定。[投研组合示例](../../../examples/managed-research-team/README.md)
+验证 managed 协调员委派本地 worker，不据此晋升持久管家 Chat、递归团队监督、完整
+实时 steer 或共享权威服务。按示例显式配置、回读和清理，保留失败与未验证的区别。
+
+示例已集成五个预授权 canonical 任务和启动时一次性 owner 配置。两类宿主通过
+`turn --todo-id` 选择精确工作；TS Todo 新鲜验收完成后才返回 accepted 结果。
+综合任务检查子任务当前完成状态、绑定和产物哈希。Provider 清理、Turn 进展和
+canonical 完成仍是不同事实；本切片不提供动态派生授权或另一份 Python 生命周期。
+默认示例由本地 DSH 协调员组织两个 DSH 与两个 Ark 成员；云端核验员消费已完成的
+本地分析，再返回自己的产物。辅助云端协调档位验证反向委派。两者复用相同 Turn
+适配器，不改变管家默认执行器。
+
 ### 托管宿主绑定与真实环境验证（2026-09-15）
 
 一个托管宿主绑定要说明四件事：宿主适配器、provider、模型，以及凭据来自哪里。

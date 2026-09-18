@@ -230,6 +230,25 @@ R2 的一条依赖必须通过真实 LoopX Agent 间的请求/产物交接完成
 - **退出：** 2–3 worker、一个依赖、一个故障、一个方向补充；Agent 自主选择和修订委派，无人工 phase 输入或结果转发。经 packaged frontend 查看，同一状态能从 CLI 读回；Lark 的授权入口能读到对应受众可见反馈。无 Lark 实测则该入口标为未验收。
 - **回滚：** 停止新增 admission，drain 已接受工作并保留绑定/receipt；不能借 attached fallback 保持“在线”。
 
+**可选混合团队 Turn 切片。** [Ark 适配器](../../../packages/loopx-ark-turn/README.md)
+与 DSH 复用既有 Turn 边界。[通用本地委派接口](../../reference/local-delegation.md)
+组合已有 peer 请求、采用、返回、显式执行绑定及已合并 TS 验收 owner，替换示例专用
+委派逻辑。主协调员与普通成员使用同一授权合同；未启用执行配置的 stdio 服务保持
+原有五个非执行工具。文件形式的 provider 配置缩短启动参数，不改变默认执行器。
+
+[合成投研示例](../../../examples/managed-research-team/README.md)由本地主 Agent
+组织两个 DSH 和两个 Ark 成员：云端核验员采用本地分析，另一 Ark 成员继续委派
+DSH 后向本地主 Agent 返回。五个稳定预授权任务一次绑定精确验收；Turn 验证与普通
+Todo 完成入口分别执行当前 pinned 检查，accepted 返回读 canonical 完成状态及精确
+产物。问题与委派顺序由模型决定，总体 Goal 保持 active。
+
+持久操作 ID 与既有 Turn journal 支持来源会话消失后的结果接回。实测在 Ark 输入 ACK
+后杀掉本地 worker/Turn/provider 进程组，再以原 Session/输入恢复到 canonical 完成；
+观察到云端等待本地工具，且自有资源清理已确认。不明的创建、输入 ACK 或工具副作用
+仍须核对；重连不重发任务、不重置原执行期限。这是本地可信宿主底座，不代表 G1/G3
+完成。长期 attached 会话、通用 Agent 创建、动态受治理工作派生、完整 inbox/queue/steer、
+认证远端权威与 packaged frontend/Lark 配套仍归 R2/R3/R4/R6；不晋升已有 Goal。
+
 ### R3：语义请求与自动回报
 
 - **Owner：** 管家 RFC M2/M3；从已有 `manager_context` request/tracking/return 迁移到单一 typed collaboration 事务，纳入 #4094 adapter。

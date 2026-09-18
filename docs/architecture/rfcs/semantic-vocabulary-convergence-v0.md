@@ -1158,6 +1158,22 @@ introduce a competing target state.
 
 ## Appendix A: Execution ledger (non-normative)
 
+New entries are files, not sections here. Each one lives in
+[`ledger/<rfc-slug>/`](ledger/README.md) as `YYYY-MM-DD-slug.md` with a Chinese mirror
+beside it, and nothing enumerates them — the directory listing is the index.
+
+The reason is measured, not stylistic. This section was a single append cluster:
+every branch adding an entry inserted at the same position, so concurrent work
+conflicted here by construction — eight times in one afternoon during the
+#4447 repair round, each resolved by hand as "both sides are disjoint, keep
+both". That is mechanical work whose failure mode is silent: one careless
+resolution drops an entry nobody notices is gone. A file per entry removes the
+shared line, and `examples/docs-governance-smoke.py` checks the naming and the
+mirror pairing so the convention cannot rot back.
+
+The entries below predate that split and stay where they are. They are
+append-only history, never edited, so they were never the thing that conflicted.
+
 ### 2026-09-17 — B3: the retirement metric separates readers from mentions
 
 The six legacy should-run fields were budgeted by a token count: modules whose

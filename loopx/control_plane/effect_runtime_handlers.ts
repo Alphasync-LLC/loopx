@@ -1,3 +1,4 @@
+import {selectDelegationBinding, transitionDelegationObservation} from "./collaboration/delegation.ts";
 import {previewTeamPlan, planTeamTransaction, teamTransactionIdentity} from "./work_items/team_plan.ts";
 import {commitLocalTeamPlan} from "./work_items/team_plan_authority.ts";
 import {inspectLocalGoalAcceptance, commitLocalGoalAcceptance,
@@ -629,6 +630,8 @@ export function createEffectRuntimeHandlers(
       "capability_hook.post_writeback.transaction",
       evaluatePostWritebackHookTransaction,
     ],
+    ["collaboration.delegation.binding", selectDelegationBinding],
+    ["collaboration.delegation.observe", transitionDelegationObservation],
     [
       "collaboration.request.normalize",
       (params) => normalizeCollaborationRequest(params.request),

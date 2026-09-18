@@ -40,6 +40,13 @@ def _goal(registry, goal_id, *agents, require_active=False):
     return goal
 
 
+def require_operation_id(value: str) -> str:
+    """Validate the stable peer identity, also safe as one worker argument."""
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,159}", value):
+        raise ValueError("a stable peer operation id is required")
+    return value
+
+
 def request(
     root,
     registry,
@@ -56,10 +63,7 @@ def request(
     _goal(registry, goal_id, source_agent_id, target_agent_id, require_active=True)
     if source_agent_id == target_agent_id:
         raise ValueError("a peer request requires a different receiving Agent")
-    if not isinstance(operation_id, str) or not re.fullmatch(
-        r"[A-Za-z0-9][A-Za-z0-9._-]{0,159}", operation_id
-    ):
-        raise ValueError("a stable peer operation id is required")
+    operation_id = require_operation_id(operation_id)
     inherited = None
     if parent_request_id:
         parent = _entry(root, goal_id, source_agent_id, parent_request_id)

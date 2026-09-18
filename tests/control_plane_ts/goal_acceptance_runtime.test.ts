@@ -11,7 +11,7 @@ import {FileAuthorityStore} from "../../loopx/control_plane/coordination/file_au
 import {PostgreSqlAuthorityStore, installPostgreSqlAuthorityStoreSchema} from "../../loopx/control_plane/coordination/postgresql_authority_store.ts";
 import {canonicalAuthoritySha256} from "../../loopx/control_plane/coordination/authority_store_codec.ts";
 import {coordinationTodoReadModel} from "../../loopx/control_plane/coordination/coordination_projection.ts";
-import {acceptanceWorkGuard, goalAcceptanceTodoDigest, normalizeGoalAcceptanceDocument} from "../../loopx/control_plane/goals/acceptance_contract.ts";
+import {acceptanceWorkGuard, goalAcceptanceTodoDigest, normalizeGoalAcceptanceDocument, projectGoalAcceptance} from "../../loopx/control_plane/goals/acceptance_contract.ts";
 import {executeCoordinationTodoClaim} from "../../loopx/control_plane/coordination/todo_claim.ts";
 import {executeCoordinationTodoUpdate} from "../../loopx/control_plane/coordination/todo_update.ts";
 import {executeCanonicalTaskLeaseAcquire} from "../../loopx/control_plane/coordination/task_lease_acquire.ts";
@@ -157,6 +157,8 @@ for (const provider of ["file", ...(process.env.LOOPX_TEST_POSTGRES_URL ? ["post
     assert.deepEqual(await loaded(store), before);
     assert.equal((await executeCoordinationTodoTerminalLifecycle(store, good)).status, "applied");
     assert.equal((await loaded(store)).head.todos instanceof Array, true);
+    assert.equal((projectGoalAcceptance((await loaded(store)).head, "goal-a").tasks as JsonObject[])[0]!.state, "ready",
+      "successful completion must not invalidate the just-checked work binding");
     const retained = await store.readReceipt("complete");
     assert.equal(retained.status, "found");
     assert.match(JSON.stringify(retained), /goal_acceptance_completion/);
