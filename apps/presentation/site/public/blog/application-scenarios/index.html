@@ -89,7 +89,9 @@
         <div class="study-signal" id="benchmark-lhtb">
           <h3>LHTB: recover progress and preserve working results</h3>
           <p class="study-setting">GPT-5.6 Sol / max · 46 matched tasks, five execution mechanisms · one effective run per task-arm cell</p>
-          <p>Long-Horizon Terminal-Bench spans nine categories, including software, games, science, and professional workflows. Final artifacts receive a continuous reward from 0 to 1; this study counts reward ≥ 0.95 as solved. Partial progress and full acceptance can therefore be examined separately.</p>
+          <p><strong>What LHTB tests:</strong> Long-Horizon Terminal-Bench places an agent in a stateful container and asks it to sustain work across hundreds of dependent terminal actions. Its official introduction uses nine categories: software and reverse engineering; scientific computing and simulation; earth, climate, and energy; multimodal and imaging analysis; research reproduction and ML; systems, performance, and security; interactive games; APEX professional workflows; and logic and constraint puzzles.</p>
+          <p>Tasks include migrating an old framework, recovering data from scientific figures, reproducing paper experiments, handling investment-banking or legal matters, playing 2048 turn by turn, and searching for puzzle solutions. <a href="../../benchmarks/lhtb/?lang=en#categories">Nine categories and representative tasks →</a></p>
+          <p><strong>How it scores:</strong> hidden verifiers check final artifacts or replayable outcomes and award continuous reward from 0 to 1. This study counts reward ≥ 0.95 as solved, keeping partial progress distinct from full acceptance.</p>
           <div class="table-scroll"><table class="benchmark-table"><caption>LHTB five-arm results: mean reward and strict solves</caption><thead><tr><th scope="col">Execution mechanism</th><th scope="col">Mean reward</th><th scope="col">Solved / 46</th></tr></thead><tbody>
             <tr><th scope="row">Plain</th><td>0.4218</td><td>7</td></tr>
             <tr><th scope="row">Native Goal</th><td>0.4475</td><td>4</td></tr>

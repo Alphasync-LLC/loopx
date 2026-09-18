@@ -113,6 +113,21 @@
   border-left: 1px solid var(--bm-border);
 }
 
+.lhtb-taxonomy {
+  grid-column: 1 / -1;
+  min-width: 0;
+  scroll-margin-top: 72px;
+}
+
+.lhtb-taxonomy h3 { margin: 0 0 12px; font-size: 24px; }
+.lhtb-taxonomy > p { color: var(--bm-body); font-size: 15px; line-height: 1.7; }
+.lhtb-category-table { margin-block: 20px; }
+.lhtb-category-table table { min-width: 0; table-layout: fixed; }
+.lhtb-category-table caption { padding: 14px 18px; text-align: left; color: var(--bm-muted); font-size: 12px; }
+.lhtb-category-table th:first-child { width: 35%; }
+.lhtb-category-table tbody th { white-space: normal; }
+.lhtb-category-table th, .lhtb-category-table td { overflow-wrap: anywhere; }
+
 .lhtb-arm-flow article {
   display: grid;
   grid-template-rows: auto 1fr;

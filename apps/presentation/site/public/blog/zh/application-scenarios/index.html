@@ -86,7 +86,9 @@
         <div class="study-signal" id="benchmark-lhtb">
           <h3>LHTB：工作能恢复，已有成果也要保住</h3>
           <p class="study-setting">GPT-5.6 Sol / max · 46 个匹配任务、五种执行机制 · 每个任务 × 实验臂一条有效运行</p>
-          <p>Long-Horizon Terminal-Bench 覆盖软件、游戏、科学与专业工作流等九类任务，按最终产物给出 0–1 的连续 Reward；本研究以 Reward ≥ 0.95 计为通过。它把长程工作中的部分进展与完整验收分开呈现。</p>
+          <p><strong>LHTB 考什么：</strong>Long-Horizon Terminal-Bench 把 Agent 放进有状态的容器环境，要求它跨数百个相互依赖的终端动作完成工作。官方介绍页分为九类：软件与逆向工程、科学计算与仿真、地球/气候/能源、多模态与图像分析、研究复现与机器学习、系统/性能/安全、交互式游戏、APEX 专业工作流、逻辑与约束谜题。</p>
+          <p>具体会遇到旧版框架迁移、从科学图还原数据、复现论文实验、投行或法律事项，以及逐步玩 2048、搜索谜题解。<a href="../../../benchmarks/lhtb/?lang=zh#categories">九类任务与代表例子 →</a></p>
+          <p><strong>怎样评分：</strong>隐藏验证器检查最终产物或可重放结果，给出 0–1 的连续 Reward；本研究以 Reward ≥ 0.95 计为通过。因此，部分进展与完整验收可以分开观察。</p>
           <div class="table-scroll"><table class="benchmark-table"><caption>LHTB 五臂结果：平均 Reward 与严格通过数</caption><thead><tr><th scope="col">执行机制</th><th scope="col">平均 Reward</th><th scope="col">通过 / 46</th></tr></thead><tbody>
             <tr><th scope="row">Plain</th><td>0.4218</td><td>7</td></tr>
             <tr><th scope="row">原生 Goal</th><td>0.4475</td><td>4</td></tr>
