@@ -529,13 +529,22 @@ generation，不能对相同证据重复声明 `material_change=true` 就继续�
 原 operation 重试恢复原后继，不创建新工作；不附带后继的新 observation 仍可接受。
 User gate 复用既有 actor-bound scope，不推导全局 gate。
 
-尚未闭合：原生操作遇到任何保留的 Monitor lease 仍 fail closed，不隐式授权跨 owner
-的 successor claim；未 promotion Goal 仍走旧 writer。Quota 记账继续使用现有
-preflight/writeback/settlement 协议，沿用 v0 回执形状及原始 observation identity。
-Canonical 提交成功独立于 Markdown delivery pending。这不代表全部 T2 命令或整 Goal
-promotion 已完成。
+带 lease Monitor 现与 Todo metadata update 共用当前非终结 lease fence。公开
+`quota monitor-poll` 将 execution key/version 贯穿 pending plan、canonical transaction
+和业务回执；观察、generation 与独立后继在同一 CAS 提交，lease 保持不变。
+Canonical 到期 Monitor 恢复可选，但调度不授予写权限；租约是否有效取 runtime
+当前时间，不取调用方提交的观察时间。
 
-- 继续闭合 `monitor_poll_writeback.py` 保留的 lease 与 event caller，复用 monitor
+Quota preflight 将原始准入决策冻结到版本化 pending receipt；即使 Monitor 已不再
+到期或 lease 已释放，恢复仍可凭原业务回执结算，不替换租约、不重做业务。
+无 proof 的 v0 request identity 和已完成回执保持兼容；无原准入依据的旧 pending
+沿用当前准入，无法证明历史恢复时明确报错。见[观察与恢复协议](../../reference/protocols/quota-monitor-observation-receipt-v0.md)。
+
+尚未闭合：不隐式授权跨 owner successor claim；未晋升 Goal 保留旧 writer，并拒绝
+显式 lease proof。业务与 quota 仍是分别可恢复的事务，canonical 成功独立于 Markdown
+delivery pending；这不代表全部 T2 命令或整 Goal promotion 已完成。
+
+- 继续闭合 `monitor_poll_writeback.py` 保留的 event caller，复用 monitor
   generation、独立 successor 和 settlement owner，组成一笔事务，不建第二套引擎。
 - 保持 unchanged poll/reschedule、generation fence、material-change successor
   去重和可归属 settlement。Monitor 不是 delivery 执行任务；独立 advancement Todo

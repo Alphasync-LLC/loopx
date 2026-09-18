@@ -675,14 +675,29 @@ Retrying the original operation recovers the original successors instead of
 creating new work. A fresh observation with no successor remains valid. User
 gates use the existing actor-bound scope, never an inferred global gate.
 
-Boundaries still open: any retained Monitor lease fails closed in this native
-operation; cross-owner successor claims are not implicitly authorized. Unpromoted
-Goals retain their legacy writer. Quota accounting stays in its existing
-preflight/writeback/settlement protocol and reuses the v0 receipt shape and raw
-observation identity. Canonical commit success is independent of pending Markdown
-delivery. This does not finish all T2 commands or authorize whole-Goal promotion.
+The leased Monitor path now reuses the current nonterminal lease fence with
+Todo metadata updates. Public `quota monitor-poll` carries the execution key and
+version through its pending plan, canonical transaction and business receipt.
+Observation, generation and independent successors share one CAS; the lease is
+unchanged. Canonical due monitors are selectable again, but scheduling does not
+grant mutation authority. Runtime time, not the supplied observation timestamp,
+determines whether a fresh write's lease is active.
 
-- Finish the retained lease and event callers of `monitor_poll_writeback.py`.
+Quota preflight now freezes its admitted decision in a versioned pending receipt.
+Recovery settles the original business receipt even after the Monitor becomes
+not due or its lease is released; it never substitutes a new lease or re-runs
+business effects. Proof-less v0 request identities and completed receipts remain
+compatible. Old pending receipts without an admission basis retain current-state
+admission and explicitly report when historical recovery cannot be proven.
+See [Monitor observation and recovery](../../reference/protocols/quota-monitor-observation-receipt-v0.md).
+
+Boundaries still open: cross-owner successor claims are not implicitly authorized;
+unpromoted Goals retain their legacy writer and reject explicit lease proof.
+Quota and business authority remain separate recoverable transactions. Canonical
+commit success is independent of pending Markdown delivery. This does not finish
+all T2 commands or authorize whole-Goal promotion.
+
+- Finish the retained event callers of `monitor_poll_writeback.py`.
   Reuse existing monitor generation, independent-successor and settlement
   owners. Compose one transaction rather than adding a second monitor engine.
 - Preserve unchanged polling/reschedule behavior, generation fences,

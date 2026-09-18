@@ -6,6 +6,7 @@ Usage:
   uv run python scripts/generate_semantic_inventory.py --output .local/inventory.json
   uv run python scripts/generate_semantic_inventory.py --output .local/inventory.json --check
   uv run python scripts/generate_semantic_inventory.py --report    # advisory consumer ranking + merge candidates
+  uv run python scripts/generate_semantic_inventory.py --report --consumer-evidence   # + per-site consumer roles
 """
 
 from __future__ import annotations
@@ -19,6 +20,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from loopx.semantics.consumer_report import (  # noqa: E402
+    collect_consumer_evidence,
+    render_consumer_evidence,
+)
 from loopx.semantics.inventory import (  # noqa: E402
     build_inventory,
     consumer_ranking,
@@ -65,9 +70,16 @@ def main() -> int:
         "--report", action="store_true",
         help="print the advisory consumer ranking and the merge candidates the registry does not explain",
     )
+    parser.add_argument(
+        "--consumer-evidence", action="store_true",
+        help="with --report, also classify each consuming site as read/interpret/pass-through/unknown "
+             "(RFC B5; advisory evidence over a bounded scan reach, never a gate)",
+    )
     parser.add_argument("--check", action="store_true", help="compare an explicit --output report without writing")
     parser.add_argument("--top", type=int, default=25, help="rows to print with --report")
     args = parser.parse_args()
+    if args.consumer_evidence and not args.report:
+        parser.error("--consumer-evidence extends --report; it is advisory evidence, not a check")
     if args.check and args.output is None:
         parser.error("--check requires --output; inventories are no longer committed. "
                      "Run examples/semantic-vocabulary-drift-smoke.py for semantic validation.")
@@ -87,6 +99,14 @@ def main() -> int:
             print(f"{row['value_sets']:>10}  {row['name']}  {', '.join(row['definition_modules'])}")
         print()
         print_merge_candidates(inventory)
+        if args.consumer_evidence:
+            # Off by default: the per-site scan costs seconds on the full tree,
+            # and the ranking above answers the cheaper question. Nothing here
+            # gates anything, so a reviewer opts in when they want the roles.
+            print()
+            registry = json.loads((ROOT / REGISTRY_RELATIVE).read_text(encoding="utf-8"))
+            evidence = collect_consumer_evidence(ROOT, registry, load_sources(ROOT))
+            print("\n".join(render_consumer_evidence(evidence, top=args.top)))
         return 0
     if args.output is None:
         print(content, end="")

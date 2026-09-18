@@ -107,8 +107,11 @@ def _typescript_scan(
     if not ts_sources or not field:
         return []
     rows = run_typescript_scan(root, ts_sources, {'field': field, 'return_functions': returns, 'mode': mode})
+    # The parser names the same blocker vocabulary as the Python scanner;
+    # ``typescript_dynamic`` stays the fallback for a form it cannot classify.
     return [Production(r['site'], r['line'], r['form'], frozenset(r['values']), r['unresolved'],
-                       'typescript_dynamic' if r['unresolved'] else None) for r in rows]
+                       (r.get('blocker') or 'typescript_dynamic') if r['unresolved'] else None)
+            for r in rows]
 
 
 def run_typescript_scan(
