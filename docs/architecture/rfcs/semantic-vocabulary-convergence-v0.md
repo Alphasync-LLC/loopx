@@ -824,7 +824,7 @@ on the next full-tree scan; genuine shared-contract changes still need review.
 | Measurement covers both carrier shapes and filters local naming | `uv run --extra test python -m pytest tests/architecture/test_semantic_inventory.py` | pass, including the collision and module-local-convention fixtures | Rules come from this RFC, not from scanner output |
 | No behavior change from the two owner fixes | `uv run --extra test python -m pytest tests/test_loopx_turn_transaction.py tests/test_loop_turn_loop_controller.py tests/test_turn_loop_disposition.py tests/test_loopx_turn_managed_step.py tests/control_plane -k authority` and `uv run --extra test loopx canary premerge --from-git-diff` | pass | Environment failures already present on `main` are excluded when reproduced on a clean tree |
 | Docs governance accepts the RFC pair | `python3 examples/docs-governance-smoke.py` | pass | Checks mirror, links, index |
-| Consumer roles are reported per site, with the unknown stated (B5) | `uv run python scripts/generate_semantic_inventory.py --report --consumer-evidence` and `uv run --extra test python -m pytest tests/architecture/test_semantic_consumer_report.py` | the report prints read/interpret/pass-through/unknown counts, both unknown shares, and every unknown reason with its site count; the tests pass | Advisory only: syntactic use over a two-root scan reach, never data flow and never a gate |
+| Consumer roles are reported per site for vocabularies that declare a slot, with the unknown stated (B5, optional) | `uv run python scripts/generate_semantic_inventory.py --report --consumer-evidence` and `uv run --extra test python -m pytest tests/architecture/test_semantic_consumer_report.py` | the report names its coverage and the vocabularies it refused to analyse, then prints read/interpret/pass-through/unknown counts, both unknown shares, and every unknown reason with its site count; the tests pass | Advisory only, and optional in #4447: syntactic use over a two-root scan reach, never data flow and never a gate. Coverage is the 1 of 26 registered vocabularies that declares `literal_scan.field`; the other 25 are reported as `missing_slot_identity` and are not analysed |
 | Retirement budgets use standalone field tokens | `count_identifier_modules()` uses identifier boundaries for the six fields | `goal_boundary`: 30 Python modules under the new metric; the old substring metric was 35 | Conservative lexical measure; it removes compound-name false positives but does not prove semantic reader absence |
 | The module-local convention filter is a code edit | Widen `MODULE_LOCAL_CONVENTION` in `inventory.py` and scan | `*_semantic` budgets fall with no code change elsewhere | Known boundary; the regex is in code so the widening is a reviewed diff, and the unfiltered totals stay budgeted |
 | A registered value nobody produces fails (M0.5) | Run the production-form scan on the baseline | Fails naming `effective_action` and `skip`; passes after `skip` is removed or listed `compatibility_only` | First expected I12 failure; a compared-only value is not carried |
@@ -1124,10 +1124,11 @@ introduce a competing target state.
 
 ## Appendix A: Execution ledger (non-normative)
 
-### 2026-09-17 — B5: consumer roles reported per site, with the unknown stated
+### 2026-09-17 — B5: consumer roles for the vocabularies that declare a slot
 
-Non-normative; advisory evidence only. No check changes its pass/fail result on
-the current tree, and nothing added here gates a merge.
+Non-normative; advisory evidence only, and B5 is an optional item of #4447. No
+check changes its pass/fail result on the current tree, and nothing added here
+gates a merge.
 
 - `consumer_ranking` counts modules that *mention* a symbol. Section 5 already
   says that number "does not classify roles or prove data flow", so B5 adds
@@ -1135,36 +1136,66 @@ the current tree, and nothing added here gates a merge.
   consuming site as `read`, `interpret`, `pass_through` or `unknown` and carries
   per row the location (`module::symbol` and line), the source SHA the scan ran
   against, the value domain, and the limitation that applies to that row.
+- **Coverage is the registry's declaration, not a guess, and it is 1 of 26.**
+  B5 is gated on concrete slot identity, and only `effective_action` declares
+  `literal_scan.field` — the same `literal_scan_fields:1/1` the drift smoke
+  already reports. The first implementation fell back to the vocabulary id when
+  no field was declared, which analysed 25 vocabularies against a field name
+  nobody had claimed exists and let every downstream row inherit the guess. The
+  fallback is removed: a vocabulary with no declared slot is reported by name
+  under `missing_slot_identity`, counted in the header, and not analysed at all
+  — not partially, and not by owner class alone.
 - Anchors are identities the registry already carries, which is why B2 was the
-  precondition: the vocabulary's slot name (`literal_scan.field`, else the
-  vocabulary id) and its registered owner class, bound through the same
-  one-unrenamed-hop import discipline the producer scanner uses. No module
-  registers itself as a consumer, and the scan reach is code owned exactly as
-  `PRODUCER_ROOTS` is, so registry data cannot widen it.
-- Measured on `440b002fb` across `loopx/control_plane` and `loopx/cli_commands`,
-  484 of 1207 tracked sources: **921 rows — 3 `read`, 141 `interpret`,
-  50 `pass_through`, 727 `unknown`, a 78.9% unknown share.** Restricted to the
-  319 rows that belong to a single vocabulary, the unknown share is 39.2%.
+  precondition: the declared slot name and the registered owner class, bound
+  through the same one-unrenamed-hop import discipline the producer scanner
+  uses, and only where no nearer binding has taken the owner's name over. The
+  scan reach is code owned exactly as `PRODUCER_ROOTS` is, so registry data
+  cannot widen it.
+- **A role is claimed only from syntax that establishes it.** A call, an
+  f-string and a further attribute all end the climb as `unknown` with the
+  construct named. `Kind(value)` and `sink(value)` are the same syntax, so
+  neither may be read as proof that the value came out unchanged; the earlier
+  implementation reported both as `pass_through`, and `.value` as a
+  meaning-preserving enum unwrap on an object it had not established was an
+  enum member. `pass_through` now means the AST shows the value itself
+  relocated — returned, stored, placed in a structure — with nothing applied.
+  An observed branch still wins over an unresolved sibling use, because
+  interpreting is the top of the rank and nothing stronger could be hidden.
+- Measured on `d8e7af141` across `loopx/control_plane` and `loopx/cli_commands`,
+  485 of 1213 tracked sources: **713 rows — 0 `read`, 61 `interpret`,
+  9 `pass_through`, 643 `unknown`, a 90.2% unknown share.** Restricted to the
+  111 rows that belong to `effective_action`, the unknown share is 36.9%.
+  Against the guessing implementation this is 921 rows down to 713 and a 78.9%
+  unknown share up to 90.2%: the report became smaller and less confident, which
+  is the direction the evidence supports.
 - The unknown is most of the measurement, not a residue to tidy away. 602 sites
-  read a mapping under a computed key and are therefore unresolved for every
-  vocabulary at once; 76 modules spell a slot with no recognized anchor;
-  46 tracked TypeScript sources carrying a slot are not walked because there is
-  no TypeScript parser on this path; 3 Python sites are an unstable local or an
-  unclassified context. Each is a row with a location and a recorded reason,
-  following the pattern B2 set for unresolved producer sites.
-- What the report establishes is **syntactic use, not data flow**. A row says
-  this location performs a recognized read of this slot and that the syntax
-  around the read branches on the value or forwards it. It does not prove the
-  value came from a registered producer, that the branch is reachable, or that
-  a vocabulary with no rows has no reader — the computed-key population is
-  precisely why that last claim cannot be made from a name-keyed scan.
+  read a mapping under a computed key and are therefore unresolved for the
+  covered vocabulary; 18 modules spell the slot with no recognized anchor;
+  13 sites hand the value to a callee this scan does not follow; 9 tracked
+  TypeScript sources carrying the slot are not walked because there is no
+  TypeScript parser on this path; 1 is an unstable local. Each is a row with a
+  location and a recorded reason, following the pattern B2 set for unresolved
+  producer sites, and neither population is filtered out of the printed listing
+  any more: the classified rows and the unattributable ones now get the same
+  `--top` budget in their own blocks, because a table that showed only what the
+  grammar resolved read as a complete census of the slot's readers -- and a
+  single location-ordered list would have buried the classified rows under the
+  602, which is the same concealment spelled differently.
+- What the report establishes is **syntactic use, not data flow**. It does not
+  prove the value came from a registered producer, that the branch is reachable,
+  or that a vocabulary with no rows has no reader — the computed-key population
+  is precisely why that last claim cannot be made from a name-keyed scan.
 - Exposed through the existing report surface as
-  `scripts/generate_semantic_inventory.py --report --consumer-evidence`, opt-in
-  because it is extra work: the per-site scan costs 3.35-3.65s over three
-  isolated runs on the full tree, against roughly 217s for the ranking that
-  `--report` already prints. The drift smoke does not call it, and the only
-  pull-request path that reaches `--report` is a pytest fixture repository of
-  three files, so the per-PR cost is unchanged.
+  `scripts/generate_semantic_inventory.py --report --consumer-evidence`, which
+  refuses to run without `--report` because it is advisory evidence, not a
+  check. The per-site scan costs 4.1-4.4s over three runs on the full tree,
+  against roughly 217s for the ranking that `--report` already prints. The drift
+  smoke does not call it.
+- **What this leaves B5 worth.** One vocabulary, 111 attributed rows, 41 of them
+  unknown, and no second vocabulary can be covered until an M1/M3 migration
+  declares a slot for it. The honest reading is that the machinery is ahead of
+  the registry it reads; the value arrives when the first migration needs it,
+  not before.
 - Not addressed here: the reach is two roots rather than the tree; TypeScript is
   counted but not parsed; and following a local is one hop, so a value moving
   through two aliases is unknown rather than traced. Widening any of the three
@@ -1418,7 +1449,7 @@ result on the current tree; what changes is what the invariants claim.
 | 2026-09-16 | Q9: compute the full inventory on demand; retire the committed census | Implementation for [maintainer feedback](https://github.com/huangruiteng/loopx/pull/4360#issuecomment-5692062394); PR review pending | Committed snapshot with post-merge regeneration; diff-only scan rejected | 1, I6, 3, 5, 9, 10, 12 |
 | 2026-09-16 | B2: bind one unrenamed re-export hop in the Python producer scanner | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B2; PR review pending | Require every consumer to import the owner module (fragile; failed silently in M2); unbounded multi-hop resolution rejected | 5, Appendix A |
 | 2026-09-16 | B1 rename invariance: add the name-keyed divergence advisory; state the limit it does not close | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B1; PR review pending | Keying the budget on value sets (rejected: `CONFIDENCE_LEVELS` and `EDGE_CASE_COMPLEXITIES` share `high/low/medium` with different meanings); a committed name ledger (rejected at M0: Q9 retired the committed census). The advisory lists surviving forks by name; it was first described as catching a one-sided rename, which measurement disproved, so both mirrors state the limit as it behaves | 9 |
-| 2026-09-17 | B5: report consumer roles per site from registry-anchored AST evidence, and state the unknown share instead of classifying everything | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B5; PR review pending | Register consumers in the registry (rejected: the tracking issue forbids blanket consumer registration, and a declared list is a claim rather than evidence); make the report a merge gate (rejected: F3 is the advisory lane, and a 78.9% unknown share cannot gate anything); report only the sites the grammar resolves (rejected: the per-vocabulary tables would read as complete, so an unrecognized mention and a computed-key read are rows with reasons) | 9, Appendix A, Appendix B |
+| 2026-09-17 | B5 (optional): report consumer roles per site only for vocabularies that declare `literal_scan.field`, and state the unknown share instead of classifying everything | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B5; PR review pending | Fall back to the vocabulary id when no slot is declared (rejected on review: it analysed 25 of 26 vocabularies against a field name nobody declared, and every row downstream inherited the guess; they are now named under `missing_slot_identity` and not analysed); register consumers in the registry (rejected: the tracking issue forbids blanket consumer registration, and a declared list is a claim rather than evidence); make the report a merge gate (rejected: F3 is the advisory lane, and a 90.2% unknown share cannot gate anything); report only the sites the grammar resolves (rejected: the tables would read as complete, so an unrecognized mention and a computed-key read are printed rows with reasons) | 9, Appendix A, Appendix B, Appendix C |
 | 2026-09-17 | B0: state schema validation, implementation stage, evidence status and blocking behaviour separately for I2/I11-I14 and the enforcement lanes; require each formal invariant id exactly once | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B0; PR review pending | Rename the `blocking_next` lane to match its behaviour (rejected: the lane name is the milestone that owns the check, and renaming it would lose that and collapse the two readings the other way); add a `blocks_today` boolean to `formal_model` (rejected: it would be one more declared field a reader could mistake for a measurement, and the fact is a property of the smoke's `main()`, which no registry edit can change); leave the lane gloss and note the gap in the ledger only (rejected: the gloss is the sentence a reviewer quotes) | 2, 5, 11, Appendix A, Appendix B |
 | 2026-09-17 | Bound F1/F2 to the kernel tier and the scan reach, restate F4 as scope enumeration completeness, and give every obligation a derived `domain` | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447); **kernel-maintainer approval required, not yet given** | Leave the unconditional statements and record the gap in prose only (rejected: the statement was stronger than `validate_production`'s own docstring); restate F4 as per-context value-set disjointness (rejected: refuted by the repo's own data, since `scope_declarations` exists to permit legitimate same-name reuse); widen the scan so the unconditional claim becomes true (rejected: a separate change with its own risk) | 5, 9, Appendix B, Appendix C |
 
@@ -1448,6 +1479,7 @@ result on the current tree; what changes is what the invariants claim.
 | E21 | F1/F2 were unconditional but verified over one tier | `3ca868193` | `check_producers`' skip predicate, and the producer scan roots, read from the tree | 6 of 26 vocabularies declare `producers`, exactly the `tier: kernel` ones; the 20 skipped are all `cross_runtime`; the scan reaches 432 of 1203 tracked `loopx/**/*.{py,ts}` files (35.9%), the uncovered bulk being capabilities 285, other control-plane 192, extensions 83 | Counts from the registry and the tracked tree; the reach denominator moves with any new module, so it is reported, not pinned |
 | E22 | Fifteen reported unresolved sites can never become evidence | `3ca868193` | smoke report `unresolved_producer_blockers` | 41 unresolved sites, of which `argument_name_only` 10 and `annotation_only` 5 are a field-named keyword argument and a bare declaration; the other 26 are dynamic or interprocedural | Label-keyed; the two labels are code-owned in the scanner, so the floor moves only by a code edit |
 | E23 | F4 as written could not be violated | `3ca868193` | read `check_scope_declarations` against the F4 statement | Scope is declared and never inferred, so `conflict := collision ∧ scope_overlap` is a definition; what is enforced is that a declaration names every defining module exactly once, over 1 declaration and 4 contexts | Judgement from reading the check; value-set disjointness across contexts is deliberately *not* the property, because `SOURCE_SURFACES` legitimately reuses one name in four contexts (E19) |
+| E26 | B5 consumer evidence covers 1 of 26 registered vocabularies | `d8e7af141` | `scripts/generate_semantic_inventory.py --report --consumer-evidence`, cross-read against the drift smoke's `literal_scan_fields` coverage | 1 vocabulary declares `literal_scan.field` (`effective_action`) and is analysed; 25 are reported `missing_slot_identity` and are not analysed. 713 rows over 485 of 1213 tracked sources: 0 `read`, 61 `interpret`, 9 `pass_through`, 643 `unknown` (90.2%); of the 111 rows attributed to `effective_action`, 41 are unknown (36.9%). The removed vocabulary-id fallback had reported 921 rows at a 78.9% unknown share | Coverage is a registry property, not a code one: it moves only when a vocabulary declares a slot. Rows are syntactic use over a two-root reach, never data flow, and the scan is advisory — it refuses to run without `--report` |
 | E13 | The conflict budget mostly measured local naming | `1dc6ad8d8` | `MODULE_LOCAL_CONVENTION` applied to `conflicting_values` and `same_runtime_forks` names | 16 of 18 conflicts and 7 of 25 forks are module-local conventions; the semantic subsets are 2 and 18 | Classification is a name pattern, documented in the scanner and pinned by a fixture test |
 
 ## Appendix D: Rejected or superseded alternatives
