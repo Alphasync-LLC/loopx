@@ -717,6 +717,13 @@ export async function executeCoordinationTodoTerminalLifecycle(
     );
   }
   const requestSha = terminalRequestSha(input);
+  // Unlike `todo_claim`, this replay needs no post-replay acceptance re-check.
+  // A claim receipt grants work going forward, so replaying one after its
+  // binding changed would resume work acceptance now holds. A terminal receipt
+  // only reports a transition that already committed: it cannot exist for work
+  // that never closed, a closed Todo cannot be reopened
+  // (`unsupported_todo_update_target`), and a replay returns `changed: false`.
+  // Re-checking here would add a load per replay and protect nothing.
   const replay = await terminalReceipt(input, requestSha).read(store);
   if (replay !== null) return replay;
 
