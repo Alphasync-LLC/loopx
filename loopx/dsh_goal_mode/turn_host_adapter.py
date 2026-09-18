@@ -21,7 +21,6 @@ stay in ``loopx turn run-once``; this is a dumb translation layer.
 from __future__ import annotations
 
 import argparse
-from hashlib import sha256
 import importlib.util
 import json
 import os
@@ -31,8 +30,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from ..control_plane.quota.turn_envelope import (
-    turn_envelope_action_signature_document,
+from ..control_plane.turn_driver.host_candidate import (
+    ACCEPTED_RESULT_KINDS as ACCEPTED_RESULT_KINDS,
+    COMPLETED_PHASES as COMPLETED_PHASES,
+    LOOPX_TURN_HOST_REQUEST_SCHEMA as LOOPX_TURN_HOST_REQUEST_SCHEMA,
+    LOOPX_TURN_RESULT_SCHEMA as LOOPX_TURN_RESULT_SCHEMA,
+    MATERIAL_KINDS as MATERIAL_KINDS,
+    TEXT_LIMITS as TEXT_LIMITS,
+    _canonical_hash,
+    _mapping,
+    build_result as _build_host_result,
+    extract_action_text as extract_action_text,
+    extract_turn_authority as extract_turn_authority,
+    parse_model_json as parse_model_json,
+    render_prompt as render_prompt,
 )
 from ..control_plane.turn_driver.execution_profile import (
     MANAGED_MODEL_DEFAULT,
@@ -46,28 +57,6 @@ from ..control_plane.turn_driver.host_failure import BuiltInHostError
 
 from .host_failure_map import classify_dsh_failure, classify_dsh_terminal_reason
 
-LOOPX_TURN_HOST_REQUEST_SCHEMA = "loopx_turn_host_request_v0"
-LOOPX_TURN_RESULT_SCHEMA = "loopx_turn_result_v0"
-COMPLETED_PHASES = ["host_execute", "typed_result"]
-
-ACCEPTED_RESULT_KINDS = {
-    "validated_progress",
-    "repair_required",
-    "replan_required",
-    "user_action_required",
-    "wait",
-    "iteration_failed",
-}
-MATERIAL_KINDS = {"validated_progress", "repair_required", "replan_required"}
-
-TEXT_LIMITS = {
-    "classification": 120,
-    "recommended_action": 1_200,
-    "next_action": 1_200,
-    "vision_unchanged_reason": 240,
-    "summary": 400,
-}
-
 # The adapter reads the managed execution profile for these three fields; the
 # constants re-export the product defaults for callers that only need the
 # shipped values. Nothing here reads the process environment at import time, so
@@ -78,236 +67,20 @@ DEFAULT_REASONING_EFFORT = MANAGED_REASONING_EFFORT_DEFAULT
 DEFAULT_SESSION_ROOT_NAME = ".dsh-sessions"
 
 
-def _bounded(value: Any, *, limit: int) -> str:
-    text = str(value or "").strip()
-    if len(text) > limit:
-        return text[: limit - 3].rstrip() + "..."
-    return text
-
-
-def _mapping(value: Any) -> dict[str, Any]:
-    return dict(value) if isinstance(value, Mapping) else {}
-
-
-def _canonical_hash(value: Any) -> str:
-    encoded = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return "sha256:" + sha256(encoded).hexdigest()
-
-
-def extract_turn_authority(request: Mapping[str, Any]) -> dict[str, Any]:
-    """Return the signed action and safety boundary exactly as projected."""
-
-    envelope = _mapping(request.get("turn_envelope"))
-    signature = _mapping(envelope.get("action_signature"))
-    source_hash = str(signature.get("source_hash") or "")
-    envelope_hash = str(signature.get("envelope_hash") or "")
-    computed_envelope_hash = _canonical_hash(
-        turn_envelope_action_signature_document(envelope)
-    )
-    if (
-        signature.get("matches") is not True
-        or not source_hash
-        or source_hash != envelope_hash
-        or envelope_hash != computed_envelope_hash
-    ):
-        raise ValueError("TurnEnvelope action signature is missing or does not match")
-
-    action = _mapping(envelope.get("action"))
-    primary_action = _bounded(
-        action.get("primary_action"),
-        limit=TEXT_LIMITS["recommended_action"],
-    )
-    if not primary_action:
-        raise ValueError("signed TurnEnvelope has no primary_action")
-
-    boundary = _mapping(envelope.get("boundary"))
-    required_reads = envelope.get("required_reads")
-    write_scope = boundary.get("write_scope")
-    return {
-        "primary_action": primary_action,
-        "required_reads": list(required_reads) if isinstance(required_reads, list) else [],
-        "write_scope": list(write_scope) if isinstance(write_scope, list) else [],
-        "workspace_guard": _mapping(boundary.get("workspace_guard")),
-    }
-
-
-def extract_action_text(request: Mapping[str, Any]) -> str:
-    """Return the bounded, control-plane-authored task body for the host."""
-
-    return str(extract_turn_authority(request)["primary_action"])
-
-
-def render_prompt(authority: Mapping[str, Any]) -> str:
-    """Wrap one signed Turn authority packet in a typed JSON result request.
-
-    dsh owns execution. The final assistant message is the only channel this
-    adapter reads back as a typed candidate; it stays public-safe and bounded.
-    """
-
-    authority_json = json.dumps(
-        dict(authority),
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return (
-        "You are executing one bounded LoopX-governed work segment.\n"
-        "The JSON below is the complete host authority for this Turn. Execute "
-        "primary_action only after required_reads, write only inside write_scope, "
-        "and obey workspace_guard. Do not infer authority from other prose.\n\n"
-        f"Turn authority JSON:\n{authority_json}\n\n"
-        "When finished, return only one JSON object (no Markdown fence) with "
-        "these public-safe fields:\n"
-        "- result_kind: one of validated_progress | repair_required | "
-        "replan_required | user_action_required | wait | iteration_failed\n"
-        "- classification: short label (<=120 chars)\n"
-        "- summary: what changed or why stopped (<=400 chars)\n"
-        "- recommended_action: the bounded follow-up recommendation (<=1200 chars)\n"
-        "- next_action: the concrete next step (<=1200 chars)\n"
-        "- vision_unchanged_reason: why the goal path is unchanged (<=240 chars)\n"
-        "Use repair_required when the task is sound but a recoverable defect "
-        "blocks it, replan_required when this route is exhausted, and "
-        "wait/user_action_required when no material write is safe, and "
-        "iteration_failed when this iteration failed without authorizing a "
-        "retry or successor. "
-        "Do not include raw transcripts, credentials, or absolute local paths."
-    )
-
-
-def parse_model_json(text: str) -> dict[str, Any] | None:
-    """Parse the dsh final assistant message as one JSON object.
-
-    Prefer exact JSON; fall back to the outermost object so a model that wraps
-    the result in prose or a code fence still produces a typed candidate.
-    """
-
-    value = text.strip()
-    if not value:
-        return None
-    try:
-        parsed = json.loads(value)
-        if isinstance(parsed, dict):
-            return parsed
-    except json.JSONDecodeError:
-        pass
-
-    # Strip a Markdown code fence if present.
-    lines = value.splitlines()
-    if lines and lines[0].strip().startswith("```"):
-        lines = lines[1:]
-    if lines and lines[-1].strip().startswith("```"):
-        lines = lines[:-1]
-    value = "\n".join(lines).strip()
-
-    start = value.find("{")
-    end = value.rfind("}")
-    if start == -1 or end == -1 or end <= start:
-        return None
-    try:
-        parsed = json.loads(value[start : end + 1])
-    except json.JSONDecodeError:
-        return None
-    return parsed if isinstance(parsed, dict) else None
-
-
 def build_result(
     request: Mapping[str, Any],
     candidate: Mapping[str, Any] | None,
     *,
     fallback_reason: str = "",
 ) -> dict[str, Any]:
-    """Shape a dsh model result block into a valid loopx_turn_result_v0."""
-
-    turn_key = str(request.get("turn_key") or "")
-    if candidate is None:
-        # Fail closed: no typed material claim means a stop, never fabricated
-        # progress. This spends no quota.
-        return {
-            "schema_version": LOOPX_TURN_RESULT_SCHEMA,
-            "turn_key": turn_key,
-            "result_kind": "wait",
-            "completed_phases": list(COMPLETED_PHASES),
-            "classification": "no_typed_host_result",
-            "next_action": _bounded(
-                fallback_reason
-                or "DeepSeek Harness returned no typed JSON result; rerun or inspect the dsh session.",
-                limit=TEXT_LIMITS["next_action"],
-            ),
-            "vision_unchanged_reason": _bounded(
-                "host adapter could not confirm a material change",
-                limit=TEXT_LIMITS["vision_unchanged_reason"],
-            ),
-        }
-
-    kind = str(candidate.get("result_kind") or "").strip()
-    if kind not in ACCEPTED_RESULT_KINDS:
-        return {
-            "schema_version": LOOPX_TURN_RESULT_SCHEMA,
-            "turn_key": turn_key,
-            "result_kind": "wait",
-            "completed_phases": list(COMPLETED_PHASES),
-            "classification": "unsupported_host_result_kind",
-            "next_action": _bounded(
-                fallback_reason
-                or "DeepSeek Harness returned unsupported result_kind "
-                + repr(kind) + ".",
-                limit=TEXT_LIMITS["next_action"],
-            ),
-            "vision_unchanged_reason": _bounded(
-                "host adapter could not accept the returned result kind",
-                limit=TEXT_LIMITS["vision_unchanged_reason"],
-            ),
-        }
-    result: dict[str, Any] = {
-        "schema_version": LOOPX_TURN_RESULT_SCHEMA,
-        "turn_key": turn_key,
-        "result_kind": kind,
-        "completed_phases": list(COMPLETED_PHASES),
-    }
-    for field, limit in TEXT_LIMITS.items():
-        if field == "vision_unchanged_reason":
-            continue
-        value = candidate.get(field)
-        text = _bounded(value, limit=limit) if value else ""
-        if text:
-            result[field] = text
-
-    if kind in MATERIAL_KINDS:
-        result["delivery_batch_scale"] = "single_surface"
-        result["delivery_outcome"] = "outcome_progress"
-        # Material results require these bounded text fields; fill them from
-        # adjacent fields if the model returned a sparse block.
-        if not result.get("recommended_action"):
-            result["recommended_action"] = _bounded(
-                result.get("next_action") or result.get("classification") or kind,
-                limit=TEXT_LIMITS["recommended_action"],
-            )
-        if not result.get("next_action"):
-            result["next_action"] = _bounded(
-                result.get("recommended_action"),
-                limit=TEXT_LIMITS["next_action"],
-            )
-        if not result.get("classification"):
-            result["classification"] = _bounded(
-                kind, limit=TEXT_LIMITS["classification"]
-            )
-    # This adapter has no goal-vision packet, so the executor treats the path
-    # delta as unchanged and requires a bounded reason for material results.
-    result["vision_unchanged_reason"] = _bounded(
-        candidate.get("vision_unchanged_reason")
-        or (
-            "host reported material work without a goal vision replan packet"
-            if kind in MATERIAL_KINDS
-            else "host reported no material change"
-        ),
-        limit=TEXT_LIMITS["vision_unchanged_reason"],
+    """Preserve the published DSH adapter's diagnostic wording."""
+    if candidate is None and not fallback_reason:
+        fallback_reason = (
+            "DeepSeek Harness returned no typed JSON result; rerun or inspect the dsh session."
+        )
+    return _build_host_result(
+        request, candidate, fallback_reason=fallback_reason, host_name="DeepSeek Harness",
     )
-    return result
 
 
 def build_sdk_config(
