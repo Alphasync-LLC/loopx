@@ -127,7 +127,7 @@
       "Model and reasoning effort match, but transport, session lifetime, and scheduling differ between LoopX and the baselines. No single mechanism is isolated.",
       "Effective aggregates include replacement trials, some with longer LoopX limits. This is not a strictly matched-budget comparison.",
       "Hidden evaluation grades the final result; continuation does not automatically reveal an unknown correct solution. Recovering work and solving the task remain distinct.",
-      "Accounting differs: LoopX records $551.73, while Plain and native Goal estimate $212.97 and $87.58. A higher mean does not establish better efficiency."
+      "Accounting differs: LoopX records $551.73, while Plain and native Goal estimate $212.97 and $344.25. A higher mean does not establish better efficiency."
     ],
     "nextTitle": "Three questions worth testing",
     "nextBody": "At equal budgets, which tasks does LoopX finish beyond native Goal? Do its larger gains over Plain survive repeated runs? Can independent acceptance and rollback reduce losses like DuckDB?",
@@ -282,7 +282,7 @@
       "模型与推理强度一致，但 LoopX 与基线同时存在传输、会话和调度策略差异，不能把收益归因于某一个机制。",
       "有效聚合包含替代 trial，部分 LoopX 替代运行采用更长时限；当前结果不是严格匹配预算的对照。",
       "隐藏评测负责最终评分，续跑不能自动获得未知的正确解；恢复能力与任务本身能否解决是两件事。",
-      "成本记录口径不同；LoopX 记录 $551.73，Plain 与原生 Goal 分别估算 $212.97、$87.58。均分更高不等于效率更高。"
+      "成本记录口径不同；LoopX 记录 $551.73，Plain 与原生 Goal 分别估算 $212.97、$344.25。均分更高不等于效率更高。"
     ],
     "nextTitle": "最值得追问的三个问题",
     "nextBody": "相同预算下，LoopX 还能比原生 Goal 多完成哪些任务？对 Plain 的较大增益能否跨重复运行保留？独立验收和回滚能否减少 DuckDB 这类退步？",
