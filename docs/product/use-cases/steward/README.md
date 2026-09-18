@@ -24,10 +24,10 @@ fact the workspace surfaces render, not a claim about a live Goal.
 | 1 | Looks at the first screen | Goal board lanes (needs you / running / observing / scheduled), each Goal card naming its Agent and its next sentence | Proven |
 | 2 | Asks the steward in the Goal conversation | The steward's bounded prompt row (`询问下一步` / `向 Agent 获取进度报告` / `配置定时检查` / `看阻塞` / `查证据`) sends its message on click and leaves no draft, the ask becomes an accepted Turn, and the admitted team plan card lands in the same conversation | Proven |
 | 3 | Reads the card | Per lane: the Agent, the first bounded Todo with priority and action kind, the acceptance signal, and an explicitly unstaffed lane that keeps the work it did not staff; the quota envelope and stop condition; a statement that confirming is what creates the lanes | Proven |
-| 4 | Confirms | Exactly one apply and one durable write; the card reports that LoopX state will refresh | Proven, but see gap 1 |
-| 5 | Checks who can actually work | — | Gap 2 |
-| 6 | Corrects or pauses one lane | — | Gap 3 |
-| 7 | Waits for a lane to fail and asks who fixes it / judges completion | — | Gaps 4, 5 |
+| 4 | Confirms | Exactly one apply and one durable write; the result names each assigned lane and each item left unstaffed with its reason, and says the execution progress is not what this result claims | Proven |
+| 5 | Checks who can actually work | — | Gap 1 |
+| 6 | Corrects or pauses one lane | — | Gap 2 |
+| 7 | Waits for a lane to fail and asks who fixes it / judges completion | — | Gaps 3, 4 |
 
 Beats 5–7 are recorded by the scenario as typed gaps with the probe that looked
 for them. They are not "not implemented here" hand-waving: the scenario names
@@ -74,11 +74,18 @@ gitignored. No live Goal, Agent, credential or local path is read or captured.
 
 | # | Gap | Evidence the scenario recorded | Owner surface |
 | --- | --- | --- | --- |
-| 1 | A confirmed plan does not distinguish committed / partial / all-gap / stale / rejected per lane | probe: the only outcome sentence is the generic applied notice | steward plan commit (roadmap R1 remainder) |
-| 2 | No per-lane readiness ladder (registered → bound → launchable → executing) | probe: no lane-readiness element or phrase | steward readiness (roadmap R2 / audit F6) |
-| 3 | No lane-level correction (pause or supersede a confirmed commitment) | probe: no lane-correction element; only run steering exists | shared alignment (roadmap R4) |
-| 4 | A failed lane does not name its blocker owner and next step | probe: no lane-blocker element or phrase | recovery/continuation (roadmap R3) |
-| 5 | Completion is not judged by the lane's returned result | probe: no lane-return element or phrase | return delivery (roadmap R3) |
+| 1 | No per-lane readiness ladder (registered → bound → launchable → executing) | probe: no lane-readiness element or phrase | steward readiness (roadmap R2 / audit F6) |
+| 2 | No lane-level correction (pause or supersede a confirmed commitment) | probe: no lane-correction element; only run steering exists | shared alignment (roadmap R4) |
+| 3 | A failed lane does not name its blocker owner and next step | probe: no lane-blocker element or phrase | recovery/continuation (roadmap R3) |
+| 4 | Completion is not judged by the lane's returned result | probe: no lane-return element or phrase | return delivery (roadmap R3) |
+
+The confirm result used to be gap 1, recorded as "the only outcome sentence is
+the generic applied notice". A confirmed plan now reports which work it
+assigned, to whom, and what it left unstaffed and why, so the scenario asserts
+that contract instead of treating it as a gap: the result must name every
+assigned lane and every unstaffed item with its reason. What it still does not
+claim is execution — the surface says the assignment is recorded and points at
+the Goal for progress, which is why beat 5 remains gap 1 rather than proven.
 
 The steward prompt row used to be gap 1. The scenario now asserts it instead of
 probing it: the row must expose the five shipped labels, clicking `看阻塞` must

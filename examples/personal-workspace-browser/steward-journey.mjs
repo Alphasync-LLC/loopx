@@ -10,10 +10,10 @@
 // Everything here is synthetic: the fixture substitutes the agent turn, and no
 // live workspace, Goal, agent or local path is read or captured.
 
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import { outputDir, packaged } from "./fixture.mjs";
+import { outputDir, packaged, repoRoot } from "./fixture.mjs";
 import { openWorkspacePage } from "./scenario-context.mjs";
 
 const GOAL_ID = "product-release";
@@ -345,6 +345,30 @@ export const stewardJourneyScenario = {
       console.log(
         `steward-journey mode=${servedMode} beats=${beats.length} gaps=${gapBeats.join(",") || "none"}`,
       );
+
+      // The product case is the owner-facing reading of this run, and it drifted
+      // silently once already: a lane delivered the confirm result while the
+      // table still called it a gap. The tables are checked here rather than in
+      // review because the run is the only thing that knows which gaps are open.
+      for (const [caseDoc, gapHeading] of [
+        ["docs/product/use-cases/steward/README.md", "Recorded Gaps And Owners"],
+        ["docs/product/use-cases/steward/README.zh-CN.md", "已记录缺口与归属"],
+      ]) {
+        const text = await readFile(resolve(repoRoot, caseDoc), "utf8");
+        const headingAt = text.indexOf(`## ${gapHeading}`);
+        check(headingAt >= 0, `${caseDoc} keeps its gap section heading`);
+        const section = headingAt < 0 ? "" : text.slice(headingAt).split(/\n## /)[0];
+        const gapRows = section.split("\n").filter((line) => /^\| \d+ \| /.test(line));
+        check(
+          gapRows.length === gapBeats.length,
+          `${caseDoc} lists ${gapRows.length} gaps but this run recorded ${gapBeats.length} (${gapBeats.join(", ") || "none"})`,
+        );
+        check(
+          !text.includes("the only outcome sentence is the generic applied notice")
+            && !text.includes("只有一条通用的“已应用”提示"),
+          `${caseDoc} still keeps the confirm-result gap this run proves present`,
+        );
+      }
     } finally {
       await context.close();
     }
