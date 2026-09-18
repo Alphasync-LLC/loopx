@@ -41,35 +41,43 @@
   box-shadow: inset 3px 0 0 var(--bm-blue);
 }
 
-.lhtb-delta-strip {
+.lhtb-comparisons {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   border-top: 1px solid var(--bm-border);
   border-left: 1px solid var(--bm-border);
 }
 
-.lhtb-delta-strip > div {
-  display: flex;
-  flex-direction: column;
-  min-height: 94px;
-  padding: 16px 18px;
+.lhtb-comparisons article {
+  padding: 24px;
   border-right: 1px solid var(--bm-border);
   border-bottom: 1px solid var(--bm-border);
   background: var(--bm-surface);
 }
 
-.lhtb-delta-strip strong {
+.lhtb-comparisons h3 { margin: 0 0 12px; font-size: 18px; }
+.lhtb-comparisons strong {
   color: var(--bm-blue);
   font-family: "Geist Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 26px;
-  font-weight: 560;
+  font-size: 32px;
+  font-weight: 600;
 }
-
-.lhtb-delta-strip span {
-  margin-top: auto;
-  color: var(--bm-muted);
-  font-size: 11px;
+.lhtb-comparisons span { margin-left: 12px; color: var(--bm-muted); font-size: 12px; }
+.lhtb-comparisons p { margin: 8px 0 0; color: var(--bm-body); font-size: 14px; }
+.lhtb-history { grid-column: 1 / -1; min-width: 0; }
+.lhtb-history summary { cursor: pointer; padding-block: 16px; font-weight: 600; }
+.lhtb-history > p { color: var(--bm-body); font-size: 14px; line-height: 1.7; }
+.lhtb-history-toggle {
+  justify-self: start;
+  padding: 12px 16px;
+  border: 1px solid var(--bm-border);
+  border-radius: 6px;
+  background: var(--bm-surface);
+  color: var(--bm-body);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
 }
 
 .lhtb-official-links {
@@ -108,7 +116,7 @@
 .lhtb-arm-flow {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   border-top: 1px solid var(--bm-border);
   border-left: 1px solid var(--bm-border);
 }
@@ -219,15 +227,11 @@
   letter-spacing: 0;
 }
 
-.lhtb-cases strong {
-  color: var(--bm-blue);
-  font-family: "Geist Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 16px;
-}
-
-.lhtb-cases > div:last-child strong {
-  color: var(--bm-amber);
-}
+.lhtb-case-scores { margin: 0; }
+.lhtb-case-scores > div { display: flex; justify-content: space-between; gap: 12px; padding-block: 3px; }
+.lhtb-case-scores dt { color: var(--bm-muted); font-size: 11px; }
+.lhtb-case-scores dd { margin: 0; font-family: "Geist Mono", monospace; font-size: 13px; }
+.lhtb-case-scores > div:last-child { color: var(--bm-blue); font-weight: 600; }
 
 .lhtb-cases p {
   margin: 10px 0 0;
@@ -425,8 +429,8 @@
     font-size: 40px;
   }
 
-  .lhtb-delta-strip {
-    grid-template-columns: 1fr 1fr;
+  .lhtb-comparisons {
+    grid-template-columns: 1fr;
   }
 
   .lhtb-arm-flow {
