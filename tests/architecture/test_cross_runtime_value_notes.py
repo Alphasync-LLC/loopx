@@ -12,31 +12,37 @@ edit, and a shared tail is where same-diff rules get lost in a merge.
 
 The bar a note has to meet is the one #4625/#4626 set, and it is not "a
 sentence exists". A note says **which condition produces the value** — what has
-to be true at runtime for the code to choose it. A note that rephrases the
-identifier, or that only records what happens next, leaves the reader exactly
-where they started: reconstructing control flow from the generated rule table.
-Either is worse than an empty note, because the coverage count then says the
-value is covered.
+to be true at runtime for the code to choose it.
 
-What this file actually enforces is narrower than that bar, and the difference
-matters when reading a green run. The restatement test catches the rephrasing
-case mechanically, because a restatement carries no words beyond its own
-identifier. It does not catch a fluent note that records only the disposition,
-and it cannot check that a stated condition is true or still matches the code.
-Those remain review obligations: the ratchet makes an omission visible in the
-diff, it does not certify the prose.
+What this file enforces is narrower than that bar, and the difference matters
+when reading a green run. It proves that an entry exists, that a blank entry
+does not count as one, and that an entry reporting the condition as unresolved
+names the evidence that would settle it. It cannot tell a note that states the
+producing condition from one that rephrases its own identifier or records only
+the disposition that follows, and it cannot check that a stated condition was
+ever true or still matches the code after the code moves. Whether the prose is
+true, and whether it still matches the code, stays a review obligation; a green
+run does not certify it.
+
+Earlier revisions of this file tried to close part of that gap with a character
+floor and a count of the note's non-stopword words. Both are gone. A word count
+cannot show that a note names the producing condition, and the behaviour it
+does reliably change is to reward padding. Capping how many values may say
+"unresolved" fails the same way from the other side: a budget on honesty
+pressures the next author to invent a producing condition rather than record
+that the evidence is missing, which is the outcome the RFC's evidence rules
+exist to prevent.
 
 Where the producing condition genuinely cannot be established from the code,
-the honest note is the one the RFC's evidence rules require: say it is
-unresolved and say what evidence is missing. Those are spelled
-``Unresolved: ... Missing evidence: ...`` so they are countable, and
-``UNRESOLVED_BUDGET`` keeps them from quietly becoming the easy default.
+the honest note is the one those evidence rules require: say it is unresolved
+and say what evidence is missing. Those are spelled
+``Unresolved: ... Missing evidence: ...``, so the shape is checkable here and
+the count stays readable from the registry for anyone who wants to track it.
 """
 
 from __future__ import annotations
 
 import copy
-import re
 import runpy
 from pathlib import Path
 
@@ -59,52 +65,13 @@ CROSS_RUNTIME_VOCABULARIES = sorted(
 )
 
 # An unresolved note is a legitimate outcome, not a loophole: it must name the
-# evidence that would settle the value. The budget is the measurement taken
-# when this tier was first documented; it may fall, and it may not rise without
-# a diff that says why.
-#
-# The two are ``settlement_failure_kind.cancelled`` (declared in both owners and
-# admitted by the decoders, selected by no branch, exercised only by tests that
-# fabricate it) and ``todo_decision_scope_kind.other`` (an accepted member with
-# no producer, no fallback, and no documented rule for when an author picks it).
-UNRESOLVED_BUDGET = 2
-
+# evidence that would settle the value.
 UNRESOLVED_PREFIX = "unresolved:"
 MISSING_EVIDENCE_MARKER = "missing evidence:"
-
-# A note is prose, so the restatement check has to ignore the words that carry
-# no information about the producing condition.
-STOPWORDS = frozenset("""
-a an and are as at be been but by can cannot for from has have if in into is it
-its no not of on one only or so than that the their then there these this to
-under until up was when where which while who why with without
-""".split())
-
-_WORD = re.compile(r"[a-z0-9]+")
-
-# A note that says which condition produces a value needs a real sentence. These
-# floors are deliberately low: they catch the bare-restatement failure mode, not
-# terse-but-substantive prose.
-MIN_NOTE_CHARACTERS = 40
-MIN_INFORMATIVE_WORDS = 6
 
 
 def _note(name: str, value: str) -> str:
     return str((_VOCABULARIES[name].get("value_notes") or {}).get(value) or "").strip()
-
-
-def _informative_words(note: str, *own: str) -> set[str]:
-    """Words in ``note`` that are not stopwords and not echoes of the names.
-
-    ``own`` is the value and its vocabulary; a note built only out of those
-    tokens has restated the identifier rather than explained it.
-    """
-    own_tokens = {token for name in own for token in _WORD.findall(name.lower())}
-    return {
-        word
-        for word in _WORD.findall(note.lower())
-        if len(word) > 2 and word not in STOPWORDS and word not in own_tokens
-    }
 
 
 def _undocumented(vocabulary: dict) -> list[str]:
@@ -152,35 +119,14 @@ def test_an_empty_or_whitespace_note_does_not_count_as_coverage() -> None:
 
 
 @pytest.mark.parametrize("name", CROSS_RUNTIME_VOCABULARIES)
-def test_a_note_must_not_merely_restate_its_own_value(name: str) -> None:
-    """Coverage that only rephrases the identifier is worse than no coverage.
-
-    ``surface_only: "The outcome is surface only."`` passes a presence check and
-    tells a reader nothing, while making the tier look documented. A note has to
-    carry words that are not just its own name spelled out.
-    """
-    vocabulary = _VOCABULARIES[name]
-    thin = []
-    for value in vocabulary["values"]:
-        note = _note(name, value)
-        informative = _informative_words(note, value, name)
-        if len(note) < MIN_NOTE_CHARACTERS or len(informative) < MIN_INFORMATIVE_WORDS:
-            thin.append((value, len(note), sorted(informative)))
-    assert not thin, (
-        f"{name}: notes that restate the value instead of saying what produces it "
-        f"(need >={MIN_NOTE_CHARACTERS} chars and >={MIN_INFORMATIVE_WORDS} words that are "
-        f"not the value's own name): {thin}"
-    )
-
-
-@pytest.mark.parametrize("name", CROSS_RUNTIME_VOCABULARIES)
 def test_an_unresolved_note_must_name_the_missing_evidence(name: str) -> None:
     """"Unresolved" is an allowed answer only when it says what would settle it.
 
     The RFC's evidence rules forbid inventing a meaning to fill the table. They
     equally forbid an unresolved marker that is just a shrug: the note has to
     name the evidence whose absence blocks the reading, so a later diff knows
-    what to go and find.
+    what to go and find. Nothing here caps how many values may be unresolved —
+    a cap would buy a smaller count by making the next author guess.
     """
     vocabulary = _VOCABULARIES[name]
     unnamed = []
@@ -191,30 +137,6 @@ def test_an_unresolved_note_must_name_the_missing_evidence(name: str) -> None:
     assert not unnamed, (
         f"{name}: unresolved notes must say what evidence is missing, spelled "
         f"'Missing evidence: ...': {unnamed}"
-    )
-
-
-def test_unresolved_values_stay_within_their_budget() -> None:
-    """Unresolved must not drift into being the cheap default.
-
-    The budget is a measurement, so it discloses slack the way the inventory
-    ratchets do: if the real count has fallen below the pin, the pin is stale
-    and the message says by how much.
-    """
-    unresolved = sorted(
-        f"{name}.{value}"
-        for name in CROSS_RUNTIME_VOCABULARIES
-        for value in _VOCABULARIES[name]["values"]
-        if _note(name, value).lower().startswith(UNRESOLVED_PREFIX)
-    )
-    assert len(unresolved) <= UNRESOLVED_BUDGET, (
-        f"unresolved cross_runtime values grew past the budget "
-        f"{UNRESOLVED_BUDGET}: {unresolved}"
-    )
-    slack = UNRESOLVED_BUDGET - len(unresolved)
-    assert slack == 0, (
-        f"UNRESOLVED_BUDGET is stale by {slack}; lower it to {len(unresolved)} "
-        f"in the diff that resolved the values"
     )
 
 
