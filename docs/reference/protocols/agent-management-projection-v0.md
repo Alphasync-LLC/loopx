@@ -91,7 +91,8 @@ Required fields:
 - `agent_id`;
 - `agent_model`: `peer_v1`;
 - `state`: one of `running`, `waiting`, `blocked`, `monitoring`,
-  `scope_wait`, `stale`, or `unknown`;
+  `scope_wait`, `stale`, `unknown`, `registered`, `addressable`, `bound`,
+  `launchable`, `executing`;
 - `current_todo`: a `todo_row_v0` object or `null`;
 - `next_action`: compact local-control next action text. Private project refs
   are allowed; inline credentials are not. Shareable sinks must redact private

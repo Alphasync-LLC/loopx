@@ -133,7 +133,7 @@ def main() -> int:
         if agent is None:
             failures.append(f"{agent_id}: missing from projection")
             continue
-        actual_state = agent.get("lifecycle_state")
+        actual_state = agent.get("state")
         if actual_state != expected_state:
             failures.append(
                 f"{agent_id}: expected {expected_state}, got {actual_state}"
