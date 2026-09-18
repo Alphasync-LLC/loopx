@@ -14,7 +14,6 @@ from inspect import signature
 from pathlib import Path
 from typing import Any
 
-from ...agent_registry import load_goal_from_registry, registered_agent_ids_for_goal
 from ...state_refresh import now_local
 from ..coordination.local_authority import (
     LOCAL_AUTHORITY_SOURCES,
@@ -34,7 +33,7 @@ from .completion_validation import (
     run_declared_completion_validation_effect,
 )
 from .contract import resolve_next_user_task_class
-from .mutation_authority import normalize_todo_lifecycle_authority
+from .mutation_authority import todo_lifecycle_facts
 from .path_resolution import resolve_todo_state_path
 from .provider_projection import projection_delivery_requires_ack, settle_canonical_todo_projection
 from .successor_derivation import build_successor_intents
@@ -181,21 +180,6 @@ def provider_first_terminal_lifecycle(command: str) -> Callable[[TodoMutation], 
     return decorate
 
 
-def _goal_facts(
-    registry_path: Path, goal_id: str
-) -> tuple[list[str], list[dict[str, Any]]]:
-    goal = load_goal_from_registry(registry_path, goal_id)
-    registered = registered_agent_ids_for_goal(goal)
-    coordination = goal.get("coordination") if isinstance(goal, Mapping) else None
-    grants = normalize_todo_lifecycle_authority(
-        coordination.get("todo_lifecycle_authority")
-        if isinstance(coordination, Mapping)
-        else None,
-        registered_agents=registered,
-    )
-    return registered, grants
-
-
 def _todo_by_id(
     todos: Iterable[Mapping[str, Any]], todo_id: str
 ) -> dict[str, Any] | None:
@@ -337,7 +321,7 @@ def terminal_canonical_todo_if_promoted(
     # The canonical transaction owns missing/role/archive lifecycle decisions.
     # Keep only the optional local validation facts needed by the host adapter.
     target = _todo_by_id(todos, todo_id) or {}
-    registered, grants = _goal_facts(registry_path, goal_id)
+    registered, grants = todo_lifecycle_facts(registry_path, goal_id)
     successor_intents = build_successor_intents(
         next_agent_todo=next_agent_todo,
         next_user_todo=next_user_todo,

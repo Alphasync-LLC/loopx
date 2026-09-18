@@ -6,11 +6,11 @@ This adapter preserves CLI text encoding and drains the committed projection.
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from ...agent_registry import registered_agent_ids_from_registry
 from ...state_refresh import now_local
 from ..coordination.local_authority import (
     LOCAL_AUTHORITY_SOURCES,
@@ -21,6 +21,7 @@ from ..effect_runtime import effect_runtime_result
 from .contract import compact_todo_text
 from .provider_projection import settle_canonical_todo_projection
 from .text import normalize_new_todo
+from .mutation_authority import todo_lifecycle_facts
 
 
 def update_canonical_todo_if_promoted(
@@ -31,9 +32,18 @@ def update_canonical_todo_if_promoted(
     operation_id: str | None = None, task_lease_idempotency_key: str | None = None,
     task_lease_expected_version: int | None = None,
     planning_intent: dict[str, Any] | None = None,
+    authority_reason: str | None = None,
+    expected_provider_revision: str | None = None,
+    expected_registry_sha256: str | None = None,
 ) -> dict[str, Any] | None:
     if not local_authority_is_promoted(runtime_root=runtime_root, goal_id=goal_id):
         return None
+    # The witness brackets fact projection and is rechecked by the native
+    # transaction. Reviewed edits additionally bind the preview's registry hash.
+    registry_sha256 = hashlib.sha256(registry_path.read_bytes()).hexdigest()
+    registered, grants = todo_lifecycle_facts(registry_path, goal_id)
+    if hashlib.sha256(registry_path.read_bytes()).hexdigest() != registry_sha256:
+        raise ValueError("Todo authority registration changed while reading; retry")
     patch: dict[str, Any] = {}
     if text is not None:
         patch["text"] = normalize_new_todo(text)
@@ -45,11 +55,14 @@ def update_canonical_todo_if_promoted(
         if normalized_note:
             patch["note"] = normalized_note
     result = effect_runtime_result("coordination.local_authority.todo_update", {
-        "schema_version": ("loopx_local_coordination_todo_update_request_v1" if planning_intent
-                           else "loopx_local_coordination_todo_update_request_v0"),
+        "schema_version": "loopx_local_coordination_todo_update_request_v2",
         "runtime_root": str(runtime_root.resolve()), "goal_id": goal_id,
         "todo_id": todo_id, "role": role, "actor_agent_id": actor_agent_id,
-        "registered_agents": registered_agent_ids_from_registry(registry_path, goal_id),
+        "registered_agents": registered, "lifecycle_grants": grants,
+        "authority_reason": authority_reason,
+        "registry_source": {"path": str(registry_path.resolve()), "sha256": registry_sha256},
+        "expected_provider_revision": expected_provider_revision,
+        "expected_registry_sha256": expected_registry_sha256,
         "operation_id": operation_id if operation_id is not None else f"todo-update:{uuid4().hex}",
         "lease_idempotency_key": task_lease_idempotency_key,
         "lease_expected_version": task_lease_expected_version,
