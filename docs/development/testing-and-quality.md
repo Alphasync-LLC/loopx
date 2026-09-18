@@ -526,13 +526,15 @@ profile 的条目表示 owner 待澄清，并不等于该测试没有价值。
 The interface budget gate measures stable command scenarios and compares the
 candidate checkout with its base. It catches accidental payload growth,
 duplicated diagnostics, and hot-path fields that silently return after a
-refactor. Budget changes are contract changes: update the implementation and
-the expectation together, explain every added or removed semantic field, and
-request owner review when the default agent-facing projection changes.
+refactor. Budgets protect useful, bounded decisions; historical ceilings are
+not optimization targets. Explain added or removed semantic fields and use the
+decision process below when changing a budget. Default agent-facing projection
+changes remain subject to the existing owner review.
 
 接口预算门会测量稳定命令场景，并比较 candidate 与 base，捕获意外膨胀、重复诊断
-以及重构后悄悄回到热路径的字段。预算变化就是合同变化：实现与期望必须一起修改，
-逐项解释新增或删除的语义字段；默认 agent-facing 投影变化时需要 owner review。
+以及重构后悄悄回到热路径的字段。预算保护有用且有界的决策，历史上限不是优化目标。
+解释新增或删除的语义字段，预算调整按下述流程判断；默认 agent-facing 投影变化
+仍遵循既有的 owner review。
 
 The full diagnostic packet remains an explicit drill-down surface. Moving a
 field off the default path is acceptable only when the default still tells the
@@ -540,6 +542,68 @@ agent what to do and how to request the omitted detail.
 
 完整诊断包保留为显式 drill-down。只有默认路径仍能告诉 agent 下一步做什么、以及
 如何请求被省略细节时，字段才能移出默认热路径。
+
+### Budget Failure Decisions
+
+Classify the limit by its owning contract before deciding how to repair a
+failure. This applies to output size/structure and latency regression budgets;
+it does not grant execution quota, spending, or provider authority.
+
+先根据所属合同判断上限的性质，再选择修复方式。这适用于输出尺寸、结构和延迟
+回归预算，不授予执行配额、费用额度或 provider 权限。
+
+| Limit / 上限 | Decision boundary / 决策边界 |
+| --- | --- |
+| Hard external or authorized limit / 外部或授权硬上限 | Respect the transport, storage, resource or owner constraint; a test edit cannot raise it. / 遵守传输、存储、资源或 owner 约束，改测试不能扩容。 |
+| Regression budget / 回归预算 | A measured guard against unexplained growth; preserving, reducing or increasing it needs consumer and cost evidence. / 用测量防止无解释增长；保持、压缩或扩容都依据消费者价值与成本。 |
+| Presentation cap / 展示上限 | Bound returned detail, not source truth; preserve selection, totals, completeness and drill-down. / 限制返回细节而非源事实；保留选择、总数、完整性与下钻路径。 |
+
+1. **Measure the same contract.** Record base/head revisions, workload, metric
+   and measurement boundary. Compact JSON characters, UTF-8 bytes, nested keys,
+   emitted stdout and tokens are different metrics. For latency, retain the
+   sample window, workload and distribution; acknowledge noise. Keep the
+   failing scenario and original result; do not shrink fixture populations,
+   scan roots or sampling depth to obtain a pass.
+2. **Inspect information value and redundancy.** Name the current consumer and
+   decision each changed field supports. Remove derivable or unused copies when
+   the consumer contract permits it. Similar rows in different lanes may serve
+   different consumers; deduplicating them needs caller migration/parity, not
+   just equal JSON. Prefer bounded summaries and reachable cold paths for
+   detail. Do not delete identity, completeness, safety or settlement semantics,
+   shorten names solely to pass, or build a reference framework for tiny savings.
+3. **Choose and disclose the tradeoff.** Compare compaction, retaining the
+   ceiling, and a justified increase; a combination is valid. For an increase,
+   explain the remaining useful cost, old/new ceiling, measured headroom and
+   expected variation or scale. No universal headroom percentage is required.
+   Update the owning contract and test expectation together, rerun the original
+   scenario and affected semantic/scale checks, and report both the original
+   failure and new result in existing PR validation and review evidence. A
+   budget-only change need not force unrelated code cleanup. Frozen experiment
+   or promotion thresholds stay fixed for that result; revised thresholds belong
+   to a new qualification, never a relabeled historical pass.
+
+1. **同口径测量。** 记录 base/head、负载、指标和测量边界。紧凑 JSON 字符、UTF-8
+   字节、嵌套键数、真实 stdout 和 token 不可互换。延迟要保留样本窗口、负载和
+   分布，并承认噪声。保留失败场景与原结果，不缩小 fixture、扫描范围或采样深度。
+2. **分析信息价值与真实冗余。** 说明变化字段服务哪个消费者、哪个决策。合同允许时
+   删除可推导或无人使用的副本；不同 lane 中相同的数据可能服务不同消费者，去重
+   需要调用方迁移和语义等价验证。详情优先使用有界摘要和可达冷路径。不能删身份、
+   完整性、安全或结算语义，不能只为过线缩字段名，也不为微小收益制造引用框架。
+3. **选择并披露取舍。** 比较压缩、保持上限、合理扩容，也可组合使用。扩容需说明
+   保留信息的价值与成本、新旧上限、实测余量和预期波动或规模，不规定统一余量比例。
+   合同和测试同步修改，重跑原场景及受影响的语义/规模检查，在既有 PR 验证和评审
+   证据中同时保留原失败与新结果。纯预算调整不必捆绑无关清理。已冻结的实验或
+   promotion 阈值不能追溯放宽；新阈值属于新一轮验证，不能改写历史结论。
+
+The PR-review packet's `semantic_alignment` rule consumes this evidence through
+the existing `validation_matrix` and `observable_semantics` rows. It does not
+add a separate budget receipt or approval gate. The result checker verifies
+evidence structure and verdict consistency; the reviewer still judges whether
+the measurements and tradeoff are sound.
+
+PR-review 的 `semantic_alignment` 通过既有 `validation_matrix` 和
+`observable_semantics` 使用这些证据，不增加独立预算回执或审批门。结果校验器检查
+证据结构和结论一致性；测量是否可信、取舍是否合理仍由评审判断。
 
 ## Decision Replay And Issue #2191 / 决策回放与 #2191
 

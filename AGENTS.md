@@ -299,6 +299,18 @@ with a nested `uv run`, rewrite historical execution receipts, or commit a
 generated `uv.lock` as part of an unrelated change. See the testing and quality
 guide for the validation layers and the source-checkout environment boundary.
 
+### Evidence-Based Budget Decisions
+
+When a size, structure, latency, or similar regression budget fails, follow the
+[budget decision guide](docs/development/testing-and-quality.md#budget-failure-decisions).
+Establish what the limit protects, measure the same base/head workload, and
+inspect consumer value and true redundancy before choosing compaction, keeping
+the limit, or an evidence-backed increase. Preserve decision semantics and
+compatibility; neither a historical ceiling nor a green revised test is the
+objective. Record the tradeoff in existing PR validation/review evidence, not a
+new approval workflow. Hard limits and frozen experiment/promotion criteria
+retain their owning authority and cannot be reclassified to erase a failure.
+
 ### Refactor Real-Path Validation
 
 Before delivering a refactor, validate the affected production entrypoint and

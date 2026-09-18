@@ -74,8 +74,8 @@ status collection.
 
 The canonical emitted-output inventory and current characterization ceilings
 live in `loopx.control_plane.testing.cli_output_budget`. Those ceilings are
-regression baselines, not target sizes: preserving a large current value makes
-unreviewed growth fail while a later optimization lowers the ceiling. Tests
+regression baselines, not target sizes: unexplained growth fails, while measured
+consumer value can justify compaction or a reviewed increase. Tests
 also record UTF-8 bytes, line count, JSON parseability, pretty-print overhead,
 semantic anchors, collection-growth slope, and bootstrap duplication. Every
 declared agent-facing surface must name an owner, consumer action, and cold-path
@@ -141,8 +141,12 @@ Restraint rules for new fields:
    decision summary into a hot-path surface.
 2. A hot-path field must answer a current consumer action. If the consumer only
    says "nice to inspect", keep the field in the cold path.
-3. A new nested object must either stay within the nested budget above or retire
-   / compact an older field in the same surface.
+3. For a new nested object or a budget failure, compare compaction, retaining the
+   limit, and an evidence-backed increase using the
+   [budget decision guide](../../development/testing-and-quality.md#budget-failure-decisions).
+   Update the owning contract and tests together when the budget changes;
+   preserve semantic checks and the original measurement scope. Similar
+   objects with different consumers are not automatically redundant.
 4. Do not add prompt branches to compensate for an unclear payload. Clarify the
    status/quota/review-packet contract instead.
 5. If a short worker would need to read more than one hot-path payload before it
