@@ -234,6 +234,17 @@ These priorities do not change live Goal quota or authorize experiments/cloud re
 - **Exit:** 2–3 workers, one dependency, one failure and one direction correction; Agents select and revise delegation without manual phase input or result forwarding. Inspect through packaged frontend and independent CLI readback. An authorized Lark entry reads the corresponding audience-visible feedback. Untested Lark remains explicitly unqualified.
 - **Rollback:** stop new admission, drain accepted work and retain bindings/receipts; attached fallback cannot be used to simulate availability.
 
+**Optional cloud Turn slice.** The [Ark adapter](../../../packages/loopx-ark-turn/README.md)
+uses the existing generic-cli Turn entrypoint and shares DSH request/candidate
+conversion. The [synthetic research example](../../../examples/managed-research-team/README.md)
+composes a cloud coordinator and registered local workers with independent
+artifact acceptance; the Agent chooses delegation without manual phase input.
+Provider receipts own execution/cleanup only. This enables a reusable bounded
+host, not G1 completion: persistent supervision, full inbox/queue/steer,
+shared authority and packaged frontend/Lark team delivery remain R2/R3/R6 work.
+The existing peer collaboration owner is reused through its MCP surface; this
+slice adds no alternative Inbox, manager factory or default executor selection.
+
 ### R3: Semantic Requests and Automatic Return
 
 - **Owner:** manager RFC M2/M3; migrate existing `manager_context` request/tracking/return into one typed collaboration transaction, incorporating the #4094 adapter.

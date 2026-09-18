@@ -230,6 +230,15 @@ R2 的一条依赖必须通过真实 LoopX Agent 间的请求/产物交接完成
 - **退出：** 2–3 worker、一个依赖、一个故障、一个方向补充；Agent 自主选择和修订委派，无人工 phase 输入或结果转发。经 packaged frontend 查看，同一状态能从 CLI 读回；Lark 的授权入口能读到对应受众可见反馈。无 Lark 实测则该入口标为未验收。
 - **回滚：** 停止新增 admission，drain 已接受工作并保留绑定/receipt；不能借 attached fallback 保持“在线”。
 
+**可选云端 Turn 切片。** [Ark 适配器](../../../packages/loopx-ark-turn/README.md)
+复用现有 generic-cli Turn 入口，与 dsh 共用请求校验和候选结果转换。
+[合成投研示例](../../../examples/managed-research-team/README.md)组合云端协调员和
+已注册本地 worker，通过独立产物验收，由 Agent 自主选择委派而不人工输入 phase。
+Provider 回执只管理执行与清理。这交付可复用的有界宿主，不代表 G1 完成：持久监督、
+完整 inbox/queue/steer、共享权威及 packaged frontend/Lark 团队交付仍归 R2/R3/R6。
+现有 peer 协作 owner 可通过其 MCP 入口复用；本切片不增加另一份 Inbox、管家工厂或
+默认执行器选择。
+
 ### R3：语义请求与自动回报
 
 - **Owner：** 管家 RFC M2/M3；从已有 `manager_context` request/tracking/return 迁移到单一 typed collaboration 事务，纳入 #4094 adapter。
