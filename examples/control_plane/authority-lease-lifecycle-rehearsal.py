@@ -39,6 +39,7 @@ const {executeTaskLeaseAcquire: currentAcquire}=await moduleAt(input.repo,'work_
 const {executeTaskLeaseAcquire: legacyAcquire}=await moduleAt(input.baseline_repo,'work_items/task_lease_acquire.ts');
 const {executeTaskLeaseLifecycle: current}=await moduleAt(input.repo,'work_items/task_lease_lifecycle.ts');
 const {executeTaskLeaseLifecycle: legacy}=await moduleAt(input.baseline_repo,'work_items/task_lease_lifecycle.ts');
+const {executeCoordinationTodoUpdate: update}=await moduleAt(input.repo,'coordination/todo_update.ts');
 const {FileAuthorityStore}=await moduleAt(input.repo,'coordination/file_authority_store.ts');
 const {SqliteAuthorityStore}=await moduleAt(input.repo,'coordination/sqlite_authority_store.ts');
 const {PostgreSqlAuthorityStore,installPostgreSqlAuthorityStoreSchema}=await moduleAt(input.repo,'coordination/postgresql_authority_store.ts');
@@ -47,7 +48,8 @@ const {coordinationTodoReadModel}=await moduleAt(input.repo,'coordination/coordi
 const {canonicalAuthorityBytes,canonicalAuthoritySha256}=await moduleAt(input.repo,'coordination/authority_store_codec.ts');
 const {engageLegacyCoordinationWriterFence}=await moduleAt(input.repo,'coordination/legacy_writer_fence.ts');
 const digest=value=>canonicalAuthoritySha256(value);
-const goal=input.goal_id, target='todo_lifecycle_rehearsal', acquisition='todo_acquire_rehearsal';
+const goal=input.goal_id, target='todo_lifecycle_rehearsal', acquisition='todo_acquire_rehearsal', handover='todo_claim_transfer_rehearsal';
+assert(!input.projection.todos.some(t=>t.todo_id===handover));
 assert(!input.projection.todos.some(t=>t.todo_id===acquisition));
 assert(!input.projection.todos.some(t=>t.todo_id===target));
 const initial=structuredClone(input.projection);
@@ -55,13 +57,15 @@ initial.todos.push({schema_version:'todo_item_v0',todo_id:target,role:'agent',st
   text:'Isolated lease lifecycle rehearsal',archive_state:'active',source_section:'Agent Todo',
   claimed_by:null,excluded_agents:[],task_class:'advancement_task'});
 initial.todos.push({...initial.todos.at(-1),todo_id:acquisition,text:'Isolated acquisition and takeover rehearsal'});
+initial.todos.push({...initial.todos.at(-1),todo_id:handover,text:'Isolated claimed execution handover',claimed_by:'agent-a'});
 initial.todos.sort((a,b)=>a.todo_id<b.todo_id?-1:a.todo_id>b.todo_id?1:0);
 initial.todo_read_model=coordinationTodoReadModel(initial.todos,initial.todo_read_model.schema_version);
 initial.handoff_mode='hard_lease';
 const original={schema_version:'task_lease_v0',goal_id:goal,todo_id:target,owner:'agent-a',
   idempotency_key:'rehearsal-a',version:3,lease_epoch:7,status:'active',write_scopes:['src/**'],
   acquire_ttl_seconds:600,acquired_at:'2026-09-13T10:00:00Z',updated_at:'2026-09-13T10:00:00Z',expires_at:'2026-09-13T10:10:00Z'};
-initial.leases.push(original); initial.leases.sort((a,b)=>a.todo_id<b.todo_id?-1:a.todo_id>b.todo_id?1:0);
+initial.leases.push(original,{...original,todo_id:handover,idempotency_key:'handover-a',write_scopes:['handover/**']});
+initial.leases.sort((a,b)=>a.todo_id<b.todo_id?-1:a.todo_id>b.todo_id?1:0);
 const root=await mkdtemp(join(tmpdir(),'loopx-lease-rehearsal-'));
 const pool=new Pool({connectionString:process.env.LOOPX_TEST_POSTGRES_URL,max:4});
 const database={connect:async()=>{const c=await pool.connect();return {query:async(t,v)=>c.query(t,v),release:e=>c.release(e)};}};
@@ -148,18 +152,36 @@ try {
     const invalidReceiver=await invoke({...transfer,new_owner:'unknown-agent',expected_version:5});
     assert.equal(invalidReceiver.error_code,'owner_not_registered');
     const replay=await invoke(transfer);
+    const claimedTransfer={...transfer,todo_id:handover,idempotency_key:'handover-a',new_idempotency_key:'handover-b'};
+    assert.equal((await invoke(claimedTransfer)).error_code,'owner_conflicts_with_claim');
+    const jointRequest={...claimedTransfer,schema_version:'loopx_canonical_task_lease_claim_transfer_request_v0',transfer_claim:true};
+    const joint=await invoke(jointRequest);
     if (store) {
+      assert.equal(joint.ok,true);assert.equal(joint.claimed_by,'agent-b');assert.equal(joint.todo_changed,true);
+      assert.equal(joint.lease.owner,'agent-b');assert.equal(joint.lease.version,4);assert.equal(joint.lease.lease_epoch,8);
+      const edit={goal_id:goal,todo_id:handover,actor_agent_id:'agent-b',expected_role:'agent',registered_agents:['agent-a','agent-b'],
+        operation_id:'recipient-edit',patch:{note:'Receiver continues the same work'},clear_fields:[],dry_run:false,
+        lease_idempotency_key:'handover-b',lease_expected_version:4,now:new Date('2026-09-13T10:06:00Z')};
+      assert.equal((await update(store,{...edit,actor_agent_id:'agent-a',lease_idempotency_key:'handover-a',lease_expected_version:3})).reason_code,'update_owner_mismatch');
+      assert.equal((await update(store,edit)).status,'applied');
+      const recoveredJoint=await invoke(jointRequest);assert.equal(recoveredJoint.status,'replayed');
+      assert.deepEqual(recoveredJoint.original_receipt,joint.original_receipt);
       assert.equal(replay.status,'replayed');assert.deepEqual(replay.original_receipt,results[0].original_receipt);
       assert.deepEqual(replay.lease,results[0].lease);
-      const final=await store.loadAuthority();assert.equal(final.status,'loaded');assert.equal(final.cursor,'6');
-      assert.deepEqual(final.head.todos,initial.todos);
-      assert.deepEqual(final.head.leases.filter(l=>l.todo_id!==target&&l.todo_id!==acquisition),initial.leases.filter(l=>l.todo_id!==target));
+      const final=await store.loadAuthority();assert.equal(final.status,'loaded');assert.equal(final.cursor,'8');
+      assert.deepEqual(final.head.todos,initial.todos.map(t=>t.todo_id===handover?{...t,claimed_by:'agent-b',
+        last_actor_agent_id:'agent-b',note:'Receiver continues the same work',updated_at:'2026-09-13T10:06:00Z'}:t));
+      assert.deepEqual(final.head.leases.filter(l=>![target,acquisition,handover].includes(l.todo_id)),
+        initial.leases.filter(l=>![target,handover].includes(l.todo_id)));
+      assert.deepEqual(await readFile(join(leaseDir,`${handover}.json`)),Buffer.from(JSON.stringify(initial.leases.find(l=>l.todo_id===handover))));
       assert.deepEqual(await readFile(join(leaseDir,`${target}.json`)),legacyBefore);
       finalHeads[arm]=final.head;
-      report[arm]={passed:true,commits:6,historical_replay:'original_receipt',acquire_retry:'current_proof',retired_acquire_rejected:true};
+      report[arm]={passed:true,commits:8,historical_replay:'original_receipt',acquire_retry:'current_proof',retired_acquire_rejected:true,
+        atomic_claim_transfer:true,old_owner_rejected:true,recipient_update:true};
     } else {
+      assert.equal(joint.ok,false);assert.equal(joint.error_code,'schema_mismatch');
       assert.equal(replay.error_code,'lifecycle_receipt_state_mismatch');
-      report[arm]={passed:true,historical_replay:'baseline_rejected_after_later_mutation'};
+      report[arm]={passed:true,historical_replay:'baseline_rejected_after_later_mutation',atomic_claim_transfer:'unsupported'};
     }
     observations[arm]=[acquired,takeover,...results].map(r=>({lease:r.lease}));
   }
@@ -168,7 +190,7 @@ try {
   process.stdout.write(JSON.stringify({schema_version:'authority_lease_lifecycle_rehearsal_v0',
     initial_todos:initial.todos.length,initial_leases:initial.leases.length,fixture_sha256:digest(initial),
     observation_sha256:digest(observations.file),provider_head_sha256:digest(finalHeads.file),arms:report,
-    intentional_delta:'canonical_receipt_recovery_and_current_acquire_proof;_explicit_create_CAS_retry_no_longer_mismatches',non_target_records_unchanged:true}));
+    intentional_delta:'canonical_receipt_recovery_and_current_acquire_proof;_explicit_create_CAS_retry_no_longer_mismatches;_explicit_atomic_claim_transfer',non_target_records_unchanged:true}));
 } finally {
   for (const table of ['authority_receipts','authority_events','authority_commits','authority_heads'])
     await pool.query(`DELETE FROM loopx_control_plane.${table} WHERE tenant_id=$1`,[tenant]);

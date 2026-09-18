@@ -106,11 +106,23 @@ def _typescript_scan(
 ) -> list[Production]:
     if not ts_sources or not field:
         return []
-    rows = []
+    rows = run_typescript_scan(root, ts_sources, {'field': field, 'return_functions': returns, 'mode': mode})
+    # The parser names the same blocker vocabulary as the Python scanner;
+    # ``typescript_dynamic`` stays the fallback for a form it cannot classify.
+    return [Production(r['site'], r['line'], r['form'], frozenset(r['values']), r['unresolved'],
+                       (r.get('blocker') or 'typescript_dynamic') if r['unresolved'] else None)
+            for r in rows]
+
+
+def run_typescript_scan(
+    root: Path, ts_sources: list[SourceFile], request: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Run repository semantic AST analysis with one bounded error boundary."""
+    if not ts_sources:
+        return []
     completed = subprocess.run(
         ['node', str(root / 'scripts/semantic_production_scan.mjs')],
-        input=json.dumps({'field': field, 'sources': [{'path': s.path, 'text': s.text} for s in ts_sources],
-                          'return_functions': returns, 'mode': mode}),
+        input=json.dumps({**request, 'sources': [{'path': s.path, 'text': s.text} for s in ts_sources]}),
         capture_output=True, text=True, encoding="utf-8", timeout=60, check=False,
     )
     if completed.returncode:
@@ -126,12 +138,7 @@ def _typescript_scan(
                 and isinstance(error.get('line'), int) and error['line'] > 0):
             raise ValueError(f"{error['path']}:{error['line']}: invalid TypeScript source; repair syntax before semantic scanning")
         raise ValueError('TypeScript production parser failed; run npm ci --ignore-scripts and check the Node runtime')
-    # The parser names the same blocker vocabulary as the Python scanner;
-    # ``typescript_dynamic`` stays the fallback for a form it cannot classify.
-    rows.extend(Production(r['site'], r['line'], r['form'], frozenset(r['values']), r['unresolved'],
-                           (r.get('blocker') or 'typescript_dynamic') if r['unresolved'] else None)
-                for r in json.loads(completed.stdout))
-    return rows
+    return json.loads(completed.stdout)
 
 
 def collect_literal_uses(root: Path, field: str, sources: list[SourceFile]) -> dict[str, set[str]]:

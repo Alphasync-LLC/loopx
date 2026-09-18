@@ -111,6 +111,7 @@ TASK_LEASE_PROTOCOL_KEYS = (
     "lifecycle_request_schema",
     "canonical_renew_request_schema",
     "canonical_lifecycle_request_schema",
+    "canonical_claim_transfer_request_schema",
 )
 CAPABILITY_HOOK_PROTOCOL_KEYS = (
     "registration_schema",

@@ -508,6 +508,8 @@ Goal 迁移，L9 修改新 Goal 默认。每包用新的 owner 删除重复决�
 launcher：一个粗粒度 TS 请求拥有完整事务时，有限的 Python 输入／外部 effect
 adapter 可保留；不能把执行卡拆成不断新增 leaf RPC，也不能绕过仍在使用的 caller。
 
+Canonical 租约请求解码通过判别联合区分 provider mutation 与 legacy 持锁请求；既有租约 owner 组合显式 claim 交接与原 lease transition，在一次 CAS/receipt 中提交。Python 只传递 opt-in 并投递原 Markdown projection；双方资格复用注册 Todo 的限制规则。Canonical 命令不再携带 lock/PID/terminal-release 参数，已认领任务的原子交接由此闭合；自动上下文交付与跨外部 effect 的 executor fence 仍独立验收。见[操作与恢复](../../reference/canonical-lease-renew.md#atomically-hand-over-claimed-work)。
+
 **T2 — 闭合 monitor 写回及原子后续动作。**
 
 已交付有边界前置项：`scheduler/monitor_successor.ts` 统一 quota preflight、legacy
