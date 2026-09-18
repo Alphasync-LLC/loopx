@@ -126,8 +126,10 @@ def _typescript_scan(
                 and isinstance(error.get('line'), int) and error['line'] > 0):
             raise ValueError(f"{error['path']}:{error['line']}: invalid TypeScript source; repair syntax before semantic scanning")
         raise ValueError('TypeScript production parser failed; run npm ci --ignore-scripts and check the Node runtime')
+    # The parser names the same blocker vocabulary as the Python scanner;
+    # ``typescript_dynamic`` stays the fallback for a form it cannot classify.
     rows.extend(Production(r['site'], r['line'], r['form'], frozenset(r['values']), r['unresolved'],
-                           'typescript_dynamic' if r['unresolved'] else None)
+                           (r.get('blocker') or 'typescript_dynamic') if r['unresolved'] else None)
                 for r in json.loads(completed.stdout))
     return rows
 
