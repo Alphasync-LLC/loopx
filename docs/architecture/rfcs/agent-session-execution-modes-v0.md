@@ -558,6 +558,16 @@ Preserve feature-off behavior for every existing profile and entrypoint.
 
 DSH steward Chat is currently single-segment, read-only and without cross-turn host sessions; `turn run-once` is a separate bounded execution path. The next slice proves successor wake, cancellation/stop, crash recovery and returning stale-executor fences with packaged frontend/CLI/Lark readback. An executor name, one segment or multiple registrations cannot establish continuous managed execution. Disconnection never switches attached hosts to managed, and unqualified hosts retain their existing boundary.
 
+The opt-in [local delegation interface](../../reference/local-delegation.md)
+now provides durable operations around bounded Turns, including member-to-member
+launch grants and TS task acceptance. Its Ark process-loss drill resumes the
+original Session/input after cloud tool waiting; it does not resend acknowledged
+effects or reset the deadline. This qualifies local execution recovery, not
+successor wake, attached-host takeover or full fleet cancellation. Provider file
+profiles preserve the existing model/tool configuration boundary; the general
+Agent creation/model discovery proposal above remains separate.
+
+
 ## 12. Normative delivery plan
 
 | Milestone | Shipped behavior | Entry gate | Exit evidence | Rollback |

@@ -5,41 +5,36 @@ to analyze a filing and its correction. An Ark reviewer adopts a local
 analyst's result, independently checks it, and returns evidence for the local
 coordinator's combined report. There is no `phase` argument or script that
 selects the next business step. The model chooses questions and delegation order
-through three MCP tools: `read_assignment`, `delegate`, and `write_report`.
+through the [shared local delegation interface](../../docs/reference/local-delegation.md).
 
-This is a bounded composition example for the optional
-[Ark Turn adapter](../../packages/loopx-ark-turn/README.md), not a fleet scheduler.
-It prepares an isolated synthetic Goal, roster and worktrees, then launches one
-local DSH coordinator Turn. Each member uses the existing Todo and Turn owners:
-`--host dsh` locally, or `--host generic-cli` with the Ark provider remotely.
-The optional `--topology cloud-led` scenario retains cloud-to-local delegation.
-Neither profile replaces a persistent steward session or installs a supervisor.
+This composition example prepares an isolated synthetic Goal, roster and
+worktrees, then starts one local DSH coordinator Turn. Each member uses existing
+Todo, Turn and TS acceptance owners. Ark is an [optional execution provider](../../packages/loopx-ark-turn/README.md).
+The example supplies domain inputs, validators and operator bindings; it does
+not implement a separate scheduler or task database.
 
 ## Run
 
-From a matching source checkout, install the optional providers into the same
-interpreter. Use Node 24.21 or later for the qualified File/SQLite example.
-Default LoopX installations do not download either SDK.
+From a matching source checkout, install both optional providers into the same
+interpreter. Node 24.21 or later qualifies the File/SQLite example.
 
 ```bash
 uv sync --extra test --extra deepseek-harness
 uv pip install --python .venv/bin/python -e packages/loopx-ark-turn
 ```
 
-Configure `ARK_API_KEY`, `ARK_MODEL_ID`, `ARK_ENVIRONMENT_ID` and
-`DEEPSEEK_API_KEY` in the environment. The Ark Environment must already exist
-and belong to the operator; the demo never creates or deletes it. The local
-dsh profile defaults to `deepseek-v4-flash@high`; override `--dsh-model` explicitly
-for another qualified local profile. Credentials are not command arguments.
-The adapter forwards the local worker credential only to the trusted demo MCP
-process, never to cloud tool arguments/results.
+Set `ARK_API_KEY`, `ARK_MODEL_ID`, `ARK_ENVIRONMENT_ID` and `DEEPSEEK_API_KEY`
+in the environment. The Ark Environment must already belong to the operator;
+this launcher never creates or deletes it. The local model defaults to
+`deepseek-v4-flash@high`; select another profile with `--dsh-model`.
 
-Choose a **new** private disposable directory outside the source checkout's
-tracked files. The default `local-led` run permits at most two attempts for each
-of four member tasks: up to four DSH member Turns, four Ark member Turns and one
-local coordinator Turn, with a 20-minute outer bound. The `cloud-led` alternative
-permits eight local attempts and one cloud coordinator Turn. Rejected attempts
-also consume provider usage. Do not use an active Goal or research workspace.
+Choose a **new private disposable directory**. Never point this example at an
+active Goal or research workspace. The canonical Goal quota governs admission;
+this version no longer has the old demo-only two-attempt counter. Each binding
+has a finite deadline, and rejected attempts may still incur provider usage.
+The local lead and nested cloud coordinator have up to 20 minutes each; other
+members have five-minute host budgets, including cleanup. These are per-binding
+limits, not a fleet-wide currency cap.
 
 ```bash
 uv run --no-sync --extra test python examples/managed-research-team/research_team.py \
@@ -49,12 +44,10 @@ uv run --no-sync --extra test python examples/managed-research-team/research_tea
   validate-report "$DEMO_ROOT"
 ```
 
-The launcher exits unsuccessfully unless the lead Turn commits validated
-progress and the host completes its canonical Todo. Inspect `completion.json`,
-`lead/report.json`, `accepted/`, `turns/`, `lead-turn.json`
-and `provider-receipts/` inside that private directory. These local artifacts
-are not public demo fixtures or publishable run logs. Inspect canonical state
-with the existing CLI, using absolute values for the two local paths:
+The launcher succeeds only after the lead's validated Turn and canonical Todo
+completion. Read `completion.json`, `lead/report.json`, `lead-turn.json`, the
+private collaboration execution receipts and `provider-receipts/`. They are local
+experiment records, not publishable fixtures. Canonical readback:
 
 ```bash
 uv run --no-sync --extra test python -m loopx.cli \
@@ -63,200 +56,126 @@ uv run --no-sync --extra test python -m loopx.cli \
 
 uv run --no-sync --extra test python -m loopx.cli \
   --registry "$DEMO_ROOT/registry.json" --runtime-root "$DEMO_ROOT/runtime" \
-  --format json goal-acceptance inspect --goal-id synthetic-managed-research
-
-uv run --no-sync --extra test python -m loopx.cli \
-  --registry "$DEMO_ROOT/registry.json" --runtime-root "$DEMO_ROOT/runtime" \
   --format json goal-acceptance verify --goal-id synthetic-managed-research --execute
 ```
 
-The host receipt's tool ACK only means a result reached the provider. Each
-worker must pass the independent validator, canonical Turn writeback, and fresh
-TS-owned Todo completion. Only then does delegation return accepted evidence.
-The lead must adopt all four exact artifact hashes and pass a separate aggregate
-validator that also reads current canonical child completions and bindings.
-The `accepted/` files are disposable evidence copies: changing or inventing
-them cannot complete a task. Repeated delegation reads canonical state and
-revalidates the output without spending another Turn.
+## Collaboration path
 
-## What the scenario checks
+The primary `local-led` profile has four independently accepted member tasks:
 
-| Evidence | Initial | Corrected | Required interpretation |
+- The local lead delegates initial-filing analysis to local DSH `local-analyst`.
+- Ark `cloud-reviewer` independently verifies that completed artifact and adopts
+  its exact hash. Starting early cannot bypass the prerequisite's acceptance.
+- Ark `cloud-analyst` receives the corrected-filing task and itself delegates
+  independent review to local DSH `local-reviewer`, preserving the parent
+  request. It waits for acceptance and adopts the returned artifact.
+- The local lead reads all four accepted artifacts, resolves the revision and
+  source distinctions, and writes the combined report with exact dependencies.
+
+The two branches may run concurrently. The model chooses when to start, what to
+ask, whether to repair rejected work and how to synthesize. The host provides
+bounded `list_execution_bindings`, `start_delegation`, `wait_delegation`,
+`read_delegation` and `resume_delegation` operations. Members independently
+`assess_request`; a read, message or tool ACK cannot complete a task.
+
+The optional `--topology cloud-led` profile retains Ark-to-DSH coordination as
+an additional route. It does not substitute for the primary local-led path.
+
+## Independent acceptance
+
+| Evidence | Initial | Corrected | Required conclusion |
 | --- | --- | --- | --- |
-| Cash from operations | 120 | 105 | Correction changes the consumed input |
-| Capital expenditure | 30 | 30 | Raw FCF becomes 90 → 75 |
-| Receivables sold, included in cash | 50 | 50 | Normalized FCF becomes 40 → 25 |
-| Current vs prior fiscal period | H1 vs FY | H1 vs FY | Neither positive nor negative growth is established |
-| Repost of the issuer | Same source | Old figures retained | One independent family; stale only after correction |
+| Cash from operations | 120 | 105 | Consume the correction |
+| Capital expenditure | 30 | 30 | Raw FCF is 90 → 75 |
+| Receivables sold | 50 | 50 | Normalized FCF is 40 → 25; delta −15 |
+| Fiscal period comparison | H1 vs FY | H1 vs FY | Growth is unsupported |
+| Repost of issuer material | Same source | Old figures retained | One current-period source family; corrected repost is stale |
 
-Worker outputs bind the input bytes by SHA-256. The final report binds each
-worker/revision output by hash, incorporates the correction and checks the
-semantic conclusions. A valid-looking report with a missing/unaccepted worker,
-stale dependency hash, altered input, wrong calculation or unsupported growth
-claim is rejected. Tests mutate these conditions independently of model output.
+`bootstrap.ts` creates only a fresh disposable canonical runtime and invokes
+the production owner configuration API once. It binds four member criteria and
+one report criterion. Task instructions, the roster and verifier files are
+pinned; a member cannot change its own acceptance. Existing Goals are never
+promoted or rewritten by this bootstrap.
 
-## Integration with shared Goal acceptance
+Core delegation asks the TS acceptance owner for the exact task's criteria and
+runs those checks as its Turn validator. It then uses ordinary `todo complete`,
+which re-executes validation and atomically commits through the same TS owner.
+The report separately checks all four canonical completions, current binding
+guards, adopted hashes and financial conclusions. All five Todos may be done
+while the overall Goal remains active for its owner.
 
-The launcher now consumes the canonical authority merged in
-[PR #4683](https://github.com/huangruiteng/loopx/pull/4683).
-`bootstrap.ts` exclusively creates a new disposable runtime, constructs native
-Todo records and invokes the production owner-configuration API once. It does
-not import test helpers, promote an existing Goal, or modify an active registry.
-The initial roster contains four stable worker/revision tasks and one report
-task; questions and execution order remain the coordinator's decisions.
-In `local-led`, the local analyst and cloud reviewer handle initial evidence,
-while the cloud analyst and local reviewer handle corrected evidence. The cloud
-reviewer must wait for canonical completion of the local analysis, read it
-through its bound tool, independently verify it and adopt its exact hash.
-Submitting or delegating that review too early is rejected without starting a
-member Turn. The roster and dependency declaration are also pinned verifier
-inputs, so editing them cannot silently remove an acceptance requirement.
+A member's own peer conclusion is preserved. The delegation result independently
+reports canonical acceptance; it does not replace that message or trust a
+model-authored `accepted` flag. Saved artifacts and old receipts cannot hide
+changed inputs, stale work or modified output.
 
-Each child binds only its own pinned criterion. The report criterion validates
-all four completed dependencies, matching current TS binding guards, exact
-artifact hashes and research conclusions. This avoids a cycle where a child
-would need the final report before finishing. `turn --todo-id` selects the exact
-authorized task through the existing quota owner; it never falls back to a
-different task and does not retarget a resumed Turn.
+## Recovery and validation
 
-`acceptance.py` reads Todo and acceptance projections at the same provider
-revision, rejecting a concurrent change. It performs domain checks; it cannot
-write completion state or configure bindings. The trusted host invokes the
-ordinary `todo complete` path, which freshly executes the pinned validator and
-commits through TS authority and CAS. Binding, lifecycle, lease and quota rules
-are not recreated in Python. Completion observations such as `no_followup`
-preserve the work digest; changed requirements still stale the association.
+A delegated worker runs independently of the requesting MCP conversation. A
+new connection reads its original operation id. Repeating that operation or
+resuming a live worker cannot start a concurrent duplicate. After process loss,
+recovery uses the original Turn journal. Ark observes its original cloud session
+and input; acknowledged tool effects are not repeated. While the host is absent,
+cloud computation can continue until it needs a local tool, then waits.
+Unknown creation/input acknowledgements or interrupted tool side effects require
+explicit reconciliation. Reconnecting does not reset the original deadline.
 
-All five Todos may become done while the Goal stays active. Turn progress,
-task completion, configured-check acceptance and owner approval of the whole
-Goal remain separate facts. The aggregate dependency check is specific to this
-example, not a new general work-graph join protocol.
-
-Autonomous creation of new bound work still needs a scoped, intent-preserving
-derivation policy under R2/R3/R4. The model gets no configure/disable tool, and
-delegation never impersonates the owner to repair a stale contract.
-
-Deterministic integration tests execute real File and SQLite providers and the
-production CLI. They reject forged acceptance copies, incomplete dependencies,
-semantic task edits, changed pinned validators, changed artifacts after a prior
-check, wrong report hashes and failed Turns. They also prove child-before-parent
-completion, retry on the same task, exact out-of-order selection, completed-work
-reuse and refusal to bootstrap over existing state:
+Durable tests use the production CLI, File/SQLite authority, TS acceptance and
+real stdio MCP, with explicit model substitutes where appropriate. They cover
+missing adoption, conflicting operation ids, ungranted actors, concurrent
+resume, stale/changed artifacts, prerequisite completion and preserved peer
+conclusions. Provider tests restore actual execution checkpoints and verify no
+new input or acknowledged tool effect. TS acceptance also runs on isolated real
+PostgreSQL; no model calls occur in CI.
 
 ```bash
 uv run --no-sync --extra test python -m pytest -q \
-  packages/loopx-ark-turn/tests/test_canonical_team.py
+  packages/loopx-ark-turn/tests tests/test_collaboration_mcp.py
 ```
 
-## Qualification recorded for this slice
-
-Both profiles passed with the real public Ark API (`arkruntime 0.8.0`,
-`doubao-seed-2-1-pro-260628`) and real DSH (`deepseek-harness-sdk 0.1.5rc1`,
-`deepseek-v4-flash@high`):
-
-| Profile | Executed relationship | Canonical readback |
-| --- | --- | --- |
-| Local lead, mixed members | Two DSH and two Ark members; cloud reviewer adopts completed local analysis; results return to local DSH lead | Four child Todos and report Todo done; all configured checks pass; Goal active |
-| Cloud lead, local members | Ark chooses questions/order for two DSH identities over both revisions and adopts four outputs | Five Todos done; all configured checks pass; Goal active |
-
-Owned Ark sessions and Agent definitions were confirmed absent; the experiment
-owner separately deleted the disposable Environments. No model calls run in CI.
-This validates synthetic evidence with real execution, not real-market research
-quality or an attached persistent Codex task.
-
-Earlier qualification attempts failed on event identity decoding, pagination,
-missing local runtime and ambiguous source-count scope. They were not accepted
-as successful work. The fixes use the custom-tool event id as result correlation,
-opaque `next_page` tokens, a local dependency preflight, explicit current-period
-source counting and actionable field-level rejection. An interrupted canary
-also cleaned its owned resources; a cleanup retry retired a known pending
-session without repeating work. The local-led integration also exposed DSH's
-intentional MCP credential scrubbing, repaired with explicit environment
-references. A mixed run recovered after a tool request timeout: concurrent
-relaunch was refused, the original task completed, and the coordinator retrieved
-its result and repaired the report's dependency hash. Coordinator tool waits now
-cover the bounded child Turn plus its completion/readback; rejection feedback
-names the mismatched dependency. Uncertain *creation* still requires manual
-reconciliation. These are bounded successes after repairs, not reliability,
-throughput, cancellation-supervision or arbitrary-scale claims.
-
-A final mixed run rejected a malformed source list and a cloud execution
-timeout; the local lead retried both and reached five independently verified
-completions. The timed-out cloud attempt left a known pending session, which
-the experiment owner reconciled and confirmed absent before deleting the
-Environment. The child host deadline now reserves room beyond Ark execution
-for deletion and absence checks. This does not guarantee immediate provider
-deletion or replace receipt-based reconciliation.
-
-Deterministic checks use the real SDK over synthetic HTTP fixtures plus a real
-stdio MCP process. They cover input/capability mismatch, duplicate and changed
-event identities, pagination beyond 200 events, timeout/cancellation, competing
-starts, cleanup-only replay and semantic/dependency mutations. Both existing
-DSH CLI smokes are byte-identical against the pre-change baseline; dropping the
-Turn identity in a disposable baseline makes the same oracle reject writeback.
+Real execution qualification uses the public Ark SDK and DSH with synthetic
+materials. A process-loss drill kills the owned worker/Turn/provider process
+group after the input ACK, observes cloud `requires_action`, then resumes the
+same operation to canonical completion. It confirms one provider receipt, the
+same Session and input, and cleanup of owned resources. This evidence is
+separate from mocked provider tests and does not establish market-research
+quality, arbitrary team scale or attached persistent Codex-task integration.
 
 ## Boundaries and cleanup
 
-The model does not choose an executable, credential, workspace, roster or
-validator. The trusted MCP service binds the caller and permits only the fixed
-worker/revision assignments. It serializes delegated Turns and permits two
-attempts per worker/revision. It deliberately does not implement a new queue,
-Inbox, lease owner or continuation mechanism. The configured Agent identities and
-all canonical work remain in LoopX; ephemeral provider sessions are execution
-resources. MCP tool execution uses local OS permissions and requires a trusted
-server; the cloud sandbox does not isolate local subprocesses.
+The operator owns Agent registration, bindings, workspaces, executables,
+credentials and validators. The model cannot grant new execution authority.
+Leaf DSH tools receive no provider credentials. The local lead forwards the
+credentials needed for its authorized execution bindings by environment
+reference; Ark's local tool process receives the DSH credential only when it
+must launch that local member. Ark credentials never enter cloud tool inputs or
+results. MCP servers need trusted local OS isolation.
 
-DSH intentionally scrubs credential-shaped variables from MCP subprocesses.
-The local lead's Cordis patch explicitly forwards the two provider credentials
-using `!!js process.env.NAME` references. Only variable names are written to
-configuration; values stay in the local execution environment and never enter
-cloud tool arguments/results. The local service refuses startup without that
-explicit environment. Ark worker MCP processes receive neither provider key.
+On normal completion Ark deletes its owned Session and Agent and confirms
+absence. Retain private receipts after interruption and use the adapter's
+cleanup command for known resources. The Environment remains operator-owned.
+Disable admission by removing grants or the explicit execution configuration;
+stop/reconcile existing workers before deleting the disposable runtime.
 
-The main profile exercises a local DSH coordinator with mixed DSH/Ark members;
-the secondary profile exercises a cloud coordinator calling local workers.
-Cloud members only receive their assigned input, authorized upstream artifact
-and output tool; no arbitrary filesystem or shell tool is exposed.
-This does not establish arbitrary team size, parallel fairness,
-multi-level recursive launch, restart recovery of the coordinator, live
-steering, distributed authority, or persistent Chat/Lark/desktop integration.
-Those remain with the existing team/session RFCs. The roster and acceptance
-are fixed by the operator; there is no claim of autonomous permission creation.
-
-On normal completion the adapter deletes its owned Ark session and Agent and
-confirms absence. The configured Environment remains. On failure inspect the
-private provider receipt and use the adapter's cleanup operation for known
-resources; unresolved creation requires operator reconciliation. Stop before
-removing the disposable directory, and retain incomplete receipts. Removing
-this example or its explicit host command disables it; it installs no monitor
-or recurring automation and modifies no existing Goal.
+This slice provides fixed authorized work, dependent artifacts, nested requests
+and local recovery. General Agent creation, dynamically derived work, full
+inbox/queue/steer, remote authority and Dashboard/Lark configuration remain with
+the existing RFC owners. No default executor, product navigation or recurring
+monitor changes here.
 
 ## 中文操作与能力说明
 
-主路径是本地协调员组织两个本地 DSH 成员和两个云端 Ark 成员，自行决定问题和
-委派顺序。本地分析员先提交初始资料分析，云端核验员必须取得已完成的产物、
-独立核验并采用其精确哈希；另两个成员分析修订资料，最后结果回到本地汇总。
-启动脚本只准备隔离环境、预授权名单和验收合同并启动一次 Turn，没有人为输入
-`phase` 推进业务。加 `--topology cloud-led` 可运行云端协调员委派本地成员的辅助场景。
-这次本地协调端用已接入的 DSH Turn 验证，尚未把既有的长期 Codex 任务接成持久管家。
+主路径由本地 DSH 协调员带领两个本地 DSH 和两个云端 Ark 成员。初始披露走“本地
+分析 → 云端独立核验”；修订披露由云端分析员继续委派本地核验员，采用其结果后
+返回。最后由本地主 Agent 综合四份带哈希的已验收产物。一次启动之后由模型决定
+问题、并发顺序、修正与汇总，不输入 `phase`，也没有示例专用业务调度器。
 
-按上面的命令安装两种可选 SDK，配置模型、已有云端 Environment 和凭据，再使用
-新的私有目录运行。`validate-report` 会重新检查计算、期间可比性、来源独立性、
-修订采用和四份依赖的哈希。工具返回、worker 通过验收、总报告通过验收是不同事实。
-所有演示数据都是虚构数据，不涉及真实证券建议、交易或私有研究资料。
+成员必须先自行记录采用请求，再经过 Turn 验证、普通 Todo 完成入口的重新验证和
+TS 提交。主 Agent 断开后，已启动的委派仍可继续；整组本地进程中断后，使用原操作
+ID 接回原 Turn 和云端 Session。云端需要本地工具时会等待，不能据此宣称完全离线
+自主运行。副作用是否已发生不明时保留记录并核对，绝不自动重复执行。
 
-启动器已接入 #4683 合并后的 TS 验收权威：启动前一次性建立四个“成员 × 资料版本”
-任务和一个总报告任务，绑定固定验证器。模型自行决定问题和委派顺序；成员交付后
-须通过真实 Todo 完成并读回，才向协调员返回 accepted。总报告检查四个子任务的
-当前完成状态、绑定与产物哈希，再完成自己的 Todo；五个 Todo 都完成也不关闭 Goal。
-
-File / SQLite 集成测试覆盖子任务先完成、同任务重试、完成后复用、伪造已验收文件、
-错误依赖、验证后改产物、修改验证器和语义工作变更。管家不能在委派时重配验收，
-也不能靠缓存中的 accepted 标记绕过 TS 权威。bootstrap 仅限新建隔离示例，不是
-生产 Goal 晋升工具。动态拆分和多层级调度仍须接有范围的 work-graph 授权。
-
-这提供了可复用的本地/云端受控工作单元，以及“managed Agent 可以继续委派”的
-实际调用样例。它还不是完整数字团队产品：持久 Inbox/queue/steer、自动扩缩容、
-多层级恢复及前端/Lark 团队入口仍需沿现有 RFC 完成。本次不会改变管家默认执行器
-或看板。正常结束会清理本次云端 Agent 和会话，不删除你配置的 Environment；失败
-时保留私有回执，按适配器说明检查和清理，不能用删除回执来掩盖未清理资源。
+依次运行上面的安装、`run`、`validate-report` 和 canonical readback 命令。所有数据
+是合成投研材料，归一化自由现金流应为 40 → 25、变化 −15，不支持跨期间增长判断。
+总体 Goal 保持 active。真实执行记录留在私有实验目录；公开仓库保留可复用接口、
+合成案例和验证方法。

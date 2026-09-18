@@ -447,6 +447,13 @@ worker 请求并采用另一 worker 的产物；driver 切换竞态拒绝旧执�
 
 目前 DSH 管家 Chat 是单段、只读、无跨 turn 宿主会话；`turn run-once` 是另一条有界执行路径。下一切片要证明 successor wake、取消/停止、崩溃恢复及旧执行器返回 fence，经 packaged frontend/CLI/Lark 回读真实状态。不能仅增加一个 executor 名称、启动一个片段或绑定若干 Agent 就声称持续 managed 模式完成。attached host 不因掉线而改为 managed，未验收宿主保持原资格边界。
 
+显式启用的[本地委派接口](../../reference/local-delegation.md)已为有界 Turn 提供持久
+操作，涵盖成员继续委派的授权及 TS 任务验收。Ark 进程中断实验在云端等待本地工具后，
+以原 Session/输入接回，不重发已确认副作用、不重置期限。这验证本地执行恢复，不代表
+successor wake、attached 接管或完整团队取消。Provider 文件配置保留现有模型/工具
+边界；上文通用 Agent 创建与模型发现提案仍是独立后续范围。
+
+
 ## 12. 规范性交付计划
 
 | 里程碑 | 交付行为 | 进入门槛 | 退出证据 | 回滚 |

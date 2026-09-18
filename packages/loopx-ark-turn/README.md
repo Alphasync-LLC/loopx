@@ -37,6 +37,21 @@ The default managed host and existing `ark-managed-agent` native Goal profile
 are unchanged. A fresh cloud session is required for each admitted iteration;
 continuation comes from the existing LoopX driver, not an automation prompt.
 
+## File execution profiles
+
+For larger tool configurations, use `loopx-ark-turn --config "$ARK_PROFILE"`.
+The JSON object uses `Config` fields: `model`, `environment_id`, absolute
+`workspace` and `state_dir`, optional `mcp_command` / `tool_names` / `mcp_env`
+arrays, and execution/tool timeout and call limits. Keep it outside member
+workspaces. Credentials remain environment variables. File profiles and inline
+configuration cannot be combined; `--doctor`, `--inspect-turn-key` and
+`--cleanup-turn-key` work with either form. File and inline forms resolve to
+the same receipt identity; profile changes cannot retarget an existing attempt.
+
+This compacts the generic CLI invocation without raising its argv limit or the
+eight-tool selection limit. The [local delegation interface](../../docs/reference/local-delegation.md)
+uses these profiles for both main and nested coordinators.
+
 ## Local tools
 
 Supply an operator-owned stdio MCP server with `--mcp-command-json` and an exact
@@ -85,9 +100,15 @@ unknown, and rejected work can still cost tokens.
 Mutating provider requests are not automatically retried. A duplicate exact
 request may reuse a completed candidate after resource cleanup; a conflicting
 request or incomplete prior attempt cannot silently start another model run.
-Uncertain creation or tool execution requires reconciliation. This is bounded
-Turn execution, not full crash-resumable fleet supervision or a distributed
-authority service.
+An interrupted running attempt with a confirmed original input and no uncertain
+local effect can resume observation of that exact cloud session. It does not
+send the input again, repeat acknowledged tool effects, or reset the execution
+deadline. Terminal text is persisted before candidate conversion. While the
+host is absent, cloud computation can continue until it needs a local tool;
+that call waits for reconnection. An interrupted executing/sending tool, lost
+creation/input response or changed tool schema cannot be treated as a safe
+restart. Preserve those receipts for reconciliation. This does not install
+fleet supervision or provide distributed authority.
 
 With the same model, environment, workspace, state directory and tool options
 as the original invocation, append one of:

@@ -234,32 +234,33 @@ These priorities do not change live Goal quota or authorize experiments/cloud re
 - **Exit:** 2–3 workers, one dependency, one failure and one direction correction; Agents select and revise delegation without manual phase input or result forwarding. Inspect through packaged frontend and independent CLI readback. An authorized Lark entry reads the corresponding audience-visible feedback. Untested Lark remains explicitly unqualified.
 - **Rollback:** stop new admission, drain accepted work and retain bindings/receipts; attached fallback cannot be used to simulate availability.
 
-**Optional cloud Turn slice.** The [Ark adapter](../../../packages/loopx-ark-turn/README.md)
-uses the existing generic-cli Turn entrypoint and shares DSH request/candidate
-conversion. The [synthetic research example](../../../examples/managed-research-team/README.md)
-composes a cloud coordinator and registered local workers with independent
-artifact acceptance; the Agent chooses delegation without manual phase input.
-Provider receipts own execution/cleanup only. This enables a reusable bounded
-host, not G1 completion: persistent supervision, full inbox/queue/steer,
-shared authority and packaged frontend/Lark team delivery remain R2/R3/R6 work.
-The demo MCP service composes the existing Todo and Turn owners; durable peer
-request/adoption/return remains an integration step. It adds no alternative
-Inbox, manager factory or default executor selection. Shared acceptance work in
-The example now consumes [#4683](https://github.com/huangruiteng/loopx/pull/4683)'s
-merged TS acceptance authority: five stable, preauthorized tasks, one startup
-owner configuration, exact Turn task selection, fresh child completion and
-canonical dependency readback before synthesis completion. File/SQLite
-integration rejects forged evidence copies, stale work, changed validators and
-failed Turns. Turn progress, Todo completion and Goal acceptance remain distinct;
-semantic rules stay in the TS Goal/work owners while Python executes domain
-validators and host/provider IO. This disposable bootstrap does not promote
-existing Goals. Scoped derivation for new work and durable peer adoption/return
-remain with R2/R3/R4; the coordinator never reconfigures itself as owner.
-The primary example profile is a local DSH lead with two local DSH and two
-cloud Ark members, including adoption of a local analysis by a cloud reviewer
-before local synthesis. Cloud-lead-to-local delegation is a secondary profile.
-Neither profile attaches an existing persistent Codex task or changes the
-steward's configured executor; those are separate R2/R3 integration work.
+**Optional mixed-team Turn slice.** The [Ark adapter](../../../packages/loopx-ark-turn/README.md)
+uses the existing generic-cli Turn boundary alongside DSH. The
+[shared local delegation interface](../../reference/local-delegation.md) now
+composes semantic peer requests/adoption/return, explicit operator execution
+bindings and the merged TS acceptance owner. It replaces demo-owned delegation;
+coordinators and ordinary members use the same grant contract. Disabled stdio
+servers retain their original five non-executing tools. Configuration files
+compact provider launch arguments without changing default executor selection.
+
+The [synthetic research example](../../../examples/managed-research-team/README.md)
+uses a local lead, two DSH members and two Ark members. One cloud reviewer adopts
+local analysis; another Ark member delegates to DSH before returning to local
+synthesis. Five stable preauthorized tasks bind exact criteria once. Turn
+validation and ordinary Todo completion independently execute current pinned
+checks; accepted returns read canonical completion and exact artifacts. All
+business questions/order remain model decisions; the Goal stays active.
+
+Durable operation ids and existing Turn journals recover results after a source
+conversation disappears. A real process-group interruption after Ark input ACK
+has been resumed on the original Session/input to canonical completion; cloud
+waiting for a local tool was observed, and owned resources were cleaned.
+Uncertain creation/input acknowledgements or tool effects remain reconciliation
+cases. The adapter retains the original deadline and does not resend work.
+This is a local trusted-host foundation, not G1/G3 completion: attached persistent
+sessions, generic Agent creation, dynamic governed work derivation, complete
+inbox/queue/steer, authenticated remote authority and packaged frontend/Lark
+companion work remain R2/R3/R4/R6 boundaries. Existing Goals are not promoted.
 
 ### R3: Semantic Requests and Automatic Return
 

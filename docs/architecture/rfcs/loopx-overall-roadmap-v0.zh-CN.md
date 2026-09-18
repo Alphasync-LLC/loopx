@@ -230,24 +230,24 @@ R2 的一条依赖必须通过真实 LoopX Agent 间的请求/产物交接完成
 - **退出：** 2–3 worker、一个依赖、一个故障、一个方向补充；Agent 自主选择和修订委派，无人工 phase 输入或结果转发。经 packaged frontend 查看，同一状态能从 CLI 读回；Lark 的授权入口能读到对应受众可见反馈。无 Lark 实测则该入口标为未验收。
 - **回滚：** 停止新增 admission，drain 已接受工作并保留绑定/receipt；不能借 attached fallback 保持“在线”。
 
-**可选云端 Turn 切片。** [Ark 适配器](../../../packages/loopx-ark-turn/README.md)
-复用现有 generic-cli Turn 入口，与 dsh 共用请求校验和候选结果转换。
-[合成投研示例](../../../examples/managed-research-team/README.md)组合云端协调员和
-已注册本地 worker，通过独立产物验收，由 Agent 自主选择委派而不人工输入 phase。
-Provider 回执只管理执行与清理。这交付可复用的有界宿主，不代表 G1 完成：持久监督、
-完整 inbox/queue/steer、共享权威及 packaged frontend/Lark 团队交付仍归 R2/R3/R6。
-示例 MCP 服务组合已有 Todo 与 Turn owner；持久 peer 请求、采用与返回仍待集成。
-本切片不增加另一份 Inbox、管家工厂或默认执行器选择。
-示例已接入 [#4683](https://github.com/huangruiteng/loopx/pull/4683) 合并后的 TS 验收
-权威：五个稳定预授权任务、一次启动配置、精确 Turn 选任务、子任务独立完成与总报告
-完成前的 canonical 依赖读回。File/SQLite 集成拒绝伪造证据副本、过期工作、被改写
-验证器和失败 Turn。Turn 进展、Todo 完成与 Goal 验收保持区别；语义规则归 TS
-Goal/work owner，Python 执行领域验证器与宿主/provider IO。隔离 bootstrap 不晋升
-已有 Goal；新工作有范围派生、持久 peer adoption/return 仍归 R2/R3/R4，协调员不能
-在委派时冒充 owner 重配验收。
-示例主档位为本地 DSH 协调员组织两个本地 DSH 与两个云端 Ark 成员，包含云端核验员
-采用本地分析产物后返回本地汇总；云端协调员委派本地成员保留为辅助档位。两者均不
-接管已有长期 Codex 任务或修改管家已配置执行器，持久接入继续归 R2/R3。
+**可选混合团队 Turn 切片。** [Ark 适配器](../../../packages/loopx-ark-turn/README.md)
+与 DSH 复用既有 Turn 边界。[通用本地委派接口](../../reference/local-delegation.md)
+组合已有 peer 请求、采用、返回、显式执行绑定及已合并 TS 验收 owner，替换示例专用
+委派逻辑。主协调员与普通成员使用同一授权合同；未启用执行配置的 stdio 服务保持
+原有五个非执行工具。文件形式的 provider 配置缩短启动参数，不改变默认执行器。
+
+[合成投研示例](../../../examples/managed-research-team/README.md)由本地主 Agent
+组织两个 DSH 和两个 Ark 成员：云端核验员采用本地分析，另一 Ark 成员继续委派
+DSH 后向本地主 Agent 返回。五个稳定预授权任务一次绑定精确验收；Turn 验证与普通
+Todo 完成入口分别执行当前 pinned 检查，accepted 返回读 canonical 完成状态及精确
+产物。问题与委派顺序由模型决定，总体 Goal 保持 active。
+
+持久操作 ID 与既有 Turn journal 支持来源会话消失后的结果接回。实测在 Ark 输入 ACK
+后杀掉本地 worker/Turn/provider 进程组，再以原 Session/输入恢复到 canonical 完成；
+观察到云端等待本地工具，且自有资源清理已确认。不明的创建、输入 ACK 或工具副作用
+仍须核对；重连不重发任务、不重置原执行期限。这是本地可信宿主底座，不代表 G1/G3
+完成。长期 attached 会话、通用 Agent 创建、动态受治理工作派生、完整 inbox/queue/steer、
+认证远端权威与 packaged frontend/Lark 配套仍归 R2/R3/R4/R6；不晋升已有 Goal。
 
 ### R3：语义请求与自动回报
 
