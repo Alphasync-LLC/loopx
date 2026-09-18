@@ -68,7 +68,7 @@
     "loopx/control_plane/work_items/interaction_contract.py": {
       "any_count": 85,
       "dict_any_count": 0,
-      "lines": 1544
+      "lines": 1548
     },
     "loopx/extensions/lark/goal_topic_runtime.py": {
       "any_count": 46,

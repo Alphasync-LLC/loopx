@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ..quota.blocked_transition_notice import blocked_priority_fallback_owner_reason
 from ..quota.effective_action import EffectiveAction
 import shlex
 import typing
@@ -1036,8 +1037,11 @@ def _blocked_priority_fallback_user_reason(payload: dict[str, Any]) -> str | Non
         and fallback.get("notify_user") is not True
     ):
         return None
-    reason = str(fallback.get("reason") or "").strip()
-    return reason or None
+    # The typed notice carries what #4381 asks the owner to be told — the task,
+    # the concrete cause, the impact, who can resolve it, the recovery
+    # condition and the next action — and it takes precedence over the generic
+    # fallback prose. The rendering lives with the notice contract.
+    return blocked_priority_fallback_owner_reason(fallback)
 
 
 def _interaction_must_attempt(
