@@ -181,10 +181,10 @@ either RFC.
 
 Readback validation: Dashboard `npm run smoke:delivery-review`,
 `node smoke/goal-acceptance-contract-smoke.mjs`,
-`node smoke/goal-acceptance-contract-browser-smoke.mjs`, and
+`npm run smoke:goal-acceptance-contract-browser`, and
 `uv run --extra test python -m pytest tests/test_goal_acceptance_contract_rendering.py`.
-After the integrated Dashboard build, set
-`LOOPX_ACCEPTANCE_CONTRACT_PACKAGED=1` for the same contract browser check.
+After the integrated Dashboard build, `npm run smoke:goal-acceptance-contract-packaged`
+runs the same contract browser check against the shipped assets.
 
 ## 中文
 
@@ -277,5 +277,6 @@ claim、lease/fence、权限和后续工作要求。既有验证回执或已确�
 并再次 inspect。停用隐藏此区块并移除此项显式启用的门禁，原有任务权威、权限和生命周期规则仍生效。
 启用不会授予发布、外部副作用、provider 提升或 Goal 完成权威；目标、条件描述与原因必须适合其 status 受众。
 Lark 呈现、远端合同编辑、语义意图保持证明与通用共享 amendment 留给 #3836 / #2831 后续切片，
-不宣称任一 RFC 已完成。前端集成打包后，以 `LOOPX_ACCEPTANCE_CONTRACT_PACKAGED=1`
-运行上方合同浏览器检查；Python renderer 测试和 API/export smoke 覆盖缺失、停用、过期、失败及通过的区别。
+不宣称任一 RFC 已完成。合同浏览器检查用 `npm run smoke:goal-acceptance-contract-browser`；
+前端集成打包后，`npm run smoke:goal-acceptance-contract-packaged` 对已发布资源跑同一项检查。
+Python renderer 测试和 API/export smoke 覆盖缺失、停用、过期、失败及通过的区别。
