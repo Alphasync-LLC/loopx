@@ -2340,7 +2340,8 @@ route planner 本身仍不授予权限。CLI 将已提交回执交给既有 jour
 展示失败标为 pending，不回滚提交、不重新生成后继；quota 继续消费同一 v0 业务回执
 完成独立记账。验证覆盖真实 CLI 的缺失 display、renderer 失败后的 operation 重放，
 及 File／NoKV／真实隔离 PostgreSQL 的复杂数据、并发和丢回执恢复。
-带 lease Monitor、跨 owner claim 等未闭合能力仍明确拒绝；此切片不改变 provider
+下述 L4 扩展闭合了 Monitor lease proof 与崩溃后结算；跨 owner claim 仍明确拒绝。
+此切片不改变 provider
 默认、writer fence 或 promotion 审批，也不替代三臂 legacy 对照及 D2 soak。
 
 - 从 `loopx/control_plane/todos/provider_projection.py`、既有 Todo-section renderer、
@@ -2410,7 +2411,7 @@ canonical renew 候选，#4328 是 SQLite D2 首批测量／恢复候选；它�
 | A／L1：Monitor 配置（本切片） | 现有 `todo update` 配置进入 TS planner／CAS／receipt，删除 Python 重复 intent 字段表；区分配置与观察 hash、时间、代数。 | 普通 CLI/API、清除／省略、active lease proof、no-op／replay、展示失败恢复、完整 fixture 和真实 provider。不宣称完成委托 Chat 或 leased polling。 |
 | A／L2：公共 mutation admission 闭合 | 盘点 CLI／Turn／Chat 实际 caller；以可信 actor／grant 事实闭合剩余 effect-owned 用户决策、委托 owner 动作和 Monitor lifecycle。 | 复用已合并 T1 owner，不开通通用 raw patch；验证权限拒绝和 caller 响应，删除替代的 Python admission，列全未支持命令。 |
 | A／L3：canonical lease 生命周期 | 独立 acquire/接管、原子 claim 的 lease 准入及维护复用 TS facts/decision/materializer 与同一 provider opening fence。Acquire 成功必须校验当前执行 proof；canonical 完成可恢复缺失展示。 | 已覆盖完整 head scope 冲突、归档/失效 holder、创建 CAS 原样重试、旧执行、进程中断、真实 CLI 与四臂演练。[操作及剩余 caller](../../reference/canonical-lease-renew.md)。跨外部 effect 的 executor 持锁 fence 仍为明确工作；保留 D1–D3/default hold。 |
-| B／L4：leased Monitor poll 与 settlement | 组合观察、变化代数、独立 successor 和现有 lease fence；复用 quota settlement 与精确业务回执。 | L2/L3；真实 polling 失败、重复／无变化、业务提交到 quota settlement 间崩溃和并发。不能假装不同 authority 共享一个数据库事务。 |
+| B／L4：leased Monitor poll 与 settlement | 当前 execution proof 贯穿 CLI intent、观察／generation／独立 successor CAS 和历史业务回执；业务写入前冻结 quota 准入，租约结束后仍按原决策恢复结算。 | 既有 L3 lease lifecycle、真实 File／SQLite／PostgreSQL、混合 fixture、业务与 quota 间真实进程退出、并发 renewal 和 unchanged poll；见[操作与快照演练](../../reference/protocols/quota-monitor-observation-receipt-v0.md)。不操作 lease lifecycle、不消耗 quota，不把两个 authority 假装成同一事务。Event caller、更广 L2 准入及 D1–D3/default 仍开放。 |
 | B／L5：consumer 与展示闭合 | 核对 #4316，审计 Turn／quota／Dashboard／Chat 的来源，复用 projection outbox 完成 D1 新鲜度和恢复。 | 验证 CLI、Lark／Chat、打包 frontend 的受影响交互；缺失／陈旧展示、权威空状态、pending 投影及超过 UI 上限的数据。逐个删除晋升后的 legacy fallback。 |
 | A–C／L6：本地持久化资格 | 延续 contributor 认领的 #4224／#4328，在选定 SQLite profile 上补齐第 7.2 节 ledger，复用 File／NoKV 对照。 | capacity、真实进程／crash／restore／upgrade、历史 receipt／scan、consumer lag、支持的 runtime／OS，以及另行授权的 >=10 天合成 soak。缺项继续 hold。 |
 | A–C／L7：capture 连续性 | 修复 #4315：归档的源事务明确退休 lease 引用，bootstrap 与后续 writer 使用一致成员范围；执行 row／mutant 和 mixed-writer／event-source 矩阵。 | 真实 CLI／File capture、保留历史、半完成 drain 不合格、crash／replay，以及归档／rebootstrap 后再申请 lease。不能借 T4 跳过迁移窗口证明。 |
