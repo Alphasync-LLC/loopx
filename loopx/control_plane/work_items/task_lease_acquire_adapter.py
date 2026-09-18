@@ -16,6 +16,7 @@ from ..coordination.coordination_state_contract_generated import (
     TASK_LEASE_ACQUIRE_REQUEST_SCHEMA,
     TASK_LEASE_CANONICAL_ACQUIRE_REQUEST_SCHEMA,
     TASK_LEASE_CANONICAL_LIFECYCLE_REQUEST_SCHEMA,
+    TASK_LEASE_CANONICAL_CLAIM_TRANSFER_REQUEST_SCHEMA,
     TASK_LEASE_LIFECYCLE_REQUEST_SCHEMA,
 )
 from ..coordination.runtime_shadow import resolve_coordination_runtime_shadow_config
@@ -581,6 +582,7 @@ def execute_native_task_lease_lifecycle(
     ttl_seconds: int | None = None,
     new_owner: str | None = None,
     new_idempotency_key: str | None = None,
+    transfer_claim: bool = False,
     todo: dict[str, Any] | None = None,
     delegated_authority: bool = False,
     allow_user_gate_auto_acquire: bool = False,
@@ -606,6 +608,8 @@ def execute_native_task_lease_lifecycle(
     """
 
     normalized_operation = str(operation or "").strip()
+    if not isinstance(transfer_claim, bool) or (transfer_claim and normalized_operation != "transfer"):
+        raise TaskLeaseError("transfer_claim is valid only for transfer", code="invalid_claim_transfer_request")
     normalized_expected_version = _normalize_lifecycle_expected_version(
         expected_version,
         operation=normalized_operation or "lifecycle",
@@ -632,6 +636,11 @@ def execute_native_task_lease_lifecycle(
 
             canonical_lifecycle = local_authority_is_promoted(
                 runtime_root=runtime_root, goal_id=goal_id
+            )
+        if transfer_claim and not canonical_lifecycle:
+            raise TaskLeaseError(
+                "atomic claim transfer requires canonical authority; inspect provider readiness first",
+                code="claim_transfer_requires_canonical_authority",
             )
         if registry_path is not None and (needs_authority or (normalized_operation == "release" and not canonical_lifecycle)):
             try:
@@ -704,6 +713,9 @@ def execute_native_task_lease_lifecycle(
             )}
             if normalized_operation == "transfer":
                 request.update(new_owner=new_owner, new_idempotency_key=new_idempotency_key)
+                if transfer_claim:
+                    request.update(schema_version=TASK_LEASE_CANONICAL_CLAIM_TRANSFER_REQUEST_SCHEMA,
+                                   transfer_claim=True)
         if registry_path is not None and not canonical_lifecycle:
             registry = load_registry(registry_path)
             goal = _registry_goal(registry, str(goal_id))
@@ -758,6 +770,17 @@ def execute_native_task_lease_lifecycle(
                 raise RuntimeError("canonical task-lease result has invalid provider evidence")
             # The canonical transaction already owns its lease/event/receipt.
             # Do not attach a second legacy lease-file or shadow write.
+            if transfer_claim:
+                if result.get("transfer_claim") is not True or result.get("claimed_by") != new_owner:
+                    raise RuntimeError("canonical claim transfer omitted its committed result")
+                from ..todos.provider_projection import settle_canonical_todo_projection
+
+                # Display failure cannot undo the joint authority commit. The
+                # existing outbox reports pending and retries render current head.
+                assert registry_path is not None
+                return settle_canonical_todo_projection(
+                    result, registry_path=registry_path, runtime_root=runtime_root, goal_id=goal_id,
+                )
             return result
         if authority is not None and authority.get("handoff_mode") and "handoff_mode" not in result:
             result["handoff_mode"] = authority["handoff_mode"]
