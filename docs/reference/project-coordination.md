@@ -72,7 +72,9 @@ are separate from this conversation runtime.
 ## Current local product path
 
 Select an existing Goal and use its bottom message composer, including while
-viewing tasks; replies open in place. **Chat** opens the full history. Ask about its current work or explicitly
+viewing tasks; replies open in place. **View reply** opens the latest answer directly,
+clearing any nested execution-record filter. **Chat** opens the full history.
+Ask about its current work or explicitly
 ask to pass a correction to a named registered member. Project Chat now uses the
 same evidence and semantic handoff path as the steward, bounded to that Goal:
 

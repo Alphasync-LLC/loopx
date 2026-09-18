@@ -1503,6 +1503,16 @@ export function PersonalWorkspacePage({
     }
   }
 
+  function openGoalConversation() {
+    setSelectedGoalTab("chat");
+    setActiveSessionRun(null);
+    setGoalConversationReceiptVisible(false);
+    window.requestAnimationFrame(() => {
+      const replies = channelScrollRef.current?.querySelectorAll<HTMLElement>(".personal-message.is-assistant");
+      replies?.item(replies.length - 1)?.scrollIntoView({ block: "start" });
+    });
+  }
+
   const drawerCallbacks: PersonalWorkspaceCallbacks = {
     ...callbacks,
     onOpenRunSession: async (run) => {
@@ -1517,8 +1527,8 @@ export function PersonalWorkspacePage({
       void reconcileStatus([goalId]);
     },
     onOpenGoalView: (tab) => {
-      setSelectedGoalTab(tab);
-      if (tab === "chat") setActiveSessionRun(null);
+      if (tab === "chat") openGoalConversation();
+      else setSelectedGoalTab(tab);
       setSelection(null);
     },
     onOpenOutput: (output) => {
@@ -1906,11 +1916,8 @@ export function PersonalWorkspacePage({
               setManagerChatOpen(true);
             }}
             onSelectGoalTab={(tab) => {
-              setSelectedGoalTab(tab);
-              if (tab === "chat") {
-                setActiveSessionRun(null);
-                setGoalConversationReceiptVisible(false);
-              }
+              if (tab === "chat") openGoalConversation();
+              else setSelectedGoalTab(tab);
             }}
             onSelectAgent={selectAgent}
             onReturnManagerHome={() => {
@@ -1962,7 +1969,7 @@ export function PersonalWorkspacePage({
                       setActionFeedback(t("feedback.taskDraftCreated"));
                       window.requestAnimationFrame(() => composerRef.current?.focus());
                     }}
-                    onOpenChat={() => setSelectedGoalTab("chat")}
+                    onOpenChat={openGoalConversation}
                     onQuickComplete={readOnly ? undefined : requestQuickTodoCompletion}
                     onSelect={setSelection}
                     quickCompletingTodoIds={quickCompletingTodoIds}
@@ -2015,10 +2022,7 @@ export function PersonalWorkspacePage({
                   setActionFeedback(t("feedback.taskDraftCreated"));
                   window.requestAnimationFrame(() => composerRef.current?.focus());
                 } : undefined}
-                onOpenConversation={() => {
-                  setGoalConversationReceiptVisible(false);
-                  setSelectedGoalTab("chat");
-                }}
+                onOpenConversation={openGoalConversation}
                 title={`${selectedGoal.title} · ${selectedAgentLabel}`}
               />
             ) : null}

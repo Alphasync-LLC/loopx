@@ -171,7 +171,8 @@ assert.match(page, /goalDraftActive[\s\S]*t\("composer\.createGoalDraft"\)[\s\S]
 assert.match(page, /setComposerDraft\(`manager:\$\{selectedAgentId\}`,\s*t\("composer\.createGoalTemplate"\)\)/, "Create Goal writes the localized template to the manager draft even when invoked from a Goal");
 assert.match(page, /personal-action-feedback/, "Typed actions surface a persistent visible receipt");
 assert.match(page, /visibleTimelineItems[\s\S]*item\.run\.runId === activeSessionRun\.runId/, "Session record mode filters unrelated Goal activity");
-assert.match(page, /if \(tab === "chat"\) setActiveSessionRun\(null\)/, "The top Chat view exits the nested Session record filter");
+assert.match(page, /function openGoalConversation\(\)[\s\S]*setActiveSessionRun\(null\)[\s\S]*scrollIntoView\(\{ block: "start" \}\)/, "Opening a Goal reply exits a nested Session and reveals the latest answer");
+assert.match(page, /onOpenChat=\{openGoalConversation\}/, "The task reply button uses the same conversation navigation as other Goal entries");
 assert.match(header, /header\.refreshing[\s\S]*header\.refreshDone[\s\S]*header\.refreshFailed/, "Refresh exposes localized loading, success, and failure feedback");
 assert.match(drawer, /t\("drawer\.proposalExplainer"\)/, "Preview explains what confirmation will do");
 assert.match(drawer, /t\("drawer\.proposalApplyFailed"\)/, "Failed preview communicates its no-write result clearly");
