@@ -19,7 +19,9 @@ from ..goals.activation import (
 from ..runtime.runtime_projection_route import (
     collect_runtime_projection_route_diagnostics,
 )
+from ..todos.todo_index import MAX_TODO_INDEX_ROLLOUT_EVENTS_PER_GOAL
 from ...registry import registry_goals
+from ...rollout_event_log import RolloutEventSnapshot
 
 
 StatusCallback = Callable[..., Any]
@@ -96,6 +98,10 @@ def collect_status(
         runtime_root_override,
         registry_path=registry_path,
     )
+    rollout_events = RolloutEventSnapshot(
+        runtime_root,
+        limit=MAX_TODO_INDEX_ROLLOUT_EVENTS_PER_GOAL,
+    )
     global_registry = context.collect_global_registry_health(
         registry_path=registry_path,
         runtime_root=runtime_root,
@@ -133,6 +139,7 @@ def collect_status(
         include_stopped_goal_context=(
             activation_filter is GoalActivationState.STOPPED
         ),
+        events_for_goal=rollout_events.events_for_goal,
     )
     runtime_summaries = context.build_runtime_summaries(
         history=history,
@@ -145,6 +152,7 @@ def collect_status(
         include_goal_subagent_configuration=(
             include_goal_subagent_configuration
         ),
+        events_for_goal=rollout_events.events_for_goal,
     )
     promotion_gate = context.build_promotion_gate(
         registry_path=registry_path,
