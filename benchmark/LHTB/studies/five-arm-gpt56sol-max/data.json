@@ -25,8 +25,8 @@
       "label": "Native Goal",
       "mean_reward": 0.4475494760979694,
       "pass_095": 4,
-      "tokens": 104495564,
-      "estimated_cost_usd": 87.58,
+      "tokens": 293812465,
+      "estimated_cost_usd": 344.25,
       "runtime": "Codex app-server; native persistent Goal"
     },
     "ssh_goal": {
