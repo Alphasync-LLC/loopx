@@ -4,6 +4,9 @@ import asyncio
 from pathlib import Path
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+from contextlib import contextmanager
+from threading import Event, get_ident
 
 import pytest
 from mcp import ClientSession, StdioServerParameters
@@ -12,9 +15,10 @@ from mcp.client.stdio import stdio_client
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "examples" / "managed-research-team"))
 import research_team as demo  # noqa: E402
 from test_scenario import fixture  # noqa: E402
-from loopx.control_plane.collaboration.delegation import Delegations  # noqa: E402
+from loopx.collaboration_mcp import Delegations  # noqa: E402
 from loopx.control_plane.collaboration.peers import returns  # noqa: E402
 from loopx.control_plane.collaboration.inbox import _read  # noqa: E402
+from loopx.file_lock import exclusive_file_lock  # noqa: E402
 
 
 HOST = '''import json, sys, time
@@ -64,6 +68,37 @@ def brief():
             "context": "Use the initial filing and preserve the period distinction.",
             "constraints": ["No external actions"], "inputs": [], "acceptance": ["Pinned task validation"],
             "return_requirement": "Return the independently checked artifact"}
+
+
+def test_worker_waits_for_a_transient_status_probe(service, monkeypatch):
+    """A reader temporarily holding the lock must not discard admitted work."""
+    from loopx import collaboration_mcp as delegation
+
+    _, runner = service
+    monkeypatch.setattr(runner, "_spawn", lambda _: None)
+    runner.start("analysis", "analysis-1", brief())
+    path = runner.path("analysis-1")
+    attempted = Event()
+    main_thread = get_ident()
+    executed = []
+
+    @contextmanager
+    def observed_lock(target, **kwargs):
+        if target == path and get_ident() != main_thread:
+            attempted.set()
+        with exclusive_file_lock(target, **kwargs) as held:
+            yield held
+
+    monkeypatch.setattr(delegation, "exclusive_file_lock", observed_lock)
+    monkeypatch.setattr(runner, "_execute", lambda *args: executed.append("ran"))
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with exclusive_file_lock(path):
+            future = pool.submit(runner.execute, "analysis-1")
+            assert attempted.wait(5)
+            with pytest.raises(FutureTimeout):
+                future.result(timeout=0.2)
+        future.result(timeout=10)
+    assert executed == ["ran"]
 
 
 def wait(service, operation="analysis-1"):

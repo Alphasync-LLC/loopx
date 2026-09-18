@@ -146,9 +146,9 @@ if __name__ == "__main__":
     workspace = path / actor / revision if args.worker else path / "lead"
     selected = worker_server if args.worker else server
     from loopx.collaboration_mcp import register_collaboration_tools
-    from loopx.control_plane.collaboration.delegation import Delegations, register_tools
+    from loopx.collaboration_mcp import Delegations, register_delegation_tools
     register_collaboration_tools(selected, path / "runtime", path / "registry.json", demo.GOAL, actor, workspace)
     if (path / "delegation-config.json").exists():
-        register_tools(selected, Delegations(path / "runtime", path / "registry.json", demo.GOAL,
+        register_delegation_tools(selected, Delegations(path / "runtime", path / "registry.json", demo.GOAL,
                                              actor, path / "delegation-config.json"))
     selected.run(transport="stdio")

@@ -82,6 +82,12 @@ request lineage, the original Turn key and bounded results. It does not replace
 canonical Todo, claim, lease, quota, or acceptance ownership. Business ordering,
 questions, repair decisions and synthesis remain Agent decisions.
 
+The existing `loopx.collaboration_mcp` host owns tool serving, detached worker IO
+and the Turn validator entrypoint. Typed execution grants and observation
+transitions remain in the collaboration TS boundary. A worker waits through a
+brief status-read lock before deciding another worker owns the operation;
+concurrent executions still use the same kernel lock and original Turn journal.
+
 ## Disconnect and recovery
 
 | Interruption | Behavior and recovery |
