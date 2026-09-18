@@ -149,7 +149,10 @@ export function acceptanceTodos(head: JsonObject, goalId: string): ReadonlyMap<s
   return indexCoordinationProjectionTodos(head, goalId).todos;
 }
 export function goalAcceptanceWorkDigest(head: JsonObject, goalId: string): string {
-  return canonicalAuthoritySha256([...acceptanceTodos(head, goalId).values()].filter(advancement)
+  // This semantic fingerprint is independent of provider row representation.
+  // Projection and mutation callers separately validate the canonical read model.
+  return canonicalAuthoritySha256([...indexCoordinationProjectionTodos(head, goalId).todos.values()].filter(advancement)
+    .sort((left, right) => authorityUnicodeCompare(String(left.todo_id), String(right.todo_id)))
     .map(todo => ({todo_id: todo.todo_id, digest: goalAcceptanceTodoDigest(todo)})));
 }
 
@@ -174,18 +177,30 @@ export function readGoalAcceptance(head: JsonObject, goalId: string): Acceptance
   });
   unique(bindings.map(binding => binding.todo_id), "canonical bindings");
   acceptanceRequire(bindings.length === document.bindings.length, "canonical bindings omit declared work");
+  let verification: AcceptanceVerification | null = null;
   if (state.verification !== null) {
     const receipt = canonicalAuthorityObject(state.verification, "acceptance verification");
     acceptanceKeys(receipt, ["operation_id", "contract_revision", "contract_digest", "work_digest", "todo_id", "results"]);
-    acceptanceText(receipt.operation_id, "verification operation id", 256);
+    const operationId = acceptanceText(receipt.operation_id, "verification operation id", 256);
+    acceptanceRequire(operationId === receipt.operation_id, "verification operation id must be trimmed");
     acceptanceRequire(Number.isSafeInteger(receipt.contract_revision) && Number(receipt.contract_revision) > 0 &&
-      [receipt.contract_digest, receipt.work_digest].every(value => typeof value === "string" && /^[a-f0-9]{64}$/.test(value)) &&
-      (receipt.todo_id === null || typeof receipt.todo_id === "string"), "invalid verification basis");
+      Number(receipt.contract_revision) <= Number(state.revision) &&
+      [receipt.contract_digest, receipt.work_digest].every(value => typeof value === "string" && /^[a-f0-9]{64}$/.test(value)),
+      "invalid verification basis");
+    const todoId = receipt.todo_id === null ? null : id(receipt.todo_id);
     // Historical receipts can name retired criteria. Current acceptance checks
-    // exact coverage separately; no trusted accepted=true bit is persisted.
-    normalizeAcceptanceResults(receipt.results);
+    // require exact coverage even for failed or task-scoped verification.
+    let expectedIds: string[] | undefined;
+    if (receipt.contract_revision === state.revision) {
+      acceptanceRequire(receipt.contract_digest === state.digest, "current verification contract digest mismatch");
+      expectedIds = todoId === null ? document.criteria.map(item => item.id)
+        : bindings.find(binding => binding.todo_id === todoId)?.criterion_ids;
+      acceptanceRequire(expectedIds, "current verification references an unbound Todo");
+    }
+    verification = {...receipt, operation_id: operationId, todo_id: todoId,
+      results: normalizeAcceptanceResults(receipt.results, expectedIds)} as AcceptanceVerification;
   }
-  return {...state, document, bindings} as AcceptanceState;
+  return {...state, document, bindings, verification} as AcceptanceState;
 }
 
 export function acceptanceTask(todoId: string, todo: JsonObject | undefined, state: AcceptanceState): AcceptanceTask {
@@ -236,10 +251,7 @@ export function projectGoalAcceptance(head: JsonObject, goalId: string): JsonObj
         receipt.work_digest !== goalAcceptanceWorkDigest(head, goalId)) status = "stale";
     else if (receipt.results.some(item => !item.passed)) status = "failed";
     else if (receipt.todo_id !== null) status = "partial";
-    else {
-      normalizeAcceptanceResults(receipt.results, state.document.criteria.map(item => item.id));
-      status = "accepted";
-    }
+    else status = "accepted";
   }
   if (held.length) status = "held";
   return {enabled: true, revision: state.revision, digest: state.digest, objective: state.document.objective,

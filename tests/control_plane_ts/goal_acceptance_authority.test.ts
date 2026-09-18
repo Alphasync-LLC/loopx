@@ -11,13 +11,13 @@ import type {AuthorityStore} from "../../loopx/control_plane/coordination/author
 import {FileAuthorityStore} from "../../loopx/control_plane/coordination/file_authority_store.ts";
 import {SqliteAuthorityStore} from "../../loopx/control_plane/coordination/sqlite_authority_store.ts";
 import {PostgreSqlAuthorityStore, installPostgreSqlAuthorityStoreSchema} from "../../loopx/control_plane/coordination/postgresql_authority_store.ts";
-import {prepareCoordinationProjectionCommit} from "../../loopx/control_plane/coordination/coordination_projection.ts";
+import {prepareCoordinationProjectionCommit, validateCoordinationTodoReadModel} from "../../loopx/control_plane/coordination/coordination_projection.ts";
 import {openLocalAuthorityStore, selectLocalSqliteAuthority} from "../../loopx/control_plane/coordination/local_authority_provider.ts";
 import {loadLegacyCoordinationWriterFence} from "../../loopx/control_plane/coordination/legacy_writer_fence.ts";
 import {shadowManagementStatePath} from "../../loopx/control_plane/coordination/shadow_management.ts";
 import {authorityProjectionFixture} from "./authority_projection_fixture.ts";
-import {acceptanceCompletionRequirements, acceptanceWorkGuard, goalAcceptanceTodoDigest,
-  normalizeGoalAcceptanceDocument, projectGoalAcceptance, validateAcceptanceCompletion} from "../../loopx/control_plane/goals/acceptance_contract.ts";
+import {acceptanceCompletionRequirements, acceptanceWorkGuard, goalAcceptanceTodoDigest, goalAcceptanceWorkDigest,
+  normalizeGoalAcceptanceDocument, projectGoalAcceptance, readGoalAcceptance, validateAcceptanceCompletion} from "../../loopx/control_plane/goals/acceptance_contract.ts";
 import {commitGoalAcceptanceVerification, commitLocalGoalAcceptance, commitLocalGoalAcceptanceVerification,
   configureGoalAcceptance, inspectGoalAcceptance, inspectLocalGoalAcceptance} from "../../loopx/control_plane/goals/acceptance_authority.ts";
 
@@ -144,6 +144,7 @@ for (const provider of providers) {
     ];
     const before = await head(store);
     for (const invalid of [noCas, noActor, {...request, actor_agent_id: "agent"}, {...request, expected_provider_revision: null},
+      {...request, operation_id: "x".repeat(257)},
       ...invalidDocuments.map(document => ({...request, document}))]) {
       await assert.rejects(() => configureGoalAcceptance(store, invalid));
       assert.deepEqual(await head(store), before);
@@ -255,6 +256,31 @@ for (const provider of providers) {
       (successful.head.goal_acceptance as JsonObject).verification, "historical execution evidence is retained");
   });
 
+  test(`${provider}: persisted verification validates its complete basis and returns only compact results`, options, async t => {
+    const store = await fixture(t, provider); await seed(store);
+    await configureGoalAcceptance(store, await configureRequest(store));
+    await commitGoalAcceptanceVerification(store, await verifyRequest(store));
+    const accepted = (await head(store)).head;
+    const state = accepted.goal_acceptance as JsonObject;
+    const original = state.verification as JsonObject;
+    const corrupt = (receipt: JsonObject) => ({...accepted, goal_acceptance: {...state, verification: receipt}});
+    for (const field of ["operation_id", "contract_revision", "contract_digest", "work_digest", "todo_id", "results"]) {
+      const missing = {...original}; delete missing[field];
+      assert.throws(() => readGoalAcceptance(corrupt(missing), goal), /fields/);
+    }
+    for (const patch of [{operation_id: " op "}, {contract_revision: "1"}, {contract_revision: 2},
+      {contract_digest: "0".repeat(64)}, {work_digest: 3}, {todo_id: ""}, {todo_id: "todo_unknown"},
+      {results: [{criterion_id: "outcome", passed: false, exit_code: 1}]},
+      {todo_id: "todo_first", results: [{criterion_id: "outcome", passed: true, exit_code: 0}]}]) {
+      assert.throws(() => readGoalAcceptance(corrupt({...original, ...patch}), goal));
+    }
+    const metadata = {...original, results: (original.results as JsonObject[]).map(row =>
+      ({...row, command_label: "private-receipt-label", summary: "private-receipt-context"}))};
+    assert.ok(!JSON.stringify(projectGoalAcceptance(corrupt(metadata), goal)).includes("private-receipt"));
+    assert.equal(projectGoalAcceptance(corrupt({...original, work_digest: "0".repeat(64)}), goal).status, "stale");
+    assert.equal(projectGoalAcceptance(accepted, goal).status, "accepted");
+  });
+
   test(`${provider}: fresh prerequisite execution is bound to atomic completion; final criterion is not inferred`, options, async t => {
     const store = await fixture(t, provider); await seed(store);
     await configureGoalAcceptance(store, await configureRequest(store));
@@ -324,6 +350,20 @@ test("normalization is deterministic and digest includes work declarations but e
   }
   assert.throws(() => projectGoalAcceptance({...originalHead(), goal_acceptance: null}, goal), /object/);
   assert.deepEqual(projectGoalAcceptance({}, goal), {enabled: false}, "feature off preserves legacy callers without a read model");
+});
+
+test("work fingerprints ignore row permutations without weakening canonical read-model validation", () => {
+  const original = originalHead();
+  const rows = original.todos as JsonObject[];
+  const permutations = [[...rows].reverse(), [...rows.slice(2), ...rows.slice(0, 2)]];
+  const digest = goalAcceptanceWorkDigest(original, goal);
+  for (const todos of permutations) {
+    assert.equal(goalAcceptanceWorkDigest({...original, todos}, goal), digest);
+    assert.equal(goalAcceptanceWorkDigest(authorityProjectionFixture(goal, todos, [], "legacy"), goal), digest);
+    assert.throws(() => validateCoordinationTodoReadModel({...original, todos}, goal), /deterministic todo_id order/);
+  }
+  assert.throws(() => goalAcceptanceWorkDigest({...original, todos: [...rows, rows[0]]}, goal), /duplicate/);
+  assert.throws(() => goalAcceptanceWorkDigest(original, "different-goal"), /goal mismatch/);
 });
 
 for (const provider of ["file", "sqlite"] as const) {

@@ -9,7 +9,7 @@ import {AuthorityStoreProtocolError, canonicalAuthorityObject, canonicalAuthorit
 import {CoordinationCommandReceipt} from "../coordination/command_receipt.ts";
 import {withCanonicalWriter} from "../coordination/local_authority_write.ts";
 import {openLocalAuthorityStore, localAuthorityOpenFailure} from "../coordination/local_authority_provider.ts";
-import {GOAL_ACCEPTANCE_SCHEMA, acceptanceKeys, acceptanceRequire, acceptanceTask, acceptanceTodos,
+import {GOAL_ACCEPTANCE_SCHEMA, acceptanceKeys, acceptanceRequire, acceptanceTask, acceptanceText, acceptanceTodos,
   goalAcceptanceTodoDigest, goalAcceptanceWorkDigest, normalizeAcceptanceResults,
   normalizeGoalAcceptanceDocument, projectGoalAcceptance, readGoalAcceptance,
   type AcceptanceState, type AcceptanceVerification} from "./acceptance_contract.ts";
@@ -30,6 +30,7 @@ function mutationRequest(value: unknown, verification: boolean): JsonObject {
   for (const field of ["goal_id", "operation_id", "expected_provider_revision"]) {
     requireAuthorityStoreId(request[field], field);
   }
+  acceptanceText(request.operation_id, "acceptance operation id", 256);
   acceptanceRequire(request.dry_run === undefined || typeof request.dry_run === "boolean", "dry_run must be boolean");
   if (!verification) acceptanceRequire(request.disable === undefined || typeof request.disable === "boolean", "disable must be boolean");
   return request;
