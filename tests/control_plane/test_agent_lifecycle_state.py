@@ -1,342 +1,100 @@
-"""Tests for the worker lifecycle state projection.
-
-These tests verify that the lifecycle state is derived from existing facts
-only (registry membership, todo claims, session bindings, activity timestamps)
-and does not introduce a second source of truth.
-
-State priority (highest first):
-1. blocked      — current todo is blocked or a blocker
-2. executing    — has active todo with recent activity (within stale threshold)
-3. bound        — has session binding and active todo
-4. launchable   — has active todo, no session binding
-5. addressable  — has session binding but no active todo
-6. registered   — registered in registry, no binding or todo
-"""
-
-from __future__ import annotations
-
+"""Exercise worker states through the public projection and real peer admission."""
 from datetime import datetime, timedelta, timezone
 
-from loopx.control_plane.agents.management_projection import (
-    WORKER_LIFECYCLE_STATE_ADDRESSABLE,
-    WORKER_LIFECYCLE_STATE_BLOCKED,
-    WORKER_LIFECYCLE_STATE_BOUND,
-    WORKER_LIFECYCLE_STATE_EXECUTING,
-    WORKER_LIFECYCLE_STATE_LAUNCHABLE,
-    WORKER_LIFECYCLE_STATE_REGISTERED,
-    _agent_lifecycle_state,
-)
+import pytest
+
+from loopx.control_plane.agents import management_projection as projection
+from loopx.control_plane.quota.task_orchestration import apply_task_orchestration_contract
+
+NOW = datetime(2026, 9, 18, 12, tzinfo=timezone.utc)
 
 
-def _todo(
-    *,
-    status: str = "open",
-    task_class: str = "advancement_task",
-    claimed_by: str | None = "agent-a",
-    updated_at: str | None = None,
-    todo_id: str = "todo_test_001",
-) -> dict:
-    return {
-        "todo_id": todo_id,
-        "goal_id": "test-goal",
-        "status": status,
-        "task_class": task_class,
-        "claimed_by": claimed_by,
-        "updated_at": updated_at,
-    }
+def build_projection(monkeypatch, *, age=None, binding=False, status="open",
+                     task_class="advancement_task", has_todo=True, extra_todos=()):
+    monkeypatch.setattr(projection, "now_utc", lambda: NOW)
+    todo = {"todo_id": "todo_peer", "goal_id": "test-goal", "role": "agent",
+            "claimed_by": "peer", "status": status, "task_class": task_class,
+            "action_kind": "inspect", "text": "Inspect the public contract."}
+    if age is not None:
+        todo["updated_at"] = (NOW - timedelta(hours=age)).isoformat()
+    todos = ([todo] if has_todo else []) + list(extra_todos)
+    payload = {"goal_filter": "test-goal", "run_history": {"goals": [{
+        "id": "test-goal", "coordination": {
+            "registered_agents": ["peer"],
+            "thread_agent_bindings": [{"agent_id": "peer", "thread_id": "thread-peer",
+                                        "host_surface": "codex-app"}] if binding else [],
+        }}]}, "todo_index": {"items": todos}}
+    return projection.build_agent_management_projection(payload), todo
 
 
-def _recent_activity() -> str:
-    """Activity timestamp within the stale threshold (36 hours)."""
-    return (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+@pytest.mark.parametrize("kwargs,expected", [
+    ({"has_todo": False}, "registered"),
+    ({"has_todo": False, "binding": True}, "addressable"),
+    ({"status": "done"}, "registered"),
+    ({"status": "done", "binding": True}, "addressable"),
+    ({}, "launchable"),
+    ({"binding": True}, "bound"),
+    ({"age": 1}, "executing"),
+    ({"age": 8}, "executing"),
+    ({"age": 8.01}, "launchable"),
+    ({"age": 9, "binding": True}, "bound"),
+    ({"age": -1}, "launchable"),
+    ({"age": 48}, "launchable"),
+    ({"status": "blocked", "age": 1, "binding": True}, "blocked"),
+    ({"task_class": "blocker", "age": 1}, "blocked"),
+    ({"task_class": "continuous_monitor", "age": 1}, "monitoring"),
+    ({"task_class": "continuous_monitor", "age": 48}, "monitoring"),
+    ({"status": "deferred", "age": 1}, "waiting"),
+])
+def test_projected_state(monkeypatch, kwargs, expected):
+    packet, _ = build_projection(monkeypatch, **kwargs)
+    row = packet["agents"][0]
+    assert row["state"] == expected
+    assert "lifecycle_state" not in row
+    assert ("session_binding" in row) == kwargs.get("binding", False)
+    assert packet["truth_contract"]["projection_is_writable"] is False
 
 
-def _stale_activity() -> str:
-    """Activity timestamp beyond the stale threshold (36 hours)."""
-    return (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+def test_unrelated_blocked_activity_does_not_change_current_work(monkeypatch):
+    other = {"todo_id": "todo_blocked", "goal_id": "test-goal", "role": "agent",
+             "claimed_by": "peer", "status": "blocked", "task_class": "blocker",
+             "updated_at": NOW.isoformat()}
+    packet, _ = build_projection(monkeypatch, extra_todos=[other])
+    row = packet["agents"][0]
+    assert row["current_todo"]["todo_id"] == "todo_peer"
+    assert row["blocked_on"]["todo_id"] == "todo_blocked"
+    assert row["state"] == "launchable"
 
 
-class TestLifecycleStateRegistered:
-    """Registered: agent in registry, no binding or todo."""
-
-    def test_registered_with_no_todos_no_binding(self) -> None:
-        state = _agent_lifecycle_state(
-            [],
-            current=None,
-            has_session_binding=False,
-            last_activity_at=None,
-        )
-        assert state == WORKER_LIFECYCLE_STATE_REGISTERED
-
-    def test_registered_with_done_todos_only(self) -> None:
-        done_todo = _todo(status="done")
-        state = _agent_lifecycle_state(
-            [done_todo],
-            current=None,
-            has_session_binding=False,
-            last_activity_at=None,
-        )
-        assert state == WORKER_LIFECYCLE_STATE_REGISTERED
-
-
-class TestLifecycleStateAddressable:
-    """Addressable: has session binding but no active todo."""
-
-    def test_addressable_with_binding_no_todos(self) -> None:
-        state = _agent_lifecycle_state(
-            [],
-            current=None,
-            has_session_binding=True,
-            last_activity_at=None,
-        )
-        assert state == WORKER_LIFECYCLE_STATE_ADDRESSABLE
-
-    def test_addressable_with_binding_and_done_todos(self) -> None:
-        done_todo = _todo(status="done")
-        state = _agent_lifecycle_state(
-            [done_todo],
-            current=None,
-            has_session_binding=True,
-            last_activity_at=None,
-        )
-        assert state == WORKER_LIFECYCLE_STATE_ADDRESSABLE
-
-
-class TestLifecycleStateBound:
-    """Bound: has session binding and active todo."""
-
-    def test_bound_with_binding_and_active_todo(self) -> None:
-        todo = _todo(claimed_by="agent-a")
-        state = _agent_lifecycle_state(
-            [todo],
-            current=todo,
-            has_session_binding=True,
-            last_activity_at=None,
-        )
-        assert state == WORKER_LIFECYCLE_STATE_BOUND
-
-    def test_bound_with_binding_and_stale_activity(self) -> None:
-        """Bound with stale activity: still bound (has binding + active todo)."""
-        todo = _todo(claimed_by="agent-a", updated_at=_stale_activity())
-        state = _agent_lifecycle_state(
-            [todo],
-            current=todo,
-            has_session_binding=True,
-            last_activity_at=_stale_activity(),
-        )
-        assert state == WORKER_LIFECYCLE_STATE_BOUND
-
-
-class TestLifecycleStateLaunchable:
-    """Launchable: has active todo, no session binding."""
-
-    def test_launchable_with_active_todo_no_binding(self) -> None:
-        todo = _todo(claimed_by="agent-a")
-        state = _agent_lifecycle_state(
-            [todo],
-            current=todo,
-            has_session_binding=False,
-            last_activity_at=None,
-        )
-        assert state == WORKER_LIFECYCLE_STATE_LAUNCHABLE
-
-    def test_launchable_with_stale_activity_no_binding(self) -> None:
-        todo = _todo(claimed_by="agent-a", updated_at=_stale_activity())
-        state = _agent_lifecycle_state(
-            [todo],
-            current=todo,
-            has_session_binding=False,
-            last_activity_at=_stale_activity(),
-        )
-        assert state == WORKER_LIFECYCLE_STATE_LAUNCHABLE
-
-
-class TestLifecycleStateExecuting:
-    """Executing: has active todo with recent activity (within stale threshold)."""
-
-    def test_executing_with_recent_activity(self) -> None:
-        todo = _todo(claimed_by="agent-a", updated_at=_recent_activity())
-        state = _agent_lifecycle_state(
-            [todo],
-            current=todo,
-            has_session_binding=True,
-            last_activity_at=_recent_activity(),
-        )
-        assert state == WORKER_LIFECYCLE_STATE_EXECUTING
-
-    def test_executing_with_recent_activity_no_binding(self) -> None:
-        """Executing requires recent activity; without binding it is still executing."""
-        todo = _todo(claimed_by="agent-a", updated_at=_recent_activity())
-        state = _agent_lifecycle_state(
-            [todo],
-            current=todo,
-            has_session_binding=False,
-            last_activity_at=_recent_activity(),
-        )
-        assert state == WORKER_LIFECYCLE_STATE_EXECUTING
-
-
-class TestLifecycleStateBlocked:
-    """Blocked: current todo is blocked or a blocker. Highest priority."""
-
-    def test_blocked_with_blocked_todo(self) -> None:
-        todo = _todo(status="blocked", task_class="blocker")
-        state = _agent_lifecycle_state(
-            [todo],
-            current=todo,
-            has_session_binding=True,
-            last_activity_at=_recent_activity(),
-        )
-        assert state == WORKER_LIFECYCLE_STATE_BLOCKED
-
-    def test_blocked_takes_priority_over_executing(self) -> None:
-        """Blocked takes priority even with recent activity and binding."""
-        todo = _todo(status="blocked", task_class="blocker")
-        state = _agent_lifecycle_state(
-            [todo],
-            current=todo,
-            has_session_binding=True,
-            last_activity_at=_recent_activity(),
-        )
-        assert state == WORKER_LIFECYCLE_STATE_BLOCKED
-
-    def test_blocked_with_blocker_task_class(self) -> None:
-        todo = _todo(task_class="blocker")
-        state = _agent_lifecycle_state(
-            [todo],
-            current=todo,
-            has_session_binding=True,
-            last_activity_at=_recent_activity(),
-        )
-        assert state == WORKER_LIFECYCLE_STATE_BLOCKED
-
-    def test_blocked_with_blocked_status(self) -> None:
-        todo = _todo(status="blocked")
-        state = _agent_lifecycle_state(
-            [todo],
-            current=todo,
-            has_session_binding=True,
-            last_activity_at=_recent_activity(),
-        )
-        assert state == WORKER_LIFECYCLE_STATE_BLOCKED
-
-
-class TestLifecycleStatePriority:
-    """Verify state priority ordering."""
-
-    def test_blocked_beats_executing(self) -> None:
-        todo = _todo(status="blocked", task_class="blocker")
-        state = _agent_lifecycle_state(
-            [todo],
-            current=todo,
-            has_session_binding=True,
-            last_activity_at=_recent_activity(),
-        )
-        assert state == WORKER_LIFECYCLE_STATE_BLOCKED
-
-    def test_executing_beats_bound(self) -> None:
-        """With recent activity, executing wins over bound."""
-        todo = _todo(claimed_by="agent-a", updated_at=_recent_activity())
-        state = _agent_lifecycle_state(
-            [todo],
-            current=todo,
-            has_session_binding=True,
-            last_activity_at=_recent_activity(),
-        )
-        assert state == WORKER_LIFECYCLE_STATE_EXECUTING
-
-    def test_bound_beats_launchable(self) -> None:
-        """With session binding, bound wins over launchable."""
-        todo = _todo(claimed_by="agent-a")
-        state = _agent_lifecycle_state(
-            [todo],
-            current=todo,
-            has_session_binding=True,
-            last_activity_at=None,
-        )
-        assert state == WORKER_LIFECYCLE_STATE_BOUND
-
-    def test_launchable_beats_addressable(self) -> None:
-        """With active todo, launchable wins over addressable."""
-        todo = _todo(claimed_by="agent-a")
-        state = _agent_lifecycle_state(
-            [todo],
-            current=todo,
-            has_session_binding=False,
-            last_activity_at=None,
-        )
-        assert state == WORKER_LIFECYCLE_STATE_LAUNCHABLE
-
-    def test_addressable_beats_registered(self) -> None:
-        """With session binding, addressable wins over registered."""
-        state = _agent_lifecycle_state(
-            [],
-            current=None,
-            has_session_binding=True,
-            last_activity_at=None,
-        )
-        assert state == WORKER_LIFECYCLE_STATE_ADDRESSABLE
-
-
-class TestLifecycleStateNegativeCases:
-    """Negative cases: ensure no second source of truth is introduced."""
-
-    def test_no_todo_no_binding_is_registered(self) -> None:
-        """An agent with no todos and no binding is registered, not unknown."""
-        state = _agent_lifecycle_state(
-            [],
-            current=None,
-            has_session_binding=False,
-            last_activity_at=None,
-        )
-        assert state == WORKER_LIFECYCLE_STATE_REGISTERED
-
-    def test_done_todos_dont_make_agent_executing(self) -> None:
-        """Done todos don't count as active work."""
-        done_todo = _todo(status="done", claimed_by="agent-a")
-        state = _agent_lifecycle_state(
-            [done_todo],
-            current=None,
-            has_session_binding=True,
-            last_activity_at=_recent_activity(),
-        )
-        assert state == WORKER_LIFECYCLE_STATE_ADDRESSABLE
-
-    def test_stale_activity_with_binding_is_bound_not_executing(self) -> None:
-        """Stale activity with binding is bound, not executing."""
-        todo = _todo(claimed_by="agent-a", updated_at=_stale_activity())
-        state = _agent_lifecycle_state(
-            [todo],
-            current=todo,
-            has_session_binding=True,
-            last_activity_at=_stale_activity(),
-        )
-        assert state == WORKER_LIFECYCLE_STATE_BOUND
-
-    def test_unclaimed_todo_doesnt_make_agent_bound(self) -> None:
-        """An unclaimed todo doesn't make the agent bound."""
-        todo = _todo(claimed_by=None)
-        state = _agent_lifecycle_state(
-            [todo],
-            current=todo,
-            has_session_binding=False,
-            last_activity_at=None,
-        )
-        # Unclaimed todo with no binding: still launchable (has active todo)
-        assert state == WORKER_LIFECYCLE_STATE_LAUNCHABLE
-
-    def test_unrelated_blocked_todo_does_not_block_worker(self) -> None:
-        """A worker with runnable current_todo and unrelated blocked maintenance todo
-        should not be blocked per the protocol contract: "blocker remains visible
-        without making the whole peer appear blocked."
-        """
-        runnable_todo = _todo(status="open", task_class="advancement_task", claimed_by="agent-a", todo_id="todo_runnable")
-        blocked_todo = _todo(status="blocked", task_class="blocker", claimed_by="agent-b", todo_id="todo_blocked_maintenance")
-        state = _agent_lifecycle_state(
-            [runnable_todo, blocked_todo],
-            current=runnable_todo,
-            has_session_binding=False,
-            last_activity_at=None,
-        )
-        # Worker with runnable current todo should be launchable, not blocked
-        assert state == WORKER_LIFECYCLE_STATE_LAUNCHABLE
+@pytest.mark.parametrize("age,binding,capability,resume_ready,reason", [
+    (1, True, True, True, None),
+    (1, False, True, True, None),
+    (9, True, True, True, None),
+    (9, False, True, True, None),
+    (48, True, True, True, "peer_runtime_stale"),
+    (None, True, True, True, "peer_runtime_stale"),
+    (1, True, False, True, "peer_agent_activation_unavailable"),
+    (1, True, True, False, "peer_lane_not_resume_ready"),
+])
+def test_real_projection_to_peer_admission(monkeypatch, age, binding, capability,
+                                           resume_ready, reason):
+    packet, todo = build_projection(monkeypatch, age=age, binding=binding)
+    todo.update(resume_when="todo_done:todo_dependency", resume_ready=resume_ready)
+    summary = {"items": [todo]}
+    contract, lane = apply_task_orchestration_contract(
+        fallback_work_lane_contract={"lane": "advancement_task"},
+        goal_boundary={"peer_task_coordination": {
+            "enabled": True, "coordinator_agent_id": "coordinator"}},
+        agent_identity={"agent_id": "coordinator", "registered_agents": ["coordinator", "peer"]},
+        agent_todo_summary=summary, raw_agent_todo_summary=summary,
+        available_capabilities=["peer_agent_activation"] if capability else [],
+        agent_management_projection=packet,
+    )
+    assert contract is not None
+    assert contract["execution_state"] == ("blocked" if reason else "ready")
+    if reason:
+        assert contract["eligible_peer_lanes"] == []
+        assert contract["blocked_peer_lanes"][0]["reason_codes"] == [reason]
+    else:
+        assert contract["eligible_peer_lanes"][0]["todo_id"] == "todo_peer"
+        assert lane["lane"] == "task_orchestration"

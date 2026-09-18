@@ -491,11 +491,12 @@ def _agent_state(
 
     State priority (highest first):
     1. blocked      — current todo is blocked or a blocker
-    2. executing    — has active todo with recent activity (within activity threshold)
-    3. bound        — has session binding and active todo
-    4. launchable   — has active todo, no session binding
-    5. addressable  — has session binding but no active todo
-    6. registered   — registered in registry, no binding or todo
+    2. monitoring / waiting — monitor-only or non-open current work
+    3. executing    — current open work updated within the activity threshold
+    4. bound        — has session binding and active todo
+    5. launchable   — has active todo, no session binding
+    6. addressable  — has session binding but no active todo
+    7. registered   — registered in registry, no binding or todo
     """
     open_todos = [todo for todo in todos if not _is_done(todo)]
 
@@ -507,12 +508,18 @@ def _agent_state(
         if _todo_status(current) == "blocked" or current.get("task_class") == "blocker":
             return WORKER_LIFECYCLE_STATE_BLOCKED
 
-    # Executing: has active todo with recent activity (within activity threshold).
+    if current and not _is_done(current):
+        if _is_monitor_todo(current):
+            return "monitoring"
+        if _todo_status(current) != "open":
+            return "waiting"
+
+    # Activity describes the selected work, not updates to unrelated todos.
     if current and not _is_done(current) and last_activity_at:
         parsed = parse_timestamp(last_activity_at)
         if parsed:
             age_hours = (now_utc() - parsed).total_seconds() / 3600
-            if age_hours <= EXECUTING_ACTIVITY_THRESHOLD_HOURS:
+            if 0 <= age_hours <= EXECUTING_ACTIVITY_THRESHOLD_HOURS:
                 return WORKER_LIFECYCLE_STATE_EXECUTING
 
     # Bound: has session binding and active todo.
@@ -541,62 +548,6 @@ WORKER_LIFECYCLE_STATE_BOUND = "bound"
 WORKER_LIFECYCLE_STATE_LAUNCHABLE = "launchable"
 WORKER_LIFECYCLE_STATE_EXECUTING = "executing"
 WORKER_LIFECYCLE_STATE_BLOCKED = "blocked"
-
-
-def _agent_lifecycle_state(
-    todos: list[dict[str, Any]],
-    *,
-    current: dict[str, Any] | None = None,
-    has_session_binding: bool = False,
-    last_activity_at: str | None = None,
-) -> str:
-    """Derive the worker lifecycle state from existing facts only.
-
-    The lifecycle state is a projection over registry membership, todo
-    claims, session bindings, and activity timestamps.  It does not introduce
-    a second source of truth: every input is already owned by another
-    contract (registry, todo, session binding, or run history).
-
-    State priority (highest first):
-    1. blocked      — current todo is blocked or a blocker
-    2. executing    — has active todo with recent activity (within activity threshold)
-    3. bound        — has session binding and active todo
-    4. launchable   — has active todo, no session binding
-    5. addressable  — has session binding but no active todo
-    6. registered   — registered in registry, no binding or todo
-    """
-    open_todos = [todo for todo in todos if not _is_done(todo)]
-
-    # Blocked takes priority: a blocked worker cannot launch or execute.
-    # This only applies to the current todo, not all open todos, per the
-    # protocol contract: "blocker remains visible without making the whole
-    # peer appear blocked."
-    if current and not _is_done(current):
-        if _todo_status(current) == "blocked" or current.get("task_class") == "blocker":
-            return WORKER_LIFECYCLE_STATE_BLOCKED
-
-    # Executing: has active todo with recent activity (within activity threshold).
-    if current and not _is_done(current) and last_activity_at:
-        parsed = parse_timestamp(last_activity_at)
-        if parsed:
-            age_hours = (now_utc() - parsed).total_seconds() / 3600
-            if age_hours <= EXECUTING_ACTIVITY_THRESHOLD_HOURS:
-                return WORKER_LIFECYCLE_STATE_EXECUTING
-
-    # Bound: has session binding and active todo.
-    if current and not _is_done(current) and has_session_binding:
-        return WORKER_LIFECYCLE_STATE_BOUND
-
-    # Launchable: has active todo, no session binding.
-    if open_todos:
-        return WORKER_LIFECYCLE_STATE_LAUNCHABLE
-
-    # Addressable: has session binding but no active todo.
-    if has_session_binding:
-        return WORKER_LIFECYCLE_STATE_ADDRESSABLE
-
-    # Registered: in registry, no binding or todo.
-    return WORKER_LIFECYCLE_STATE_REGISTERED
 
 
 def _last_activity(todos: list[dict[str, Any]]) -> str | None:
@@ -710,7 +661,7 @@ def build_agent_management_projection(
             all_todos,
             current=current,
             has_session_binding=agent_id in session_bindings,
-            last_activity_at=last_activity,
+            last_activity_at=_last_activity([current]) if current else None,
         )
         agent_row: dict[str, Any] = {
             "agent_id": agent_id,

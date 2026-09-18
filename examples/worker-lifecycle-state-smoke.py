@@ -10,7 +10,6 @@ Run from the repository root:
 
 from __future__ import annotations
 
-import json
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -23,7 +22,7 @@ def _recent_activity() -> str:
     """Activity timestamp within the activity threshold (8 hours)."""
     return (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
 
-from loopx.control_plane.agents.management_projection import (
+from loopx.control_plane.agents.management_projection import (  # noqa: E402
     WORKER_LIFECYCLE_STATE_ADDRESSABLE,
     WORKER_LIFECYCLE_STATE_BLOCKED,
     WORKER_LIFECYCLE_STATE_BOUND,
