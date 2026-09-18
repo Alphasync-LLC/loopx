@@ -12,9 +12,9 @@ import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "examples" / "managed-research-team"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples" / "managed-research-team"))
 import research_team as demo  # noqa: E402
-from test_scenario import fixture  # noqa: E402
+from test_managed_research_scenario import fixture  # noqa: E402
 from loopx.collaboration_mcp import Delegations  # noqa: E402
 from loopx.control_plane.collaboration.peers import returns  # noqa: E402
 from loopx.control_plane.collaboration.inbox import _read  # noqa: E402
@@ -68,6 +68,18 @@ def brief():
             "context": "Use the initial filing and preserve the period distinction.",
             "constraints": ["No external actions"], "inputs": [], "acceptance": ["Pinned task validation"],
             "return_requirement": "Return the independently checked artifact"}
+
+
+@pytest.mark.parametrize("operation", ["--help", "x y", "x\ny", "x;echo", "x/../y"])
+def test_worker_rejects_unbounded_operation_arguments(tmp_path, monkeypatch, operation):
+    from loopx import collaboration_mcp as delegation
+
+    runner = Delegations(tmp_path, tmp_path / "registry.json", "goal", "lead", tmp_path / "config.json")
+    calls = []
+    monkeypatch.setattr(delegation.subprocess, "Popen", lambda *args, **kwargs: calls.append(args))
+    with pytest.raises(ValueError, match="stable peer operation id"):
+        runner._spawn(operation)
+    assert calls == []
 
 
 def test_worker_waits_for_a_transient_status_probe(service, monkeypatch):

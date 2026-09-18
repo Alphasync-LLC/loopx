@@ -14,6 +14,9 @@ on:
       - "loopx/control_plane/goals/acceptance.py"
       - "examples/managed-research-team/**"
       - "pyproject.toml"
+      - "tests/test_local_delegation.py"
+      - "tests/test_managed_research_scenario.py"
+      - "tests/test_managed_research_team.py"
   workflow_dispatch:
 
 permissions:
@@ -43,5 +46,7 @@ jobs:
           tests/test_loopx_turn_driver.py tests/test_collaboration_mcp.py
           tests/test_auto_research_artifact_receipt.py
           tests/test_worker_command_validation.py tests/test_workspace_story_demo.py
+          tests/test_local_delegation.py tests/test_managed_research_scenario.py
+          tests/test_managed_research_team.py
       - name: Lint optional package and example
         run: python -m ruff check packages/loopx-ark-turn examples/managed-research-team

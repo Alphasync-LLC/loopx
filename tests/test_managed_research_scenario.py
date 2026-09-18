@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "examples" / "managed-research-team"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples" / "managed-research-team"))
 from scenario import assignments, encoded, evidence, validate_worker, validate_report  # noqa: E402
 
 

@@ -8,11 +8,11 @@ import sys
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "examples" / "managed-research-team"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples" / "managed-research-team"))
 import research_team as demo  # noqa: E402
 from acceptance import canonical_tasks, todo_id, validate_delivery  # noqa: E402
 from scenario import encoded  # noqa: E402
-from test_scenario import fixture  # noqa: E402
+from test_managed_research_scenario import fixture  # noqa: E402
 from loopx.control_plane.goals.acceptance import (  # noqa: E402
     configure_goal_acceptance, inspect_goal_acceptance, verify_goal_acceptance,
 )
