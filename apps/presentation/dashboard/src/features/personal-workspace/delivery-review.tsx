@@ -3,6 +3,7 @@ import { ArrowRight, Download, ExternalLink, RefreshCw, Search } from "lucide-re
 import { deliveryReviewMarkdown, fetchDeliveryReview, filterReviewNodes, reviewCoverageIncomplete, reviewNodeColumn, type DeliveryReviewSnapshot, type ReviewFocus, type ReviewGraph, type ReviewNode } from "../../data/delivery-review";
 import type { WorkspaceDrawerSelection, WorkspaceGoal, WorkspaceModel, WorkspaceTimelineItem } from "./personal-workspace-model";
 import { GoalAcceptanceObservationCard } from "./goal-acceptance-observation-card";
+import { GoalAcceptanceContractSection } from "./goal-acceptance-contract";
 import { deliveryReviewCopy } from "./delivery-review-copy";
 import { useWorkspaceI18n } from "./i18n";
 import "./delivery-review.css";
@@ -160,6 +161,7 @@ export function DeliveryReview({ goal, items, userTodos, onSelect, active }: Del
       </> : <p className="delivery-notice">{copy.noGraph}</p>}
 
     </>}
+    <GoalAcceptanceContractSection goalId={goal.goalId} contract={snapshot?.acceptance?.goal_acceptance_contract} copy={copy.contract} current={usable} />
     <GoalAcceptanceObservationCard goal={snapshot ? { ...goal, acceptanceObservation: snapshot.acceptance } : goal} />
   </section>;
 }

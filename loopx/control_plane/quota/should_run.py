@@ -89,6 +89,30 @@ def _apply_selected_todo_guards(
         work_lane_contract=route.payload_work_lane_contract,
         agent_scope_frontier=route.agent_scope_frontier,
     )
+    summary = prepared.agent_todo_summary or {}
+    acceptance = summary.get("goal_acceptance_contract")
+    if isinstance(acceptance, dict) and acceptance.get("enabled") is True:
+        held_ids = acceptance.get("held_todo_ids") or []
+        held_selection = bool(selected_todo and selected_todo.get("todo_id") in held_ids)
+        # Native guards already filtered these lanes. Do not let a generic
+        # Goal recommendation recreate advancement permission from held work.
+        no_runnable_work = bool(held_ids) and not selected_todo and not any(
+            summary.get(field) for field in (
+                "first_executable_items", "executable_backlog_items", "monitor_due_items",
+            )
+        )
+        if (
+            (route.normal_delivery_allowed or route.recovery_allowed)
+            and not prepared.inbox_priority_due
+            and (held_selection or no_runnable_work)
+        ):
+            prepared.normal_delivery_allowed = False
+            prepared.recovery_allowed = False
+            prepared.reason = (
+                "Goal acceptance holds the current work; inspect its contract and "
+                "ask the owner to configure or rebind the current Todo."
+            )
+            route = _resolve_quota_route_with_settled_replay_precedence(prepared)
     workspace_guard = None
     if not prepared.inbox_priority_due:
         workspace_guard = build_agent_workspace_guard(

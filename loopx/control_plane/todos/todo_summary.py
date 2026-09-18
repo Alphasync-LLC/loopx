@@ -458,6 +458,8 @@ def compact_todo_item(item: dict[str, Any]) -> dict[str, Any]:
             continue
         if item.get(key) is not None:
             compact[key] = item.get(key)
+    if isinstance(item.get("goal_acceptance_guard"), dict):
+        compact["goal_acceptance_guard"] = item["goal_acceptance_guard"]
     attach_todo_handoff_note(compact)
     return compact
 

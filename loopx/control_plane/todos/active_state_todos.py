@@ -132,7 +132,9 @@ def active_state_todo_fields(
         rollout_events=rollout_events,
     )
     if canonical is not None:
-        fields = canonical_todo_summary_fields(canonical["todos"], rollout_events=rollout_events)
+        fields = canonical_todo_summary_fields(canonical["todos"], rollout_events=rollout_events,
+            goal_acceptance_contract=canonical.get("goal_acceptance_contract"),
+            goal_acceptance_work_guards=canonical.get("goal_acceptance_work_guards"))
         # Canonical observation/successor transactions now support current
         # lease proof. Scheduling exposes due work; mutation admission still
         # validates the caller's proof and never falls back to the old writer.

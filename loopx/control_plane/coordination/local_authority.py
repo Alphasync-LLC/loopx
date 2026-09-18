@@ -258,7 +258,9 @@ def read_canonical_todo_fields_if_promoted(
     """
     canonical = read_canonical_todos_if_promoted(runtime_root=runtime_root, goal_id=goal_id)
     return (
-        canonical_todo_summary_fields(canonical["todos"], rollout_events=rollout_events)
+        canonical_todo_summary_fields(canonical["todos"], rollout_events=rollout_events,
+            goal_acceptance_contract=canonical.get("goal_acceptance_contract"),
+            goal_acceptance_work_guards=canonical.get("goal_acceptance_work_guards"))
         if canonical is not None else None
     )
 
@@ -267,6 +269,8 @@ def canonical_todo_summary_fields(
     todos: list[dict[str, Any]],
     *,
     rollout_events: list[dict[str, Any]] | None = None,
+    goal_acceptance_contract: dict[str, Any] | None = None,
+    goal_acceptance_work_guards: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Adapt canonical records into the existing Todo summary read model."""
 
@@ -301,6 +305,12 @@ def canonical_todo_summary_fields(
         else item
         for index, item in enumerate(todos, 1)
     ]
+    # These are native authority decisions, not persisted Todo fields. Keep the
+    # records visible while every summary/selection uses the same work guard.
+    if goal_acceptance_contract and goal_acceptance_contract.get("enabled") is True:
+        guards = goal_acceptance_work_guards or {}
+        todos = [{**item, "goal_acceptance_guard": guards[item["todo_id"]]}
+            if item.get("todo_id") in guards else item for item in todos]
     fields: dict[str, Any] = {}
     for role in ("user", "agent"):
         items = [
@@ -320,6 +330,8 @@ def canonical_todo_summary_fields(
         )
         if summary:
             if role == "agent":
+                if goal_acceptance_contract and goal_acceptance_contract.get("enabled") is True:
+                    summary["goal_acceptance_contract"] = goal_acceptance_contract
                 archived_done = count_advancement_todos(
                     [
                         item
