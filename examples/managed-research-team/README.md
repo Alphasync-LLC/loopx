@@ -42,10 +42,10 @@ permits eight local attempts and one cloud coordinator Turn. Rejected attempts
 also consume provider usage. Do not use an active Goal or research workspace.
 
 ```bash
-uv run --no-sync --extra test python examples/managed-research-team/demo.py \
+uv run --no-sync --extra test python examples/managed-research-team/research_team.py \
   run "$DEMO_ROOT" --model "$ARK_MODEL_ID" --environment-id "$ARK_ENVIRONMENT_ID"
 
-uv run --no-sync --extra test python examples/managed-research-team/demo.py \
+uv run --no-sync --extra test python examples/managed-research-team/research_team.py \
   validate-report "$DEMO_ROOT"
 ```
 

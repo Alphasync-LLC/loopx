@@ -160,7 +160,7 @@ def delegate(root: Path, worker: str, revision: str, question: str) -> dict:
             prompt.write("\nUse read_input to obtain the accepted upstream artifact. Independently verify it against the filing. "
                          "Include adopted_dependencies mapping its worker/revision identity to its exact artifact_sha256.\n")
     result = turn(root, worker, revision, workspace,
-                  [sys.executable, str(HERE / "demo.py"), "validate-worker", str(workspace), "--revision", revision],
+                  [sys.executable, str(HERE / "research_team.py"), "validate-worker", str(workspace), "--revision", revision],
                   # Ark execution may use 220 seconds; session/Agent deletion
                   # and absence readback need up to four further 10-second calls.
                   # Leave cleanup and transport teardown room before the outer
@@ -206,7 +206,7 @@ def launch(root: Path, model: str, environment_id: str, dsh_model: str, topology
     prepare(root, topology=topology)
     write(root / "settings.json", {"dsh_model": dsh_model, "ark_model": model, "environment_id": environment_id})
     os.environ["LOOPX_RESEARCH_DEMO_ROOT"] = str(root)
-    result = turn(root, "lead", "report", root / "lead", [sys.executable, str(HERE / "demo.py"), "validate-report", str(root)],
+    result = turn(root, "lead", "report", root / "lead", [sys.executable, str(HERE / "research_team.py"), "validate-report", str(root)],
                   host_arguments(root, "lead", "report", host="dsh" if topology == "local-led" else "ark"), 1200)
     summary = {key: result.get(key) for key in ("status", "result_kind", "validation", "resume_turn_key", "error", "host_failure")}
     write(root / "lead-turn.json", summary)

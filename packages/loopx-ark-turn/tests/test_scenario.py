@@ -87,7 +87,7 @@ def test_report_rejects_broken_dependencies(tmp_path, mutation):
 
 
 def test_delegation_returns_actionable_oracle_failure_without_accepting_it(tmp_path, monkeypatch):
-    import demo
+    import research_team as demo
 
     fixture(tmp_path)
     (tmp_path / "accepted" / "analyst-initial.json").unlink()

@@ -9,7 +9,7 @@ import sys
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "examples" / "managed-research-team"))
-import demo  # noqa: E402
+import research_team as demo  # noqa: E402
 from acceptance import canonical_tasks, todo_id, validate_delivery  # noqa: E402
 from scenario import encoded  # noqa: E402
 from test_scenario import fixture  # noqa: E402

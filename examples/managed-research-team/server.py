@@ -10,7 +10,7 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
-import demo
+import research_team as demo
 from scenario import REVISIONS, assignments, evidence, upstream, encoded
 from acceptance import validate_delivery, validate_member, canonical_tasks, require_completed
 
