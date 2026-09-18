@@ -507,3 +507,27 @@ export function productionScaleLeaseAcquisitionFixture(goalId: string,
     {source_authority: "synthetic_production_scale_fixture", handoff_mode: "hard_lease"});
   return {...fixture, projection, acquisition: scenario};
 }
+
+/** A leased Monitor in the complete mixed work graph, with prior observations
+ * and a waiting dependent. Only these target rows differ from the base fixture. */
+export function productionScaleLeasedMonitorFixture(goalId: string,
+  schema: AuthorityProjectionSchema = "native") {
+  const fixture = productionScaleCoordinationFixture(goalId, schema);
+  const target = fixture.completion_todo_id;
+  const rows = fixture.projection.todos as Record<string, unknown>[];
+  const dependent = [...rows].reverse().find(todo => todo.role === "agent" && todo.status === "open" && todo.todo_id !== target)!;
+  const todos = rows.map(todo => todo.todo_id === target ? {...todo,
+    task_class: "continuous_monitor", target_key: "leased-public-watch", cadence: "1h",
+    material_change_generation: 4, consecutive_no_change: "2", result_hash: "previous-evidence",
+    last_checked_at: "2026-09-01T00:00:00Z", next_due_at: "2026-09-01T01:00:00Z"} :
+    todo.todo_id === dependent.todo_id ? {...todo, resume_when: `monitor_changed:${target}`,
+      resume_monitor_generation: 4} : todo);
+  const projection = authorityProjectionFixture(goalId, todos,
+    fixture.projection.leases as Record<string, unknown>[], schema,
+    {source_authority: "synthetic_production_scale_fixture", handoff_mode: "hard_lease"});
+  return {projection, target, dependent: String(dependent.todo_id),
+    actor: "agent-a", registered_agents: fixture.registered_agents,
+    now: new Date("2026-09-01T01:00:00Z"),
+    proof: {idempotency_key: fixture.completion_lease_idempotency_key,
+      expected_version: fixture.completion_lease_expected_version}};
+}

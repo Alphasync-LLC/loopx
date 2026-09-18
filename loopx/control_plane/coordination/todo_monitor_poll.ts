@@ -12,8 +12,12 @@ import {planMonitorSuccessor, selectMonitorTodo, MONITOR_SUCCESSOR_REQUEST_SCHEM
 import {optionalNonEmptyString, requireBoolean} from "../runtime_decode.ts";
 import {planTodoAuthoringScope, TODO_AUTHORING_SCOPE_REQUEST_SCHEMA} from "../todos/authoring_scope.ts";
 import {CoordinationCommandReceipt} from "./command_receipt.ts";
+import {decodeTaskLeaseProof, evaluateCanonicalTaskLeaseProof, type TaskLeaseProof} from "./task_lease_proof.ts";
+import {HANDOFF_MODES} from "./handoff_mode_policy.ts";
+import {requireStringLiteral} from "../runtime_decode.ts";
 
 export const COORDINATION_MONITOR_POLL_REQUEST_SCHEMA = "loopx_coordination_monitor_poll_request_v0";
+export const COORDINATION_LEASED_MONITOR_POLL_REQUEST_SCHEMA = "loopx_coordination_monitor_poll_request_v1";
 export const COORDINATION_MONITOR_POLL_RESULT_SCHEMA = "loopx_coordination_monitor_poll_result_v0";
 const RECEIPT_SCHEMA = "loopx_coordination_monitor_poll_receipt_v0";
 
@@ -25,6 +29,9 @@ export interface CoordinationMonitorPollInput {
   dry_run: boolean;
   observation: JsonObject;
   intent: JsonObject;
+  lease_proof?: TaskLeaseProof | null;
+  /** Authority clock supplied by the runtime, never observation.generated_at. */
+  now?: Date;
 }
 
 function failure(reason_code: string, reason: string): JsonObject & {schema_version: typeof COORDINATION_MONITOR_POLL_RESULT_SCHEMA} {
@@ -42,18 +49,27 @@ function monitorReceipt(input: CoordinationMonitorPollInput, hash: string) {
           !Array.isArray(writeback.next_todos)) {
         throw new AuthorityStoreProtocolError("Monitor receipt writeback identity or successors invalid");
       }
+      let proof: TaskLeaseProof | null;
+      try { proof = decodeTaskLeaseProof(writeback.lease_proof); }
+      catch { throw new AuthorityStoreProtocolError("Monitor receipt lease proof is malformed"); }
+      if (canonicalAuthoritySha256(proof ?? {}) !== canonicalAuthoritySha256(input.lease_proof ?? {})) {
+        throw new AuthorityStoreProtocolError("Monitor receipt belongs to a different lease proof");
+      }
       return {fields: {writeback: {...writeback, provider_replayed: phase === "replayed"}}, changed: true};
     }});
 }
 
-function normalize(raw: CoordinationMonitorPollInput): CoordinationMonitorPollInput {
+type NormalizedMonitorPollInput = CoordinationMonitorPollInput & {now: Date; lease_proof: TaskLeaseProof | null};
+
+function normalize(raw: CoordinationMonitorPollInput): NormalizedMonitorPollInput {
   const input = {...raw, goal_id: requireAuthorityStoreId(raw.goal_id, "goal id"),
     operation_id: requireAuthorityStoreId(raw.operation_id, "operation id"),
     actor_agent_id: raw.actor_agent_id == null ? null : normalizeTodoAgent(raw.actor_agent_id, "actor_agent_id"),
     registered_agents: normalizeRegisteredTodoAgents(raw.registered_agents),
     dry_run: requireBoolean(raw.dry_run, "dry_run"),
     observation: canonicalAuthorityObject(raw.observation, "Monitor observation"),
-    intent: canonicalAuthorityObject(raw.intent, "Monitor successor intent")};
+    intent: canonicalAuthorityObject(raw.intent, "Monitor successor intent"),
+    lease_proof: decodeTaskLeaseProof(raw.lease_proof), now: raw.now ?? new Date()};
   const allowed = new Set(["todo_id", "target_key", "generated_at", "result_hash", "material_change", "cadence", "next_due_at", "reason_summary"]);
   for (const key of Object.keys(input.observation)) if (!allowed.has(key)) throw new Error(`unsupported Monitor observation field: ${key}`);
   const intentFields = new Set(["next_agent_todo", "next_action_kind", "next_task_repository", "next_required_capabilities",
@@ -62,7 +78,7 @@ function normalize(raw: CoordinationMonitorPollInput): CoordinationMonitorPollIn
   return input;
 }
 
-function planWriteback(input: CoordinationMonitorPollInput, head: JsonObject) {
+function planWriteback(input: NormalizedMonitorPollInput, head: JsonObject) {
   const indexed = indexCoordinationProjection(head, input.goal_id);
   validateCoordinationTodoReadModel(head, input.goal_id);
   const observation = input.observation;
@@ -75,7 +91,17 @@ function planWriteback(input: CoordinationMonitorPollInput, head: JsonObject) {
   if (Array.isArray(monitor.excluded_agents) && monitor.excluded_agents.includes(actor)) throw new Error("Monitor actor is excluded");
   if (monitor.bound_agent && monitor.bound_agent !== actor) throw new Error("Monitor bound agent mismatch");
   if (monitor.claimed_by && monitor.claimed_by !== actor) throw new Error("Monitor claim owner mismatch");
-  if (indexed.leases.has(String(monitor.todo_id))) throw new Error("Monitor observation with a lease is not supported; no state was written");
+  const lease = indexed.leases.get(String(monitor.todo_id));
+  const mode = requireStringLiteral(head.handoff_mode ?? "legacy", HANDOFF_MODES, "canonical handoff_mode");
+  if (lease !== undefined || mode === "hard_lease" || input.lease_proof != null) {
+    if (mode === "soft_claim") throw new Error("soft_claim forbids lease-backed Monitor observation");
+    const fence = evaluateCanonicalTaskLeaseProof({todo: monitor, lease, handoff_mode: mode,
+      actor_agent_id: actor, registered_agents: input.registered_agents,
+      lease_idempotency_key: input.lease_proof?.idempotency_key ?? null,
+      lease_expected_version: input.lease_proof?.expected_version ?? null, now: input.now});
+    if (fence.outcome !== "apply") throw new Error(`Monitor requires current lease proof: ${fence.code}`);
+    if (lease !== undefined && monitor.claimed_by !== actor) throw new Error("Leased Monitor observation requires the current claim owner");
+  }
   const successorPlan = planMonitorSuccessor({schema_version: MONITOR_SUCCESSOR_REQUEST_SCHEMA,
     todo_id: monitor.todo_id, result_hash: observation.result_hash, source_task_repository: monitor.task_repository ?? null,
     intent: {...input.intent, material_change: observation.material_change}});
@@ -143,6 +169,7 @@ function planWriteback(input: CoordinationMonitorPollInput, head: JsonObject) {
     consecutive_no_change: transition.consecutive_no_change, last_checked_at: observation.generated_at,
     next_due_at: transition.next_due_at ?? null, cadence: transition.cadence || null,
     todo_update: {ok: true, todo_id: monitor.todo_id, monitor_poll_transition: transition},
+    ...(input.lease_proof ? {lease_proof: {...input.lease_proof}} : {}),
     next_todos: nextTodos, successor_receipts: nextTodos.map(todo => Object.fromEntries(
       receiptFields.filter(key => todo[key] != null).map(key => [key, todo[key]]))), provider_replayed: false};
   return {mutations, writeback};
@@ -150,12 +177,13 @@ function planWriteback(input: CoordinationMonitorPollInput, head: JsonObject) {
 
 export async function executeCoordinationMonitorPoll(store: AuthorityStore,
   raw: CoordinationMonitorPollInput): Promise<JsonObject> {
-  let input: CoordinationMonitorPollInput;
+  let input: NormalizedMonitorPollInput;
   try { input = normalize(raw); }
   catch (error) { return failure("invalid_monitor_poll_request", String(error)); }
   // Original wire identity, before any normalization/default route inference.
   const hash = canonicalAuthoritySha256({goal_id: input.goal_id, observation: input.observation,
-    intent: input.intent, actor_agent_id: input.actor_agent_id, dry_run: input.dry_run});
+    intent: input.intent, actor_agent_id: input.actor_agent_id, dry_run: input.dry_run,
+    ...(input.lease_proof ? {lease_proof: input.lease_proof} : {})});
   const receipt = monitorReceipt(input, hash);
   const previous = await receipt.read(store);
   if (previous) return previous;
