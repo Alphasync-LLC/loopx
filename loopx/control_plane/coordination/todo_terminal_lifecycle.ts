@@ -1038,7 +1038,6 @@ export async function executeCoordinationTodoTerminalLifecycle(
       ? todo.successor_todo_ids.map((value, index) =>
         requireAuthorityStoreId(value, `todo.successor_todo_ids[${index}]`))
       : [];
-    if (!await authoritySourcesCurrent()) return sourceChanged();
     return commitTerminalResult(store, input, requestSha, head, {
       todo_id: input.todo_id,
       command: input.command,
