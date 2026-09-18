@@ -18,12 +18,10 @@ import {
 } from "./coordination_projection.ts";
 import { normalizeRegisteredTodoAgents, normalizeTodoAgent } from "./todo_agents.ts";
 
-import { evaluateCoordinationTerminalFence, COORDINATION_TERMINAL_FENCE_REQUEST_SCHEMA,
-  evaluateCoordinationTodoMutationDecision,
+import { evaluateCoordinationTodoMutationDecision,
   COORDINATION_TODO_MUTATION_DECISION_REQUEST_SCHEMA }
   from "./todo_lifecycle_decision.ts";
-import { leaseEpoch } from "../work_items/task_lease_acquire.ts";
-import { parseIsoTimestamp } from "../runtime_timestamp.ts";
+import {evaluateCanonicalTaskLeaseProof} from "./task_lease_proof.ts";
 import { normalizeNativePlanningIntent, planNativeTodoUpdate } from "../todos/native_update_plan.ts";
 import { CoordinationCommandReceipt } from "./command_receipt.ts";
 
@@ -227,24 +225,10 @@ function targetRejection(
   if (lease !== undefined || mode === "hard_lease" ||
       input.lease_idempotency_key != null || input.lease_expected_version != null) {
     try {
-      const expires = lease === undefined ? null :
-        typeof lease.expires_at === "string" ? parseIsoTimestamp(lease.expires_at) : null;
-      if (lease?.status === "active" && expires === null) {
-        return failure("invalid_coordination_projection", "active lease expiry is invalid");
-      }
-      const fence = evaluateCoordinationTerminalFence({
-        schema_version: COORDINATION_TERMINAL_FENCE_REQUEST_SCHEMA,
-        todo, registered_agents: input.registered_agents, actor_agent_id: input.actor_agent_id,
-        // A historical lease never licenses an unfenced edit. No acquisition or override.
-        handoff_mode: lease !== undefined ? "hard_lease" : mode,
-        lease: lease === undefined ? null : {...lease, present: true,
-          active: lease.status === "active" && expires !== null && expires > input.now,
-          lease_epoch: leaseEpoch(lease)},
+      const fence = evaluateCanonicalTaskLeaseProof({todo, lease, handoff_mode: mode,
+        registered_agents: input.registered_agents, actor_agent_id: input.actor_agent_id,
         lease_idempotency_key: input.lease_idempotency_key ?? null,
-        lease_expected_version: input.lease_expected_version ?? null,
-        allow_user_gate_auto_acquire: false, delegated_authority: false,
-        require_active_when_fence_supplied: true,
-      });
+        lease_expected_version: input.lease_expected_version ?? null, now: input.now});
       if (fence.outcome !== "apply") {
         return failure(String(fence.code), "Todo update requires the current active lease execution proof");
       }
