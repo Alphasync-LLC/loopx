@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { usePublicPageNavigation } from "./usePublicPageNavigation";
-import study from "../../../../benchmark/LHTB/reports/five-arm-gpt56sol-max/data.json";
+import study from "../../../../benchmark/LHTB/studies/five-arm-gpt56sol-max/data.json";
 import copy from "./lhtb-copy.json";
 
 type Language = "en" | "zh";
