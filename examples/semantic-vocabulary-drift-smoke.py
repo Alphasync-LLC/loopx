@@ -229,7 +229,7 @@ RETIREMENT_ANCHOR = {
 # registry and this literal move in one diff. This does not replace the token
 # budget above; Q11 owns that decision, and until it lands both are checked.
 MIGRATION_SURFACE_ANCHOR = {
-    "execution_obligation": (15, 0),
+    "execution_obligation": (15, 1),
     "heartbeat_recommendation": (13, 1),
     "work_lane_contract": (28, 3),
     "external_evidence_observation": (6, 1),
@@ -833,13 +833,19 @@ def check_reader_metric(registry: dict[str, Any], sources: list[SourceFile]) -> 
 
     * the five roles partition the token count exactly, so the new metric is a
       reclassification of the same modules and not a different population that
-      happens to be smaller;
+      happens to be smaller. The partition assigns each module its first
+      matching role, so it answers "what is this module mainly", not "who
+      writes this field": the ``reads``/``writes``/``binds`` counts beside it
+      overlap on purpose and are the ones a retirement reads to find every
+      producer;
     * the migration surface stays within its anchored budget, so a new reader
       of a legacy field fails the PR path that adds it;
     * the unresolved populations stay visible. ``dynamic_mapping_key_sites``
-      counts mapping accessors with a computed key anywhere under ``loopx/``;
-      while that number is nonzero, a field measured at zero readers is not
-      thereby proven dead, and the smoke says so in its own output.
+      counts Python mapping accessors with a computed key anywhere under
+      ``loopx/``, and ``typescript_dynamic_member_sites`` counts the
+      TypeScript computed member accesses that are its nearest equivalent;
+      while either is nonzero, a field measured at zero readers is not thereby
+      proven dead, and the smoke says so in its own output.
     """
     ledger = registry["retirement_ledger"]["should_run_legacy_decision_fields"]["fields"]
     summary = field_use_summary(ledger, sources)
@@ -872,9 +878,17 @@ def check_reader_metric(registry: dict[str, Any], sources: list[SourceFile]) -> 
             detail.append(
                 f"{field}{suffix} surface={actual}/{budget} "
                 + " ".join(f"{role}={entry[f'{runtime}_{role}_modules']}" for role in ROLES)
+                + " | " + " ".join(
+                    f"{label}={entry[f'{runtime}_{label}_modules']}"
+                    for label in ("reads", "writes", "binds")
+                )
                 + f" carriers={carriers}"
             )
-    report.append(f"dynamic_mapping_key_sites={summary['dynamic_mapping_key_sites']} (computed keys, unattributable)")
+    report.append(
+        f"dynamic_mapping_key_sites={summary['dynamic_mapping_key_sites']} "
+        f"typescript_dynamic_member_sites={summary['typescript_dynamic_member_sites']} "
+        "(computed keys, unattributable)"
+    )
     return report, detail
 
 

@@ -117,8 +117,8 @@ def test_computed_keys_are_counted_as_the_standing_unknown() -> None:
 
 
 def test_computed_keys_are_counted_in_modules_that_never_name_the_field() -> None:
-    uses, dynamic_sites = scan_field_uses([FIELD], [source("payload.get(name)\n", path="loopx/other")])
-    assert uses == [] and dynamic_sites == 1, (
+    uses, unknown = scan_field_uses([FIELD], [source("payload.get(name)\n", path="loopx/other")])
+    assert uses == [] and unknown.python_mapping_calls == 1, (
         "the standing unknown is repository-wide; narrowing it to modules that name the "
         "field would make a zero-reader field look proven"
     )
@@ -185,3 +185,120 @@ def test_roles_partition_the_token_count_so_the_metric_reclassifies_one_populati
     classified = sum(summary[f"python_{role}_modules"] for role in ROLES)
     assert classified == summary["python_token_modules"] == 5
     assert summary["python_migration_surface"] == 3
+
+
+# One access, written the way each runtime writes it. The metric exists to say
+# where a retirement has to work, so the answer has to come from what the code
+# does, not from which syntax it happens to use. A runtime that reads its half
+# differently lets a port manufacture progress: move a dict literal to
+# TypeScript and the migration surface shrinks with nothing migrated.
+EQUIVALENT_ACCESSES = [
+    ("read", 'value = payload["goal_boundary"]', 'const value = payload["goal_boundary"];'),
+    ("read", 'value = payload.get("goal_boundary")', "const value = payload.goal_boundary;"),
+    ("read", 'value = payload["goal_boundary"]', "const {goal_boundary} = payload;"),
+    ("read", 'value = payload["goal_boundary"]', "const {goal_boundary: renamed} = payload;"),
+    ("read", "def f(payload):\n    return payload['goal_boundary']\n",
+     "function f({goal_boundary}: Payload) { return goal_boundary; }"),
+    ("write", 'out = {"goal_boundary": built}', "const out = {goal_boundary: built};"),
+    ("write", 'out["goal_boundary"] = built', "out.goal_boundary = built;"),
+    ("declare", "def goal_boundary():\n    return 1\n",
+     "interface Decision { goal_boundary: JsonObject; }"),
+    ("unknown", 'LEGACY = ["goal_boundary"]', 'const legacy = ["goal_boundary"];'),
+]
+
+
+@pytest.mark.parametrize("meaning, python_source, typescript_source", EQUIVALENT_ACCESSES)
+def test_an_equivalent_rewrite_does_not_change_the_answer(
+    meaning: str, python_source: str, typescript_source: str,
+) -> None:
+    """Both runtimes must classify the same access the same way.
+
+    This is the test that makes the surface safe to plan against. Without it
+    the metric measures TypeScript idiom rather than TypeScript behaviour:
+    destructuring is how TypeScript reads a payload and an object literal is
+    how it writes one, and both once counted as prose.
+    """
+    python_role = role(python_source)
+    typescript_role = role(typescript_source, ".ts")
+    assert python_role == typescript_role, (
+        f"{meaning}: python reads this as {python_role} and typescript as "
+        f"{typescript_role}; a port between the runtimes would move the surface"
+    )
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("const {goal_boundary} = payload;", "reader"),
+    ("const {goal_boundary: renamed} = payload;", "reader"),
+    ("const {outer: {goal_boundary}} = payload;", "reader"),
+    ("function build({goal_boundary}: Decision) { return goal_boundary; }", "reader"),
+    ("const out = {goal_boundary: built};", "writer"),
+    ("const out = {goal_boundary};", "writer"),
+    ('const out = {"goal_boundary": built};', "writer"),
+    ("interface Decision { goal_boundary: JsonObject; }", "binding"),
+    ("type Decision = { goal_boundary: JsonObject };", "binding"),
+    ("class Decision { goal_boundary: JsonObject; }", "binding"),
+    ('const names = ["goal_boundary"];', "unresolved"),
+    ('const key = "goal_boundary"; const value = payload[key];', "unresolved"),
+])
+def test_typescript_recognizes_the_forms_its_own_idiom_uses(text: str, expected: str) -> None:
+    assert role(text, ".ts") == expected
+
+
+def test_a_typescript_computed_member_is_the_standing_unknown_its_runtime_has() -> None:
+    """A computed member read is TypeScript's `mapping.get(name)`.
+
+    Python excludes `payload[key]` because `rows[index]` is the same syntax;
+    TypeScript has no mapping accessor, so the computed member *is* the access
+    and the count is an upper bound. Counting nothing at all was the worse
+    error: it let the smoke claim a stated unknown that covered one runtime.
+    """
+    _, unknown = scan_field_uses([FIELD], [source("const value = payload[key];", ".ts")])
+    assert unknown.typescript_members == 1
+    _, indexed = scan_field_uses([FIELD], [source("const first = rows[0];", ".ts")])
+    assert indexed.typescript_members == 0, "a numeric literal index is not a mapping read"
+
+
+def test_the_typescript_unknown_covers_modules_that_never_name_the_field() -> None:
+    """The standing unknown has to be repository-wide on both sides.
+
+    Scanning only the modules that spell a field would measure a zero-reader
+    field against an unknown drawn from the modules least likely to hide a
+    reader. Python already counts every tracked module; this is the same
+    obligation for the runtime whose population the substring filter used to
+    narrow from 145 modules to 4.
+    """
+    _, unknown = scan_field_uses(
+        [FIELD], [source("const value = payload[key];", ".ts", path="loopx/other")],
+    )
+    assert unknown.typescript_members == 1
+
+
+def test_a_module_that_reads_and_writes_is_counted_in_both() -> None:
+    """The role partition answers a different question than the producer count.
+
+    A projection module reads the legacy field and re-emits it. The partition
+    calls it a reader, because reader is first in ROLES, and it disappears from
+    the writer count -- so a retirement looking for every producer would miss
+    it. The overlapping counts are the ones that answer that.
+    """
+    text = ('value = payload["goal_boundary"]\n'
+            'out = {"goal_boundary": value}\n')
+    summary = field_use_summary([FIELD], [source(text, path="loopx/projection")])["fields"][FIELD]
+    assert summary["python_reader_modules"] == 1 and summary["python_writer_modules"] == 0
+    assert summary["python_reads_modules"] == 1 and summary["python_writes_modules"] == 1
+    assert summary["python_migration_surface"] == 1
+
+
+def test_the_roles_still_partition_the_token_count_over_the_typescript_forms() -> None:
+    """The new TypeScript forms must reclassify carriers, not add or drop any."""
+    sources = [
+        source("const {goal_boundary} = payload;", ".ts", path="loopx/reader"),
+        source("const out = {goal_boundary: built};", ".ts", path="loopx/writer"),
+        source("interface D { goal_boundary: JsonObject }", ".ts", path="loopx/binding"),
+        source('const names = ["goal_boundary"];', ".ts", path="loopx/unresolved"),
+        source("// goal_boundary", ".ts", path="loopx/mention"),
+    ]
+    summary = field_use_summary([FIELD], sources)["fields"][FIELD]
+    classified = sum(summary[f"typescript_{role}_modules"] for role in ROLES)
+    assert classified == summary["typescript_token_modules"] == 5
+    assert summary["typescript_migration_surface"] == 3

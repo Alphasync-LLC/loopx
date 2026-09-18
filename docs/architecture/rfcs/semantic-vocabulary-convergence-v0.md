@@ -784,7 +784,7 @@ on the next full-tree scan; genuine shared-contract changes still need review.
 | No behavior change from the two owner fixes | `uv run --extra test python -m pytest tests/test_loopx_turn_transaction.py tests/test_loop_turn_loop_controller.py tests/test_turn_loop_disposition.py tests/test_loopx_turn_managed_step.py tests/control_plane -k authority` and `uv run --extra test loopx canary premerge --from-git-diff` | pass | Environment failures already present on `main` are excluded when reproduced on a clean tree |
 | Docs governance accepts the RFC pair | `python3 examples/docs-governance-smoke.py` | pass | Checks mirror, links, index |
 | Retirement budgets use standalone field tokens | `count_identifier_modules()` uses identifier boundaries for the six fields | `goal_boundary`: 30 Python modules under the new metric; the old substring metric was 35 | Conservative lexical measure; it removes compound-name false positives but does not prove semantic reader absence |
-| The retirement metric separates readers from mentions (B3) | `check_reader_metric()` classifies every module carrying one of the six field tokens as reader, writer, binding, unresolved or mention | `goal_boundary`: 30 token modules resolve to 8 readers, 4 writers, 3 bindings, 1 unresolved and 14 mentions, so its migration surface is 15, not 30; `work_lane_contract` stays at 28 of 29 | Syntactic use, not data flow. The roles are asserted to partition the token count, so the smaller number is a reclassification of the same modules and not a different population |
+| The retirement metric separates readers from mentions (B3) | `check_reader_metric()` classifies every module carrying one of the six field tokens as reader, writer, binding, unresolved or mention, and reports the overlapping read/write/bind counts beside that partition | `goal_boundary`: 30 token modules resolve to 8 readers, 4 writers, 3 bindings, 1 unresolved and 14 mentions, so its migration surface is 15, not 30; `work_lane_contract` stays at 28 of 29 | Syntactic use, not data flow. The roles are asserted to partition the token count, so the smaller number is a reclassification of the same modules and not a different population |
 | A new reader of a legacy field fails the pull-request path | Add a module reading `payload["protocol_action_packet"]` beyond the budget | `check_reader_metric` fails naming the field and the count | Committed fixture in `tests/architecture/test_semantic_vocabulary_drift.py`; the anchor equality check is the same pattern as `RETIREMENT_ANCHOR` |
 | A computed key stays unresolved rather than absent | Count mapping accessors whose first argument is not a literal | 1709 sites under `loopx/`; a field measured at zero readers is measured against that standing unknown | This is why zero readers cannot by itself authorize a removal (Q11). Subscripts with a computed key are excluded: `rows[index]` and `payload[key]` are the same syntax |
 | The module-local convention filter is a code edit | Widen `MODULE_LOCAL_CONVENTION` in `inventory.py` and scan | `*_semantic` budgets fall with no code change elsewhere | Known boundary; the regex is in code so the widening is a reviewed diff, and the unfiltered totals stay budgeted |
@@ -1092,7 +1092,7 @@ have to change before a field can be removed.
 | `protocol_action_packet` | 5 | 1 | 4 | 0 | 0 | 0 | 5 | 2 | 2 |
 | `external_evidence_observation` | 8 | 4 | 1 | 1 | 1 | 1 | 6 | 1 | 1 |
 | `heartbeat_recommendation` | 17 | 8 | 4 | 1 | 0 | 4 | 13 | 1 | 1 |
-| `execution_obligation` | 20 | 8 | 7 | 0 | 0 | 5 | 15 | 1 | 0 |
+| `execution_obligation` | 20 | 8 | 7 | 0 | 0 | 5 | 15 | 1 | 1 |
 | `work_lane_contract` | 29 | 11 | 8 | 9 | 1 | 0 | 28 | 3 | 3 |
 | `goal_boundary` | 30 | 8 | 4 | 3 | 1 | 14 | 15 | 2 | 1 |
 
@@ -1104,15 +1104,40 @@ Three results the token count had hidden:
   and module-path imports that no migration touches.
 - `protocol_action_packet` has one Python reader and four writers. It is the
   cheapest first M3 removal, and the token count did not say so.
-- 1709 mapping accessors under `loopx/` take a computed key. No name-keyed scan,
-  lexical or syntactic, can attribute them, so the smoke prints that number
+- 1709 mapping accessors under `loopx/` take a computed key, and 395 TypeScript
+  computed member accesses are that runtime's equivalent. No name-keyed scan,
+  lexical or syntactic, can attribute them, so the smoke prints both numbers
   beside the per-field counts. This is the measured form of "a zero count does
   not authorize a deletion"; the residual obligation is Q11's.
+
+Two corrections were measured after the first implementation, both of which had
+made the surface smaller than the work:
+
+- The TypeScript scan recognized a member access and nothing else, so the
+  constructs TypeScript actually uses were classified as prose: a destructuring
+  read, an object-literal write, and a declared property signature. Of twelve
+  equivalent accesses written for both runtimes, eight disagreed. `{field: x}`
+  was a writer in Python and a mention in TypeScript, so porting a dict literal
+  across the boundary shrank the surface with nothing migrated, and every one of
+  the six fields measured zero TypeScript writers. `execution_obligation.ts` read
+  as 0 modules to migrate while `turn_envelope.ts` declared its truncation
+  limits. Both runtimes are now asserted to classify the same access the same
+  way, which is the property that makes the surface safe to plan against.
+- The TypeScript half of the standing unknown was drawn only from modules that
+  spelled a field, 4 of 145. Widening it to every tracked module raised the
+  count from 82 sites to 395 and cost 0.52s.
 
 The roles are asserted to partition the token count exactly, per field and per
 runtime, on every run. The new metric therefore reclassifies one population
 rather than measuring a smaller one, and this slice repays no debt: both
 budgets are pinned at their measured values in the same diff.
+
+The partition assigns each module its first matching role, which answers "what
+is this module mainly" and not "who writes this field". `work_lane_contract`
+has 8 modules whose role is `writer` and 13 that write it; the other 5 also
+read it and the partition calls them readers. A retirement looking for every
+producer reads the overlapping `reads`/`writes`/`binds` counts printed beside
+the partition, not the partition itself.
 
 The check costs 7.5s on a 29.4s guard, measured twice on each tree. The scan
 must walk every tracked Python module, because the computed-key total is
@@ -1338,7 +1363,7 @@ result on the current tree; what changes is what the invariants claim.
 | --- | --- | --- | --- | --- |
 | 2026-09-16 | Q9: compute the full inventory on demand; retire the committed census | Implementation for [maintainer feedback](https://github.com/huangruiteng/loopx/pull/4360#issuecomment-5692062394); PR review pending | Committed snapshot with post-merge regeneration; diff-only scan rejected | 1, I6, 3, 5, 9, 10, 12 |
 | 2026-09-16 | B2: bind one unrenamed re-export hop in the Python producer scanner | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B2; PR review pending | Require every consumer to import the owner module (fragile; failed silently in M2); unbounded multi-hop resolution rejected | 5, Appendix A |
-| 2026-09-17 | B3: budget the migration surface beside the token count; keep both until Q11 | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B3; PR review pending | Replacing the token budget outright (rejected: the token count is the anchor that proves the new roles partition the same population, and dropping it in the same diff that introduces them would make the smaller number unauditable); counting computed-key subscripts as unresolved reads (rejected: `rows[index]` and `payload[key]` are one syntax, and the unknown would stop carrying information) | 5, 9, 11, 12 |
+| 2026-09-17 | B3: budget the migration surface beside the token count; keep both until Q11 | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B3; PR review pending | Replacing the token budget outright (rejected: the token count is the anchor that proves the new roles partition the same population, and dropping it in the same diff that introduces them would make the smaller number unauditable); counting Python computed-key subscripts as unresolved reads (rejected: `rows[index]` and `payload[key]` are one syntax, and the unknown would stop carrying information; TypeScript has no mapping-accessor convention, so its computed member access is counted separately and stated as an upper bound) | 5, 9, 11, 12 |
 | 2026-09-16 | B1 rename invariance: add the name-keyed divergence advisory; state the limit it does not close | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B1; PR review pending | Keying the budget on value sets (rejected: `CONFIDENCE_LEVELS` and `EDGE_CASE_COMPLEXITIES` share `high/low/medium` with different meanings); a committed name ledger (rejected at M0: Q9 retired the committed census). The advisory lists surviving forks by name; it was first described as catching a one-sided rename, which measurement disproved, so both mirrors state the limit as it behaves | 9 |
 | 2026-09-17 | Bound F1/F2 to the kernel tier and the scan reach, restate F4 as scope enumeration completeness, and give every obligation a derived `domain` | Implementation, Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447); **kernel-maintainer approval required, not yet given** | Leave the unconditional statements and record the gap in prose only (rejected: the statement was stronger than `validate_production`'s own docstring); restate F4 as per-context value-set disjointness (rejected: refuted by the repo's own data, since `scope_declarations` exists to permit legitimate same-name reuse); widen the scan so the unconditional claim becomes true (rejected: a separate change with its own risk) | 5, 9, Appendix B, Appendix C |
 
@@ -1368,7 +1393,7 @@ result on the current tree; what changes is what the invariants claim.
 | E21 | F1/F2 were unconditional but verified over one tier | `3ca868193` | `check_producers`' skip predicate, and the producer scan roots, read from the tree | 6 of 26 vocabularies declare `producers`, exactly the `tier: kernel` ones; the 20 skipped are all `cross_runtime`; the scan reaches 432 of 1203 tracked `loopx/**/*.{py,ts}` files (35.9%), the uncovered bulk being capabilities 285, other control-plane 192, extensions 83 | Counts from the registry and the tracked tree; the reach denominator moves with any new module, so it is reported, not pinned |
 | E22 | Fifteen reported unresolved sites can never become evidence | `3ca868193` | smoke report `unresolved_producer_blockers` | 41 unresolved sites, of which `argument_name_only` 10 and `annotation_only` 5 are a field-named keyword argument and a bare declaration; the other 26 are dynamic or interprocedural | Label-keyed; the two labels are code-owned in the scanner, so the floor moves only by a code edit |
 | E23 | F4 as written could not be violated | `3ca868193` | read `check_scope_declarations` against the F4 statement | Scope is declared and never inferred, so `conflict := collision ∧ scope_overlap` is a definition; what is enforced is that a declaration names every defining module exactly once, over 1 declaration and 4 contexts | Judgement from reading the check; value-set disjointness across contexts is deliberately *not* the property, because `SOURCE_SURFACES` legitimately reuses one name in four contexts (E19) |
-| E24 | The retirement budget counted mentions as readers | B3 integration tree | `check_reader_metric()` over the six legacy fields; roles asserted to partition `count_identifier_modules()` | 109 py token modules resolve to 82 surface modules; `goal_boundary` 30 → 15, `work_lane_contract` 29 → 28, `protocol_action_packet` 5 → 5 with one reader | Syntactic use, not data flow; 1709 computed-key mapping accessors stay unattributable, so zero surface is not zero readers |
+| E24 | The retirement budget counted mentions as readers | B3 integration tree | `check_reader_metric()` over the six legacy fields; roles asserted to partition `count_identifier_modules()`; both runtimes asserted to classify one access identically | 109 py token modules resolve to 82 surface modules; `goal_boundary` 30 → 15, `work_lane_contract` 29 → 28, `protocol_action_packet` 5 → 5 with one reader; 8 of 12 equivalent accesses had disagreed across the runtimes, and all six fields had measured zero TypeScript writers | Syntactic use, not data flow; 1709 Python computed-key accessors and 395 TypeScript computed members stay unattributable, so zero surface is not zero readers; the role partition is not a producer count |
 | E13 | The conflict budget mostly measured local naming | `1dc6ad8d8` | `MODULE_LOCAL_CONVENTION` applied to `conflicting_values` and `same_runtime_forks` names | 16 of 18 conflicts and 7 of 25 forks are module-local conventions; the semantic subsets are 2 and 18 | Classification is a name pattern, documented in the scanner and pinned by a fixture test |
 
 ## Appendix D: Rejected or superseded alternatives

@@ -954,7 +954,7 @@
           "python_module_budget": 20,
           "typescript_module_budget": 1,
           "python_migration_surface": 15,
-          "typescript_migration_surface": 0
+          "typescript_migration_surface": 1
         },
         "heartbeat_recommendation": {
           "python_module_budget": 17,

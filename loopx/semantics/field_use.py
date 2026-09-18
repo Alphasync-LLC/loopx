@@ -56,23 +56,44 @@ MAPPING_WRITE_CALLS = frozenset({"setdefault"})
 
 READ_FORMS = frozenset({
     "subscript_read", "mapping_call_read", "membership_read", "attribute_read",
-    "property_read",
+    "property_read", "destructured_read",
 })
 WRITE_FORMS = frozenset({
     "subscript_write", "mapping_call_write", "dict_literal_key", "keyword_argument",
-    "attribute_write", "property_write",
+    "attribute_write", "property_write", "object_literal_key",
 })
 # The module names the field as a parameter, a local or its own definition. It
 # handles the value without a recognized key access -- a pass-through consumer
 # in the RFC's role hierarchy, and a signature the migration has to change.
-BINDING_FORMS = frozenset({"local_binding", "local_reference", "parameter", "definition"})
+BINDING_FORMS = frozenset({
+    "local_binding", "local_reference", "parameter", "definition",
+    "property_signature",
+})
 # The field name travels as data here: a string constant that no recognized key
 # position consumed -- a name in a field list a loop will index with, or a label
 # in an emitted record. Which one it is needs a reader, so the module is
 # reported as unresolved rather than silently counted as a mention.
 UNRESOLVED_FORMS = frozenset({"name_constant"})
-MENTION_FORMS = frozenset({"module_import", "object_key", "prose"})
+MENTION_FORMS = frozenset({"module_import", "prose"})
 USE_FORMS = READ_FORMS | WRITE_FORMS | BINDING_FORMS | UNRESOLVED_FORMS | MENTION_FORMS
+
+
+@dataclass(frozen=True)
+class UnresolvedKeySites:
+    """Computed-key accesses that no name-keyed scan can attribute to a field.
+
+    The two runtimes are counted apart because their exclusions differ, and a
+    single total would hide that. ``python_mapping_calls`` counts only
+    ``mapping.get(name)``-shaped calls with a computed argument, because
+    ``rows[index]`` and ``payload[key]`` are the same subscript syntax in
+    Python. TypeScript has no mapping-accessor convention, so the equivalent
+    read *is* the computed member access: ``typescript_members`` counts those
+    with a non-numeric argument and is therefore an upper bound that includes
+    indexing an array by a variable.
+    """
+
+    python_mapping_calls: int = 0
+    typescript_members: int = 0
 
 
 @dataclass(frozen=True)
@@ -219,20 +240,30 @@ def lexical_module_count(field: str, suffix: str, sources: Iterable[SourceFile])
     return sum(1 for source in sources if source.suffix == suffix and token.search(source.text))
 
 
-def scan_field_uses(fields: Iterable[str], sources: Iterable[SourceFile]) -> tuple[list[FieldUse], int]:
-    """Classify every module's use of each field; also return the unresolved count."""
+def scan_field_uses(
+    fields: Iterable[str], sources: Iterable[SourceFile],
+) -> tuple[list[FieldUse], UnresolvedKeySites]:
+    """Classify every module's use of each field, beside the standing unknown."""
     wanted = frozenset(fields)
     uses: list[FieldUse] = []
     dynamic_sites = 0
     materialized = list(sources)
-    ts_sources = [source for source in materialized if source.suffix == ".ts"
-                  and any(_token_pattern(field).search(source.text) for field in wanted)]
+    # Every TypeScript module is scanned, not only those that name a field:
+    # the standing unknown is repository-wide on both sides, and narrowing it
+    # to modules that spell the field would measure a zero-reader field against
+    # an unknown that excludes the modules most able to hide a reader. The
+    # scanner records a form only for a requested field, so the wider
+    # population costs one parse and adds no per-field work. Measured on 145
+    # tracked modules: 0.86s narrowed against 0.52s more for all of them, and
+    # the unknown it reports rises from 82 sites to 395.
+    ts_sources = [source for source in materialized if source.suffix == ".ts"]
     # One AST request for the complete TS population, not one Node process per
     # module/field. Reuse the producer scanner's parser and safe error boundary.
-    ts_forms = {row["path"]: row["fields"] for row in run_typescript_scan(
+    ts_rows = {row["path"]: row for row in run_typescript_scan(
         Path(__file__).resolve().parents[2], ts_sources,
         {"mode": "field_uses", "fields": sorted(wanted)},
     )}
+    ts_dynamic_sites = sum(int(row.get("dynamic_member_sites") or 0) for row in ts_rows.values())
     for source in materialized:
         # Every Python module contributes to the computed-key total whether or
         # not it names a field, so the cheap substring filter only narrows the
@@ -254,7 +285,8 @@ def scan_field_uses(fields: Iterable[str], sources: Iterable[SourceFile]) -> tup
             forms, module_dynamic_sites = python_module_scan(tree, present)
             dynamic_sites += module_dynamic_sites
         elif source.suffix == ".ts":
-            forms = {field: set(observed) for field, observed in ts_forms.get(source.path, {}).items()}
+            row = ts_rows.get(source.path) or {}
+            forms = {field: set(observed) for field, observed in (row.get("fields") or {}).items()}
         else:
             continue
         for field in present:
@@ -272,25 +304,41 @@ def scan_field_uses(fields: Iterable[str], sources: Iterable[SourceFile]) -> tup
                 # check relies on. Fail where the form was added, not there.
                 raise ValueError(f"unclassified field-use form(s): {sorted(unclassified)}")
             uses.append(FieldUse(field=field, module=source.path, forms=frozenset(recognized)))
-    return sorted(uses, key=lambda use: (use.field, use.module)), dynamic_sites
+    return sorted(uses, key=lambda use: (use.field, use.module)), UnresolvedKeySites(
+        python_mapping_calls=dynamic_sites, typescript_members=ts_dynamic_sites,
+    )
 
 
 ROLES = ("reader", "writer", "binding", "unresolved", "mention")
 
 
 def field_use_summary(fields: Iterable[str], sources: Iterable[SourceFile]) -> dict[str, Any]:
-    """Per-field role counts and migration surface, beside the old token count.
+    """Per-field use counts and migration surface, beside the old token count.
 
     ``migration_surface`` is the number of modules that must change before the
     field can be removed: every reader, writer and binding. Mentions are prose
     and imports, and ``unresolved`` modules carry the field name as data, so
     they are reported separately rather than folded into a budget that would
     then move when a comment is reworded.
+
+    Two counts are reported per runtime and they answer different questions.
+    ``*_reads_modules``/``*_writes_modules`` are the direct answer to "how many
+    modules read this" and "how many write it"; a module that does both is in
+    both, because a retirement has to fix both sites. ``*_{role}_modules`` is
+    instead a partition by the first role in ``ROLES`` that a module matches,
+    so the five counts sum to the token count and the ledger can assert that
+    the roles reclassify that population rather than sample a smaller one. A
+    reader that also writes is a ``reader`` there and invisible in ``writer``,
+    which is why the partition must not be read as a producer count.
     """
     materialized = list(sources)
     ordered = sorted(fields)
-    uses, dynamic_sites = scan_field_uses(ordered, materialized)
-    summary: dict[str, Any] = {"fields": {}, "dynamic_mapping_key_sites": dynamic_sites}
+    uses, unknown = scan_field_uses(ordered, materialized)
+    summary: dict[str, Any] = {
+        "fields": {},
+        "dynamic_mapping_key_sites": unknown.python_mapping_calls,
+        "typescript_dynamic_member_sites": unknown.typescript_members,
+    }
     for field in ordered:
         entry: dict[str, Any] = {}
         for suffix, runtime in ((".py", "python"), (".ts", "typescript")):
@@ -298,6 +346,12 @@ def field_use_summary(fields: Iterable[str], sources: Iterable[SourceFile]) -> d
             roles = [use.role for use in selected]
             for role in ROLES:
                 entry[f"{runtime}_{role}_modules"] = roles.count(role)
+            for label, predicate in (
+                ("reads", lambda use: use.reads),
+                ("writes", lambda use: use.writes),
+                ("binds", lambda use: use.binds),
+            ):
+                entry[f"{runtime}_{label}_modules"] = sum(1 for use in selected if predicate(use))
             entry[f"{runtime}_migration_surface"] = sum(1 for use in selected if use.in_migration_surface)
             entry[f"{runtime}_token_modules"] = lexical_module_count(field, suffix, materialized)
         summary["fields"][field] = entry
