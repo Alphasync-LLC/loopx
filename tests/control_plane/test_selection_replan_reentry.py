@@ -36,6 +36,21 @@ def test_deferred_selection_recovers_same_turn_and_settles_once(tmp_path, bindin
     assert "settlement_plan" not in channel
     assert "replan_settlement_contract" not in channel
     [command] = channel["next_cli_actions"]
+    assert "rerun quota should-run" in deferred["recommended_action"]
+    assert deferred["execution_obligation"]["reason"] == deferred["recommended_action"]
+    assert deferred["interaction_contract"]["agent_channel"]["primary_action"] == command
+    rc, envelope = _run_cli(
+        registry, runtime, *guard, "--todo-id", selected_id, "--turn-envelope"
+    )
+    assert rc == 1, envelope
+    assert envelope["replan_action_packet"] is None
+    assert envelope["action"]["primary_action"].startswith("loopx ")
+    assert not envelope["action"]["must_attempt"]
+    assert not envelope["action"]["delivery_allowed"]
+    [recovery_preview] = envelope["writeback"]["next_cli_actions"]
+    assert recovery_preview.startswith("loopx ")
+    assert not envelope["writeback"]["spend_after_validation"]
+    assert _heartbeat_receipt_count(runtime, turn) == 1
     argv = shlex.split(command)
     assert argv[argv.index("--turn-instance-id") + 1] == turn
     assert "--todo-id" not in argv and "--replan-obligation-id" not in argv

@@ -180,9 +180,11 @@ def apply_action_selection_recovery(
     for capability in runtime_capabilities_for_cli_projection(available_capabilities):
         argv.extend(["--available-capability", capability])
     command = shlex.join(argv) + scheduler_args
-    payload["recommended_action"] = command
     payload["spend_allowed_now"] = False
     payload["spend_after_validation"] = False
+    # The current replan has not been admitted for this turn. Keeping its
+    # action packet would replace recovery in the compact TurnEnvelope.
+    payload.pop("replan_action_packet", None)
     interaction = payload.get("interaction_contract") or {}
     agent = interaction.get("agent_channel") or {}
     agent.update(must_attempt=False, delivery_allowed=False, primary_action=command)
