@@ -132,7 +132,9 @@ def active_state_todo_fields(
         rollout_events=rollout_events,
     )
     if canonical is not None:
-        fields = canonical_todo_summary_fields(canonical["todos"], rollout_events=rollout_events)
+        fields = canonical_todo_summary_fields(canonical["todos"], rollout_events=rollout_events,
+            goal_acceptance_contract=canonical.get("goal_acceptance_contract"),
+            goal_acceptance_work_guards=canonical.get("goal_acceptance_work_guards"))
         # Reading canonical Todos does not qualify legacy monitor writeback.
         monitor_writeback_contract_writer(fields, supported=False, source="file_authority")
     elif event_fields.get("user_todos") or event_fields.get("agent_todos"):

@@ -1,4 +1,5 @@
 import type { JsonObject } from "../effect_program.ts";
+import {acceptanceWorkGuard} from "../goals/acceptance_contract.ts";
 import { TODO_WORK_REQUIREMENT_FIELDS } from "../todos/work_requirements.ts";
 import { TODO_OWNERSHIP_INTENT_FIELDS } from "../todos/authoring_scope.ts";
 import type { AuthorityStore, AuthorityStoreCommit } from "./authority_store.ts";
@@ -357,9 +358,6 @@ export async function executeCoordinationTodoUpdate(
   const prepared = prepareUpdatedTodo(target.todo, input, head.head);
   if (isFailure(prepared)) return prepared;
   const {next, changed, clearFields} = prepared;
-  if (input.dry_run) return {schema_version: COORDINATION_TODO_UPDATE_RESULT_SCHEMA,
-    status: changed ? "planned" : "no_change", changed, todo_id: input.todo_id,
-    provider_revision: head.provider_revision, cursor: head.cursor, dry_run: true};
   const commit: AuthorityStoreCommit = changed ? prepareCoordinationProjectionCommit({
     goal_id: input.goal_id, operation_id: input.operation_id,
     expected_provider_revision: head.provider_revision, projection: head.head,
@@ -367,6 +365,18 @@ export async function executeCoordinationTodoUpdate(
   }) : {operation_id: input.operation_id,
     expected_provider_revision: head.provider_revision, next_projection: head.head,
     events: [], receipts: []};
+  // Planning can assign a claim too. Admit that assignment against the full
+  // candidate head so a simultaneous semantic edit cannot retain stale approval.
+  if (input.planning_intent?.claimed_by != null) {
+    const acceptance = acceptanceWorkGuard(commit.next_projection, input.goal_id, input.todo_id);
+    if (acceptance !== null && !acceptance.allowed) {
+      return {...failure(String(acceptance.reason_code), `${String(acceptance.reason)} Inspect Goal acceptance and ask the owner to configure or rebind this Todo.`),
+        goal_acceptance_guard: acceptance};
+    }
+  }
+  if (input.dry_run) return {schema_version: COORDINATION_TODO_UPDATE_RESULT_SCHEMA,
+    status: changed ? "planned" : "no_change", changed, todo_id: input.todo_id,
+    provider_revision: head.provider_revision, cursor: head.cursor, dry_run: true};
   commit.receipts = [{schema_version: COORDINATION_TODO_UPDATE_RECEIPT_SCHEMA,
     operation_id: input.operation_id, goal_id: input.goal_id,
     todo_id: input.todo_id, request_sha256: requestSha, changed}];
