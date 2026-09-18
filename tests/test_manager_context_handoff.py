@@ -54,6 +54,30 @@ def fixture(tmp_path):
     )
 
 
+def test_project_conversation_delivers_only_to_its_registered_goal(fixture):
+    root, registry, session, turn, request = fixture
+    session = {**session, "channel_id": "goal.research", "goal_id": "research"}
+    before = registry.read_bytes()
+    grant = authority(root, registry, session, turn)
+    assert grant["targets"] == [request]
+    receipt = deliver(root, registry, session=session, turn=turn, request=request)
+    assert receipt["status"] == "delivered"
+    with pytest.raises(ValueError, match="not authorized"):
+        deliver(root, registry, session=session, turn=turn,
+                request={"goal_id": "other", "agent_id": "peer"})
+    assert registry.read_bytes() == before
+    assert not pending(root, "other", "peer")["items"]
+
+
+@pytest.mark.parametrize("changes", [
+    {"channel_id": "goal.other"}, {"goal_id": "other"}, {"goal_id": ""},
+])
+def test_project_channel_cannot_supply_a_different_goal_identity(fixture, changes):
+    root, registry, session, turn, _ = fixture
+    session = {**session, "channel_id": "goal.research", "goal_id": "research", **changes}
+    assert authority(root, registry, session, turn)["targets"] == []
+
+
 def test_original_context_delivery_is_idempotent_without_priority_or_todo_writes(
     fixture,
 ):

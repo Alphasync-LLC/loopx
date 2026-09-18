@@ -127,8 +127,8 @@ assert.match(tasks, /t\("tasks\.pendingAndRunning"\)/, "Tasks do not imply that 
 assert.match(tasks, /t\("tasks\.chatRecent"\)/, "Tasks surface the latest Goal conversation without forcing a tab switch");
 assert.match(tasks, /t\("tasks\.chatUnchangedDescription"\)/, "Tasks explain that ordinary Chat does not silently mutate Todo state");
 assert.doesNotMatch(tasks, /personal-task-capability-callout|tab: "capabilities"/, "Goal Tasks does not spend a full-width row on capability settings");
-assert.match(header, /personal-goal-tools-trigger/, "Goal details and capability settings share one compact header entry");
-assert.match(header, /onOpenGoalDetail[\s\S]*onOpenGoalCapabilities/, "The unified Goal entry preserves both existing details and capability settings");
+assert.match(header, /aria-label=\{t\("header\.goalSettings"\)\}/, "The Goal settings entry has an accessible label");
+assert.match(header, /onClick=\{onOpenGoalCapabilities\}/, "The Goal settings entry opens the existing capability owner directly");
 assert.match(page, /onOpenGoalCapabilities=.*tab: "capabilities"/, "The unified Goal entry opens the selected Goal capability settings directly");
 assert.match(goalCapabilitySettings, /fetchGoalConfiguration\(goalId\)/, "Goal capability settings inspect the selected Goal through the path-free API");
 assert.match(capabilityWorkbench, /personal-capability-editor-status/, "Shared capability details distinguish editable contracts from read-only capabilities");
@@ -171,7 +171,8 @@ assert.match(page, /goalDraftActive[\s\S]*t\("composer\.createGoalDraft"\)[\s\S]
 assert.match(page, /setComposerDraft\(`manager:\$\{selectedAgentId\}`,\s*t\("composer\.createGoalTemplate"\)\)/, "Create Goal writes the localized template to the manager draft even when invoked from a Goal");
 assert.match(page, /personal-action-feedback/, "Typed actions surface a persistent visible receipt");
 assert.match(page, /visibleTimelineItems[\s\S]*item\.run\.runId === activeSessionRun\.runId/, "Session record mode filters unrelated Goal activity");
-assert.match(page, /if \(tab === "chat"\) setActiveSessionRun\(null\)/, "The top Chat view exits the nested Session record filter");
+assert.match(page, /function openGoalConversation\(\)[\s\S]*setActiveSessionRun\(null\)[\s\S]*scrollIntoView\(\{ block: "start" \}\)/, "Opening a Goal reply exits a nested Session and reveals the latest answer");
+assert.match(page, /onOpenChat=\{openGoalConversation\}/, "The task reply button uses the same conversation navigation as other Goal entries");
 assert.match(header, /header\.refreshing[\s\S]*header\.refreshDone[\s\S]*header\.refreshFailed/, "Refresh exposes localized loading, success, and failure feedback");
 assert.match(drawer, /t\("drawer\.proposalExplainer"\)/, "Preview explains what confirmation will do");
 assert.match(drawer, /t\("drawer\.proposalApplyFailed"\)/, "Failed preview communicates its no-write result clearly");
@@ -190,15 +191,15 @@ assert.match(page, /\.map\(\(\[key, value\]\) => \(\{[\s\S]*key,[\s\S]*label: fi
 assert.match(page, /field\.key === "cadence"[\s\S]*field\.key === "stop_condition"[\s\S]*field\.key === "timezone"/, "Applied Heartbeat readback consumes stable semantic keys");
 assert.doesNotMatch(page, /field\.label === "cadence"|field\.label === "stop condition"/, "Schedule semantics never depend on localized display labels");
 assert.match(page, /defaultTimeline\(model, managerProjectionId, t\)/, "Default schedule projection uses the active locale authority");
-assert.match(page, /onOpenGoal: \(goalId\)[\s\S]*selectGoal\(goalId\);[\s\S]*Promise\.resolve\(\)\.then\(\(\) => reconcile\?\.\(\)\)/, "Applied-action Goal navigation is immediate and reconciles state in the background");
+assert.match(page, /onOpenGoal: \(goalId\) => \{\s*selectGoal\(goalId\);\s*void reconcileStatus\(\[goalId\]\)/, "Applied-action Goal navigation is immediate and reconciles that Goal in the background");
 assert.match(drawer, /onClose\(\); void callbacks\.onOpenGoal\?\.\(goalId\)/, "Applied-action Goal navigation closes its result drawer before asynchronous reconciliation");
 assert.match(tasks, /aria-busy=\{quickCompletingTodoIds\?\.has\(todo\.todoId\)/, "Quick Todo completion exposes accessible pending state while its typed preview is prepared");
 assert.match(tasks, /disabled=\{quickCompletingTodoIds\?\.has\(todo\.todoId\)\}/, "Quick Todo completion rejects duplicate clicks while preview creation is pending");
 assert.match(page, /callbacks\.onGoalActivationStateChange\?\.\(lifecycleChange\.goalId, lifecycleChange\.next\)/, "Goal lifecycle apply projects the requested state before the server responds");
 assert.match(page, /model\.goals\.find\(\(goal\) => goal\.goalId === proposal\.goalId\)\?\.activationState/, "Goal lifecycle rollback captures the rendered state instead of assuming the operation inverse");
 assert.match(page, /callbacks\.onGoalActivationStateChange\?\.\(lifecycleChange\.goalId, lifecycleChange\.previous\)/, "Rejected Goal lifecycle apply rolls back the optimistic projection");
-assert.match(page, /Promise\.resolve\(\)\.then\(\(\) => reconcile\?\.\(\)\)/, "Successful Goal lifecycle apply reconciles the full status payload without blocking the sidebar");
-assert.match(dashboard, /onReconcileStatus=\{\(\) => loadFromUrl\([\s\S]*\{ background: true \}/, "Lifecycle reconciliation uses the non-fatal background status path");
+assert.match(page, /if \(applied\.actionKind === "goal\.lifecycle"\) \{\s*void reconcileStatus\(applied\.goalId \? \[applied\.goalId\] : undefined\)/, "Successful Goal lifecycle apply reconciles the affected Goal without blocking the sidebar");
+assert.match(dashboard, /onReconcileStatus=\{\(options\) => loadFromUrl\([\s\S]*\{ background: true, invalidateGoalIds: options\?\.invalidateGoalIds, reuseSnapshots: true \}/, "Lifecycle reconciliation uses the non-fatal background status path");
 assert.match(dashboard, /statusRequestCanCommit\(statusRequestFenceRef\.current, request\)/, "A stale background response cannot overwrite a newer optimistic transition");
 assert.match(sidebar, /Trash2/, "Stopped Goals expose a delete icon");
 assert.match(sidebar, /onRequestGoalLifecycle\(goal, "delete"\)/, "Goal deletion stays behind the lifecycle request boundary");
@@ -283,8 +284,8 @@ assert.match(page, /personal-home-board/, "Manager home uses the four-lane works
 assert.doesNotMatch(page, /personal-worker-strip/, "Manager home omits the redundant Agent worker strip");
 assert.doesNotMatch(header, /切换到野兽主题|切换到默认主题/, "Workspace header does not expose theme switching");
 assert.match(workspaceTheme, /workspaceThemeStorageKey = "loopx-pw-theme"/, "Theme preference persists across reloads");
-assert.match(dashboard, /function isManagerProjectionQuestion[\s\S]*我现在该做什么[\s\S]*哪些 Goal 在等我[\s\S]*Agent 在做什么/, "Manager projection questions use stable intent phrases instead of exact button copy");
-assert.match(dashboard, /targetContextId === "manager" && isManagerProjectionQuestion\(question\)/, "Manager projection questions remain on the cross-Goal manager route when the user adds a read-only boundary");
+assert.doesNotMatch(dashboard, /isManagerProjectionQuestion/, "Ordinary manager questions do not silently bypass the selected model by matching phrases");
+assert.match(dashboard, /if \(selectedRoute\.agentId === "status-only" \|\| \(!targetGoal && targetContextId !== "manager"\)\)/, "Projection answers require the explicit status-only route or a missing Goal fallback");
 assert.match(dashboard, /const asksForNextAction[\s\S]*if \(asksForNextAction\)[\s\S]*personalManagerMatches\(question, \["状态"/, "A next-step question outranks a read-only boundary that mentions state");
 assert.match(dashboard, /先处理「\$\{personalGoalTitle\(nextTodo\.goalId\)\}」：\$\{nextTodo\.text\}/, "The compact manager answer names the Goal and concrete blocking action");
 assert.match(drawer, /t\("drawer\.decisionReview"\)/, "Blocked items preview their decision boundary before any write");
@@ -303,7 +304,7 @@ assert.match(page, /onOpenConversation/, "The compact manager conversation has a
 assert.match(page, /managerChatOpen/, "Manager full conversation uses a dedicated Chat view instead of stretching the home tray");
 assert.match(page, /managerChatItems/, "Manager Chat only renders conversation and confirmation items");
 assert.match(page, /sessionProposalIds\.includes\(item\.proposal\.previewId\)/, "Manager Chat only shows proposals created in the current UI session");
-assert.match(page, /\["ready", "gated", "deferred", "applying"\]\.includes\(proposal\.status\)/, "Restored proposal history excludes stale and failed write cards from the active Chat");
+assert.match(page, /\["preview_ready", "gated", "deferred", "applying"\]\.includes\(proposal\.status\)[\s\S]*compileActionReviewPlan\(proposal\)\.retryOriginal === true/, "Restored proposal history uses wire states and preserves retryable original operations");
 assert.doesNotMatch(page, /proposal\.title, proposal\.status/, "Proposal dedupe does not split one action into duplicate cards by lifecycle status");
 assert.match(header, /header\.managerView/, "Manager Chat exposes explicit overview and Chat navigation");
 assert.match(header, /header\.managerOverview/, "Manager Chat can return to the cross-Goal overview");
@@ -351,7 +352,7 @@ assert.match(dashboard, /function personalGoalHasPendingOperatorGate/, "Pending 
 assert.match(dashboard, /personalGoalHasPendingOperatorGate\(row\)/, "Pending operator gates project into the needs-you state");
 assert.match(dashboard, /explicitUserWait/, "Explicit user-approval language repairs incomplete gate projections");
 assert.match(page, /proposal\.status === "applied"/, "Unconfirmed Heartbeat previews never project as active schedules");
-assert.match(drawer, /actionKind === "goal\.create" \? t\("drawer\.proposalEnterGoal"\) : t\("drawer\.proposalViewGoal"\)/, "Applied actions offer scoped refreshed navigation labels");
+assert.match(drawer, /actionKind === "goal\.create" \? t\("drawer\.proposalEnterGoal"\) : t\(selection\.item\.actionKind === "team\.plan" \? "proposal\.teamPlan\.openGoal" : "drawer\.proposalViewGoal"\)/, "Applied actions offer scoped refreshed navigation labels");
 assert.doesNotMatch(sidebar, /Agent 设置/, "The sidebar omits the read-only Agent settings dead end");
 assert.doesNotMatch(sidebar, /野兽主题|默认主题/, "The sidebar keeps one owner-reviewed visual theme");
 for (const key of ["composer.createGoalTemplate", "composer.monitorTemplate", "composer.heartbeatTemplate", "proposal.primary.goalCreate", "proposal.impact.goalCreate"]) {
@@ -370,7 +371,7 @@ assert.match(
   "Initial real-status loading must not display bundled example tasks; explicit example mode remains available",
 );
 
-assert.match(page, /if \(settingsOpen\)[\s\S]*<WorkspaceSettingsPage/, "Settings replace the whole workspace shell");
+assert.match(page, /const settingsPage = settingsOpen \?[\s\S]*<WorkspaceSettingsPage[\s\S]*<div hidden=\{settingsOpen\}>[\s\S]*<WorkspaceShell/, "Settings hide the workspace while preserving its mounted conversation state");
 assert.match(sidebar, /t\("settings\.open"\)/, "The sidebar exposes one localized Settings entry");
 assert.doesNotMatch(sidebar, /个人工作区/, "The sidebar footer no longer renders a static personal workspace row");
 assert.doesNotMatch(workspaceSettings, /NotificationSettingsPanel/, "Settings do not render the old per-Goal notification binding panel");
@@ -442,7 +443,7 @@ for (const capabilityId of [
   assert.equal(matches.length, 2, `${capabilityId} has English and Simplified Chinese metadata`);
 }
 for (const fieldKey of ["allowed_domains", "coordinator_agent_id", "enabled", "executor_endpoint", "executor_model", "executor_reasoning_effort", "max_children", "profile", "profile_preset", "review_priority", "route_ref", "safe_fix", "strict_receipt", "timezone"]) {
-  const matches = capabilityLocalization.match(new RegExp(`${fieldKey}:`, "g")) ?? [];
+  const matches = capabilityLocalization.match(new RegExp(`^\\s+${fieldKey}:`, "gm")) ?? [];
   assert.equal(matches.length, 2, `${fieldKey} has English and Simplified Chinese field copy`);
 }
 assert.doesNotMatch(machineSettings, /password|secret|credential/i, "Machine settings do not collect credentials");

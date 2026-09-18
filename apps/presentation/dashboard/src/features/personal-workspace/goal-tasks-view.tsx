@@ -209,9 +209,9 @@ export function GoalTasksView({
         <section aria-label={t("tasks.chatRecent")} className="personal-task-chat-receipt">
           <span className="personal-task-chat-icon"><MessageSquareText size={18} /></span>
           <div>
-            <header><strong>{replyPending ? t("tasks.chatPending") : latestReply ? t("tasks.chatAgentReplied") : t("tasks.chatRecent")}</strong><small>{goal.agentLabel ?? goal.agentId}</small></header>
+            <header><strong>{replyPending ? t("tasks.chatPending") : latestReply ? t("tasks.chatAgentReplied") : t("tasks.chatRecent")}</strong><small>{latestReply?.returnDelivery ? t("tasks.chatReturn") : latestReply?.agentLabel}</small></header>
             <p className="is-user"><b>{t("common.you")}</b>{latestUserMessage.text}</p>
-            {latestReply && !latestReply.pending ? <p className="is-assistant"><b>{t("common.agent")}</b>{latestReply.text}</p> : null}
+            {latestReply && !latestReply.pending ? <p className="is-assistant"><b>{latestReply.returnDelivery ? t("tasks.chatReturn") : latestReply.agentLabel ?? t("common.agent")}</b>{latestReply.text}</p> : null}
             <small>{replyPending
               ? t("tasks.chatPendingDescription")
               : t("tasks.chatUnchangedDescription")}</small>

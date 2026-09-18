@@ -47,13 +47,13 @@ def flow(tmp_path):
     )
     store = ChatSessionStore(tmp_path)
 
-    def create(external=False):
+    def create(external=False, project=False):
         session = store.create_session(
-            goal_id="loopx-manager",
+            goal_id="research" if project else "loopx-manager",
             agent_id="codex",
             adapter_kind="codex_app_server",
             upstream_thread_id="test",
-            channel_id="manager.external.test" if external else "manager",
+            channel_id="goal.research" if project else "manager.external.test" if external else "manager",
         )
         turn, _ = store.create_turn(
             session["session_id"],
@@ -102,9 +102,10 @@ def flow(tmp_path):
     return tmp_path, registry, store, create
 
 
-def test_single_request_returns_to_original_transcript_without_second_model_turn(flow):
+@pytest.mark.parametrize("project", [False, True], ids=["steward", "project"])
+def test_single_request_returns_to_original_transcript_without_second_model_turn(flow, project):
     root, registry, store, create = flow
-    session, turn, receipt = create()
+    session, turn, receipt = create(project=project)
     rid = receipt["request_id"]
     acknowledge(root, "research", "worker", rid, "adopt", "Private deliberation")
     assert pending(root, "research", "worker")["items"]
@@ -774,3 +775,23 @@ def test_background_service_delivers_without_another_agent_or_query(flow):
     assert state["status"] == "delivered"
     assert state["provider_receipt"] == "sha256:provider-proof"
     assert not service.thread.is_alive()
+
+
+@pytest.mark.parametrize("project", [False, True], ids=["steward", "project"])
+def test_registration_revocation_blocks_return_without_retargeting(flow, project):
+    root, registry, store, create = flow
+    session, _, receipt = create(project=project)
+    rid = receipt["request_id"]
+    acknowledge(root, "research", "worker", rid, "adopt", "Assess correction")
+    report(root, "research", "worker", rid, "conclusion", "Independent finding is ready.")
+    payload = json.loads(registry.read_text())
+    payload["goals"][0]["coordination"]["registered_agents"] = []
+    registry.write_text(json.dumps(payload))
+
+    def forbidden(*_):
+        pytest.fail("a revoked registration must not cause an external send")
+
+    drain(root, registry, store, forbidden)
+    assert not [m for m in store.messages(session["session_id"])
+                if m.get("origin") == "manager_followup"]
+    assert reply_status(root, receipt)[0]["status"] == "retry_pending"

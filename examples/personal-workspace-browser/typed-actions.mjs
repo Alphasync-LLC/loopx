@@ -1489,13 +1489,22 @@ export const typedActionsScenario = {
       await composer.fill("做一次只读分析：判断刚刚新增的 Todo 是否与当前 Goal 一致，并在当前 Chat 返回两点理由。不要修改状态。");
       await page.getByRole("button", { name: "发送", exact: true }).click();
       const taskConversationReceipt = page.getByRole("region", { name: "最近对话" });
-      await taskConversationReceipt.getByText("Agent 已回复", { exact: true }).waitFor({ state: "visible", timeout: 10_000 });
+      await taskConversationReceipt.getByText("对话有新回复", { exact: true }).waitFor({ state: "visible", timeout: 10_000 });
       await taskConversationReceipt.getByText("本次对话没有直接修改 Tasks。需要执行时，可先转成 Task 草稿并确认。", { exact: true }).waitFor({ state: "visible" });
       if (api.actionPreviews.length !== previewCountBeforeAnalysis) throw new Error("A read-only reference to an existing Todo created another Todo preview");
       if (api.turnRequests.length <= turnCountBeforeAnalysis) throw new Error("Read-only Todo analysis did not reach the Goal Chat Session");
       await page.screenshot({ path: resolve(outputDir, "task-chat-receipt.png"), fullPage: false, animations: "disabled" });
       await taskConversationReceipt.getByRole("button", { name: "查看回复" }).click();
       await page.getByText("已沿用当前 Goal 与 Agent Session。接下来会先核对状态，再继续推进。", { exact: true }).last().waitFor({ state: "visible", timeout: 10_000 });
+      await page.waitForFunction(() => {
+        const replies = document.querySelectorAll(".personal-message.is-assistant");
+        const reply = replies.item(replies.length - 1);
+        const viewport = reply?.closest(".personal-channel-scroll");
+        if (!reply || !viewport) return false;
+        const answerBox = reply.getBoundingClientRect();
+        const viewportBox = viewport.getBoundingClientRect();
+        return answerBox.top < viewportBox.bottom && answerBox.bottom > viewportBox.top;
+      }, undefined, { timeout: 10_000 });
       await page.getByRole("navigation", { name: "Goal 视图" }).getByRole("button", { name: /^(Tasks|任务)$/ }).click();
       await page.getByRole("region", { name: "最近对话" }).getByRole("button", { name: "转为 Task" }).click();
       if (!(await composer.inputValue()).startsWith("创建一个 Task：")) throw new Error("Converting the latest reply did not create an editable Task draft");

@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .inbox import ENTRY_SCHEMA, _hash, _read, _root, _write, normalize_request
 from .inbox import _entry, _now
+from . import conversation_scope
 from ...agent_registry import registered_agent_ids_for_goal
 from ...file_lock import exclusive_file_lock
 from ...history import load_registry
@@ -67,11 +68,12 @@ def request(
     inherited = None
     if parent_request_id:
         parent = _entry(root, goal_id, source_agent_id, parent_request_id)
-        if (
-            parent.get("source_channel") != "manager"
-            and parent.get("source_kind") != "peer"
-        ):
-            raise ValueError("external-audience requests cannot be forwarded to peers")
+        if parent.get("source_kind") != "peer":
+            scope = conversation_scope({
+                "channel_id": parent.get("source_channel"), "goal_id": goal_id,
+            }, origin="web" if str(parent.get("source_id", "")).startswith("web:") else "unknown")
+            if not scope["private_conversation"]:
+                raise ValueError("external-audience requests cannot be forwarded to peers")
         # The original owner context is preserved through a chain without growing
         # a transcript recursively at each hop.
         inherited = parent.get("inherited_context") or {

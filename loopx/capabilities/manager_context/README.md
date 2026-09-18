@@ -36,6 +36,15 @@ worker planning workflow; do not overwrite the original receipt. This feature
 adds no periodic automation, forced wakeup, Todo priority or protected-operation
 permission. Existing private inbox records are retained when delivery is revoked.
 
+## Scoped project conversations
+
+Local Goal Chat reuses this inbox and return path for members registered in that
+Goal, without inheriting the steward's portfolio or runtime profile. See
+[steward and project coordination](../../../docs/reference/project-coordination.md)
+for the responsibility boundary, receiver readback and remaining execution work.
+A project conversation is not a registered coordinator; delivery does not launch
+one. Existing manager commands and stored receipts remain compatible.
+
 ## Audience-authorized Goal summaries
 
 An external manager's connection anchor is not its entire portfolio. The local

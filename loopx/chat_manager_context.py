@@ -16,6 +16,7 @@ from .chat_manager_details import read_manager_goal_details
 from .chat_manager_history import read_manager_delivery_history
 from .goal_portfolio import build_goal_portfolio
 from .chat import redact_local_paths
+from .control_plane.collaboration import conversation_scope
 
 
 # A progress question needs a bounded window, not a single day. One day of
@@ -142,6 +143,7 @@ def _evidence_window(
     days_reason: str = "",
     remote_read: str = MANAGER_REMOTE_READ_ON_DEMAND,
     config_path=None,
+    local_only: bool = False,
 ) -> dict[str, Any]:
     """Declare exactly what the per-turn evidence read covered."""
     matched_by_day: dict[str, int] = {}
@@ -188,7 +190,7 @@ def _evidence_window(
         read_status = "unavailable"
     else:
         read_status = "not_read"
-    sources = _declared_sources(
+    sources = [{"source_id": "local", "source_host": "local", "status": "available"}] if local_only else _declared_sources(
         runtime_root,
         str(session.get("channel_id") or "manager"),
         owner_scope,
@@ -302,6 +304,8 @@ def manager_turn_context(
     remote_scope_valid: Callable[[], bool] | None = None,
     remote_config_path=None,
 ) -> dict[str, Any]:
+    conversation = conversation_scope(session)
+    local_goal = conversation["kind"] == "owner_goal"
     if evidence_window_days is None:
         evidence_window_days, days_source, days_reason = resolve_evidence_window_days()
     elif (
@@ -317,6 +321,7 @@ def manager_turn_context(
             f"evidence_window_days must be 1..{MANAGER_EVIDENCE_MAX_WINDOW_DAYS}"
         )
     window_kwargs = {
+        "local_only": local_goal,
         "days_source": days_source,
         "days_reason": days_reason,
         "remote_read": (
@@ -326,8 +331,8 @@ def manager_turn_context(
         # source read must not disagree about which hosts exist.
         "config_path": remote_config_path,
     }
-    owner_scope = session.get("channel_id") == "manager"
-    scope = None if owner_scope else authorized_goal_ids
+    owner_scope = conversation["private_conversation"]
+    scope = conversation["goal_ids"] if owner_scope else authorized_goal_ids
     if not owner_scope and not scope:
         return unavailable_manager_context(
             "external_authorization_unavailable",
@@ -370,7 +375,7 @@ def manager_turn_context(
         ):
             for goal in json.loads(raw).get("goals", []):
                 if isinstance(goal, dict) and (
-                    owner_scope or goal.get("id") in (scope or [])
+                    scope is None or goal.get("id") in scope
                 ):
                     labels[str(goal.get("id"))] = redact_local_paths(
                         str(
@@ -431,10 +436,10 @@ def manager_turn_context(
         )
     result = {
         "schema_version": "manager_turn_context_v1",
-        "scope": "owner_global" if owner_scope else "external_goal_scope",
-        "model_defaults": manager_model_config(
+        "scope": "owner_goal" if local_goal else "owner_global" if owner_scope else "external_goal_scope",
+        **({} if local_goal else {"model_defaults": manager_model_config(
             machine_defaults=load_effective_steward_executor_defaults(runtime_root)
-        ),
+        )}),
         "snapshot_id": portfolio.get("snapshot_id"),
         "collected_at": portfolio.get("collected_at"),
         "collection_completed_at": portfolio.get("collection_completed_at"),
@@ -452,7 +457,7 @@ def manager_turn_context(
             **window_kwargs,
         ),
     }
-    if remote_evidence:
+    if remote_evidence and not local_goal:
         result["remote_evidence"] = _remote_evidence(
             runtime_root,
             session,
@@ -494,7 +499,7 @@ def collect_manager_turn_context(
     remote_evidence: bool = False,
     remote_runner=None,
 ) -> dict[str, Any]:
-    if session.get("channel_id") == "manager":
+    if conversation_scope(session)["private_conversation"]:
         return manager_turn_context(
             registry_path,
             session,
