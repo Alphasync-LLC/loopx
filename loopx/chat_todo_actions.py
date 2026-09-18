@@ -116,6 +116,16 @@ class ChatTodoActionMixin:
         try:
             result = run(parameters, dry_run=False, basis=basis, operation_id=operation_id)
         except LocalCoordinationAuthorityUnavailable as error:
+            if (parameters.get("operation") == "complete" and error.code == "authority_source_changed"
+                    and error.payload.get("completion_validation_executed") is True):
+                self.store.mark_failed(
+                    proposal_id, error_code="canonical_update_validation_source_changed",
+                    message="Todo authority registration changed during completion validation; retry",
+                    details={"operation_id": operation_id, "reason_code": error.code},
+                )
+                raise ValueError(
+                    "Todo authority registration changed during completion validation; retry"
+                ) from error
             if error.code in {"provider_revision_mismatch", "authority_source_changed", "provider_revision_conflict"}:
                 # The native transaction first established that no matching
                 # historical receipt exists. This is a rejected new edit.

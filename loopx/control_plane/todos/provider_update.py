@@ -93,12 +93,14 @@ def update_canonical_todo_if_promoted(
         **({"completion": completion} if completion is not None else {}),
     }
     result = effect_runtime_result("coordination.local_authority.todo_update", request)
+    completion_validation_executed = False
     if isinstance(result, dict) and result.get("status") == "execute_validation":
         if completion is None:
             raise RuntimeError("Ordinary Todo update cannot issue completion validation")
         completion["source_provider_revision"] = result["provider_revision"]
         completion.update(execute_completion_validation_effects(
             result, registry_path=registry_path, goal_id=goal_id))
+        completion_validation_executed = True
         request["observed_at"] = now_local()
         result = effect_runtime_result("coordination.local_authority.todo_update", request)
     if isinstance(result, dict):
@@ -136,7 +138,9 @@ def update_canonical_todo_if_promoted(
         result.get("decision_read_from_provider") is not True
         or result.get("legacy_fallback_used") is not False
     ):
-        payload = result if isinstance(result, dict) else {}
+        payload = dict(result) if isinstance(result, dict) else {}
+        if completion_validation_executed:
+            payload["completion_validation_executed"] = True
         raise LocalCoordinationAuthorityUnavailable(
             str(payload.get("reason") or "canonical Todo update failed; reread before retry"),
             code=str(payload.get("reason_code") or payload.get("conflict_kind")
