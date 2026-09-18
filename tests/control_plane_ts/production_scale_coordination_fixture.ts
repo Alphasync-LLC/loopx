@@ -490,6 +490,17 @@ export function productionScaleLeaseLifecycleFixture(goalId: string,
   return {projection, target, scenario, registered_agents: fixture.registered_agents};
 }
 
+/** Claimed handover retains the complete mixed-status work graph. */
+export function productionScaleClaimTransferFixture(goalId: string,
+  schema: AuthorityProjectionSchema = "native") {
+  const fixture = productionScaleLeaseLifecycleFixture(goalId, schema);
+  const target = (fixture.projection.todos as Record<string, unknown>[]).find(todo => todo.todo_id === fixture.target)!;
+  target.claimed_by = fixture.scenario.owner;
+  return {...fixture, projection: authorityProjectionFixture(goalId,
+    fixture.projection.todos as Record<string, unknown>[], fixture.projection.leases as Record<string, unknown>[],
+    schema, {handoff_mode: "hard_lease"})};
+}
+
 /** Start without a target lease, with a live peer beyond the bounded display. */
 export function productionScaleLeaseAcquisitionFixture(goalId: string,
   schema: AuthorityProjectionSchema = "native") {

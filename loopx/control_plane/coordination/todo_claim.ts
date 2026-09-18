@@ -10,6 +10,7 @@ import {
 } from "./authority_store_codec.ts";
 import {validateContinuationNote, computeContinuationTodoFacts} from "./continuation_note.ts";
 import {CoordinationCommandReceipt} from "./command_receipt.ts";
+import {acceptanceWorkGuard} from "../goals/acceptance_contract.ts";
 import {normalizeRegisteredTodoAgents, normalizeTodoAgent} from "./todo_agents.ts";
 import {
   prepareCoordinationProjectionCommit,
@@ -410,7 +411,19 @@ export async function executeCoordinationTodoClaim(
       return {fields: {...result, original_receipt: original}, changed: result.changed !== false};
   }});
   const existing = await receipt.read(store);
-  if (existing !== null) return existing;
+  if (existing !== null) {
+    // A historical claim receipt cannot grant work after its acceptance binding
+    // changed. Preserve the original response when the contract is absent.
+    const current = await store.loadAuthority();
+    if (current.status === "loaded") {
+      const guard = acceptanceWorkGuard(current.head, input.goal_id, input.todo_id);
+      if (guard !== null && !guard.allowed) {
+        return failure(String(guard.reason_code), `${String(guard.reason)} Inspect Goal acceptance and ask the owner to configure or rebind this Todo.`,
+          {goal_acceptance_guard: guard}, "decision_rejection");
+      }
+    }
+    return existing;
+  }
 
   const head = await store.loadAuthority();
   if (head.status !== "loaded") {
@@ -558,6 +571,12 @@ export async function executeCoordinationTodoClaim(
       error instanceof Error ? error.message : "invalid canonical task lease",
       {todo_id: input.todo_id},
     );
+  }
+
+  const acceptance = acceptanceWorkGuard(head.head, input.goal_id, input.todo_id);
+  if (acceptance !== null && !acceptance.allowed) {
+    return failure(String(acceptance.reason_code), `${String(acceptance.reason)} Inspect Goal acceptance and ask the owner to configure or rebind this Todo.`,
+      {goal_acceptance_guard: acceptance}, "decision_rejection");
   }
 
   const mutationAuthority = canonicalAuthorityObject(

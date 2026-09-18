@@ -269,6 +269,9 @@ def todo_item_task_class(
 
 
 def todo_item_is_actionable_open(item: dict[str, Any]) -> bool:
+    guard = item.get("goal_acceptance_guard")
+    if isinstance(guard, dict) and guard.get("allowed") is False:
+        return False
     return monitor_todo_is_actionable_open(item)
 
 

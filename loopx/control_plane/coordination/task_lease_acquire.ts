@@ -10,6 +10,7 @@ import {HANDOFF_MODES} from "./handoff_mode_policy.ts";
 import {requireStringLiteral} from "../runtime_decode.ts";
 import {decideTaskLeaseAcquire, materializeTaskLeaseAcquire} from "../work_items/task_lease_acquire_decision.ts";
 import {leaseOwnerRejection} from "../work_items/task_lease_eligibility.ts";
+import {acceptanceWorkGuard} from "../goals/acceptance_contract.ts";
 import {normalizeGoalId, normalizeTodoId, normalizeOwner, normalizeIdempotencyKey,
   normalizeWriteScopes, normalizeTtl, leaseEpoch, leaseVersion, leaseIsActive,
   TaskLeaseAcquireError} from "../work_items/task_lease_acquire.ts";
@@ -87,6 +88,11 @@ export async function executeCanonicalTaskLeaseAcquire(store: AuthorityStore, ra
         leaseVersion(current) < leaseVersion(original)) {
       return failed("idempotency_key_reuse", "acquire receipt belongs to a retired execution; use a new execution key", details);
     }
+    const acceptance = acceptanceWorkGuard(head.head, input.goal_id, input.todo_id);
+    if (acceptance !== null && !acceptance.allowed) {
+      return failed(String(acceptance.reason_code), `${String(acceptance.reason)} Inspect Goal acceptance and ask the owner to configure or rebind this Todo.`,
+        {...details, goal_acceptance_guard: acceptance});
+    }
     // Renewal may advance version/expiry within this execution. Return current
     // usable proof while the immutable receipt preserves the original decision.
     return {...result, ...details, lease: current};
@@ -106,6 +112,11 @@ export async function executeCanonicalTaskLeaseAcquire(store: AuthorityStore, ra
         handoff_mode: mode, expected_version: input.expected_version, actual_version: leaseVersion(facts.current),
         ...(facts.todo ? {todo_status: facts.todo.status, claimed_by: facts.todo.claimed_by, excluded_agents: [...facts.todo.excluded_agents]} : {}),
         ...(decision.conflict_indexes.length ? {conflicts: decision.conflict_indexes.map(i => facts.other_leases[i])} : {})});
+    }
+    const acceptance = acceptanceWorkGuard(head.head, input.goal_id, input.todo_id);
+    if (acceptance !== null && !acceptance.allowed) {
+      return failed(String(acceptance.reason_code), `${String(acceptance.reason)} Inspect Goal acceptance and ask the owner to configure or rebind this Todo.`,
+        {goal_acceptance_guard: acceptance});
     }
     const changed = decision.outcome === "apply";
     const lease = changed ? materializeTaskLeaseAcquire(input, input, decision, input.now) : facts.current;

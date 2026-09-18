@@ -585,7 +585,7 @@ external_input | compatibility_only | unknown
 | `relations.subsets` | 超集词表、排除值、子集符号的 owner | owner 符号等于超集减排除值 |
 | `projections.<name>.mapping` | 源值到目标值或 `null` | 键等于源词表；映射值与 owner 函数一致；`null` 路由抛出（I4） |
 | `schema_versions.<name>` | 常量名、值、owner 模块 | 唯一的定义模块就是列出的 owner 且都携带该值（I1） |
-| `retirement_ledger.<group>.fields` | 每字段的 Python 与 TypeScript 模块预算 | 实际模块数不超过预算，且字段集合与每个预算与 `RETIREMENT_ANCHOR` 一致（I5） |
+| `retirement_ledger.<group>.fields` | 每字段在两种指标下的 Python 与 TypeScript 预算：`*_module_budget` 统计携带该字段 token 的模块，`*_migration_surface` 统计真正读、写或以形参/局部名承载它的模块 | 两个实测值都不超过各自预算；字段集合与每个 token 预算与 `RETIREMENT_ANCHOR` 一致，每个迁移面预算与 `MIGRATION_SURFACE_ANCHOR` 一致，且五种句法角色恰好划分 token 计数（I5） |
 | `dual_runtime_twins` | 根目录与模块预算 | 同名 `.py`/`.ts` 对数不超过预算（I5） |
 | `inventory_ratchets` | 同运行时分叉的名字数与定义数、冲突的名字数与定义数、schema 版本分叉数、多值孪生与分叉数，以及共享词表冲突与分叉子集的预算 | 清单摘要计数不超过预算，且每个预算必须等于其 `BUDGET_ANCHOR` 条目（I5、I9） |
 
@@ -682,6 +682,9 @@ owner 符号集合的组：`EffectiveAction` 与 `EFFECTIVE_ACTIONS` 是同一�
 | 文档治理接受这对 RFC | `python3 examples/docs-governance-smoke.py` | 通过 | 检查镜像、链接、索引 |
 | 对声明了槽位的词表按位点报告消费者角色，并写明未知量（B5，可选项） | `uv run python scripts/generate_semantic_inventory.py --report --consumer-evidence` 与 `uv run --extra test python -m pytest tests/architecture/test_semantic_consumer_report.py` | 报告先写明自己的覆盖面以及它拒绝分析的词表，再打印 read/interpret/pass-through/unknown 计数、两个未知占比，以及每种未知原因及其位点数；测试通过 | 仅为参考，且在 #4447 中属可选项：在两个根目录的扫描范围内度量语法使用，既不是数据流，也永远不是闸门。覆盖面是 26 个已注册词表中声明了 `literal_scan.field` 的那 1 个；其余 25 个作为 `missing_slot_identity` 上报，不做分析 |
 | 退休预算按子串而非标识符计数 | 分别以 `in file.text` 与 `\bgoal_boundary\b` 统计 `goal_boundary` | 基线上 35 对 30 个 Python 模块 | 已知边界；M3 的零读者门需要标识符计数，见第 12 节 |
+| 退休指标把读者与提及分开（B3） | `check_reader_metric()` 为携带六个字段 token 的每个模块记录一切成立的事实——读、写、承载、未定、仅提及——并在旁边保留单标签的角色划分 | `goal_boundary`：30 个 token 模块解析为 8 读、7 写、9 承载、1 未定、14 仅提及，迁移面是 16 而非 30；`work_lane_contract` 是 29 中的 29 | 度量的是句法使用，不是数据流。事实相互重叠，因此断言它们**覆盖** token 样本；角色划分断言相加等于它，且只用于排序与打印 |
+| 旧字段新增读者会在 PR 路径上失败 | 让一个模块读 `payload["protocol_action_packet"]` 从而超出预算 | `check_reader_metric` 失败并点名该字段与计数 | `tests/architecture/test_semantic_vocabulary_drift.py` 内的提交测试；锚点等值检查与 `RETIREMENT_ANCHOR` 同一套模式 |
+| 计算式键保持「未定」而非「不存在」 | 统计首参数不是字面量的 Python mapping 访问器，以及 TypeScript 计算式成员访问 | `loopx/` 下 Python 1711 处、TypeScript 400 处；某字段读者计为零时，是对着这个公开的未知数计零 | 这正是零读者本身不能授权删除的原因（Q11）。它不可归属到任何单个字段，因此与字段专属的未知不同，永远不进入任何迁移面。Python 计算式下标不计入：`rows[index]` 与 `payload[key]` 是同一种语法 |
 | 模块局部约定过滤器是一次代码修改 | 扩宽 `inventory.py` 的 `MODULE_LOCAL_CONVENTION` 并重新生成 | `*_semantic` 预算下降而别处无代码改动 | 已知边界；正则在代码里，扩宽是可评审的 diff，未过滤总数仍在预算内 |
 | 无人生产的注册值失败（M0.5） | 在基线上运行生产形式扫描 | 失败并点名 `effective_action` 与 `skip`；删除 `skip` 或列入 `compatibility_only` 后通过 | 第一个预期的 I12 失败；只被比较的值不算已携带 |
 | 生产未注册值失败（M0.5） | 在某个已列生产位点写 `effective_action: "brand_new"` | 即使无消费者比较它也失败，并点名位点与值 | I13；生产比比较更严 |
@@ -779,7 +782,7 @@ TypeScript effective-action 绑定与[术语表](../../reference/glossary.md)通
 | M0.5b | `kernel` 词表的 `producers` 与 `compatibility_only`；带两条角色检查（I12、I13）的生产形式扫描；退休预算改按标识符计数并在一个 diff 里调整六个锚点（Q11）；Q9 的合并序规则写入第 10 节 | M0.5a 完成；Q9 已决或其临时规则被接受 | smoke 在 I11 到 I14 强制下全绿；`skip` 已处理；第 9 节生产者行全绿；为 Q2 回答 `turn_route` 是否持久化 | 删除生产者字段和角色检查；预算回到 M0.5b 前的锚点 |
 | M1 | 单一 owner 模块中的 `EffectiveAction` 类型化枚举；replay observation 与 frontier 槽位拆出（Q6）；生产者与消费者 import 它；注册表 `literal_scan` 收紧到枚举 | M0.5 合入；owner 模块已定（Q3）；槽位拆分已决（Q6） | smoke 绿；owner 之外零裸 `effective_action` 字面量；status/should-run 的 parity fixture 不变 | 回退为字面量；注册表保留集合 |
 | M2 | route 到 disposition 的投影、`decide_loop_disposition` 决策表与跨运行时集合通过共享契约发布，生成 Python 与 TypeScript 绑定，效仿协调契约生成器 | M1 合入；Q2 与 Q7 已决 | 生成器 `--check` 与 smoke 绿；`settlement.ts` 与 `transaction.py` 读取生成集合 | 从上一版契约重新生成 |
-| M3 | 逐字段退休旧 should-run 字段，每个 PR 一个字段，预算降到零并删除字段 | 经生产者/读者调研证明该字段外部读者为零 | 按 `AGENTS.md` 的 schema 缩减记录；附录 B 条目 | 从最后一个写方恢复字段 |
+| M3 | 逐字段退休旧 should-run 字段，每个 PR 一个字段，预算降到零并删除字段 | 逐模块清空该字段的迁移面，并评审残留的 unresolved 与计算式键证据；计数归零本身不构成这道门 | 按 `AGENTS.md` 的 schema 缩减记录；附录 B 条目 | 从最后一个写方恢复字段 |
 | M4 | 随迁移 RFC 的每次 replacement-first 切换调低孪生预算 | 每个切换 PR | 同 diff 中的预算修改 | 无需；预算跟随代码 |
 
 没有目标的棘轮只是方向，不是计划。下表是本 RFC 完成时的状态；每一行都是一个
@@ -795,7 +798,7 @@ TypeScript effective-action 绑定与[术语表](../../reference/glossary.md)通
 | 冲突值（语义） | 2 个名字 | `semantic-vocabulary-drift-smoke.py`：`conflicting_values_semantic` | 0 | 基线窄 PR |
 | 多值分叉 | 4（1 个误分类） | `semantic-vocabulary-drift-smoke.py`：`multi_value_forks` 与 `multi_value_forks_semantic`。今天只打印计数；#4614 增加 `divergent_value_sets` 以按名字列出存活的分叉 | `scope` 声明有界上下文名字后为 0 | M0.5 + 基线窄 PR |
 | 多值孪生 | 19 | `semantic-vocabulary-drift-smoke.py`：`multi_value_twins` | 0 | 基线窄 PR |
-| 旧 should-run 字段 | 6 个字段，124 py / 10 ts 模块提及 | `semantic-vocabulary-drift-smoke.py`：每个字段一对 `<字段>.py` / `<字段>.ts` | 0 个字段 | M3，按标识符计数 |
+| 旧 should-run 字段 | 6 个字段，124 py / 10 ts 模块提及 | token 计数：`semantic-vocabulary-drift-smoke.py` 每个字段一对 `<字段>.py` / `<字段>.ts`；迁移面与五种角色：`--report` 下每字段每运行时一行 `retirement_role:` | 0 个字段 | M3，以清空 B3 迁移面为门；token 计数在 Q11 决策前继续计入预算 |
 | 合并候选组 | 32 组未评审 | `loopx/semantics/inventory.py` 的 `merge_candidate_groups()`；今天没有任何命令打印它，#4630 增加该 CLI 行。读可评审数而非原始数——注册的跨运行时词表本就同时拥有 Python 与 TypeScript 两个符号，这类配对是 I3 的要求而不是债务 | 每组已分类；只合并 `same_semantics` 的组 | 分类表 PR，随后逐组 PR |
 | 控制面 py/ts 孪生 | 43 | `semantic-vocabulary-drift-smoke.py`：`independently_maintained` | 跟随 TypeScript 迁移 RFC；本 RFC 不设目标 | M4 |
 
@@ -915,12 +918,107 @@ PR review 保留这些层级。普通改动记录检查范围和理由，无共�
    Q2 建议保留两者。Q2 的实际写入及读回证据证明 `turn_route` 已持久化，因此
    实现保留三套不同值集并生成投影，不合并拼法。未来合并提案须提供双读或带版本
    的迁移及读者证据。Owner：Turn driver owner。
-11. **退休预算使用独立字段 token。** 六个旧字段预算现在使用
+11. **退休预算使用独立字段 token。** 六个旧字段预算使用
    `count_identifier_modules()`，因此 `goal_boundary_repair` 不会被算作
-   `goal_boundary`。这是保守的词法指标，不等于证明不存在语义读者；计算式访问
-   仍然是证据缺口。Owner：内核维护者。
+   `goal_boundary`。这是保守的词法指标，不等于证明不存在语义读者。B3 在它旁边
+   加入 `check_reader_metric()`：为每个模块记录一切成立的事实——读、写、承载、
+   未定、仅提及——并把所有非「仅提及」的模块作为迁移面纳入预算。这包含字段专属
+   的未知：把字段名当数据持有的模块，以及扫描无法解析的模块，都是删除该字段前
+   必须有人处理的工作，未知的是工作形态而不是工作是否存在。两个指标现在都在
+   检查。仍然未决的是：当迁移面预算已经能排序删除工作后，是否退役 token 预算；
+   以及在 1711 处 Python 计算式键访问与 400 处 TypeScript 计算式成员之下，迁移
+   面为零的字段还欠哪些残余证据——它们不属于任何字段，因此清空任何一个字段都
+   无法退役它们。Owner：内核维护者。
 
 ## 附录 A：执行账本（非规范）
+
+### 2026-09-17 — B3：退休指标把读者与提及分开
+
+六个旧 should-run 字段此前按 token 计数计入预算：文本里出现该独立字段名的模块
+数。这个数字回答的是「这个名字在这里出现过吗」，而不是退休所问的问题。
+`check_reader_metric` 把同一批模块按句法使用分类，并把所有非「仅提及」的模块
+作为字段删除前欠下的工作纳入预算。下表的 role 列是固定优先级下的单一标签，用
+于排序与打印；退休时真正要读的计数是它旁边那些相互重叠的事实。
+
+| 字段 | Python token | reader | writer | binding | unresolved | mention | 迁移面 | TS token | 迁移面 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `protocol_action_packet` | 5 | 1 | 4 | 0 | 0 | 0 | 5 | 2 | 2 |
+| `external_evidence_observation` | 8 | 4 | 1 | 1 | 1 | 1 | 7 | 1 | 1 |
+| `heartbeat_recommendation` | 17 | 8 | 4 | 1 | 0 | 4 | 13 | 1 | 1 |
+| `execution_obligation` | 20 | 8 | 7 | 0 | 0 | 5 | 15 | 1 | 1 |
+| `work_lane_contract` | 29 | 11 | 8 | 9 | 1 | 0 | 29 | 3 | 3 |
+| `goal_boundary` | 30 | 8 | 4 | 3 | 1 | 14 | 16 | 2 | 1 |
+
+token 计数掩盖掉的三个结果：
+
+- `goal_boundary` 与 `work_lane_contract` 是 30 与 29，只差一个模块，于是计划
+  把两者当作同等代价排序。它们真实的迁移面是 16 与 29。`goal_boundary` 有十四
+  个模块是提示词散文与模块路径导入，迁移根本不会碰到；`work_lane_contract`
+  一个这样的模块都没有。
+- `protocol_action_packet` 只有一个 Python 读者和四个写方。它是代价最低的首个
+  M3 删除对象，而 token 计数说不出这一点。
+- `loopx/` 下有 1711 处 mapping 访问器使用计算式键，另有 400 处 TypeScript
+  计算式成员访问是该运行时的对应形态。任何按名字的扫描——词法的还是句法的——
+  都无法把它们归属到某个字段，因此两者都不进入任何字段的迁移面，smoke 把这两
+  个数字与各字段计数一起打印。这就是「计数归零不授权删除」的可测形式；残余
+  义务归 Q11。
+
+首个实现落地后又实测出五处更正，它们都曾把迁移面做得比实际工作量小：
+
+- TypeScript 扫描只认成员访问，于是 TypeScript 真正使用的写法被归成了散文：
+  解构读取、对象字面量写入、以及已声明的属性签名。为两个运行时各写一遍的十二
+  种等价访问中，有八种给出不同结论。`{field: x}` 在 Python 是 writer、在
+  TypeScript 是 mention，因此把一个 dict 字面量移到边界另一侧就能让迁移面缩小
+  而没有迁移任何东西；六个字段在 TypeScript 侧全部实测为零个写入者。
+  `execution_obligation.ts` 读作「0 个模块要迁移」，而 `turn_envelope.ts` 正在
+  那里声明它的截断上限。现在断言两个运行时对同一种访问给出同一个结论——这正是
+  让迁移面可以据以排期的性质。
+- 标准不确定的 TypeScript 那一半此前只取自拼出过字段名的模块，145 个里的 4 个。
+  扩到每个被跟踪模块后，计数从 82 处升到 395 处，代价 0.52s。
+- 汇总统计的是角色标签。该标签单值，于是一个既读又写该字段的模块只被算作读者，
+  读写重叠根本无法出现。现在五项事实——读、写、承载、未定、仅提及——各自单独
+  统计，模块会计入一切对它成立的集合。集合相互重叠，因此 smoke 断言它们**覆盖**
+  token 样本而不是相加等于它，划分则在旁边保留自己「相加等于 token 计数」的断言。
+  重叠很大：`heartbeat_recommendation` 迁移面 13 个模块里有 8 个读、8 个写，而
+  标签把它报成 8 个读者、4 个写方。
+- 把字段名当数据持有的模块被报为 `unresolved`，然后以「并不**已知**需要迁移」
+  为由排除在迁移面之外。它是已知需要调查的：不打开那个模块，没人能说该字段不
+  在其中，而无论结论如何那都是该字段专属的工作。排除它还会让迁移面在有人把读者
+  改写成扫描无法解析的形式时下降。字段专属的未知现在计入；随之
+  `external_evidence_observation` 6 → 7、`goal_boundary` 15 → 16、
+  `work_lane_contract` 28 → 29，各为一个模块。全仓范围的计算式键总数仍在所有迁
+  移面之外：它们不属于任何字段，清空任一字段也永远退役不了它们。
+- 不可解析的被跟踪 Python 模块被记成了提及。它可能含有读者，把它记为散文等于凭
+  一次解析失败缩小迁移面。它现在是该字段的未知，位于迁移面之内。曾考虑改为抛错
+  并否决：那会让在半写状态树上工作的直接调用方整个扫描失败，而「未知」是诚实的
+  分类，不是更响的那一种。
+
+每次运行都会按字段、按运行时断言这些角色恰好划分 token 计数。因此新指标是对同
+一批模块的重新分类，而不是换了一批更小的样本；本切片也不偿还任何债务：两个预算
+都在同一 diff 里钉在各自的实测值上。
+
+这个划分给每个模块分配它首个命中的角色，回答的是「这个模块主要是什么」，不是
+「谁写这个字段」。`work_lane_contract` 有 8 个模块角色为 `writer`，而实际写它的
+有 13 个；另外 5 个同时也读它，于是划分把它们算作读者。退休时要找齐生产者，读
+的是打印在划分旁边的 `reads`／`writes`／`binds` 重叠计数，而不是这个划分本身。
+
+这道检查占 36.9s 守卫中的 8.5s，是五次实测的中位数；这五次都在守卫内部对该函数计
+时，而不是相减两次整体守卫耗时，跨度为 35.8–39.8s 中的 8.4–9.2s，即守卫的
+21%–25%。相减法先试过并被放弃：在共享机器上它把同一份成本给到 4s 到 32s 之间，
+因为它相减的两个数都会随机器上其他任务一起波动。扫描必须遍历每个被跟踪的
+Python 模块：计算式键总数是全仓范围的，一个从不提及任何字段的模块同样计入它。
+`parse_python` 从 `python_facts` 中析出，使两处扫描对不可解析的源抛出同一个错误；
+它刻意不加缓存——把约两百万个 AST 节点留到运行结束，整体实测比解析两次还慢
+0.7s，并且会把 `check_inventory` 从 2.4s 拖到 5.4s，而那正是 #4628 刚刚变快的
+那一趟。
+
+TypeScript 一次批量复用 `scripts/semantic_production_scan.mjs` 的 TypeScript
+解析器，按 AST 属性和字面量下标区分读、写及复合更新，覆盖可选访问与模板插值。
+注释、引用示例与正则字面量不会变成访问，也不会遮住后续代码。对象字面量键按
+Python 的 `dict_literal_key` 同样计为写入，类型／接口属性签名计为承载，解构
+计为读取，未被任何键位消费的字段名字符串计为未定——每一条都与 Python 侧同构。
+计算式键的数据流与外部消费者仍在本指标之外，M3 删除前必须另行核查；token 预算
+保持不变。
 
 ### 2026-09-18 — 生产者扫描三处自信而错误的答案
 
@@ -1161,7 +1259,6 @@ PR review 保留这些层级。普通改动记录检查范围和理由，无共�
 - 本次未处理：备注是散文，没有任何机制检查其真伪。没有任何机制保证所述的产生条件曾经
   成立，或在代码移动之后仍然成立。对 `cross_runtime` 层而言并不存在可供比对的
   producer 扫描，这与 F1/F2 的值域边界已经披露的是同一个缺口。
-
 ### 2026-09-17 — 分离公式、角色与强制性声明；对形式签名做突变
 
 强制层级的表述是规范性变更；除新增一条规则外，检查本身不变。#4447 Track B 的 B0 切片。
@@ -1216,7 +1313,6 @@ PR review 保留这些层级。普通改动记录检查范围和理由，无共�
 - 本次未处理：`check_formal_model` 仍会接受一个自洽的错误声明，因为同时挪动某条
   不变量的 `enforcement` 与它的 policy 层级仍然自洽。那个接地缺口是另一件事。
 
-
 ### 2026-09-16 — B2 试点：Python producer 扫描器绑定一跳再导出
 
 - **触发：** M2 把三个 Turn owner 迁入 `turn_contract_generated.py` 后，仍经
@@ -1238,7 +1334,6 @@ PR review 保留这些层级。普通改动记录检查范围和理由，无共�
 - 注册表与叙述统一使用源码位点 `L`、环境值空间 `U(v)` 和允许集合 `S(v)`，
   不把生产值预先定义为合法值。
 - 明确候选处置为建议性元数据；本 schema 不交付逐候选运行时存储或执行门禁。
-
 
 ### 2026-09-15 — 随 RFC 开启 M0
 
@@ -1362,6 +1457,8 @@ PR review 保留这些层级。普通改动记录检查范围和理由，无共�
 | --- | --- | --- | --- | --- |
 | 2026-09-16 | Q9：全树按需计算；移除已提交结构清单 | 根据[维护者反馈](https://github.com/huangruiteng/loopx/pull/4360#issuecomment-5692062394)实现，PR 评审待完成 | 取代合并后补再生成；拒绝只扫描 diff | 1、I6、3、5、9、10、12 |
 | 2026-09-16 | B2：Python producer 扫描器绑定一跳未改名再导出 | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B2；PR 评审待完成 | 要求每个消费者都从 owner 模块导入（脆弱；M2 中已静默失效）；拒绝无界多跳解析 | 5、附录 A |
+| 2026-09-17 | B3 修复：统计全部五项相互正交的使用事实而不是角色标签，并把字段专属的未知纳入迁移面 | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B3；将 `goal_boundary` 由 15 上调至 16、`work_lane_contract` 由 28 上调至 29、`external_evidence_observation` 由 6 上调至 7，三处上调各自只涉及一个把字段名当数据携带的模块，token 预算与 carrier 计数均未变动；按第 5 节**需要内核维护者批准，尚未给出** | 继续统计角色标签并加一列重叠数（否决：该标签单值，任何由它构造的计数都会漏报排序靠后的那个事实，多加一列并不改变这一点）；让 `unresolved` 留在迁移面之外，理由是「并不已知需要迁移」（否决：它是已知需要调查的，而把它排除在外的预算会在有人把读者改写成扫描无法解析的形式时下降）；对不可解析模块直接抛错（否决：这会让在半写状态树上工作的直接调用方整个扫描失败，而「未知」是诚实的分类，不是更响的那一种）；只依赖跨运行时等价性测试（否决：它断言的是一致，而两个运行时都把解构读成散文也是一致的） | 11、附录 A、附录 B |
+| 2026-09-17 | B3：在 token 计数旁边为迁移面设预算；Q11 决策前两者都保留 | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B3；PR 评审待完成 | 直接用新指标取代 token 预算（否决：token 计数正是证明新角色划分同一批模块的锚，在引入角色的同一个 diff 里把它删掉会让更小的数字无法复核）；把 Python 计算式下标也计为未定读取（否决：`rows[index]` 与 `payload[key]` 是同一种语法，未知数会大到不再携带信息；TypeScript 没有 mapping 访问器约定，其计算式成员访问单独计数并声明为上界） | 5、9、11、12 |
 | 2026-09-16 | B1 改名不变性：新增按名字归组的分歧报告；写明它未闭合的边界 | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B1；PR 评审待完成 | 把预算改按值集归组（否决：`CONFIDENCE_LEVELS` 与 `EDGE_CASE_COMPLEXITIES` 共享 `high/low/medium` 而含义不同）；提交名字账本（M0 否决：Q9 已退役提交式清单）。该报告列出仍然存在的分叉；初稿称它能抓住单侧改名，实测证否，故两份镜像按真实行为写明边界 | 9 |
 | 2026-09-17 | B2：绑定同模块调用结果、局部变量有序重绑定与按键精确的容器写入；对 TypeScript 残量做重新归类而非缩减 | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B2；PR 评审待完成 | 绑定跨模块调用与对象字段（拒绝：那是另一条有自己影响面的有界形式，不属于本切片）；把与字段同名的关键字算作生产（拒绝：会使该义务变成同义反复，见第 5 节）；保留 `typescript_dynamic` 作为单一兜底（拒绝：八个位点共用一个原因，残量无法被行动）；把被调方形参绑定到调用点实参（拒绝：结果会依赖调用方而无法记忆化，且一次错误绑定会凭空造出证据） | 5、9、附录 A |
 | 2026-09-17 | B5（可选项）：只对声明了 `literal_scan.field` 的词表按位点报告消费者角色，并写明未知占比，而不是把一切都分类 | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B5；PR 评审待完成 | 没有声明槽位时回退到词表 id（评审中否决：这把 26 个词表中的 25 个按一个谁也没声明过的字段名去分析，下游每一行都继承了该猜测；它们现在列在 `missing_slot_identity` 下，不做分析）；在注册表中登记消费者（否决：跟踪 issue 明令禁止全量消费者登记，且一份声明清单是主张而非证据）；把该报告做成合并闸门（否决：F3 属于参考层级，90.2% 的未知占比也不足以闸住任何东西）；只报告语法能解析的位点（否决：这会让表格读起来像是完整的，因此未识别的提及与计算键读取都作为带原因的行打印出来） | 9、附录 A、附录 B、附录 C |
@@ -1395,6 +1492,9 @@ PR review 保留这些层级。普通改动记录检查范围和理由，无共�
 | E21 | F1/F2 写成无条件，但只在一个层上被验证 | `3ca868193` | 从源码树读 `check_producers` 的跳过谓词与 producer 扫描根目录 | 26 个词表中 6 个声明了 `producers`，恰好是 `tier: kernel` 那几个；被跳过的 20 个全部是 `cross_runtime`；扫描触及 1203 个已跟踪 `loopx/**/*.{py,ts}` 中的 432 个（35.9%），未覆盖部分主要是 capabilities 285、其余控制面 192、extensions 83 | 计数来自注册表与已跟踪源码树；分母会随任何新模块移动，所以只上报、不钉住 |
 | E22 | 15 个被上报的未解析位点永远不可能成为证据 | `3ca868193` | smoke 报告的 `unresolved_producer_blockers` | 41 个未解析位点，其中 `argument_name_only` 10 个、`annotation_only` 5 个分别是以字段名命名的关键字参数和裸声明；其余 26 个是动态或跨过程的 | 按标签归组；这两个标签在扫描器里由代码持有，因此这个下界只能靠改代码移动 |
 | E23 | F4 写法本身不可能被违反 | `3ca868193` | 对照 F4 表述阅读 `check_scope_declarations` | 作用域是声明的、从不推断，所以 `conflict := collision ∧ scope_overlap` 是一条定义；真正被强制的是一份声明必须恰好枚举每个定义模块，范围是 1 份声明、4 个上下文 | 阅读检查后的判断；各上下文值集互斥故意*不*作为该性质，因为 `SOURCE_SURFACES` 正是合理地在四个上下文复用同一个名字（E19） |
+| E24 | 退休预算把提及算成了读者 | B3 integration tree | 对六个旧字段运行 `check_reader_metric()`；断言五项事实覆盖 `count_identifier_modules()`、角色标签划分它；断言两个运行时对同一种访问给出同一结论 | 109 个 py token 模块解析为 85 个迁移面模块；`goal_boundary` 30 → 16，`work_lane_contract` 29 → 29，`protocol_action_packet` 5 → 5 且只有一个模块读它；十二种等价访问中曾有 8 种跨运行时结论不一致，六个字段在 TS 侧曾全部实测为零写入者 | 度量句法使用而非数据流；1711 处 Python 计算式键访问与 400 处 TypeScript 计算式成员仍无法归属且不属于任何字段，因此迁移面为零不等于读者为零；角色划分不是生产者计数 |
+| E27 | 两个运行时结论一致，并不能凭此把某种访问留在迁移面里 | B3 repair tree | 把同一个 TypeScript 访问的七种写法各自单独扫描，每种都必须落到一个具名类别且位于迁移面之内：点号读、下标读、简写解构、别名解构、对象字面量键、类型属性、名字经局部变量进入下标 | 七种全部在迁移面内，没有一种是 mention。仅靠跨运行时一致性测试，在两个运行时都把解构读成散文时同样会通过——而这正是首个实现的实际形态 | 这是一组反例，不是完备性证明：没人写下来的第八种写法仍未被度量，这正是无法证明的使用要落到 `unresolved` 而不是落到一个自信默认值的原因 |
+
 | E26 | B5 消费者证据覆盖 26 个已注册词表中的 1 个 | `d8e7af141` | `scripts/generate_semantic_inventory.py --report --consumer-evidence`，并与 drift smoke 的 `literal_scan_fields` 覆盖面互相印证 | 1 个词表声明了 `literal_scan.field`（`effective_action`）并被分析；25 个作为 `missing_slot_identity` 上报、不做分析。在 1213 个已跟踪源文件中的 485 个上共 713 行：`read` 0、`interpret` 61、`pass_through` 9、`unknown` 643（90.2%）；归属 `effective_action` 的 111 行中有 41 行未知（36.9%）。被删除的“回退到词表 id”实现当时报出 921 行、未知占比 78.9% | 覆盖面是注册表的性质而非代码的性质：只有当某个词表声明了槽位时它才会变化。各行是两个根目录范围内的语法使用，不是数据流；该扫描仅为参考——缺少 `--report` 时会拒绝运行 |
 | E13 | 冲突预算主要在度量局部命名 | `1dc6ad8d8` | 对 `conflicting_values` 与 `same_runtime_forks` 名字应用 `MODULE_LOCAL_CONVENTION` | 18 个冲突中 16 个、25 个分叉中 7 个是模块局部约定；语义子集分别为 2 与 18 | 分类是名字模式，已在扫描器中说明并由夹具测试钉住 |
 

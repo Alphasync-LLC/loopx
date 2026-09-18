@@ -414,15 +414,37 @@ def terminal_canonical_todo_if_promoted(
     )
     if isinstance(result, Mapping) and result.get("status") == "execute_validation":
         effect = result.get("validation_effect")
-        if not isinstance(effect, Mapping):
+        acceptance_effects = result.get("goal_acceptance_validation_effects")
+        if not isinstance(effect, Mapping) and not isinstance(acceptance_effects, list):
             raise RuntimeError("Todo terminal validation effect shape mismatch")
-        request["validation_receipt"] = run_declared_completion_validation_effect(
-            effect=effect,
-            registry_path=registry_path,
-            goal_id=goal_id,
-            delivery_workspace=completion_delivery_workspace,
-            validation_workspace_path=completion_validation_workspace_path,
-        )
+        if isinstance(effect, Mapping):
+            request["validation_receipt"] = run_declared_completion_validation_effect(
+                effect=effect,
+                registry_path=registry_path,
+                goal_id=goal_id,
+                delivery_workspace=completion_delivery_workspace,
+                validation_workspace_path=completion_validation_workspace_path,
+            )
+        if acceptance_effects is not None:
+            from ..goals.acceptance import run_goal_acceptance_validation_effect
+
+            if not isinstance(acceptance_effects, list) or not acceptance_effects:
+                raise RuntimeError("Goal acceptance validation effects are missing")
+            source_binding = result.get("goal_acceptance_source_binding")
+            if not isinstance(source_binding, Mapping):
+                raise RuntimeError("Goal acceptance validation omitted its source basis")
+            receipts = []
+            for row in acceptance_effects:
+                if not isinstance(row, Mapping) or not isinstance(row.get("effect"), Mapping):
+                    raise RuntimeError("Goal acceptance validation effect shape mismatch")
+                receipt = run_goal_acceptance_validation_effect(
+                    effect=row["effect"], registry_path=registry_path, goal_id=goal_id,
+                    delivery_workspace=completion_delivery_workspace,
+                    validation_workspace_path=completion_validation_workspace_path,
+                )
+                receipts.append({"criterion_id": row.get("criterion_id"), "receipt": receipt})
+            request["goal_acceptance_source_binding"] = dict(source_binding)
+            request["goal_acceptance_validation_receipts"] = receipts
         result = effect_runtime_result(
             "coordination.local_authority.todo_terminal", request
         )

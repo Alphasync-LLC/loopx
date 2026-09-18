@@ -39,6 +39,9 @@ from loopx.semantics.production import (  # noqa: E402
     PRODUCER_FILES, PRODUCER_ROOTS,
 )
 from loopx.semantics.python_production import scan_python_production  # noqa: E402
+from loopx.semantics.field_use import (  # noqa: E402
+    FACTS, ROLES, field_use_summary, lexical_module_count, render_field_uses, scan_field_uses,
+)
 from scripts.generate_semantic_bindings import build_artifacts  # noqa: E402
 from loopx.canary.maintainability_ratchet import evaluate_maintainability_findings  # noqa: E402
 
@@ -238,6 +241,23 @@ RETIREMENT_ANCHOR = {
     "external_evidence_observation": (8, 1),
     "goal_boundary": (30, 2),
     "protocol_action_packet": (5, 2),
+}
+# B3 migration surface: modules that read, write or bind the legacy field, plus
+# the modules holding its name unresolved, which have to be investigated before
+# anyone can say the field is gone. Anchored like RETIREMENT_ANCHOR so the
+# registry and this literal move in one diff. This does not replace the token
+# budget above; Q11 owns that decision, and until it lands both are checked.
+MIGRATION_SURFACE_ANCHOR = {
+    "execution_obligation": (15, 1),
+    "heartbeat_recommendation": (13, 1),
+    "work_lane_contract": (29, 3),
+    "external_evidence_observation": (7, 1),
+    "goal_boundary": (16, 1),
+    "protocol_action_packet": (5, 2),
+}
+RETIREMENT_FIELD_KEYS = {
+    "python_module_budget", "typescript_module_budget",
+    "python_migration_surface", "typescript_migration_surface",
 }
 RATCHET_KEYS = (
     "same_runtime_forks",
@@ -809,6 +829,10 @@ def check_retirement_budgets(registry: dict[str, Any], sources: list[SourceFile]
     ledger = registry["retirement_ledger"]["should_run_legacy_decision_fields"]["fields"]
     require(set(ledger) == set(RETIREMENT_ANCHOR), f"retirement ledger fields are {sorted(ledger)}; the anchored set is {sorted(RETIREMENT_ANCHOR)}")
     for field, budgets in ledger.items():
+        require(
+            set(budgets) == RETIREMENT_FIELD_KEYS,
+            f"retirement ledger {field} carries {sorted(budgets)}; expected {sorted(RETIREMENT_FIELD_KEYS)}",
+        )
         for suffix, key, anchored in (
             (".py", "python_module_budget", RETIREMENT_ANCHOR[field][0]),
             (".ts", "typescript_module_budget", RETIREMENT_ANCHOR[field][1]),
@@ -830,15 +854,91 @@ def count_identifier_modules(field: str, suffix: str, sources: list[SourceFile])
     This is intentionally a conservative lexical metric. It removes the known
     ``goal_boundary_repair`` false positive without claiming to prove that every
     remaining occurrence is a reader or that computed accesses are absent.
+    ``check_reader_metric`` splits this same population by syntactic role.
     """
-    pattern = re.compile(
-        rf"(?<![A-Za-z0-9_]){re.escape(field)}(?![A-Za-z0-9_])"
+    return lexical_module_count(field, suffix, sources)
+
+
+def check_reader_metric(registry: dict[str, Any], sources: list[SourceFile]) -> tuple[list[str], list[str]]:
+    """Check the B3 syntactic metric against the ledger, and report its roles.
+
+    Four obligations, all measured rather than assumed:
+
+    * the five roles partition the token count exactly, so the new metric is a
+      reclassification of the same modules and not a different population that
+      happens to be smaller. The partition assigns each module its first
+      matching role, so it answers "what is this module mainly", not "who
+      writes this field": the fact counts beside it overlap on purpose and are
+      the ones a retirement reads to find every producer;
+    * the five orthogonal fact sets cover that same population. They overlap,
+      so they are not required to sum to it; what is required is that every
+      module carrying the token owes at least one fact and that no module is
+      invented. A module that both reads and writes is in both counts, which
+      the single role label hides;
+    * the migration surface stays within its anchored budget, so a new reader
+      of a legacy field fails the PR path that adds it;
+    * the unresolved populations stay visible, and the two kinds stay apart. A
+      module holding the field name unresolved, or one the scan could not
+      parse, is that field's own work and is inside its surface.
+      ``dynamic_mapping_key_sites`` and ``typescript_dynamic_member_sites`` are
+      not: they count computed-key accesses anywhere under ``loopx/``, belong
+      to no field, and while either is nonzero a field measured at zero readers
+      is not thereby proven dead. The smoke says so in its own output.
+    """
+    ledger = registry["retirement_ledger"]["should_run_legacy_decision_fields"]["fields"]
+    summary = field_use_summary(ledger, sources)
+    report: list[str] = []
+    detail: list[str] = []
+    for field in sorted(ledger):
+        entry = summary["fields"][field]
+        for suffix, runtime, anchored in (
+            (".py", "python", MIGRATION_SURFACE_ANCHOR[field][0]),
+            (".ts", "typescript", MIGRATION_SURFACE_ANCHOR[field][1]),
+        ):
+            classified = sum(entry[f"{runtime}_{role}_modules"] for role in ROLES)
+            carriers = entry[f"{runtime}_token_modules"]
+            require(
+                classified == carriers,
+                f"{field}{suffix}: roles classify {classified} modules but the token metric finds {carriers}; "
+                "the syntactic metric must reclassify the same modules, not a smaller population",
+            )
+            covered = entry[f"{runtime}_classified_modules"]
+            facts = sum(entry[f"{runtime}_{label}_modules"] for _, label in FACTS)
+            require(
+                covered == carriers,
+                f"{field}{suffix}: the fact sets cover {covered} modules but the token metric finds "
+                f"{carriers}; every module carrying the token owes at least one fact",
+            )
+            require(
+                facts >= covered,
+                f"{field}{suffix}: {facts} facts over {covered} modules; the fact sets overlap by "
+                "construction and can never total less than the population they cover",
+            )
+            budget = ledger[field][f"{runtime}_migration_surface"]
+            actual = entry[f"{runtime}_migration_surface"]
+            require(
+                actual <= budget,
+                f"legacy field {field} now needs {actual} {suffix} modules migrated; budget is {budget}",
+            )
+            require(
+                budget == anchored,
+                f"legacy field {field} {suffix} migration surface budget is {budget} but "
+                f"MIGRATION_SURFACE_ANCHOR pins {anchored}; the registry and the anchor move together in one diff",
+            )
+            detail.append(
+                f"{field}{suffix} surface={actual}/{budget} "
+                + " ".join(f"{role}={entry[f'{runtime}_{role}_modules']}" for role in ROLES)
+                + " | " + " ".join(
+                    f"{label}={entry[f'{runtime}_{label}_modules']}" for _, label in FACTS
+                )
+                + f" carriers={carriers}"
+            )
+    report.append(
+        f"dynamic_mapping_key_sites={summary['dynamic_mapping_key_sites']} "
+        f"typescript_dynamic_member_sites={summary['typescript_dynamic_member_sites']} "
+        "(computed keys, unattributable)"
     )
-    return sum(
-        1
-        for file in sources
-        if file.suffix == suffix and pattern.search(file.text)
-    )
+    return report, detail
 
 
 def check_dual_runtime_twins(registry: dict[str, Any]) -> str:
@@ -930,11 +1030,13 @@ def main() -> int:
     check_projections(registry)
     check_schema_version_owners(registry, sources)
     budgets = check_retirement_budgets(registry, sources)
+    reader_metric, reader_detail = check_reader_metric(registry, sources)
     twins = check_dual_runtime_twins(registry)
     print("semantic-vocabulary-drift-smoke: ok")
     print("  " + coverage)
     print("  " + ratchets)
     print("  " + " ".join(budgets))
+    print("  " + " ".join(reader_metric))
     print("  " + twins)
     permanent = count_permanently_unresolvable(unknown_producers)
     print(f"  unresolved_producer_sites={len(unknown_producers)} (not proven safe; "
@@ -946,6 +1048,12 @@ def main() -> int:
     if '--report' in sys.argv[1:]:
         for site in unknown_producers:
             print(f"  unknown_producer: {site}")
+        for line in reader_detail:
+            print(f"  retirement_role: {line}")
+        ledger_fields = registry["retirement_ledger"]["should_run_legacy_decision_fields"]["fields"]
+        uses, _ = scan_field_uses(ledger_fields, sources)
+        for line in render_field_uses(uses):
+            print(f"  field_use: {line}")
     return 0
 
 

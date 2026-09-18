@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -78,6 +78,7 @@ def active_state_todo_fields(
     goal: dict[str, Any],
     *,
     runtime_root: Path | None = None,
+    rollout_events: Sequence[Mapping[str, Any]] | None = None,
     resolve_goal_local_path: Callable[..., Path | None],
     active_state_next_action_entries: Callable[..., list[str]],
     active_next_action_todo_ids: Callable[[str], set[str]],
@@ -119,9 +120,13 @@ def active_state_todo_fields(
     preferred_todo_ids: set[str] = set()
     for entry in next_action_entries:
         preferred_todo_ids.update(active_next_action_todo_ids(entry))
-    rollout_events: list[dict[str, Any]] = []
-    if runtime_root is not None and goal_id:
-        rollout_events = load_rollout_events(
+    events = (
+        [dict(event) for event in rollout_events]
+        if rollout_events is not None
+        else []
+    )
+    if rollout_events is None and runtime_root is not None and goal_id:
+        events = load_rollout_events(
             rollout_event_log_path(runtime_root, goal_id),
             limit=max_todo_index_rollout_events_per_goal,
         )
@@ -129,10 +134,17 @@ def active_state_todo_fields(
         goal,
         state_path=state_path,
         preferred_todo_ids=preferred_todo_ids,
-        rollout_events=rollout_events,
+        rollout_events=events,
     )
     if canonical is not None:
-        fields = canonical_todo_summary_fields(canonical["todos"], rollout_events=rollout_events)
+        fields = canonical_todo_summary_fields(
+            canonical["todos"],
+            rollout_events=events,
+            goal_acceptance_contract=canonical.get("goal_acceptance_contract"),
+            goal_acceptance_work_guards=canonical.get(
+                "goal_acceptance_work_guards"
+            ),
+        )
         # Canonical observation/successor transactions now support current
         # lease proof. Scheduling exposes due work; mutation admission still
         # validates the caller's proof and never falls back to the old writer.
@@ -143,7 +155,7 @@ def active_state_todo_fields(
             goal=goal,
             state_path=state_path,
             preferred_todo_ids=preferred_todo_ids,
-            rollout_events=rollout_events,
+            rollout_events=events,
         )
         standing_decision_authority = markdown_fields.get("standing_decision_authority")
         if isinstance(standing_decision_authority, dict):
@@ -159,7 +171,7 @@ def active_state_todo_fields(
             goal=goal,
             state_path=state_path,
             preferred_todo_ids=preferred_todo_ids,
-            rollout_events=rollout_events,
+            rollout_events=events,
         )
         monitor_writeback_contract_writer(
             fields,

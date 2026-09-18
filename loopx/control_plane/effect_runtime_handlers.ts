@@ -1,5 +1,7 @@
 import {previewTeamPlan, planTeamTransaction, teamTransactionIdentity} from "./work_items/team_plan.ts";
 import {commitLocalTeamPlan} from "./work_items/team_plan_authority.ts";
+import {inspectLocalGoalAcceptance, commitLocalGoalAcceptance,
+  commitLocalGoalAcceptanceVerification} from "./goals/acceptance_authority.ts";
 import {planHandoffMode} from "./coordination/handoff_mode_policy.ts";
 import {setLocalHandoffMode} from "./coordination/handoff_mode_runtime.ts";
 import {projectOwnershipObservation} from "./coordination/ownership_observation.ts";
@@ -463,6 +465,9 @@ export function createEffectRuntimeHandlers(
     ["goal.shared_goal_alignment.project", projectSharedGoalAlignment],
     ["goal.operator_actions.project", projectGoalOperatorActions],
     ["goal.amendment_proposal.admit", admitGoalAmendmentProposal],
+    ["goal.acceptance.inspect", inspectLocalGoalAcceptance],
+    ["goal.acceptance.configure", commitLocalGoalAcceptance],
+    ["goal.acceptance.verify.commit", commitLocalGoalAcceptanceVerification],
     ["agent.delivery_workspace.evaluate", evaluateDeliveryWorkspace],
     [
       "quota.delivery_workspace_causality.evaluate",

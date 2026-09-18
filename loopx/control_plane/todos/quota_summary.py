@@ -43,6 +43,7 @@ AGENT_LANE_STATUS_TODO_REFERENCE_SCHEMA_VERSION = (
     "agent_lane_status_todo_reference_v0"
 )
 QUOTA_PAYLOAD_ITEM_FIELDS = (
+    "goal_acceptance_guard",
     "schema_version",
     "index",
     "text",
@@ -412,6 +413,8 @@ def summarize_user_todos_for_quota(
         "backlog_items": lanes.display_open_items[:TODO_BACKLOG_ITEM_LIMIT],
         "executable_backlog_items": lanes.executable_items[:TODO_BACKLOG_ITEM_LIMIT],
     }
+    if isinstance(value.get("goal_acceptance_contract"), dict):
+        summary["goal_acceptance_contract"] = value["goal_acceptance_contract"]
     if isinstance(value.get("advancement_frontier_revision_index"), dict):
         summary["advancement_frontier_revision_index"] = value[
             "advancement_frontier_revision_index"

@@ -720,6 +720,75 @@ def test_inventory_report_discloses_budget_slack(monkeypatch):
     assert "slack=conflicting_values=2" in line, line
 
 
+def _retirement_registry(python_surface: int, typescript_surface: int) -> dict:
+    """A one-field ledger shaped like the real one, for the B3 budget checks."""
+    return {"retirement_ledger": {"should_run_legacy_decision_fields": {"fields": {
+        "protocol_action_packet": {
+            "python_module_budget": 5,
+            "typescript_module_budget": 2,
+            "python_migration_surface": python_surface,
+            "typescript_migration_surface": typescript_surface,
+        },
+    }}}}
+
+
+def test_a_new_reader_of_a_legacy_field_exceeds_its_migration_surface() -> None:
+    smoke = runpy.run_path(str(SMOKE))
+    readers = [
+        smoke["SourceFile"](f"loopx/probe_{index}.py", ".py", 'value = payload["protocol_action_packet"]')
+        for index in range(6)
+    ]
+    with pytest.raises(smoke["Drift"], match="modules migrated"):
+        smoke["check_reader_metric"](_retirement_registry(5, 2), readers)
+
+
+def test_migration_surface_budget_cannot_move_without_its_anchor() -> None:
+    smoke = runpy.run_path(str(SMOKE))
+    with pytest.raises(smoke["Drift"], match="MIGRATION_SURFACE_ANCHOR"):
+        smoke["check_reader_metric"](_retirement_registry(6, 2), [])
+
+
+def test_the_reader_metric_reports_all_five_facts_beside_the_role_labels() -> None:
+    smoke = runpy.run_path(str(SMOKE))
+    sources = [smoke["SourceFile"](
+        "loopx/projection.py", ".py",
+        'payload["protocol_action_packet"] = payload.get("protocol_action_packet")',
+    )]
+    _, detail = smoke["check_reader_metric"](_retirement_registry(5, 2), sources)
+    line = next(item for item in detail if item.startswith("protocol_action_packet.py"))
+    assert "reader=1 writer=0" in line, line
+    assert "reads=1 writes=1" in line, (
+        "one module both reads and writes the field; the role label keeps only the first, "
+        f"so the overlapping facts have to be reported beside it: {line}"
+    )
+    for label in ("binds", "unresolved_use", "mention_only"):
+        assert f"{label}=" in line, f"{label} missing from the reported facts: {line}"
+
+
+def test_an_unresolved_name_carrier_is_inside_the_migration_surface() -> None:
+    smoke = runpy.run_path(str(SMOKE))
+    sources = [smoke["SourceFile"](
+        "loopx/carrier.py", ".py",
+        'LEGACY = ["protocol_action_packet"]\nfor name in LEGACY:\n    emit(name)\n',
+    )]
+    _, detail = smoke["check_reader_metric"](_retirement_registry(5, 2), sources)
+    line = next(item for item in detail if item.startswith("protocol_action_packet.py"))
+    assert "surface=1/5" in line and "unresolved=1" in line, (
+        "the field name is in this module as data; that is work to investigate before the "
+        f"field can go, so it belongs to the surface: {line}"
+    )
+
+
+def test_prose_and_same_prefix_identifiers_do_not_consume_the_migration_surface() -> None:
+    smoke = runpy.run_path(str(SMOKE))
+    sources = [
+        smoke["SourceFile"]("loopx/prose.py", ".py", '"""protocol_action_packet is published downstream."""'),
+        smoke["SourceFile"]("loopx/prefix.py", ".py", 'value = payload["protocol_action_packet_v2"]'),
+    ]
+    report, detail = smoke["check_reader_metric"](_retirement_registry(5, 2), sources)
+    assert any("surface=0/5" in line and "mention=1" in line for line in detail), detail
+    assert any("dynamic_mapping_key_sites=0" in line for line in report), report
+
 def _with_unexecuted_projection(registry: dict) -> dict:
     registry = copy.deepcopy(registry)
     registry["projections"]["unexecuted_probe"] = {

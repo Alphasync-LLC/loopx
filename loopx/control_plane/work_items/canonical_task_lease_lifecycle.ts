@@ -17,6 +17,7 @@ export interface LocalLeaseRequest {
   owner: string | null; idempotency_key: string | null;
   expected_version: number | null; ttl_seconds: number | null;
   new_owner: string | null; new_idempotency_key: string | null;
+  transfer_claim?: boolean;
   authority: AuthorityFacts | null;
 }
 
@@ -83,5 +84,6 @@ export async function mutateCanonicalTaskLease(request: LocalLeaseRequest,
       goal_id: request.goal_id, todo_id: request.todo_id, owner: request.owner!, idempotency_key: request.idempotency_key!,
       expected_version: request.expected_version, ttl_seconds: request.ttl_seconds,
       new_owner: request.new_owner, new_idempotency_key: request.new_idempotency_key,
+      ...(request.transfer_claim ? {transfer_claim: true} : {}),
       registered_agents: request.authority?.registered_agents ?? [], now: dependencies.now()}, guards.beforeCommit));
 }

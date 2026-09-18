@@ -114,6 +114,81 @@ for (const source of request.sources) {
     }
     return values(node).values;
   };
+  if (request.mode === 'field_uses') {
+    const fields = new Set(request.fields);
+    const forms = new Map();
+    // A computed member access may name any field, so it is the standing
+    // unknown a name-keyed scan cannot resolve. It is reported apart from the
+    // Python mapping-call count because the two exclusions differ: `rows[i]`
+    // and `payload[key]` are one syntax here, so this is an upper bound.
+    let dynamicSites = 0;
+    // String literals a key position consumed. A field-named literal left over
+    // is the name travelling as data -- the Python scan's `name_constant`.
+    const keyed = new Set();
+    const constants = [];
+    const record = (key, form) => {
+      if (!fields.has(key)) return;
+      if (!forms.has(key)) forms.set(key, new Set());
+      forms.get(key).add(form);
+    };
+    const markKeyed = name => {
+      if (!name) return;
+      keyed.add(name);
+      if (ts.isComputedPropertyName(name)) keyed.add(unwrap(name.expression));
+    };
+    const visit = node => {
+      if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+        const property = ts.isPropertyAccessExpression(node);
+        const key = property ? node.name.text : staticName(node.argumentExpression);
+        if (!property) {
+          const argument = unwrap(node.argumentExpression);
+          if (key === null && argument && !ts.isNumericLiteral(argument)) dynamicSites += 1;
+          else if (key !== null) keyed.add(argument);
+        }
+        let target = node, parent = node.parent;
+        while (parent && unwrap(parent) === target) { target = parent; parent = parent.parent; }
+        const assignment = ts.isBinaryExpression(parent) && parent.left === target &&
+          parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+          parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment;
+        const update = (ts.isPrefixUnaryExpression(parent) || ts.isPostfixUnaryExpression(parent)) &&
+          [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(parent.operator);
+        const deletion = ts.isDeleteExpression(parent);
+        const prefix = property ? 'property' : 'subscript';
+        if (assignment || update || deletion) record(key, `${prefix}_write`);
+        if ((!assignment && !deletion) || update ||
+            (assignment && parent.operatorToken.kind !== ts.SyntaxKind.EqualsToken)) {
+          record(key, `${prefix}_read`);
+        }
+      } else if (ts.isBindingElement(node) && ts.isObjectBindingPattern(node.parent)) {
+        // `const {field} = payload` and `const {field: alias} = payload` read
+        // the field exactly as `payload.field` does, in a declaration or in a
+        // parameter list. `propertyName` is present only when the binding
+        // renames the key; otherwise the bound name is the key.
+        const name = node.propertyName ?? node.name;
+        markKeyed(name);
+        record(named(name), 'destructured_read');
+      } else if (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) {
+        // An object literal key is where TypeScript writes the field. The
+        // Python scan counts the same construct as `dict_literal_key`, so
+        // porting a dict literal to TypeScript must not shrink the surface.
+        markKeyed(node.name);
+        record(named(node.name), 'object_literal_key');
+      } else if (ts.isPropertySignature(node) || ts.isPropertyDeclaration(node)) {
+        // A declared contract surface: the type a retirement has to change.
+        markKeyed(node.name);
+        record(named(node.name), 'property_signature');
+      } else if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+        if (fields.has(node.text)) constants.push(node);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(tree);
+    for (const node of constants) if (!keyed.has(node)) record(node.text, 'name_constant');
+    result.push({path: source.path, dynamic_member_sites: dynamicSites, fields: Object.fromEntries(
+      [...forms].map(([key, observed]) => [key, [...observed].sort()]),
+    )});
+    continue;
+  }
   function walk(node, scope) {
     if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) scope = scope === '<module>' ? named(node.name) : `${scope}.${named(node.name)}`;
     else if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {
