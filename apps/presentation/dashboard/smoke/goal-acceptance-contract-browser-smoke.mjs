@@ -10,7 +10,7 @@ import { acceptance, contract, snapshot, verifiedContract } from "./goal-accepta
 
 const dashboardDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const root = resolve(dashboardDir, "../../..");
-const python = process.env.LOOPX_PYTHON ?? resolve(root, ".venv/bin/python");
+const python = process.env.LOOPX_PYTHON ?? "python3";
 const port = Number(process.env.LOOPX_ACCEPTANCE_CONTRACT_PORT ?? 5297);
 const packaged = process.env.LOOPX_ACCEPTANCE_CONTRACT_PACKAGED === "1";
 const payload = JSON.parse(execFileSync(python, ["-c", `
