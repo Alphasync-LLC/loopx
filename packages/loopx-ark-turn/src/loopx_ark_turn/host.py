@@ -5,6 +5,7 @@ from dataclasses import asdict
 from typing import Any, Mapping
 import asyncio
 import json
+import time
 
 from arkruntime import AsyncArk
 from arkruntime.types.agent import ModelConfig
@@ -105,7 +106,7 @@ async def _observe(client: AsyncArk, receipt: Receipt, tools: Tools) -> str:
     last_text = ""
     seen: dict[str, str] = {}
     cursor = receipt.data["cursor"]
-    input_cursor = cursor
+    input_cursor = receipt.data.get("input_cursor", cursor)
     started = False
     page_token: str | None = None
     visited_pages: set[str] = set()
@@ -152,7 +153,7 @@ async def _observe(client: AsyncArk, receipt: Receipt, tools: Tools) -> str:
                 if reason == "end_turn":
                     if not last_text:
                         raise AdapterError("terminal_without_candidate")
-                    receipt.update(stage=Stage.TERMINAL, cursor=event_id)
+                    receipt.update(stage=Stage.TERMINAL, cursor=event_id, terminal_text=last_text)
                     return last_text
                 if reason != "requires_action":
                     raise AdapterError("unsupported_provider_stop_reason")
@@ -202,14 +203,20 @@ async def _execute(client: AsyncArk, config: Config, request: Mapping[str, Any],
     cursor = sent.data[-1].get("id") if sent.data else None
     if not isinstance(cursor, str) or not cursor:
         raise AdapterError("message_receipt_cursor_missing")
-    receipt.update(stage=Stage.RUNNING, cursor=cursor, root_thread_id=sent.data[-1].get("session_thread_id") or None)
-    text = await _observe(client, receipt, tools)
+    receipt.update(stage=Stage.RUNNING, cursor=cursor, input_cursor=cursor,
+                   root_thread_id=sent.data[-1].get("session_thread_id") or None)
+    return await _finish(client, request, receipt, tools)
+
+
+async def _finish(client: AsyncArk, request: Mapping[str, Any], receipt: Receipt, tools: Tools) -> dict[str, Any]:
+    """Observe the original input, replaying only reads and confirmed tool ACKs."""
+    text = receipt.data.get("terminal_text") or await _observe(client, receipt, tools)
     candidate = parse_model_json(text)
     if candidate is None:
         raise AdapterError("typed_candidate_missing")
     result = build_result(request, candidate, host_name="Ark Managed Agent")
     # Usage is an observation independent of LoopX's accepted-work quota.
-    final = data(await client.sessions.retrieve(session.id, timeout=15))
+    final = data(await client.sessions.retrieve(receipt.data["session_id"], timeout=15))
     receipt.update(candidate=result, provider_usage=final.get("usage"))
     return result
 
@@ -229,7 +236,15 @@ async def run(request: Mapping[str, Any], config: Config, client: AsyncArk) -> d
     with exclusive_file_lock(receipt.path, policy=LockAcquisitionPolicy.SINGLE_FLIGHT):
         receipt.load(binding)
         receipt.update(provider_config_digest=provider_config_digest)
-        if receipt.data["stage"] != Stage.PREPARED:
+        recovering = (receipt.data["stage"] in {Stage.RUNNING, Stage.TERMINAL}
+                      and not receipt.data.get("cleanup") and not receipt.data.get("error")
+                      and bool(receipt.data.get("input_cursor")))
+        if recovering and any(call["stage"] != ToolStage.SENT for call in receipt.data["tools"].values()):
+            # Keep the cloud session and local receipt available for explicit
+            # reconciliation. Neither retry nor cleanup can establish whether
+            # the interrupted external effect happened.
+            raise AdapterError("custom_tool_effect_requires_reconciliation")
+        if receipt.data["stage"] != Stage.PREPARED and not recovering:
             clean = await cleanup(client, receipt)
             if clean and receipt.data.get("candidate"):
                 receipt.update(stage=Stage.FINISHED)
@@ -239,10 +254,17 @@ async def run(request: Mapping[str, Any], config: Config, client: AsyncArk) -> d
         result: dict[str, Any] | None = None
         try:
             async with connect(config, identity) as tools:
-                receipt.update(tool_schema_digest=digest([data(t) for t in tools.declarations]))
+                schema_digest = digest([data(t) for t in tools.declarations])
+                if recovering and receipt.data.get("tool_schema_digest") != schema_digest:
+                    raise AdapterError("recovery_tool_schema_changed")
+                if not recovering:
+                    receipt.update(tool_schema_digest=schema_digest,
+                                   execution_deadline=time.time() + config.timeout_seconds)
                 try:
-                    async with asyncio.timeout(config.timeout_seconds):
-                        result = await _execute(client, config, request, receipt, tools)
+                    remaining = max(0, receipt.data["execution_deadline"] - time.time())
+                    async with asyncio.timeout(remaining):
+                        result = (await _finish(client, request, receipt, tools) if recovering
+                                  else await _execute(client, config, request, receipt, tools))
                 except BaseException as exc:
                     # Close the MCP task group normally before surfacing the
                     # original execution failure; do not lose its typed reason

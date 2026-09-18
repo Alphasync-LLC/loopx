@@ -78,6 +78,42 @@ def inspect_goal_acceptance(
     )
 
 
+def _criterion_effects(criteria: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "kind": "caller_validation",
+            "criterion_id": row["id"],
+            "validation_argv": row["validation_argv"],
+            "validation_label": f"Goal acceptance: {row['id']}",
+            "validation_timeout_seconds": row.get("validation_timeout_seconds", 29),
+            "validation_files": row.get("validation_files", []),
+        }
+        for row in criteria
+    ]
+
+
+def validate_goal_task_acceptance(
+    *, registry_path: Path, runtime_root: str, goal_id: str, agent_id: str, todo_id: str,
+) -> dict[str, Any]:
+    """Read-only Turn validator for a task's current owner-pinned criteria.
+
+    Completion still runs its own fresh validation and atomic TS commit. This
+    entrypoint cannot accept supplied commands, pass flags or saved receipts.
+    """
+    route = {**_routing(registry_path, goal_id, runtime_root, agent_id), "todo_id": todo_id}
+    basis = _result("goal.acceptance.inspect", route).get("completion_requirements")
+    if not isinstance(basis, dict) or not basis.get("criteria"):
+        raise ValueError("delegated task requires enabled owner-bound acceptance")
+    results = run_goal_acceptance_effects(
+        effects=_criterion_effects(basis["criteria"]),
+        registry_path=registry_path, goal_id=goal_id,
+    )
+    current = _result("goal.acceptance.inspect", route).get("completion_requirements")
+    if current != basis:
+        raise ValueError("delegated task acceptance changed during validation")
+    return {"passed": all(row["passed"] for row in results), "results": results}
+
+
 def configure_goal_acceptance(
     *,
     registry_path: Path,
@@ -262,17 +298,7 @@ def verify_goal_acceptance(
         raise ValueError("Goal acceptance authority omitted its criteria")
     if not execute:
         return {**public_goal_acceptance(basis), "status": "planned", "executed": False}
-    effects = [
-        {
-            "kind": "caller_validation",
-            "criterion_id": row["id"],
-            "validation_argv": row["validation_argv"],
-            "validation_label": f"Goal acceptance: {row['id']}",
-            "validation_timeout_seconds": row.get("validation_timeout_seconds", 29),
-            "validation_files": row.get("validation_files", []),
-        }
-        for row in criteria
-    ]
+    effects = _criterion_effects(criteria)
     receipts = run_goal_acceptance_effects(
         effects=effects, registry_path=registry_path, goal_id=goal_id
     )

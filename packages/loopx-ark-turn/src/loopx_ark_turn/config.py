@@ -36,7 +36,8 @@ class Config:
     max_tool_calls: int = 32
 
     def __post_init__(self) -> None:
-        if not self.model or not self.environment_id or not self.workspace.is_dir():
+        if (not isinstance(self.model, str) or not self.model.strip()
+                or not isinstance(self.environment_id, str) or not self.environment_id.strip() or not self.workspace.is_dir()):
             raise AdapterError("model_environment_and_workspace_required")
         if self.state_dir.resolve().is_relative_to(self.workspace.resolve()):
             raise AdapterError("host_receipts_must_be_outside_task_workspace")
@@ -44,9 +45,9 @@ class Config:
         if endpoint.scheme != "https" or not endpoint.hostname or endpoint.username or endpoint.password or endpoint.query or endpoint.fragment:
             raise AdapterError("endpoint_must_be_https_without_embedded_credentials")
         for value in (self.timeout_seconds, self.tool_timeout_seconds, self.poll_interval_seconds):
-            if not math.isfinite(value) or value <= 0:
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
                 raise AdapterError("timeouts_must_be_positive_and_finite")
-        if isinstance(self.max_tool_calls, bool) or not 1 <= self.max_tool_calls <= 256:
+        if isinstance(self.max_tool_calls, bool) or not isinstance(self.max_tool_calls, int) or not 1 <= self.max_tool_calls <= 256:
             raise AdapterError("tool_call_limit_out_of_range")
         if bool(self.mcp_command) != bool(self.tool_names):
             raise AdapterError("mcp_command_requires_explicit_tool_selection")

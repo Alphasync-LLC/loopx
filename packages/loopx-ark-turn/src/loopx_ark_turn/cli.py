@@ -20,10 +20,11 @@ from .receipt import Receipt
 
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--model", required=True)
-    p.add_argument("--environment-id", required=True)
+    p.add_argument("--config", type=Path, help="Operator-owned JSON Config; exclusive with inline configuration.")
+    p.add_argument("--model")
+    p.add_argument("--environment-id")
     p.add_argument("--workspace", type=Path, default=Path.cwd())
-    p.add_argument("--state-dir", type=Path, required=True, help="Private host receipts, outside the task workspace.")
+    p.add_argument("--state-dir", type=Path, help="Private host receipts, outside the task workspace.")
     p.add_argument("--mcp-command-json", help="Operator-selected stdio server argv, never a shell command.")
     p.add_argument("--tool", action="append", default=[], help="Exact MCP tool to expose; repeat up to eight times.")
     p.add_argument("--mcp-env", action="append", default=[], help="Additional environment variable name to forward; never ARK_API_KEY.")
@@ -38,17 +39,41 @@ def parser() -> argparse.ArgumentParser:
 
 
 async def execute(args: argparse.Namespace) -> dict:
-    command = json.loads(args.mcp_command_json) if args.mcp_command_json else []
-    if not isinstance(command, list) or any(not isinstance(x, str) for x in command):
-        raise AdapterError("mcp_command_must_be_string_argv")
-    config = Config(
-        model=args.model, environment_id=args.environment_id,
-        workspace=args.workspace.resolve(), state_dir=args.state_dir.resolve(),
-        base_url=os.environ.get("ARK_BASE_URL") or "https://ark.cn-beijing.volces.com/api/v3",
-        mcp_command=tuple(command), tool_names=tuple(args.tool), mcp_env=tuple(args.mcp_env),
-        timeout_seconds=args.timeout_seconds, tool_timeout_seconds=args.tool_timeout_seconds,
-        max_tool_calls=args.max_tool_calls,
-    )
+    if args.config:
+        if (args.model or args.environment_id or args.state_dir or args.mcp_command_json or args.tool or args.mcp_env
+                or args.workspace != Path.cwd() or args.timeout_seconds != 180
+                or args.tool_timeout_seconds != 60 or args.max_tool_calls != 32):
+            raise AdapterError("config_file_and_inline_options_are_exclusive")
+        if args.config.stat().st_size > 32_000:
+            raise AdapterError("config_file_exceeds_limit")
+        raw = json.loads(args.config.read_text())
+        if not isinstance(raw, dict):
+            raise AdapterError("config_file_must_be_object")
+        for field in ("workspace", "state_dir"):
+            if not isinstance(raw.get(field), str) or not Path(raw[field]).is_absolute():
+                raise AdapterError("config_paths_must_be_absolute")
+            raw[field] = Path(raw[field])
+        for field in ("mcp_command", "tool_names", "mcp_env"):
+            value = raw.get(field, [])
+            if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+                raise AdapterError("config_sequence_fields_require_strings")
+            raw[field] = tuple(value)
+        raw.setdefault("base_url", os.environ.get("ARK_BASE_URL") or "https://ark.cn-beijing.volces.com/api/v3")
+        config = Config(**raw)
+    else:
+        if not args.model or not args.environment_id or not args.state_dir:
+            raise AdapterError("model_environment_and_state_dir_required")
+        command = json.loads(args.mcp_command_json) if args.mcp_command_json else []
+        if not isinstance(command, list) or any(not isinstance(x, str) for x in command):
+            raise AdapterError("mcp_command_must_be_string_argv")
+        config = Config(
+            model=args.model, environment_id=args.environment_id,
+            workspace=args.workspace.resolve(), state_dir=args.state_dir.resolve(),
+            base_url=os.environ.get("ARK_BASE_URL") or "https://ark.cn-beijing.volces.com/api/v3",
+            mcp_command=tuple(command), tool_names=tuple(args.tool), mcp_env=tuple(args.mcp_env),
+            timeout_seconds=args.timeout_seconds, tool_timeout_seconds=args.tool_timeout_seconds,
+            max_tool_calls=args.max_tool_calls,
+        )
     if args.doctor:
         return {"ok": True, "provider": "loopx-ark-turn", "context": "fresh", "model": config.model,
                 "credential_present": bool(os.environ.get("ARK_API_KEY")), "selected_tools": list(config.tool_names),

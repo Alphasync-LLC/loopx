@@ -4,6 +4,7 @@ The configured host owns the registry/runtime/Goal/Agent binding. Model tool
 arguments cannot choose another sender, filesystem root or external audience.
 These tools expose the same inbox operations as the trusted local CLI; they
 never expose a shell, Todo writes, execution grants or a network listener.
+An explicit operator execution configuration adds separately scoped delegation.
 """
 
 from __future__ import annotations
@@ -24,10 +25,20 @@ from .control_plane.collaboration.peers import (
 
 
 def create_server(
-    root: Path, registry: Path, goal_id: str, agent_id: str, workspace: Path
+    root: Path, registry: Path, goal_id: str, agent_id: str, workspace: Path,
+    execution_config: Path | None = None,
 ) -> FastMCP:
-    _goal(registry, goal_id, agent_id)
     server = FastMCP("loopx-collaboration")
+    register_collaboration_tools(server, root, registry, goal_id, agent_id, workspace)
+    if execution_config is not None:
+        from .control_plane.collaboration.delegation import Delegations, register_tools
+        register_tools(server, Delegations(root, registry, goal_id, agent_id, execution_config))
+    return server
+
+
+def register_collaboration_tools(server: FastMCP, root: Path, registry: Path, goal_id: str,
+                                 agent_id: str, workspace: Path) -> None:
+    _goal(registry, goal_id, agent_id)
 
     def check_scope():
         # Revocation is read on every tool call, including a long-lived server.
@@ -95,8 +106,6 @@ def create_server(
         check_scope()
         return consume_return(root, goal_id, agent_id, request_id)
 
-    return server
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -105,13 +114,14 @@ def main():
     parser.add_argument("--goal-id", required=True)
     parser.add_argument("--agent-id", required=True)
     parser.add_argument("--workspace", type=Path, required=True)
+    parser.add_argument("--execution-config", type=Path, help="Explicit operator-owned local execution bindings")
     args = parser.parse_args()
     create_server(
         args.runtime_root.resolve(),
         args.registry.resolve(),
         args.goal_id,
         args.agent_id,
-        args.workspace.resolve(),
+        args.workspace.resolve(), args.execution_config,
     ).run(transport="stdio")
 
 

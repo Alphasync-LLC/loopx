@@ -133,6 +133,11 @@ for (const provider of providers) {
     assert.ok(goal_acceptance);
     const inspection = await inspectGoalAcceptance(store, goal);
     assert.equal(inspection.provider_revision, after.provider_revision);
+    assert.equal(Object.hasOwn(inspection, "completion_requirements"), false, "ordinary inspection stays unchanged");
+    const taskInspection = await inspectGoalAcceptance(store, goal, "todo_first");
+    assert.deepEqual((taskInspection.completion_requirements as JsonObject).criterion_ids, ["prerequisite"]);
+    await assert.rejects(inspectGoalAcceptance(store, goal, "todo_second"), /unbound/);
+    assert.deepEqual(await head(store), after, "task-scoped planning has no provider write");
     assert.equal(((inspection.contract as JsonObject).criteria as JsonObject[])[0].validation_timeout_seconds, 5);
     assert.ok((inspection.tasks as JsonObject[]).every(task => typeof task.todo_semantic_digest === "string"));
     const projection = projectGoalAcceptance(after.head, goal);

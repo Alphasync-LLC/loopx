@@ -48,3 +48,23 @@ def test_receipt_rejects_skipped_transition_and_unknown_persisted_state(tmp_path
     receipt.save()
     with pytest.raises(AdapterError, match="state_invalid"):
         receipt.read()
+
+
+def test_file_profile_preserves_inline_config_and_rejects_ambiguous_overrides(tmp_path, monkeypatch):
+    monkeypatch.delenv("ARK_API_KEY", raising=False)
+    work = tmp_path / "work"
+    work.mkdir()
+    profile = tmp_path / "profile.json"
+    profile.write_text(json.dumps({"model": "public-model", "environment_id": "env-fixture",
+        "workspace": str(work), "state_dir": str(tmp_path / "receipts")}))
+    command = [sys.executable, "-m", "loopx_ark_turn.cli", "--config", str(profile)]
+    monkeypatch.setenv("ARK_BASE_URL", "https://example.invalid/api/v3")
+    file_result = subprocess.run([*command, "--doctor"], capture_output=True, text=True, check=True)
+    inline_result = subprocess.run([*argv(tmp_path), "--doctor"], capture_output=True, text=True, check=True)
+    assert json.loads(file_result.stdout) == json.loads(inline_result.stdout)
+    bad = subprocess.run([*command, "--model", "different", "--doctor"], capture_output=True, text=True)
+    assert bad.returncode == 1 and "exclusive" in bad.stderr
+    profile.write_text(json.dumps({"model": "public-model", "environment_id": "env-fixture",
+        "workspace": str(work), "state_dir": str(tmp_path / "receipts"), "timeout_seconds": True}))
+    bad = subprocess.run([*command, "--doctor"], capture_output=True, text=True)
+    assert bad.returncode == 1 and "timeouts" in bad.stderr

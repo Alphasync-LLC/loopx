@@ -6,6 +6,7 @@ from hashlib import sha256
 import json
 from pathlib import Path
 import sys
+import copy
 
 import httpx
 import pytest
@@ -115,6 +116,55 @@ class Provider:
 async def execute(provider: Provider, cfg: Config, req: dict | None = None) -> dict:
     async with AsyncArk(api_key="public-fixture", max_retries=0, http_client=httpx.AsyncClient(transport=httpx.MockTransport(provider))) as client:
         return await run(req or request(), cfg, client)
+
+
+@pytest.mark.parametrize("checkpoint", ["running", "terminal"])
+def test_original_cloud_checkpoint_resumes_without_new_input_or_tool_effect(tmp_path, monkeypatch, checkpoint):
+    cfg = config(tmp_path)
+    provider = Provider()
+    captured = []
+    save = Receipt.save
+
+    def capture(receipt):
+        save(receipt)
+        if receipt.data["stage"] == checkpoint and receipt.data.get("tools", {}).get("e1", {}).get("stage") == "sent":
+            captured.append(copy.deepcopy(receipt.data))
+
+    monkeypatch.setattr(Receipt, "save", capture)
+    asyncio.run(execute(provider, cfg))
+    assert captured
+    # Restore an actual persisted execution checkpoint. The fixture provider
+    # retains the already accepted effect and original event history.
+    state = next(row for row in captured if not row.get("cleanup") and not row.get("candidate"))
+    path = Receipt(cfg.state_dir, request()["turn_key"]).path
+    path.write_text(json.dumps(state))
+    provider.deleted.clear()
+    count = len(provider.calls)
+    assert asyncio.run(execute(provider, cfg))["result_kind"] == "validated_progress"
+    assert not [row for row in provider.calls[count:] if row[0] == "POST"]
+    assert json.loads((cfg.workspace / "observation.json").read_text())["calls"] == 1
+
+
+def test_uncertain_tool_checkpoint_preserves_resources_for_reconciliation(tmp_path, monkeypatch):
+    cfg = config(tmp_path)
+    provider = Provider()
+    captured = []
+    save = Receipt.save
+
+    def capture(receipt):
+        save(receipt)
+        if receipt.data.get("tools", {}).get("e1", {}).get("stage") == "executing":
+            captured.append(copy.deepcopy(receipt.data))
+
+    monkeypatch.setattr(Receipt, "save", capture)
+    asyncio.run(execute(provider, cfg))
+    Receipt(cfg.state_dir, request()["turn_key"]).path.write_text(json.dumps(captured[0]))
+    provider.deleted.clear()
+    count = len(provider.calls)
+    with pytest.raises(AdapterError, match="requires_reconciliation"):
+        asyncio.run(execute(provider, cfg))
+    assert provider.calls[count:] == []
+    assert json.loads((cfg.workspace / "observation.json").read_text())["calls"] == 1
 
 
 def test_real_stdio_tools_are_bound_and_pending_tool_idle_is_not_completion(tmp_path, monkeypatch):
