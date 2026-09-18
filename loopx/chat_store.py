@@ -285,6 +285,7 @@ class ChatSessionStore:
                     "upstream_mode",
                     "codex_home",
                     "manager_context_version",
+                    "coordination_context_version",
                     "manager_authorization_scope_id",
                     "manager_runtime_profile",
                     "manager_runtime_configuration_revision",
@@ -297,6 +298,10 @@ class ChatSessionStore:
                 unknown = set(changes) - allowed
                 if unknown:
                     raise ValueError(f"unsupported chat session fields: {sorted(unknown)}")
+                if "coordination_context_version" in changes:
+                    version = changes["coordination_context_version"]
+                    if type(version) is not int or version < 1:
+                        raise ValueError("coordination context version must be a positive integer")
                 if "goal_id" in changes:
                     from .chat_manager import MANAGER_AGENT_GOAL_ID
                     if _session_channel(payload) != "manager" or changes["goal_id"] != MANAGER_AGENT_GOAL_ID:

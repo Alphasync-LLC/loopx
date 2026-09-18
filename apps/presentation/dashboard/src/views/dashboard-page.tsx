@@ -1600,15 +1600,15 @@ function PersonalGoalHome({
   ]);
 
   // Worker returns are transcript messages, not new model turns. Keep an open
-  // manager conversation current without replacing in-flight user/agent text.
-  const managerReturnSessionId = selectedGoal ? undefined : runtimeBindings[contextId]?.sessionId;
+  // conversation current without replacing in-flight user/agent text.
+  const conversationReturnSessionId = runtimeBindings[contextId]?.sessionId;
   useEffect(() => {
-    if (readOnly || !managerReturnSessionId) return;
+    if (readOnly || !conversationReturnSessionId) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const receive = async () => {
       try {
-        const snapshot = await fetchChatSession(managerReturnSessionId);
+        const snapshot = await fetchChatSession(conversationReturnSessionId);
         if (cancelled) return;
         const replies = snapshot.messages.filter((row) => row.origin === "manager_followup");
         setMessagesByContext((current) => {
@@ -1636,7 +1636,7 @@ function PersonalGoalHome({
             id: managerMessageId.current++, sourceMessageId: row.message_id,
             role: "assistant" as const,
             agentLabel: answerIdentityLabel(contextId, selectedAgent.label),
-            sourceLabel: "管家交接回执", text: visibleAgentMessage(row.text), lines: [],
+            sourceLabel: "协作回执", text: visibleAgentMessage(row.text), lines: [],
             returnDelivery: row.return_delivery,
           }))] };
         });
@@ -1648,7 +1648,7 @@ function PersonalGoalHome({
     };
     void receive();
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
-  }, [readOnly, managerReturnSessionId, contextId, selectedAgent.label]);
+  }, [readOnly, conversationReturnSessionId, contextId, selectedAgent.label]);
 
   function recordRuntimeBinding(targetContextId: string, binding: PersonalRuntimeBinding | null) {
     setRuntimeBindings((current) => {

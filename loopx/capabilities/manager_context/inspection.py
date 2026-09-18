@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -48,9 +49,17 @@ READ_TOOL = {
     },
 }
 
+# Existing manager threads retain their registered tool name. New project
+# conversations use a neutral name with the same reader, schema and limits.
+CONTEXT_TOOL_NAME = "loopx_context_read"
+CONTEXT_READ_TOOL = {**deepcopy(READ_TOOL), "name": CONTEXT_TOOL_NAME,
+    "description": "Read this conversation's authorized Goal, Todos, deliveries and handoff receipts. "
+    "Paginate with next_offset. No cross-Goal access, shell, writes or execution authority."}
+
 
 def manager_index(context: dict[str, Any]) -> dict[str, Any]:
     """A small directory, never a second mutable progress store."""
+    read_tool = CONTEXT_TOOL_NAME if context.get("scope") == "owner_goal" else TOOL_NAME
     return {
         "schema_version": "manager_evidence_index_v1",
         "snapshot_id": context.get("snapshot_id"),
@@ -68,7 +77,7 @@ def manager_index(context: dict[str, Any]) -> dict[str, Any]:
                 "activation_state": row.get("activation_state", "unknown"),
                 "quality": row.get("quality"),
                 "progress": row.get("progress"),
-                "details": "use_loopx_manager_read",
+                "details": "use_" + read_tool,
             }
             for row in context.get("goals", [])
             if row.get("activation_state") != "stopped"
@@ -76,7 +85,7 @@ def manager_index(context: dict[str, Any]) -> dict[str, Any]:
         "context_delegation": context.get("context_delegation"),
         "evidence_sources": context.get("evidence_sources", [])[:12],
         "evidence_source_count": len(context.get("evidence_sources", [])),
-        "read_tool": TOOL_NAME,
+        "read_tool": read_tool,
     }
 
 
@@ -105,11 +114,13 @@ class ManagerInspection:
         self.ssh_config_path = ssh_config_path
 
     def sources(self):
+        if self.context.get("scope") == "owner_goal":
+            return [{"source_id": "local", "source_host": "local", "status": "available"}]
         from .ssh_evidence import sources
         return sources(self.runtime_root, self.channel_id, self.owner_scope, self.ssh_config_path)
 
     def read(self, tool: str, arguments: Any) -> dict[str, Any]:
-        if tool != TOOL_NAME or not isinstance(arguments, dict):
+        if tool not in {TOOL_NAME, CONTEXT_TOOL_NAME} or not isinstance(arguments, dict):
             return {"ok": False, "error": "unsupported_read_tool"}
         if set(arguments) - {
             "view",
@@ -142,6 +153,8 @@ class ManagerInspection:
         if not self.scope_valid():
             return {"ok": False, "error": "authorization_changed"}
         source_id = arguments.get("source_id", "local")
+        if self.context.get("scope") == "owner_goal" and source_id != "local":
+            return {"ok": False, "error": "source_outside_available_scope"}
         if view == "sources":
             rows = self.sources()
             if not self.scope_valid():

@@ -7,6 +7,16 @@ description: Inspect authorized LoopX Goals, Todos and deliveries to explain pro
 
 # LoopX manager
 
+The steward serves the owner's cross-project priorities, context and attention.
+A project coordinator owns a bounded Goal's investigation, work commitments,
+dependencies and synthesis. It remains a registered peer and can coordinate a
+narrower team through the same collaboration tools. A functional role, Chat
+endpoint or model choice grants no extra execution or work-state authority.
+Let project conversations handle their in-scope exchanges directly; bring a
+cross-project tradeoff or missing owner decision back to the steward. Do useful
+short investigations within the effective runtime grant instead of delegating
+everything; do not absorb every project's continuous execution into this chat.
+
 Choose reads according to the user's question. The initial Goal directory is
 an index, not a completed investigation. In Chat, use `loopx_manager_read`:
 

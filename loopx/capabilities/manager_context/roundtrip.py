@@ -14,6 +14,7 @@ from datetime import datetime, timezone, timedelta
 from . import _root, _read, _write, _hash, authority
 from .tracking import _entry, _now
 from ...file_lock import exclusive_file_lock
+from ...control_plane.collaboration.conversation_scope import conversation_scope
 from ...presentation.public_safety import scan_public_boundary_text
 from ...control_plane.effect_runtime import EffectRuntimeRejected, effect_runtime_result
 
@@ -167,7 +168,8 @@ def report(root, goal_id, agent_id, request_id, phase, text):
     route = _route(root, row)
     if route.get("kind") == "peer" and phase != "conclusion":
         raise ValueError("peer replies require a conclusion; report a concrete result or blocker")
-    if route["channel_id"] not in {"manager", "peer"} and not scan_public_boundary_text(text)["ok"]:
+    if (route["channel_id"] != "peer" and not conversation_scope(route)["private_conversation"]
+            and not scan_public_boundary_text(text)["ok"]):
         raise ValueError("reply contains private boundary material; write an audience-safe conclusion")
     from ...control_plane.collaboration.inbox import record_result
     return {**record_result(root, row, phase, text), "status": "queued_for_requester" if route.get("kind") == "peer" else "queued_for_original_conversation"}
@@ -352,7 +354,7 @@ def drain(root, registry, store, external_sender, *, now=None, cancelled=lambda:
                 if cancelled():
                     return processed
                 transport = {}
-                if route["channel_id"] != "manager":
+                if not conversation_scope(session)["private_conversation"]:
                     if state.get("status") == "verification_required":
                         if state.get("attempt") is None:
                             # A record written before locators were persisted has

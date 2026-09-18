@@ -9,6 +9,7 @@ import shlex
 from ...agent_registry import registered_agent_ids_for_goal
 from ...file_lock import exclusive_file_lock
 from ...history import load_registry
+from ...control_plane.collaboration.conversation_scope import conversation_scope
 
 # Retained imports are the shipped manager-context API; the shared owner is neutral.
 from ...control_plane.collaboration.inbox import (
@@ -80,10 +81,14 @@ def authority(
         if isinstance(g, dict) and g.get("id")
         for a in registered_agent_ids_for_goal(g)
     }
-    if session.get("channel_id") == "manager" and turn.get("origin") == "web":
-        allowed = set(available)
+    scope = conversation_scope(session, origin=turn.get("origin", "unknown"))
+    if scope["private_conversation"] and turn.get("origin") == "web":
+        allowed = {target for target in available
+                   if scope["goal_ids"] is None or target[0] in scope["goal_ids"]}
         source_id = "web:" + _hash([session["session_id"], turn["client_turn_id"]])
     else:
+        if scope["kind"] != "external_audience":
+            return {"mode": "unavailable", "targets": []}
         try:
             ingress = _read(
                 _root(runtime_root)

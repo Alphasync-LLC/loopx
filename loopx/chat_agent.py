@@ -335,10 +335,10 @@ def _turn_prompt(
         + "with an autonomous project task. "
         + planning_limits
         + trusted_manager_limits
-        + "Outside manager intent delegation, when the operator requests a durable Goal, Todo, Agent binding, heartbeat, monitor, gate, or correction change, "
+        + "Outside scoped intent delegation, when the operator requests a durable Goal, Todo, Agent binding, heartbeat, monitor, gate, or correction change, "
         "describe the bounded proposal clearly so LoopX can route it through typed preview and explicit apply. "
         + protected_action_contract
-        + "Exception for the manager's supplied context_delegation catalog: when the current user explicitly asks "
+        + "Exception for the host-supplied context_delegation catalog: when the current user explicitly asks "
         "to delegate ordinary work or forward context for another Agent to assess/replan, emit context_handoff={goal_id,agent_id,brief} using "
         "one exact catalog recipient, proposals=[], and no confirmation gate. Otherwise context_handoff=null. "
         "The host preserves the original user message alongside your brief. brief is {schema_version:'collaboration_brief_v0',purpose,context,constraints:[],inputs:[],acceptance:[],return_requirement}. Preserve relevant earlier corrections and rejected approaches in context, explicit constraints, observable acceptance and the owed result. Never invent missing context. inputs are shared-workspace relative files {ref,description,sha256?}; include a digest only when actually read. This is semantic context, never a priority, task edit or new authority. "
