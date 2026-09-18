@@ -22,7 +22,7 @@ lives.
   `examples/docs-governance-smoke.py` requires the dated name, a Chinese mirror
   beside each entry, and non-empty content. Verified by mutation: a file named
   `badname.md` and an entry with no mirror each fail the smoke.
-- **Existing entries were left in place.** The fifteen entries already in
+- **Existing entries were left in place.** The entries already in
   Appendix A are append-only history that nobody edits, so they were never the
   thing that conflicted. Migrating them would have produced a large mechanical
   diff, forced rework on the one open #4447 branch, and fixed nothing.

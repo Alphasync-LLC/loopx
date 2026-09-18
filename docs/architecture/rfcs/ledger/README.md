@@ -17,11 +17,15 @@ same day touch two different files and merge cleanly with no resolution at all.
 
 ## Convention
 
-- `YYYY-MM-DD-slug.md` — the date the work was measured, not the merge date.
-- Each entry carries a Chinese mirror at `YYYY-MM-DD-slug.zh-CN.md`, the same
-  rule the RFCs themselves follow.
-- The directory listing is the index. Nothing enumerates entries, because an
-  index line is the append cluster this directory exists to remove.
+- `<rfc-slug>/YYYY-MM-DD-slug.md` — one directory per RFC, named exactly like
+  the RFC file it belongs to. Six RFCs carry an execution-ledger appendix, so
+  an entry has to say which one it extends.
+- The name carries the date the work was measured, not the merge date.
+- Each entry carries a Chinese mirror at `<rfc-slug>/YYYY-MM-DD-slug.zh-CN.md`,
+  the same rule the RFCs themselves follow.
+- A directory is the index for its RFC. Nothing enumerates entries across
+  RFCs, because an index line is the append cluster this directory exists to
+  remove.
 - Entries are append-only history. Correct a wrong entry with a later entry that
   says what was wrong; do not rewrite a record someone may have cited.
 

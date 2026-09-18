@@ -217,23 +217,37 @@ def check_rfc_ledger_entries() -> None:
     ledger = DOCS / "architecture" / "rfcs" / "ledger"
     if not ledger.is_dir():
         return
-    for entry in sorted(ledger.glob("*.md")):
-        if entry.name.endswith(".zh-CN.md"):
-            english = entry.with_name(entry.name[: -len(".zh-CN.md")] + ".md")
-            assert english.exists(), (
-                f"ledger entry has a Chinese mirror with no English original: {entry.name}"
-            )
-            continue
-        if entry.name == "README.md":
-            assert (ledger / "README.zh-CN.md").exists(), "ledger README missing its Chinese mirror"
-            continue
-        assert LEDGER_ENTRY_NAME.match(entry.stem), (
-            f"ledger entry must be named YYYY-MM-DD-slug.md, got: {entry.name}"
+    assert (ledger / "README.md").exists(), "ledger README missing"
+    assert (ledger / "README.zh-CN.md").exists(), "ledger README missing its Chinese mirror"
+    # Six RFCs carry an execution-ledger appendix, so entries are shared and
+    # must say which one they belong to. The RFC slug is a directory, and the
+    # directory has to name a real RFC: an entry cannot claim an RFC that does
+    # not exist, and the per-RFC listing stays the index.
+    scopes = sorted(path for path in ledger.iterdir() if path.is_dir())
+    assert scopes, "ledger has no per-RFC directories"
+    for scope in scopes:
+        appendix_a = DOCS / "architecture" / "rfcs" / f"{scope.name}.md"
+        assert appendix_a.is_file(), (
+            f"ledger directory {scope.name}/ does not name an RFC: "
+            f"{appendix_a.relative_to(DOCS.parent)} does not exist"
         )
-        chinese = entry.with_name(f"{entry.stem}.zh-CN.md")
-        assert chinese.exists(), f"ledger entry missing required Chinese mirror: {entry.name}"
-        assert entry.read_text(encoding="utf-8").strip(), f"empty ledger entry: {entry.name}"
-        assert chinese.read_text(encoding="utf-8").strip(), f"empty ledger entry: {chinese.name}"
+        assert "Appendix A: Execution ledger" in appendix_a.read_text(encoding="utf-8"), (
+            f"{scope.name} has a ledger directory but no execution-ledger appendix"
+        )
+        for entry in sorted(scope.glob("*.md")):
+            if entry.name.endswith(".zh-CN.md"):
+                english = entry.with_name(entry.name[: -len(".zh-CN.md")] + ".md")
+                assert english.exists(), (
+                    f"ledger entry has a Chinese mirror with no English original: {entry.name}"
+                )
+                continue
+            assert LEDGER_ENTRY_NAME.match(entry.stem), (
+                f"ledger entry must be named YYYY-MM-DD-slug.md, got: {entry.name}"
+            )
+            chinese = entry.with_name(f"{entry.stem}.zh-CN.md")
+            assert chinese.exists(), f"ledger entry missing required Chinese mirror: {entry.name}"
+            assert entry.read_text(encoding="utf-8").strip(), f"empty ledger entry: {entry.name}"
+            assert chinese.read_text(encoding="utf-8").strip(), f"empty ledger entry: {chinese.name}"
 
 
 def mkdocs_nav_paths(mkdocs_text: str) -> set[str]:
