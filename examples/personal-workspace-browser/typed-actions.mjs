@@ -103,6 +103,19 @@ export const typedActionsScenario = {
     const operationUi = await openWorkspacePage(browser, url, {
       apiOptions: {
         initialActionProposals: [
+          {
+            schema_version: "loopx_chat_action_proposal_v1",
+            proposal_id: "reviewed-edit-recovery", action_kind: "todo.update",
+            summary: "Recover a committed Todo edit", status: "failed",
+            normalized_parameters: {goal_id: "product-release", todo_id: "todo_reviewed", operation: "edit", text: "Reviewed correction"},
+            context: {kind: "goal", goal_id: "product-release"},
+            expected_state_fingerprint: "reviewed-basis", permission_classification: "durable_write",
+            validation_evidence: ["Canonical dry-run validated the edit."], available_transitions: ["apply", "cancel"],
+            canonical_update_basis: {schema_version: "loopx_chat_canonical_update_basis_v0",
+              provider_revision: "reviewed-revision", registry_sha256: "a".repeat(64), source_authority: "sqlite_v0"},
+            failure: {error_code: "canonical_update_projection_pending"}, receipt: null, stale: null,
+            created_at: "2026-09-14T01:00:00Z", updated_at: "2026-09-14T01:00:01Z",
+          },
           operationProposal({
             id: "operation-awaiting-confirmation",
             title: "Simulated order awaiting group confirmation",
@@ -133,6 +146,18 @@ export const typedActionsScenario = {
       const { page } = operationUi;
       await page.locator(".personal-goal-link", { hasText: "Product Release" }).click();
       await page.getByRole("navigation", { name: "Goal 视图" }).getByRole("button", { name: /^(Chat|对话)$/ }).click();
+
+      // A loaded failure must remain discoverable and retry its original id,
+      // rather than being hidden or regenerated into a second business edit.
+      await page.locator(".personal-proposal-row", {hasText: "Recover a committed Todo edit"}).click();
+      const recovery = page.locator('.personal-context-drawer[data-context-kind="proposal"]');
+      await recovery.getByText("编辑已提交，展示尚未同步。重试此操作以恢复当前视图。", {exact: true}).waitFor({state: "visible"});
+      const previewsBeforeRecovery = operationUi.api.actionPreviews.length;
+      await recovery.getByRole("button", {name: "重试原操作", exact: true}).click();
+      await recovery.getByText("已应用，LoopX 状态将刷新。", {exact: true}).waitFor({state: "visible"});
+      if (!operationUi.api.actionApplies.includes("reviewed-edit-recovery")) throw new Error("Recovery lost the original command identity");
+      if (operationUi.api.actionPreviews.length !== previewsBeforeRecovery) throw new Error("Recovery created a replacement proposal");
+      await page.getByRole("button", { name: /关闭详情/ }).click();
 
       const pendingResult = page.locator(".personal-proposal-row", {
         hasText: "Simulation result awaiting card readback",
