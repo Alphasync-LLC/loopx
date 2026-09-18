@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from .control_plane import compact_control_plane_policy
+from .control_plane.effect_runtime import effect_runtime_request_scope
 from .control_plane.status.collection import (
     StatusCollectionContext,
     collect_status as _collect_status_read_model,
@@ -1284,20 +1285,21 @@ def collect_status(
     activation_state_filter: str | None = None,
     agent_lane_id: str | None = None,
 ) -> dict[str, Any]:
-    return _collect_status_read_model(
-        registry_path=registry_path,
-        runtime_root_override=runtime_root_override,
-        scan_roots=scan_roots,
-        limit=limit,
-        include_task_graph=include_task_graph,
-        goal_id=goal_id,
-        available_capabilities=available_capabilities,
-        include_public_boundary_scan=include_public_boundary_scan,
-        recent_run_limit=recent_run_limit,
-        include_goal_subagent_configuration=(
-            include_goal_subagent_configuration
-        ),
-        activation_state_filter=activation_state_filter,
-        agent_lane_id=agent_lane_id,
-        context=build_status_collection_context(),
-    )
+    with effect_runtime_request_scope():
+        return _collect_status_read_model(
+            registry_path=registry_path,
+            runtime_root_override=runtime_root_override,
+            scan_roots=scan_roots,
+            limit=limit,
+            include_task_graph=include_task_graph,
+            goal_id=goal_id,
+            available_capabilities=available_capabilities,
+            include_public_boundary_scan=include_public_boundary_scan,
+            recent_run_limit=recent_run_limit,
+            include_goal_subagent_configuration=(
+                include_goal_subagent_configuration
+            ),
+            activation_state_filter=activation_state_filter,
+            agent_lane_id=agent_lane_id,
+            context=build_status_collection_context(),
+        )

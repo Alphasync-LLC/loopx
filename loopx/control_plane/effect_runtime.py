@@ -11,9 +11,13 @@ import subprocess
 import tempfile
 import time
 import uuid
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from threading import Lock
 from typing import IO, Any
 
 from ..file_lock import process_is_alive
@@ -36,6 +40,46 @@ STARTUP_POLL_SECONDS = 0.025
 _NODE_VERSION_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$")
 _RUNTIME_SOURCE_SUFFIXES = frozenset({".json", ".ts"})
 _RuntimeSourceSnapshot = tuple[tuple[str, int, int, int], ...]
+
+
+@dataclass(frozen=True)
+class _RuntimeRevision:
+    fingerprint: str
+
+
+class _RequestRuntimeRevision:
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self._revision: _RuntimeRevision | None = None
+        self._scope_count = 1
+        self._closed = False
+
+    def try_join(self) -> bool:
+        with self._lock:
+            if self._closed:
+                return False
+            self._scope_count += 1
+            return True
+
+    def resolve(self) -> _RuntimeRevision:
+        with self._lock:
+            if not self._closed:
+                if self._revision is None:
+                    self._revision = _RuntimeRevision(_runtime_fingerprint())
+                return self._revision
+        return _RuntimeRevision(_runtime_fingerprint())
+
+    def leave(self) -> None:
+        with self._lock:
+            self._scope_count -= 1
+            if self._scope_count == 0:
+                self._closed = True
+                self._revision = None
+
+
+_REQUEST_RUNTIME_REVISION: ContextVar[_RequestRuntimeRevision | None] = (
+    ContextVar("loopx_effect_runtime_request_revision", default=None)
+)
 
 
 class EffectRuntimeRemoteError(RuntimeError):
@@ -233,6 +277,33 @@ def _runtime_fingerprint() -> str:
                 "TypeScript Effect runtime source topology did not stabilize",
                 diagnostic_code="packaged_runtime_source_unstable",
             ) from exc
+
+
+@contextmanager
+def effect_runtime_request_scope() -> Iterator[None]:
+    """Pin one managed runtime revision for a logical request."""
+
+    current = _REQUEST_RUNTIME_REVISION.get()
+    if current is not None and current.try_join():
+        try:
+            yield
+        finally:
+            current.leave()
+        return
+    state = _RequestRuntimeRevision()
+    token = _REQUEST_RUNTIME_REVISION.set(state)
+    try:
+        yield
+    finally:
+        state.leave()
+        _REQUEST_RUNTIME_REVISION.reset(token)
+
+
+def _runtime_fingerprint_for_request() -> str:
+    state = _REQUEST_RUNTIME_REVISION.get()
+    if state is None:
+        return _runtime_fingerprint()
+    return state.resolve().fingerprint
 
 
 def _runtime_dir() -> Path:
@@ -697,7 +768,7 @@ def effect_runtime_request(
 ) -> dict[str, Any]:
     """Call the managed TS runtime, retrying only idempotent typed effects."""
 
-    fingerprint = _runtime_fingerprint()
+    fingerprint = _runtime_fingerprint_for_request()
     info_path = _runtime_info_path(fingerprint)
     request_id = str(uuid.uuid4())
     last_error: OSError | RuntimeError | None = None
