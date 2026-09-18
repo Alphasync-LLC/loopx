@@ -96,7 +96,7 @@ CASES = [
         'resolve_runtime_root(registry, runtime_root_arg, registry_path=registry_path)',
         'resolve_runtime_root(registry, runtime_root_arg)')),),
          'tests/control_plane/test_shadow_observable_e2e.py::test_registry_relative_root_does_not_depend_on_callers_cwd[disabled]'),
-    Case('native_note_dropped', ((COORDINATION + 'todo_update.ts', replacement(
+    Case('native_note_dropped', ((COORDINATION + 'todo_update_intent.ts', replacement(
         '  const next: JsonObject = {...todo, ...input.patch};',
         '  const next: JsonObject = {...todo, ...input.patch};\n  if ("note" in input.patch) next.note = todo.note;')),),
          'tests/control_plane/test_shadow_observable_native_e2e.py::test_native_unclaimed_edit_and_explicit_note_clear[disabled]'),
