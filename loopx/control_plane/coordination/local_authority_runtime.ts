@@ -5,6 +5,8 @@ import {executeTodoContinuation} from "./todo_continuation.ts";
 import {withCanonicalWriter} from "./local_authority_write.ts";
 import { ShadowManagementError } from "./shadow_management.ts";
 import { isAbsolute, join } from "node:path";
+import {readFile} from "node:fs/promises";
+import {createHash} from "node:crypto";
 
 import type { JsonObject } from "../effect_program.ts";
 import {acceptanceWorkGuard, projectGoalAcceptance} from "../goals/acceptance_contract.ts";
@@ -62,6 +64,7 @@ import {
 import {
   COORDINATION_TODO_UPDATE_REQUEST_SCHEMA,
   COORDINATION_TODO_PLANNING_UPDATE_REQUEST_SCHEMA,
+  COORDINATION_TODO_REVIEWED_UPDATE_REQUEST_SCHEMA,
   COORDINATION_TODO_UPDATE_RESULT_SCHEMA,
   executeCoordinationTodoUpdate,
 } from "./todo_update.ts";
@@ -813,15 +816,38 @@ export async function updateLocalCoordinationTodo(
   try {
     const input = requireJsonObject(value, "local coordination Todo update request");
     if (input.schema_version !== COORDINATION_TODO_UPDATE_REQUEST_SCHEMA &&
-        input.schema_version !== COORDINATION_TODO_PLANNING_UPDATE_REQUEST_SCHEMA) {
+        input.schema_version !== COORDINATION_TODO_PLANNING_UPDATE_REQUEST_SCHEMA &&
+        input.schema_version !== COORDINATION_TODO_REVIEWED_UPDATE_REQUEST_SCHEMA) {
       throw new TypeError("local coordination Todo update request schema mismatch");
     }
     const planningIntent = input.planning_intent == null ? undefined :
       requireJsonObject(input.planning_intent, "Todo planning intent");
     if (planningIntent && Object.keys(planningIntent).length &&
-        input.schema_version !== COORDINATION_TODO_PLANNING_UPDATE_REQUEST_SCHEMA) {
+        input.schema_version === COORDINATION_TODO_UPDATE_REQUEST_SCHEMA) {
       throw new TypeError("planning_intent requires the v1 Todo update request");
     }
+    const reviewed = input.schema_version === COORDINATION_TODO_REVIEWED_UPDATE_REQUEST_SCHEMA;
+    if (!reviewed && ["lifecycle_grants", "authority_reason", "registry_source",
+      "expected_provider_revision", "expected_registry_sha256"].some(field => Object.hasOwn(input, field))) {
+      throw new TypeError("Todo update admission and revision fields require request v2");
+    }
+    const source = reviewed ? requireJsonObject(input.registry_source, "registry_source") : null;
+    if (source !== null && (typeof source.path !== "string" || !isAbsolute(source.path) ||
+        typeof source.sha256 !== "string" || !/^[a-f0-9]{64}$/u.test(source.sha256))) {
+      throw new TypeError("registry_source requires an absolute path and SHA-256 digest");
+    }
+    const grants = reviewed ? input.lifecycle_grants : [];
+    if (!Array.isArray(grants)) throw new TypeError("lifecycle_grants must be an array");
+    const authoritySourcesCurrent = async () => {
+      if (source === null) return true;
+      if (input.expected_registry_sha256 != null && input.expected_registry_sha256 !== source.sha256) return false;
+      try {
+        return createHash("sha256").update(await readFile(String(source.path))).digest("hex") === source.sha256;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+        throw error;
+      }
+    };
     const root = runtimeRoot(input.runtime_root);
     const goalId = requireAuthorityStoreId(input.goal_id, "goal id");
     return await withCanonicalWriter(root, goalId, input.dry_run === true, async () => {
@@ -840,6 +866,14 @@ export async function updateLocalCoordinationTodo(
         registered_agents: input.registered_agents.map((agent) =>
           claimAgentValue(agent, "registered agent")),
         operation_id: requireAuthorityStoreId(input.operation_id, "operation id"),
+        ...(reviewed ? {
+          lifecycle_grants: grants.map((grant, index) => requireJsonObject(grant, `lifecycle_grants[${index}]`)),
+          authority_reason: optionalProseValue(input.authority_reason, "authority_reason"),
+          ...(input.expected_provider_revision == null ? {} : {
+            expected_provider_revision: requireAuthorityStoreId(input.expected_provider_revision, "expected_provider_revision")}),
+          ...(input.expected_registry_sha256 == null ? {} : {
+            expected_registry_sha256: claimAgentValue(input.expected_registry_sha256, "expected_registry_sha256")}),
+        } : {}),
         lease_idempotency_key: input.lease_idempotency_key == null ? null :
           requireAuthorityStoreId(input.lease_idempotency_key, "lease_idempotency_key"),
         lease_expected_version: optionalNonNegativeSafeInteger(input.lease_expected_version, "lease_expected_version"),
@@ -848,7 +882,7 @@ export async function updateLocalCoordinationTodo(
         clear_fields: input.clear_fields.map((field) => claimAgentValue(field, "clear field")),
         dry_run: input.dry_run as boolean,
         now: claimObservedAt(input.observed_at),
-      }), ...providerEvidence};
+      }, authoritySourcesCurrent), ...providerEvidence};
     });
   } catch (error) {
     return {schema_version: COORDINATION_TODO_UPDATE_RESULT_SCHEMA, status: "failed",

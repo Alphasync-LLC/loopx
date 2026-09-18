@@ -232,11 +232,15 @@ test("completion plans both validators and rejects a combined budget exceeding 2
 test("planning cannot assign stale work during a semantic edit and monitors stay outside acceptance", async t => {
   const {store} = await seeded(t, "file", "bound");
   const before = await loaded(store);
-  const update = await executeCoordinationTodoUpdate(store, {goal_id: "goal-a", todo_id: "todo_work", expected_role: "agent",
-    actor_agent_id: "agent-a", registered_agents: ["agent-a"], operation_id: "claim-and-edit", patch: {text: "Different work"},
-    planning_intent: {claimed_by: "agent-a"}, clear_fields: [], dry_run: false, now});
-  assert.equal(update.reason_code, "goal_acceptance_stale");
-  assert.deepEqual(await loaded(store), before);
+  for (const dry_run of [true, false]) {
+    const update = await executeCoordinationTodoUpdate(store, {goal_id: "goal-a", todo_id: "todo_work", expected_role: "agent",
+      actor_agent_id: "agent-a", registered_agents: ["agent-a"], operation_id: "claim-and-edit", patch: {text: "Different work"},
+      expected_provider_revision: before.provider_revision, authority_reason: "Reviewed correction",
+      planning_intent: {claimed_by: "agent-a"}, clear_fields: [], dry_run, now});
+    assert.equal(update.reason_code, "goal_acceptance_stale");
+    assert.deepEqual(await loaded(store), before);
+    assert.equal((await store.readReceipt("claim-and-edit")).status, "missing");
+  }
   const monitor = await seeded(t, "file", "unbound", {task_class: "continuous_monitor"});
   assert.equal((await executeCoordinationTodoClaim(monitor.store, claim)).status, "applied");
   assert.equal((await executeCoordinationTodoTerminalLifecycle(monitor.store, terminal)).status, "applied");

@@ -2879,8 +2879,16 @@ relax D1–D3; permanent Markdown display and the remaining roadmap stay intact.
 The ownership-edit slice now uses the same typed authoring and lifecycle boundary
 after promotion as the existing update transaction. It preserves claim/exclusion
 fences and rejects leased ownership rewrites; legacy Markdown writing remains a
-compatibility path before promotion. This removes a duplicate decision route but
-does not qualify a provider, change promotion defaults, or relax D1–D3.
+compatibility path before promotion. Reviewed Chat Todo/Monitor nonterminal edits
+now carry validated lifecycle grants/reasons through that owner instead of
+falling into the fenced legacy writer. Preview binds the provider revision and
+registry witness; apply uses CAS or recovers the original immutable operation.
+Current-head display recovery and reloadable Dashboard retry close this L2/L5
+journey. Exclusion/binding and lease restrictions remain independent of a grant.
+This removes a duplicate decision route but does not qualify a provider, change
+promotion defaults, or relax D1–D3. PostgreSQL exercises the same transaction
+through its isolated service/store factory; this is not Python production-route
+qualification or a default-provider switch.
 
 Capability-gap consumers now share the TS requirement/resolution owner across
 legacy and canonical inputs, including quota's Monitor capability partition.

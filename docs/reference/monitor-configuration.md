@@ -50,10 +50,18 @@ Actor, claim, exclusion and lease checks remain mandatory. A leased metadata
 edit requires its current active lease key/version via the existing
 `--task-lease-idempotency-key` and `--task-lease-expected-version` options; it
 neither renews nor releases the lease. Released/expired history grants nothing.
-Owner-confirmed Chat delegation is still outside this native update contract;
-`authority_reason` text cannot substitute for a validated grant. This slice
-therefore completes ordinary CLI/API configuration, not every Chat/Monitor
-lifecycle operation or leased polling.
+Reviewed Chat pause/resume/configuration edits use the same admission and
+transaction, including registry lifecycle grants when applicable. The reason is
+required evidence for grants that demand it, never a grant by itself. Preview
+runs the actual dry-run and binds canonical revision/registration. On response
+loss or pending display, use **Retry original operation** on the retained card;
+reloading the workspace preserves this recovery entry. The cadence is intent;
+TS derives its due date only for a new commit. Retry does not reschedule it.
+Chat supplies no implicit lease proof, so leased edits keep their existing
+rejections. Stop/completion and run-now remain separate lifecycle/runtime paths.
+
+Synthetic recovery-card examples: [desktop](../assets/personal-workspace/reviewed-edit-recovery-desktop.png)
+and [mobile](../assets/personal-workspace/reviewed-edit-recovery-mobile.png).
 
 A committed configuration can report pending Markdown projection delivery.
 Retry its original operation to recover the receipt and deliver the current
@@ -79,6 +87,11 @@ Monitor 配置修改复用 `todo update`。晋升后由 TS 在同一个 canonica
 检查时间和 watch-only 仍要求 task_class=continuous_monitor。
 
 已有 claim／exclusion／lease 检查继续生效，lease proof 不会因配置而续期。Chat
-委托 owner 动作和带 lease 的 polling 尚未闭合，文字理由不能替代可信授权。
+暂停／恢复／配置编辑复用同一准入和事务，按 registry lifecycle grant 校验委托；
+理由只满足 grant 的证据要求，本身不授予权限。预览执行真实 dry-run 并绑定 canonical
+revision/注册事实。丢响应或展示 pending 时，在保留的卡片点击“重试原操作”；页面
+重载后恢复入口仍可见。频率是意图，TS 仅在新提交时派生 due time，重试不会重新调度。
+Chat 不补造 lease proof，带 lease 的编辑保留既有限制；停止／完成及立即运行仍由
+各自 lifecycle/runtime 路径负责。
 提交成功但展示 pending 时，用原操作重试回执／投影；不能改旧 Markdown 当作回滚。
 本切片不改变 provider 默认，不晋升已有 Goal。
