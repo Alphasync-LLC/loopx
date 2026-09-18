@@ -491,7 +491,10 @@ return the TS-owned `recovery_action=reenter_guard_without_selection`: execute
 the single command in `interaction_contract.cli_channel.next_cli_actions`, with
 the same turn id and no Todo/replan argument. That guard either binds the current
 hard lane or returns a refreshed portfolio. No settlement plan is exposed before
-reentry, and a previously bound receipt cannot be retargeted. A single-candidate response
+reentry, and a previously bound receipt cannot be retargeted. `recommended_action`
+retains the human-readable rejection or deferral guidance; the executable recovery
+command lives in `next_cli_actions` and `agent_channel.primary_action`.
+A single-candidate response
 keeps the direct execution path and does not add an extra selection round trip.
 
 When the selected Todo has meaningful strategic context, the same default
