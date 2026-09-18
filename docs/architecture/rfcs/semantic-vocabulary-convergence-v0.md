@@ -1201,7 +1201,20 @@ introduce a competing target state.
   other=1, unstable_local=3`. The back-edge and negative-index rules were added
   after that measurement and left every number in it unchanged, so no site on
   the tree was resolving through the unsound path: the generality had bought
-  nothing that the soundness fix takes away. All eight TypeScript sites are reclassified (five
+  nothing that the soundness fix takes away.
+- **Three non-blocking review findings closed afterwards, none of which moves a
+  number.** `_MODULE_FUNCTIONS` was keyed on `id(tree)`, so its correctness
+  depended on `_TREES` never evicting; give that cache a bound and a reused id
+  would hand back another file's functions, binding a call to the wrong callee
+  with no symptom. It is keyed by path and text hash now, as `_TREES` is.
+  `_is_generator` used `ast.walk`, which descends into nested scopes, so a plain
+  function that merely defined a generator inside itself read as a generator and
+  lost its binding -- safe in direction, but it withheld evidence this slice
+  exists to make actionable. And `blockerFor` labelled an object literal, an
+  array literal and a template expression `dynamic_key`, which the shared
+  vocabulary defines as a computed or non-literal subscript; Python answers
+  `other` for the same shapes, so both runtimes now agree. The residue stays at
+  40 sites with the same split. All eight TypeScript sites are reclassified (five
   `attribute_read`, three `call_result`); none was resolvable, so that part is a
   taxonomy, not a shrink. The one site that closes is
   `driver.py::build_loopx_turn_plan:500`, which needed all three forms and the

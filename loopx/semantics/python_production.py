@@ -231,16 +231,36 @@ def _qualified_bindings(source: SourceFile, tree: ast.Module, owners: Mapping[st
 
 
 def _is_generator(node: ast.FunctionDef) -> bool:
-    return any(isinstance(child, (ast.Yield, ast.YieldFrom)) for child in ast.walk(node))
+    """Whether this ``def`` itself yields, not whether it contains one that does.
+
+    ``ast.walk`` descends into nested functions and lambdas, so a plain function
+    that merely defines a generator inside itself read as a generator and lost
+    its binding. The direction was safe -- the call kept ``call_result`` -- but
+    it withheld evidence this slice exists to make actionable, and it did not
+    match what the docstring says is excluded. A nested scope owns its own
+    yields, so the walk stops at one.
+    """
+    pending: list[ast.AST] = list(node.body)
+    while pending:
+        current = pending.pop()
+        if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            continue
+        if isinstance(current, (ast.Yield, ast.YieldFrom)):
+            return True
+        pending.extend(ast.iter_child_nodes(current))
+    return False
 
 
-# Keyed by tree identity, which is stable because ``_TREES`` retains every tree
-# it parses; the table is derived from the module body alone, so it is the same
-# for every vocabulary scanned over that file.
-_MODULE_FUNCTIONS: dict[int, dict[str, ast.FunctionDef]] = {}
+# Keyed the same way ``_TREES`` is, by path and text hash, because the table is
+# derived from the module body alone and is the same for every vocabulary
+# scanned over that file. Keying it on ``id(tree)`` made its correctness depend
+# on ``_TREES`` never evicting: give that cache a bound and a reused id would
+# hand back another file's functions, binding a call to the wrong callee with
+# no symptom.
+_MODULE_FUNCTIONS: dict[tuple[str, int], dict[str, ast.FunctionDef]] = {}
 
 
-def _module_functions(tree: ast.Module) -> dict[str, ast.FunctionDef]:
+def _module_functions(source: SourceFile, tree: ast.Module) -> dict[str, ast.FunctionDef]:
     """Top-level plain ``def``s a same-module call may be bound to.
 
     A decorator can replace the returned object, ``async def`` hands back a
@@ -249,7 +269,8 @@ def _module_functions(tree: ast.Module) -> dict[str, ast.FunctionDef]:
     binding of the name -- a redefinition, class, import, assignment or
     ``del`` -- leaves the name unproven and the call keeps ``call_result``.
     """
-    known = _MODULE_FUNCTIONS.get(id(tree))
+    key = (source.path, hash(source.text))
+    known = _MODULE_FUNCTIONS.get(key)
     if known is not None:
         return known
     bound: Counter[str] = Counter()
@@ -270,7 +291,7 @@ def _module_functions(tree: ast.Module) -> dict[str, ast.FunctionDef]:
                 bound[child.name] += 1
     functions = {name: node for name, node in defined.items()
                  if bound[name] == 1 and not node.decorator_list and not _is_generator(node)}
-    _MODULE_FUNCTIONS[id(tree)] = functions
+    _MODULE_FUNCTIONS[key] = functions
     return functions
 
 
@@ -345,7 +366,7 @@ def scan_python_production(
     call_arguments = call_arguments or {}
     calls = _qualified_bindings(source, tree, call_arguments, modules)
     return_paths = return_paths or {}
-    module_functions = _module_functions(tree)
+    module_functions = _module_functions(source, tree)
     call_memo: dict[tuple[str, str], tuple[frozenset[str], tuple[str, ...]]] = {}
     environments: dict[tuple[int, str], SimpleNamespace] = {}
     resolving: set[str] = set()

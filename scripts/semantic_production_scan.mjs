@@ -27,8 +27,12 @@ for (const source of request.sources) {
     if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) return 'attribute_read';
     if (ts.isCallExpression(node) || ts.isNewExpression(node) || ts.isAwaitExpression(node)) return 'call_result';
     if (ts.isIdentifier(node)) return 'unstable_local';
+    // `other`, not `dynamic_key`: the shared vocabulary defines `dynamic_key`
+    // as a computed or non-literal subscript, and none of these is one. Python
+    // answers `other` for the same shapes -- a dict literal or an f-string
+    // where a scalar was required -- so the two runtimes agree on the label.
     if (ts.isObjectLiteralExpression(node) || ts.isArrayLiteralExpression(node) ||
-      ts.isTemplateExpression(node)) return 'dynamic_key';
+      ts.isTemplateExpression(node)) return 'other';
     return 'typescript_dynamic';
   };
   const merge = parts => ({

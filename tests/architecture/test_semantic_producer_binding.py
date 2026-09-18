@@ -407,3 +407,48 @@ def test_a_non_negative_index_store_still_carries_its_key():
         '    return {"action": table[0]}\n',
     ) if row.form == 'dict']
     assert known(rows) == {'run', 'wait'} and not any(row.unresolved for row in rows)
+
+
+def test_a_module_scope_back_edge_is_unordered_too():
+    """The carve-out must hold outside a function body.
+
+    The scope table is built per scope, so a module-level loop is a separate
+    path through the same rule and needs its own negative fixture.
+    """
+    rows = [row for row in scan(
+        'chosen = "run"\n'
+        'for row in rows:\n'
+        '    emit({"action": chosen})\n'
+        '    chosen = "leaked"\n',
+    ) if row.form == 'dict']
+    assert rows and all(row.unresolved for row in rows)
+    assert blockers(rows) == {'unstable_local'}
+
+
+def test_a_nested_generator_does_not_make_its_enclosing_function_one():
+    """``ast.walk`` descends into nested defs; a containing function is not a generator.
+
+    The direction was safe -- the call kept ``call_result`` -- but it withheld
+    evidence this slice exists to make actionable.
+    """
+    rows = at(scan(
+        'from loopx.quota.owner import Action\n'
+        'def choose():\n'
+        '    def stream():\n'
+        '        yield 1\n'
+        '    return Action.RUN.value\n'
+        'def emit():\n'
+        '    return {"action": choose()}\n',
+    ), 'emit')
+    assert known(rows) == {'run'} and not any(row.unresolved for row in rows)
+
+
+def test_a_function_that_yields_itself_is_still_not_bound():
+    rows = at(scan(
+        'from loopx.quota.owner import Action\n'
+        'def choose():\n'
+        '    yield Action.RUN.value\n'
+        'def emit():\n'
+        '    return {"action": choose()}\n',
+    ), 'emit')
+    assert blockers(rows) == {'call_result'}
