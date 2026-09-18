@@ -242,8 +242,15 @@ artifact acceptance; the Agent chooses delegation without manual phase input.
 Provider receipts own execution/cleanup only. This enables a reusable bounded
 host, not G1 completion: persistent supervision, full inbox/queue/steer,
 shared authority and packaged frontend/Lark team delivery remain R2/R3/R6 work.
-The existing peer collaboration owner is reused through its MCP surface; this
-slice adds no alternative Inbox, manager factory or default executor selection.
+The demo MCP service composes the existing Todo and Turn owners; durable peer
+request/adoption/return remains an integration step. It adds no alternative
+Inbox, manager factory or default executor selection. Shared acceptance work in
+[#4683](https://github.com/huangruiteng/loopx/pull/4683) supplies an owner-configured
+binding and completion boundary to reuse, not a manager-specific validator
+store. The example documents its File/SQLite composition check and remaining
+work-identity and scoped-derivation requirements. Turn progress, Todo completion
+and Goal acceptance remain distinct; semantic rules stay in the TS Goal/work
+owners while Python executes validators and host/provider IO.
 
 ### R3: Semantic Requests and Automatic Return
 

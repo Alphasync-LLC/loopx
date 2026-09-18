@@ -78,6 +78,41 @@ semantic conclusions. A valid-looking report with a missing/unaccepted worker,
 stale dependency hash, altered input, wrong calculation or unsupported growth
 claim is rejected. Tests mutate these conditions independently of model output.
 
+## Integration with shared Goal acceptance
+
+The owner-configured acceptance work in [PR #4683](https://github.com/huangruiteng/loopx/pull/4683)
+is a complementary control-plane boundary. This launcher does **not** enable
+that contract or complete its Todos: `validated_progress` records Turn progress,
+not Todo closure or whole-Goal acceptance. Its Python oracle checks research
+artifacts; it must not become another authority for work bindings or completion.
+
+A local composition check used the unchanged oracle and copies of the real-run
+synthetic artifacts against #4683's `014459f4726eb185e34e8780f0d70ee6556c9bd5`.
+On real File and SQLite authority, five owner-bound tasks were checked through
+the acceptance runner and canonical Todo completion, followed by CLI readback.
+A child could finish before the aggregate report existed; the lead was rejected
+for a stale dependency hash. A previous passing verification could not bypass a
+fresh completion check after an artifact changed. All five tasks could finish
+while the Goal remained active. This reused outputs; it was not a new cloud run
+or qualification of an integrated autonomous launcher.
+
+The next integration belongs to the existing R2/R3/R4 work:
+
+- Preserve work/input identity per dependency. The current `assign` helper
+  rewrites a worker's open Todo when changing revisions; the same edit correctly
+  made an owner-confirmed acceptance binding stale in the composition check.
+- Bind each child to its own criteria and bind synthesis to aggregate dependency
+  checks. Requiring the final report before every child can finish creates a
+  dependency cycle.
+- Keep revisions, criterion applicability, admission, completion and CAS in the
+  TypeScript Goal/Todo owners. Python executes pinned domain validators and
+  adapts provider SDKs, stdio and local processes. Provider cleanup receipts
+  remain separate from canonical work acceptance.
+- Preconfirmed work can consume existing bindings. Autonomous creation of new
+  bound work needs a scoped, intent-preserving derivation policy in the shared
+  work-graph owner; #4683's owner-only configuration does not supply that policy.
+  A coordinator must not silently configure itself as owner on each delegation.
+
 ## Qualification recorded for this slice
 
 One final local run passed through the real public Ark API (`arkruntime 0.8.0`,
@@ -141,6 +176,14 @@ or recurring automation and modifies no existing Goal.
 新的私有目录运行。`validate-report` 会重新检查计算、期间可比性、来源独立性、
 修订采用和四份依赖的哈希。工具返回、worker 通过验收、总报告通过验收是不同事实。
 所有演示数据都是虚构数据，不涉及真实证券建议、交易或私有研究资料。
+
+与 #4683 的融合已验证到“复用产物和验收入口”：将真实运行的合成产物复制到隔离的
+File / SQLite authority，通过五个预先确认的任务绑定、真实验证器执行、Todo 完成与
+CLI 读回。子任务不必等待总报告；错误依赖、验证后被修改的产物、被改写的工作依据
+都会在相应验收或绑定门禁被拒绝。这不是重新运行云端团队，当前 launcher 也没有
+启用共享验收或完成 Todo。后续由 TS Goal/Todo owner 统一版本、绑定、准入与提交，
+Python 保留领域验证和宿主适配；动态拆分须接有范围的 work-graph 授权，不能让主
+Agent 每次委派都冒充 owner 配置验收。详见上面的接入边界。
 
 这提供了可复用的本地/云端受控工作单元，以及“managed Agent 可以继续委派”的
 实际调用样例。它还不是完整数字团队产品：持久 Inbox/queue/steer、自动扩缩容、

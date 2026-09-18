@@ -236,8 +236,12 @@ R2 的一条依赖必须通过真实 LoopX Agent 间的请求/产物交接完成
 已注册本地 worker，通过独立产物验收，由 Agent 自主选择委派而不人工输入 phase。
 Provider 回执只管理执行与清理。这交付可复用的有界宿主，不代表 G1 完成：持久监督、
 完整 inbox/queue/steer、共享权威及 packaged frontend/Lark 团队交付仍归 R2/R3/R6。
-现有 peer 协作 owner 可通过其 MCP 入口复用；本切片不增加另一份 Inbox、管家工厂或
-默认执行器选择。
+示例 MCP 服务组合已有 Todo 与 Turn owner；持久 peer 请求、采用与返回仍待集成。
+本切片不增加另一份 Inbox、管家工厂或默认执行器选择。
+[#4683](https://github.com/huangruiteng/loopx/pull/4683) 的共享验收工作提供可复用的
+所有者配置、绑定与完成门禁，不应另建管家专属验收库。示例记录了 File/SQLite
+组合验证及尚需补齐的工作身份、有范围派生授权。Turn 进展、Todo 完成与 Goal 验收
+保持区别；语义规则归 TS Goal/work owner，Python 执行验证器与宿主/provider IO。
 
 ### R3：语义请求与自动回报
 
