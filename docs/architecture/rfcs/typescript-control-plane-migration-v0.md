@@ -571,6 +571,12 @@ the shared plan, not another per-agent checklist database.
 
 **T1 — close the public Todo update transaction.**
 
+User completion updates now compose the canonical edit planner and terminal
+transaction, including original/edited authority, source-bound validation,
+lease release and reviewed Chat recovery. The Python transport shares effect
+execution and failure projection. This closes one remaining public caller,
+not all T1 callers or the legacy writer. See [operation and compatibility](../../reference/canonical-todo-completion-update.md).
+
 The current ownership slice closes promoted claim transfer, claim clearing and
 executor-exclusion edits through this typed update planner. Normalization is
 part of request identity, so replay cannot restore a superseded claim. A
@@ -1644,3 +1650,9 @@ Python semantic owner, the handler boundary becomes chatty, two consecutive PRs
 increase bridge/scaffolding without retiring a facade, or a transaction cannot
 meet its invariant/recovery/performance gates without weakening existing
 behavior.
+
+## Appendix A: Execution ledger
+
+Measured delivery records live in the [per-entry ledger](ledger/typescript-control-plane-migration-v0/).
+Each entry names its delivered boundary and remaining acceptance gaps; the T1–T4
+checkpoints above remain the current migration plan.

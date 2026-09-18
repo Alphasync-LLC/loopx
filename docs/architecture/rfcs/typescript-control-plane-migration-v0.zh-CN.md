@@ -451,6 +451,12 @@ commit。#4121（SQLite 候选）和 #4101（投影 receipt 保留）是独立�
 
 **T1 — 闭合公开 Todo update 事务。**
 
+用户 Todo 的 completion update 现组合 canonical 编辑 planner 与 terminal
+事务，覆盖原始／编辑后权限、绑定来源的验证、租约释放及 Chat 审阅后恢复。
+Python 传输层共用效果执行和失败投影；这闭合一个剩余公共 caller，不代表
+所有 T1 caller 或旧 writer 已退出。见[操作与兼容边界](../../reference/canonical-todo-completion-update.md)。
+
+
 当前 ownership slice 已将 promoted 路径的 claim 转交、清除和执行排除编辑接入
 typed update planner。规范化参与请求身份，因此重放不能恢复已被后续操作取代的
 claim。带 lease 的 ownership 变化仍必须走 lifecycle，不是 metadata 授权；未
@@ -1318,3 +1324,8 @@ Rollback 恢复上一版本 artifact 与 fingerprint。在单独通过 state-sch
 变得 chatty、连续两个 PR 增加 bridge/scaffolding 却没有退出 facade，或一笔
 transaction 只能靠削弱既有行为才能通过 invariant/recovery/performance 门禁，
 就停止或 replan。
+
+## 附录 A：执行记录
+
+实测交付记录存于[逐条 ledger](ledger/typescript-control-plane-migration-v0/)。
+每条记录说明已交付边界及剩余验收缺口；上方 T1–T4 检查点仍是当前迁移计划。
