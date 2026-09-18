@@ -174,6 +174,21 @@ export function LhtbBrief() {
               <article key={label}><strong>{value}</strong><span>{label}</span><small>{note}</small></article>
             ))}
           </div>
+          <div className="lhtb-taxonomy" id="categories">
+            <h3>{c.categoriesTitle}</h3>
+            <p>{c.categoriesBody} <a href="https://zli12321.github.io/LHTB/index.html#benchmark" target="_blank" rel="noreferrer">{c.categoriesSource}</a> · <a href="https://github.com/zli12321/LHTB#task-categories-46-tasks" target="_blank" rel="noreferrer">{c.categoriesExamplesSource}</a></p>
+            <div className="bm-table-wrap lhtb-category-table">
+              <table>
+                <caption>{c.categoriesTitle}</caption>
+                <thead><tr>{c.categoryColumns.map(label => <th scope="col" key={label}>{label}</th>)}</tr></thead>
+                <tbody>{c.categories.map(([category, examples]) => (
+                  <tr key={category}><th scope="row">{category}</th><td>{examples}</td></tr>
+                ))}</tbody>
+              </table>
+            </div>
+            <p>{c.taskExample}</p>
+            <p className="bm-runner-note">{c.benchmarkSetupNote}</p>
+          </div>
         </section>
 
         <section className="bm-section bm-shell" id="mechanisms">

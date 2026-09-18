@@ -118,6 +118,7 @@ const siteDir = resolve(outDir, "site");
 assertExists(resolve(siteDir, "index.html"));
 assertExists(resolve(siteDir, "frontstage/index.html"));
 assertExists(resolve(siteDir, "benchmarks/swe-marathon/index.html"));
+assertExists(resolve(siteDir, "benchmarks/lhtb/index.html"));
 assertExists(resolve(siteDir, "benchmarks/deepswe/behavior-discovery/index.html"));
 // Static research articles must remain readable and navigable in the shipped
 // bundle without falling back to the homepage SPA.

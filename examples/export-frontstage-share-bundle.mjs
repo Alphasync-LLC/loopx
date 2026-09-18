@@ -136,7 +136,7 @@ async function copyHomepage(siteDir, base) {
 
 async function copyPublicSiteRoutes(siteDir) {
   const homepage = resolve(siteDir, "index.html");
-  for (const route of ["benchmarks/swe-marathon"]) {
+  for (const route of ["benchmarks/swe-marathon", "benchmarks/lhtb"]) {
     const routeDir = resolve(siteDir, route);
     await mkdir(routeDir, { recursive: true });
     await copyFile(homepage, resolve(routeDir, "index.html"));

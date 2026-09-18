@@ -83,8 +83,27 @@
       </section>
 
       <section id="benchmark">
-        <h2>Benchmarks: three studies, three signals worth investigating</h2>
-        <p>The studies below observe continuation, delivery, and validation behavior under different tasks, model settings, and measurement rules. Each needs to be read on its own terms. The current evidence does not establish a universal LoopX gain.</p>
+        <h2>Benchmarks: start with LHTB, then three supporting signals</h2>
+        <p>Start with recovery and regression across long-horizon domains, then use three software-engineering studies to examine continuation, delivery, and validation. The four studies differ in tasks, model settings, and measurement rules. Each needs to be read on its own terms; the current evidence does not establish a universal LoopX gain.</p>
+
+        <div class="study-signal" id="benchmark-lhtb">
+          <h3>LHTB: recover progress and preserve working results</h3>
+          <p class="study-setting">GPT-5.6 Sol / max · 46 matched tasks, five execution mechanisms · one effective run per task-arm cell</p>
+          <p><strong>What LHTB tests:</strong> Long-Horizon Terminal-Bench places an agent in a stateful container and asks it to sustain work across hundreds of dependent terminal actions. Its official introduction uses nine categories: software and reverse engineering; scientific computing and simulation; earth, climate, and energy; multimodal and imaging analysis; research reproduction and ML; systems, performance, and security; interactive games; APEX professional workflows; and logic and constraint puzzles.</p>
+          <p>Tasks include migrating an old framework, recovering data from scientific figures, reproducing paper experiments, handling investment-banking or legal matters, playing 2048 turn by turn, and searching for puzzle solutions. <a href="../../benchmarks/lhtb/?lang=en#categories">Nine categories and representative tasks →</a></p>
+          <p><strong>How it scores:</strong> hidden verifiers check final artifacts or replayable outcomes and award continuous reward from 0 to 1. This study counts reward ≥ 0.95 as solved, keeping partial progress distinct from full acceptance.</p>
+          <div class="table-scroll"><table class="benchmark-table"><caption>LHTB five-arm results: mean reward and strict solves</caption><thead><tr><th scope="col">Execution mechanism</th><th scope="col">Mean reward</th><th scope="col">Solved / 46</th></tr></thead><tbody>
+            <tr><th scope="row">Plain</th><td>0.4218</td><td>7</td></tr>
+            <tr><th scope="row">Native Goal</th><td>0.4475</td><td>4</td></tr>
+            <tr><th scope="row">LoopX SSH-Goal</th><td>0.4678</td><td>6</td></tr>
+            <tr><th scope="row">Legacy Heartbeat</th><td>0.4794</td><td>7</td></tr>
+            <tr><th scope="row">New Heartbeat</th><td>0.4948</td><td>7</td></tr>
+          </tbody></table></div>
+          <p><strong>Observation:</strong> New Heartbeat has the highest mean reward, 0.0154 above Legacy Heartbeat. Its strict solve count matches Plain and Legacy at 7/46. Higher average progress has not translated into more fully solved tasks.</p>
+          <p><strong>Insight:</strong> each new Heartbeat wake starts a fresh executor, recovering progress from the workspace, registry, and Todos. The brief reports a consulting task resumed at S27 after interruption, alongside a DuckDB regression where later optimization broke correctness. The next questions are whether externalized state reliably enables recovery and whether checkpoints and rollback preserve working results.</p>
+          <p class="signal-boundary"><strong>Boundary:</strong> transport, session lifetime, LoopX version, and replanning change together. Effective runs include replacement trials, some with longer time limits. There are no repeated seeds, and cost telemetry differs, so this does not isolate a mechanism or establish an equal-budget efficiency advantage.</p>
+          <p class="study-link"><a href="../../benchmarks/lhtb/?lang=en">Full study: five mechanisms, gains and losses, and the 46-task matrix →</a></p>
+        </div>
 
         <div class="study-signal" id="benchmark-marathon">
           <h3>SWE-Marathon: continuation must close real gaps</h3>
@@ -113,8 +132,8 @@
           <p class="study-link"><a href="../../benchmarks/deepswe/behavior-discovery/">Full study: requirement coverage, behavior cases, and the long-duration slice →</a></p>
         </div>
 
-        <p class="takeaway">The current signal is that useful continuation, reliable delivery, and counterexample-driven repair deserve further study.</p>
-        <p>The studies offer local positive observations while exposing cost, failure, and attribution problems. Matched budgets and repeated experiments are needed to determine which gains reproduce reliably.</p>
+        <p class="takeaway">Recover progress, preserve working results, and check whether continuation closes acceptance gaps.</p>
+        <p>The four studies offer local positive observations while exposing regressions, cost, and attribution problems. Matched budgets and repeated experiments should examine recovery, rollback, delivery, and counterexample-driven repair separately.</p>
         <p class="small-note">Withdrawn SSH Goal and Codex CLI scores and conclusions from SWE-Marathon and DeepSWE × Sol are not used in these comparisons.</p>
       </section>
 
@@ -182,6 +201,7 @@
         <h2>Public sources and further reading</h2>
         <p class="small-note">The technical content is derived only from public repository material. Source and data links are pinned to the revisions read for this article; historical experiments retain their own versions. This page introduces no new experimental results.</p>
         <ol class="source-list">
+          <li><a href="../../benchmarks/lhtb/?lang=en">LHTB: five long-horizon execution mechanisms</a>; <a href="https://github.com/huangruiteng/loopx/blob/d60813451609ad28b2855fe7acda9a4701740c40/benchmark/LHTB/studies/five-arm-gpt56sol-max/data.json">public aggregates for 46 tasks</a>; <a href="https://github.com/huangruiteng/loopx/blob/d60813451609ad28b2855fe7acda9a4701740c40/benchmark/LHTB/studies/five-arm-gpt56sol-max/README.md">setup and evidence boundary</a>; <a href="https://github.com/huangruiteng/loopx/blob/d60813451609ad28b2855fe7acda9a4701740c40/apps/presentation/site/src/lhtb-copy.json">mechanisms and cases reported in the brief</a>; <a href="https://zli12321.github.io/LHTB/index.html">official benchmark</a>. See the study for contributor attribution.</li>
           <li><a href="../../benchmarks/swe-marathon/">SWE-Marathon: continuous self-verification</a>; <a href="https://github.com/huangruiteng/loopx/blob/56fa3f11b5bbe108e1bf4de254fcbdf74a84a505/benchmark/swe-marathon/README.md">setup, positive and negative cases, and limitations</a>; <a href="https://github.com/huangruiteng/loopx/blob/56fa3f11b5bbe108e1bf4de254fcbdf74a84a505/benchmark/swe-marathon/data.json">public aggregate data</a>. See the study for contributors and case provenance.</li>
           <li><a href="../../benchmarks/deepswe-sol/">DeepSWE × Sol: from continued execution to valid delivery</a> (Chinese). The standalone brief covers historical results over 113 tasks, mechanism diagrams, and pinned primary sources; research archive contribution: <a href="https://github.com/huangruiteng/loopx/pull/4502">@gwh6669999, #4502</a>.</li>
           <li><a href="../../benchmarks/deepswe/behavior-discovery/">DeepSWE × V4 Flash max: from hints to behavior</a>; <a href="https://github.com/huangruiteng/loopx/blob/56fa3f11b5bbe108e1bf4de254fcbdf74a84a505/benchmark/deepswe/behavior-discovery/README.md">disclosure boundary</a>; <a href="https://github.com/huangruiteng/loopx/blob/56fa3f11b5bbe108e1bf4de254fcbdf74a84a505/benchmark/deepswe/behavior-discovery/index.html">charts, cases, and metrics at the pinned revision</a>.</li>
