@@ -395,6 +395,7 @@ def handle_todo_command(
                 },
                 clear_claim=bool(args.clear_claim),
                 update_operation_id=args.update_operation_id,
+                update_expected_provider_revision=args.update_expected_provider_revision,
                 task_lease_idempotency_key=args.task_lease_idempotency_key,
                 task_lease_expected_version=args.task_lease_expected_version,
                 **_todo_path_args(args),

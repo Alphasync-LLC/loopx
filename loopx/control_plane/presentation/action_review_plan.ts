@@ -9,7 +9,8 @@ export type ActionReviewReason =
   | "protected_action" | "unknown_permission" | "unknown_action"
   | "incomplete_proposal" | "authority_gate" | "stale_proposal"
   | "apply_pending" | "readback_verified" | "readback_unverified"
-  | "apply_failed" | "inactive_proposal";
+  | "apply_failed" | "inactive_proposal"
+  | "canonical_update_retry" | "canonical_update_projection_pending";
 
 export type OperationReviewContent = {
   title: string;
@@ -63,6 +64,8 @@ type ActionReviewState =
 export type ActionReviewPlan = ActionReviewIdentity & ActionReviewState & {
   operationFrame?: OperationReviewFrame;
   reviewCardFrame?: ReviewCardFrame;
+  /** Recover this exact canonical command; generating a new preview loses its receipt identity. */
+  retryOriginal?: true;
 };
 
 /**
@@ -321,6 +324,18 @@ export function compileActionReviewPlan(proposalValue: unknown): ActionReviewPla
       ? held("completed", "readback_verified")
       : held("repair", "readback_unverified");
   }
+  const basis = objectValue(proposal.canonical_update_basis);
+  const parameters = objectValue(proposal.normalized_parameters);
+  const isCanonicalEdit = basis?.schema_version === "loopx_chat_canonical_update_basis_v0"
+    && textValue(basis.provider_revision) !== null && textValue(basis.registry_sha256) !== null
+    && ((proposal.action_kind === "todo.update" && parameters?.operation !== "complete")
+      || (proposal.action_kind === "monitor.update" && ["pause", "resume", "edit"].includes(String(parameters?.operation))));
+  if (isCanonicalEdit && (proposal.status === "applying" || proposal.status === "failed")) {
+    const failure = objectValue(proposal.failure);
+    return {...finish({interaction: "review", canApply: true,
+      reason: failure?.error_code === "canonical_update_projection_pending"
+        ? "canonical_update_projection_pending" : "canonical_update_retry"}), retryOriginal: true};
+  }
   if (proposal.status === "applying") return held("pending", "apply_pending");
   if (proposal.status === "failed" || proposal.error != null) return held("repair", "apply_failed");
   if (proposal.status !== "preview_ready" && proposal.status !== "deferred") return held("inactive", "inactive_proposal");
@@ -339,7 +354,6 @@ export function compileActionReviewPlan(proposalValue: unknown): ActionReviewPla
     && Array.isArray(transitions)
     && transitions.includes("apply");
   if (!complete) return held("refresh", "incomplete_proposal");
-  const parameters = objectValue(proposal.normalized_parameters);
   const context = objectValue(proposal.context);
   const operation = parameters?.operation;
   const goalId = textValue(parameters?.goal_id);

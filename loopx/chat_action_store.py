@@ -200,6 +200,7 @@ class ChatActionStore:
         validation_evidence: Sequence[Any],
         available_transitions: Sequence[Any],
         idempotency_key: str,
+        canonical_update_basis: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         selected_kind = str(action_kind or "").strip()
         if selected_kind not in ACTION_KINDS:
@@ -221,6 +222,8 @@ class ChatActionStore:
                 ),
                 "validation_evidence": list(validation_evidence),
                 "available_transitions": list(available_transitions),
+                **({"canonical_update_basis": dict(canonical_update_basis)}
+                   if canonical_update_basis is not None else {}),
             },
             path="preview",
         )
