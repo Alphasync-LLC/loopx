@@ -11,6 +11,7 @@ export interface AcceptanceCriterion extends JsonObject {
   description: string;
   validation_argv: string[];
   validation_timeout_seconds: number;
+  validation_files: {path: string; sha256: string}[];
 }
 export interface AcceptanceDocument extends JsonObject {
   objective: string;
@@ -91,13 +92,31 @@ function unique(values: string[], label: string): string[] {
   return values.sort(authorityUnicodeCompare);
 }
 
+/** Explicit file pins only. The host checks repository containment and bytes
+ * before/after execution; pins do not attest transitive imports or dependencies. */
+function validationFiles(value: unknown): {path: string; sha256: string}[] {
+  const files = list(value, "validation files", 16).map(value => {
+    const file = canonicalAuthorityObject(value, "validation file");
+    acceptanceKeys(file, ["path", "sha256"]);
+    const path = acceptanceText(file.path, "validation file path", 1024);
+    acceptanceRequire(path === file.path && /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/.test(path) &&
+      path.split("/").every(part => part !== "." && part !== ".."),
+      "validation file path must be repository-relative with safe path segments; absolute paths, backslashes and dot segments are forbidden");
+    acceptanceRequire(typeof file.sha256 === "string" && /^[a-fA-F0-9]{64}$/.test(file.sha256),
+      "validation file sha256 must contain exactly 64 hexadecimal characters");
+    return {path, sha256: file.sha256.toLowerCase()};
+  });
+  unique(files.map(file => file.path), "validation file paths");
+  return files.sort((left, right) => authorityUnicodeCompare(left.path, right.path));
+}
+
 export function normalizeGoalAcceptanceDocument(value: unknown): AcceptanceDocument {
   const raw = canonicalAuthorityObject(value, "acceptance document");
   acceptanceKeys(raw, ["objective", "non_goals", "criteria", "bindings"]);
   acceptanceRequire(canonicalAuthorityBytes(raw).length <= 262144, "acceptance document exceeds byte limit");
   const criteria = list(raw.criteria, "acceptance criteria", 64, 1).map(value => {
     const item = canonicalAuthorityObject(value, "acceptance criterion");
-    acceptanceKeys(item, ["id", "description", "validation_argv"], ["validation_timeout_seconds"]);
+    acceptanceKeys(item, ["id", "description", "validation_argv"], ["validation_timeout_seconds", "validation_files"]);
     const argv = list(item.validation_argv, "validation argv", 128, 1).map(arg => {
       acceptanceRequire(typeof arg === "string" && arg.length > 0 && arg.length <= 8192 && !arg.includes("\0"), "validation argv contains an invalid argument");
       return arg;
@@ -106,7 +125,8 @@ export function normalizeGoalAcceptanceDocument(value: unknown): AcceptanceDocum
     const timeout = item.validation_timeout_seconds ?? 5;
     acceptanceRequire(Number.isSafeInteger(timeout) && Number(timeout) >= 1 && Number(timeout) <= 25, "validation timeout must be 1..25 seconds");
     return {id: id(item.id), description: acceptanceText(item.description, "criterion description"),
-      validation_argv: argv, validation_timeout_seconds: Number(timeout)};
+      validation_argv: argv, validation_timeout_seconds: Number(timeout),
+      validation_files: validationFiles(item.validation_files === undefined ? [] : item.validation_files)};
   }).sort((a, b) => authorityUnicodeCompare(a.id, b.id));
   acceptanceRequire(criteria.reduce((total, item) => total + item.validation_timeout_seconds, 0) <= 25,
     "acceptance validation timeouts must total at most 25 seconds (default 5 seconds per criterion); lower the timeouts or run longer evaluations outside the completion wrapper");
@@ -164,8 +184,14 @@ export function readGoalAcceptance(head: JsonObject, goalId: string): Acceptance
   acceptanceKeys(state, ["schema_version", "enabled", "revision", "digest", "document", "bindings", "verification"]);
   acceptanceRequire(state.schema_version === GOAL_ACCEPTANCE_SCHEMA && typeof state.enabled === "boolean" &&
     Number.isSafeInteger(state.revision) && Number(state.revision) > 0, "invalid acceptance state version");
-  const document = normalizeGoalAcceptanceDocument(state.document);
-  acceptanceRequire(state.digest === canonicalAuthoritySha256(document), "acceptance contract digest mismatch");
+  const storedDocument = canonicalAuthorityObject(state.document, "stored acceptance document");
+  const document = normalizeGoalAcceptanceDocument(storedDocument);
+  // Read the pre-pin representation without rewriting its historical digest or
+  // receipts. New configurations always hash the normalized validation_files.
+  const beforeFilePins = (storedDocument.criteria as JsonObject[]).every(item => !Object.hasOwn(item, "validation_files"));
+  acceptanceRequire(state.digest === canonicalAuthoritySha256(document) || (beforeFilePins &&
+    state.digest === canonicalAuthoritySha256({...document,
+      criteria: document.criteria.map(({validation_files, ...criterion}) => criterion)})), "acceptance contract digest mismatch");
   const bindings = list(state.bindings, "canonical bindings", 4096).map(value => {
     const binding = canonicalAuthorityObject(value, "canonical binding");
     acceptanceKeys(binding, ["todo_id", "todo_semantic_digest", "revision", "criterion_ids", "confirmed_by"]);
