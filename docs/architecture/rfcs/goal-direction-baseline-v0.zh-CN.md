@@ -24,6 +24,12 @@
 RFC 成熟度与交付成熟度互相独立。本提案不声称 `goal_direction_baseline_v0`、
 它的声明字段或运行时消费者已经存在于 `main`。
 
+相关实现边界：[所有者授权验收合同 v0](../../reference/goal-acceptance-observations.md#owner-authorized-contract-v0)
+使用既有已提升的 Goal authority 保存显式条件、任务关联和产物检查读回，不实现本 RFC
+的材料声明、当前版本使用回执或语义对齐。#2831 中具名后续仍是**方向材料版本与验收基线关联**，
+并继续下面的同 Agent/当前版本 fixture；受治理的验收修订与 peer 采用归 #3836。
+本次有界 CLI/UI 交付不关闭任一 RFC，也不新增第二个方向 writer。
+
 ---
 
 ## 1. 决策摘要

@@ -1,6 +1,6 @@
 # Goal acceptance observations
 
-Open a Goal, then **Goal settings → Goal details → Acceptance observations**.
+Open a local Goal, then **Overview → Delivery & evidence → Acceptance observations**.
 The read-only card shows each observed acceptance requirement with its Agent and
 observation time, pending gates with their target Agent and decision scope,
 and the next action already projected by status. A missing human decision owner
@@ -8,7 +8,7 @@ is shown as unknown; the blocked Agent is not assumed to be the approver.
 
 The same projection is available as `run_history.goals[].acceptance_observation` in
 `loopx status --format json`; status Markdown includes a compact summary.
-No activation or new permission is required. This changes presentation only;
+The observation card requires no activation or new permission. It changes presentation only;
 Todo, gate, quota, settlement, and Goal completion authority are unchanged.
 
 Acceptance requirements reuse the frontier's existing per-Agent vision rules
@@ -63,15 +63,124 @@ plus `node examples/dashboard-goal-acceptance-browser-smoke.mjs`. The browser
 check consumes real status collection over a disposable synthetic Goal; set
 `LOOPX_GOAL_ACCEPTANCE_PACKAGED=1` after the Dashboard build to check shipped assets.
 
+## Owner-authorized contract (v0)
+
+An owner can opt an existing registered Goal into a versioned acceptance contract.
+The Goal must already use promoted canonical authority. These commands never
+promote a provider or fall back to legacy Markdown when canonical reads fail.
+The owner makes three explicit decisions: the objective and its acceptance
+criteria, which existing advancement tasks serve those criteria, and whether to
+enable this governance. The existing Goal authority owns the contract; the
+Dashboard only reads it. No new capability editor or provider is introduced.
+
+From the Goal's delivery workspace, inspect the current provider revision:
+
+```bash
+loopx --format json goal-acceptance inspect --goal-id example-goal
+loopx --format json todo list --goal-id example-goal
+```
+
+Prepare an owner-reviewed `acceptance.json`, replacing the illustrative file
+check and task ID with the actual artifact checks and existing advancement task:
+
+```json
+{
+  "objective": "Deliver a checked artifact",
+  "non_goals": ["Publish the artifact"],
+  "criteria": [{
+    "id": "artifact-present",
+    "description": "The delivered text artifact exists and is nonempty.",
+    "validation_argv": ["python3", "-c", "from pathlib import Path; assert Path('deliverable.txt').read_text().strip()"],
+    "validation_timeout_seconds": 29
+  }],
+  "bindings": [{"todo_id": "todo_deliver", "criterion_ids": ["artifact-present"]}]
+}
+```
+
+Keep executable declarations in the owner's local file; public readback omits
+command arguments and output. The configured checks run as bounded argv commands
+without a shell, using the existing delivery-workspace validation rules.
+Configure without `--agent-id`: registered Agents can inspect and verify, but
+cannot configure or disable the owner's contract. Substitute the exact
+`provider_revision` from the preceding inspect, not the acceptance revision:
+
+```bash
+loopx goal-acceptance configure --goal-id example-goal --document acceptance.json --expected-provider-revision '<provider_revision>'
+loopx goal-acceptance configure --goal-id example-goal --document acceptance.json --expected-provider-revision '<provider_revision>' --execute
+loopx --format json goal-acceptance inspect --goal-id example-goal
+```
+
+Omitting `--execute` previews configuration. A revision conflict requires a new
+inspect and review of the changed basis before retrying. After enablement, the
+existing task claim and completion paths enforce the contract: applicable work
+with an unbound or stale association is held; the owner must confirm its current
+association by reconfiguring. Completion executes fresh bound artifact checks
+and retains the existing claim, lease/fence, permission and continuation gates.
+A prior verification receipt or a confirmed association cannot complete a task.
+Use `loopx todo claim --help` and `loopx todo complete --help` for the existing
+task arguments; this contract adds no bypass flags.
+
+Run all configured Goal checks and read back their recorded basis:
+
+```bash
+loopx goal-acceptance verify --goal-id example-goal
+loopx goal-acceptance verify --goal-id example-goal --execute
+loopx --format json goal-acceptance inspect --goal-id example-goal
+```
+
+Verification without `--execute` is a preview. In **Overview → Delivery &
+evidence**, refresh the snapshot and expand **Goal acceptance contract** below
+the delivery chain. It shows the Goal ID, contract revision/digest, criteria,
+task associations, and verification results with their own revision/digest.
+The section exists only when the server's
+`acceptance.goal_acceptance_contract.enabled` is `true`. Missing or disabled
+contracts retain the baseline UI and export. The existing snapshot export and
+status Markdown include the enabled readback without command bodies or raw logs.
+
+| Server state | Readback meaning |
+| --- | --- |
+| Task `ready` | Owner confirmed the current task association; artifact checks are separate |
+| Task `unbound` / `stale` | Association is missing / no longer current; `applicable: false` identifies tasks outside the current gate |
+| Contract `unverified` | Artifact checks have not been verified |
+| Contract `failed` / `stale` | Checks failed / their recorded basis is no longer current |
+| Contract `partial` | Task-scoped checks passed; Goal-wide verification remains unknown |
+| Contract `held` | Applicable task associations require confirmation; historical results remain inspectable |
+| Contract `accepted` | All configured artifact checks passed on the current basis; this does not approve or complete the Goal |
+
+Disabling is an explicit owner operation against a freshly inspected provider
+revision. It hides the contextual readback and removes this opt-in gate; existing
+task authority, permissions, and lifecycle rules still apply:
+
+```bash
+loopx --format json goal-acceptance inspect --goal-id example-goal
+loopx goal-acceptance disable --goal-id example-goal --expected-provider-revision '<current_provider_revision>' --execute
+loopx --format json goal-acceptance inspect --goal-id example-goal
+```
+
+Activation grants no publication, external effect, provider-promotion or Goal
+completion authority. Keep objective, criterion descriptions and reasons safe
+for their status audience. Lark rendering, remote contract editing, semantic
+intent-preservation proofs and general shared amendments remain outside this
+local-owner slice. Follow-up belongs to [#3836](../architecture/rfcs/shared-goal-alignment-and-governed-amendment-v0.md)
+and [#2831](../architecture/rfcs/goal-direction-baseline-v0.md); it does not close
+either RFC.
+
+Readback validation: Dashboard `npm run smoke:delivery-review`,
+`node smoke/goal-acceptance-contract-smoke.mjs`,
+`node smoke/goal-acceptance-contract-browser-smoke.mjs`, and
+`uv run --extra test python -m pytest tests/test_goal_acceptance_contract_rendering.py`.
+After the integrated Dashboard build, set
+`LOOPX_ACCEPTANCE_CONTRACT_PACKAGED=1` for the same contract browser check.
+
 ## 中文
 
-打开 Goal，选择 **Goal 设置 → Goal 详情 → 验收观察**。
+打开本机 Goal，选择 **概览 → 交付与依据 → 验收观察**。
 只读卡片展示已有验收要求、对应 Agent、观测时间、待处理门禁的目标 Agent 和决策范围，
 以及 status 已给出的下一步。人类决策责任人未提供时显示未知，不把被阻塞的 Agent
 当作审批人。`loopx status --format json` 中的
 `run_history.goals[].acceptance_observation` 提供相同投影，Markdown 提供简要摘要。
 
-无需启用或增加权限。仅改变展示，不改变 Todo、gate、quota、settlement 或 Goal 完成权威。
+原有观察卡片无需启用或增加权限。仅改变展示，不改变 Todo、gate、quota、settlement 或 Goal 完成权威。
 验收要求复用执行前沿已有的 Agent vision 规则，并消费展示截断前已读取的历史，不额外读取文件。
 不收集完整执行前沿，也不审计所有 Agent 通道。历史是有界输入，因此始终显示部分观测：
 没有缺口不等于通过验收。
@@ -103,3 +212,47 @@ status 同时在独立的 `run_history.goals[].artifact_lifecycle` 和 Markdown 
 `closing` 或缺少 `work_lane_selected` 均不证明所有工作完成，工作通道与完成权威仍保留各自的判断。
 上面的测试命令覆盖合成 Goal 的生产 refresh-state 写入、
 真实 status 收集和浏览器入口；打包验证使用 `LOOPX_GOAL_ACCEPTANCE_PACKAGED=1`。
+
+### 所有者授权的验收合同（v0）
+
+所有者可为已注册且**已提升到 canonical authority** 的 Goal 显式启用版本化验收合同。
+命令不会自动提升 provider，canonical 读取失败也不回退到旧 Markdown。
+三个明确决定是：目标与验收条件、现有推进任务与条件的关联、是否启用这项治理。
+合同归既有 Goal authority 所有，Dashboard 只读，不新增配置编辑器或 provider。
+
+在 Goal 的交付工作区先运行
+`loopx --format json goal-acceptance inspect --goal-id example-goal`，
+并用 `loopx --format json todo list --goal-id example-goal` 查看任务。
+按上方 JSON 示例准备所有者审阅过的 `acceptance.json`，将文件检查与任务 ID 替换为实际产物
+检查和已有推进任务。argv 检查不经过 shell，沿用既有交付工作区验证规则；命令声明保留在本地，
+公开读回不含参数、输出或原始日志。
+
+所有者使用 `goal-acceptance configure --goal-id example-goal --document acceptance.json
+--expected-provider-revision '<provider_revision>'` 预览，再加 `--execute` 启用；
+这里填写最近 inspect 返回的 provider revision，不是合同版本。不要传 `--agent-id`：
+已注册 Agent 可 inspect/verify，但不能配置或停用所有者合同。发生版本冲突时重新 inspect，
+审阅变化后再重试，配置后再次 inspect 确认。
+
+启用后，现有任务 claim/complete 路径执行真实门禁：适用任务缺少关联或关联过期时受阻，
+所有者通过重新配置确认当前关联；完成任务必须执行当前绑定的产物检查，并继续满足原有
+claim、lease/fence、权限和后续工作要求。既有验证回执或已确认的关联不能代替本次任务完成验证。
+任务参数沿用 `loopx todo claim --help`、`loopx todo complete --help`，没有绕过门禁的新参数。
+
+`loopx goal-acceptance verify --goal-id example-goal` 仅预览；加 `--execute` 执行全部配置条件，
+再运行 inspect 读回。进入 **概览 → 交付与依据**，刷新并展开交付链下方的 **Goal 验收合同**。
+区块仅在服务端 `acceptance.goal_acceptance_contract.enabled=true` 时显示，缺失或停用保持原界面与导出。
+区块及导出展示 Goal ID、合同版本/摘要、条件、任务关联，以及带独立版本/摘要的历史验证结果。
+
+任务 `ready` 只表示所有者确认关联；`unbound` / `stale` 表示缺失 / 过期；
+`applicable=false` 表示不属于当前任务门禁范围。合同 `unverified` 表示未验证，
+`failed` / `stale` 表示检查失败 / 检查基线过期，`partial` 表示任务检查通过但 Goal 整体验证未知，
+`held` 表示适用任务关联需要确认。`accepted` 仅表示当前基线上的全部配置产物检查通过，
+不代表自动批准或完成 Goal。
+
+停用前重新 inspect，随后执行
+`loopx goal-acceptance disable --goal-id example-goal --expected-provider-revision '<current_provider_revision>' --execute`，
+并再次 inspect。停用隐藏此区块并移除此项显式启用的门禁，原有任务权威、权限和生命周期规则仍生效。
+启用不会授予发布、外部副作用、provider 提升或 Goal 完成权威；目标、条件描述与原因必须适合其 status 受众。
+Lark 呈现、远端合同编辑、语义意图保持证明与通用共享 amendment 留给 #3836 / #2831 后续切片，
+不宣称任一 RFC 已完成。前端集成打包后，以 `LOOPX_ACCEPTANCE_CONTRACT_PACKAGED=1`
+运行上方合同浏览器检查；Python renderer 测试和 API/export smoke 覆盖缺失、停用、过期、失败及通过的区别。

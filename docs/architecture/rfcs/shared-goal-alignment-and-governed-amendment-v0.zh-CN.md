@@ -96,6 +96,19 @@ admission。它的请求、brief、投递版本不是 Goal-intent revision。
 peer 确认新 Goal。第 9.1 节及该 RFC 的 M2/A16 定义衔接，不新增第二 amendment
 policy。
 
+### 1.2 所有者授权验收检查点
+
+有界的[验收合同 v0](../../reference/goal-acceptance-observations.md#owner-authorized-contract-v0)
+允许本地所有者为已提升的 canonical Goal 显式配置目标/条件、当前任务关联和启用决定。
+既有 Goal authority 拥有版本与门禁，交付复盘工作区和 Markdown 只消费其公开投影。
+任务关联、产物检查与 Goal 完成保持区分；缺失或停用合同保持基线读回，不隐含 provider
+提升或旧来源回退。
+
+这不是 `shared_goal_intent_v0`，也不完成 Stage 3–5。#3836 中具名后续是
+**受治理的验收修订与 peer 采用**：将合同基线接入已授权的 amendment policy、精确基线提交
+和接收方采用/读回，并单独验证 Lark。CLI/UI 切片不证明语义意图保持，也不代 peers
+确认新基线。材料版本使用仍由 #2831 负责，RFC 保持 Draft。
+
 ## 2. 问题与当前边界
 
 LoopX 已经能较好地协调执行：

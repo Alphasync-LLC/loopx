@@ -107,6 +107,23 @@ freedom does not confer shared-amendment authority, and handoff receipt does
 not acknowledge a new Goal on behalf of every peer. Section 9.1 and that RFC's
 M2/A16 define integration; they do not introduce a second amendment policy.
 
+### 1.2 Owner-authorized acceptance checkpoint
+
+The bounded [acceptance contract v0](../../reference/goal-acceptance-observations.md#owner-authorized-contract-v0)
+adds explicit local-owner configuration on an already promoted canonical Goal:
+objective/criteria, current task associations, and opt-in activation. Existing
+Goal authority owns revisions and guards; the delivery-review workspace and
+Markdown consume its public projection. Task association, artifact checks and
+Goal completion remain distinct. Missing/off contracts preserve baseline
+readback; no provider promotion or legacy fallback is implied.
+
+This is not `shared_goal_intent_v0` or Stage 3–5 completion. The named follow-up
+in #3836 is **governed acceptance amendments and peer adoption**: integrate the
+contract basis with approved amendment policy, exact-base commit and receiver
+adoption/readback, with separate Lark qualification. The CLI/UI slice neither
+proves semantic intent preservation nor acknowledges the new basis for peers.
+Material-revision use remains in #2831. The RFC stays Draft.
+
 ## 2. Problem and current boundary
 
 LoopX already coordinates execution usefully:

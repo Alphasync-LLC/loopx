@@ -28,6 +28,15 @@ RFC maturity and delivery maturity are independent. This proposal does not
 claim that `goal_direction_baseline_v0`, its declaration, or a runtime
 consumer exists on `main`.
 
+Related implementation boundary: [owner-authorized acceptance contract v0](../../reference/goal-acceptance-observations.md#owner-authorized-contract-v0)
+uses the existing promoted Goal authority for explicit criteria, task
+associations and artifact-check readback. It does not implement this RFC's
+material declarations, current-revision usage receipts or semantic alignment.
+The named follow-up in #2831 remains **direction-material revision to acceptance
+basis linkage**, alongside the same-Agent/current-revision fixtures below;
+governed acceptance amendments and peer adoption belong to #3836. This bounded
+CLI/UI delivery does not close either RFC or add a second direction writer.
+
 ---
 
 ## 1. Decision summary

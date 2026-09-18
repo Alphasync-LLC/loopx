@@ -175,7 +175,16 @@ Goal 顶部直接提供 **概览、任务、对话、成果**，分别用于判�
 Markdown。搜索筛选不会裁剪导出；不包含原始日志、文件正文或对话正文。
 成果与报告继续由成果页统一展示，不在概览建立第二份成果清单。
 
-**边界：**本功能无需模型调用或新配置。远端只读来源可查看同步的概览和验收观察，
+**显式验收合同：**若本地所有者已为使用 canonical authority 的 Goal 启用合同，
+交付链下方可展开「Goal 验收合同」，查看条件、任务关联与独立的产物检查结果。
+「任务关联已确认」不等于「产物检查通过」，后者也不自动批准或完成 Goal。
+缺失、停用保持原界面；旧检查显示其原版本，刷新失败不会作为最新结果导出。
+配置入口是本地所有者 CLI：先 `loopx goal-acceptance inspect --goal-id example-goal`，
+再按[配置与回滚指南（v0）](../reference/goal-acceptance-observations.md#owner-authorized-contract-v0)
+使用 `configure --document --expected-provider-revision`、`verify` 或 `disable`；
+变更与执行检查需要 `--execute`。不新增网页配置入口，不自动提升 provider。
+
+**边界：**原有交付链观察无需模型调用或新配置。远端只读来源可查看同步的概览和验收观察，
 不回退查询本机同名 Goal 的交付链。所有阅读、筛选与导出均不改变任务、租约、预算或
 审批；来源操作仍使用既有预览和权限检查。本次没有状态迁移，回滚沿用原安装流程。
 
@@ -191,8 +200,19 @@ and Markdown export. Leaving Overview aborts pending reads. Export retains the
 entire validated delivery snapshot regardless of filtering, excluding raw logs
 and conversation/file bodies. Outputs remain in Files. Missing observations
 never certify acceptance. Remote sources show their synchronized observations
-without querying the local delivery API. No model call, new configuration,
-write authority or migration is introduced.
+without querying the local delivery API. The baseline delivery-chain read
+requires no model call or configuration and adds no write authority or migration.
+
+When a local owner explicitly enables an acceptance contract on an already
+canonical Goal, expand **Goal acceptance contract** below the delivery chain.
+It separates confirmed task associations from artifact checks and shows both
+the current contract basis and recorded verification basis. Neither approves
+or completes the Goal. Missing or disabled contracts preserve the baseline view.
+Start with `loopx goal-acceptance inspect --goal-id example-goal`; the
+[owner guide (v0)](../reference/goal-acceptance-observations.md#owner-authorized-contract-v0)
+covers exact configure, verify and disable commands. Authoring stays in the
+explicit local-owner CLI; it does not automatically promote a provider or add a
+web configuration surface. Refresh the snapshot after a CLI operation.
 
 CLI readback uses the same existing owners:
 
