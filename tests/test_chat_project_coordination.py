@@ -1,6 +1,7 @@
 """Project Chat shares collaboration without becoming another Agent authority."""
 
 import json
+import queue
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -8,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from loopx.chat_coordination import PROJECT_CONTEXT_VERSION
+from loopx.chat_agent import CodexChatAgentSession, CodexChatAgentError
 from loopx.chat_manager_context import collect_manager_turn_context
 from loopx.chat_runtime import ChatRuntimeController, CodexAppServerAdapter
 from loopx.chat_store import ChatSessionStore
@@ -167,17 +169,32 @@ def test_external_input_cannot_reuse_the_project_turns_private_read_handler(proj
     root, registry, repo = project
     controller = ChatRuntimeController(store=ChatSessionStore(root), codex_bin="codex", registry_path=registry)
     sent = []
-    upstream = SimpleNamespace(thread_id="fixture-thread", read_tool_handler=None,
-        process=SimpleNamespace(poll=lambda: None), close=lambda: None)
+    upstream = CodexChatAgentSession(thread_id="fixture-thread", messages=queue.Queue(),
+        work_dir=repo, process=SimpleNamespace(poll=lambda: None))
+    monkeypatch.setattr(upstream, "close", lambda: None)
+    writes = []
+    monkeypatch.setattr(upstream, "_write", writes.append)
     def send(message, **_):
         sent.append(message)
-        if len(sent) == 1:
-            assert upstream.read_tool_handler is not None
-            page = upstream.read_tool_handler(CONTEXT_TOOL_NAME, {"view": "todos", "goal_id": "research"})
+        upstream.current_turn_id = f"turn-{len(sent)}"
+        assert upstream._check_server_gate({
+            "id": len(sent), "method": "item/tool/call", "params": {
+                "threadId": upstream.thread_id, "turnId": upstream.current_turn_id,
+                "tool": CONTEXT_TOOL_NAME,
+                "arguments": {"view": "todos", "goal_id": "research"},
+            },
+        })
+        response = writes[-1]["result"]
+        page = json.loads(response["contentItems"][0]["text"])
+        if len(sent) != 2:
+            assert response["success"]
             assert page["ok"] and "Verify corrected source" in json.dumps(page)
         else:
-            assert upstream.read_tool_handler is None
+            assert not response["success"]
+            assert page == {"ok": False, "error": "conversation_scope_unavailable"}
             assert "Fresh Core evidence" not in message
+            with pytest.raises(CodexChatAgentError):
+                upstream._check_server_gate({"id": 100, "method": "item/commandExecution/requestApproval"})
         return {"schema_version": "loopx_chat_agent_response_v0", "message": "Scoped answer", "proposals": [], "gate": None}
     upstream.send = send
     monkeypatch.setattr(controller, "capabilities", lambda: [
@@ -186,11 +203,11 @@ def test_external_input_cannot_reuse_the_project_turns_private_read_handler(proj
     try:
         session, _ = controller.open_session(goal_id="research", agent_id="codex", work_dir=repo,
             objective="Research", mode="new", channel_id="goal.research")
-        for origin in ("web", "lark"):
-            turn, _ = controller.enqueue_turn(session_id=session["session_id"], client_turn_id=origin,
+        for index, origin in enumerate(("web", "lark", "web")):
+            turn, _ = controller.enqueue_turn(session_id=session["session_id"], client_turn_id=f"{index}-{origin}",
                 message="Inspect current work", work_dir=repo, objective="Research", origin=origin)
             result = controller.wait_for_turn(session_id=session["session_id"], turn_id=turn["turn_id"], timeout_sec=20)
             assert result["status"] == "completed", result
-        assert len(sent) == 2
+        assert len(sent) == 3
     finally:
         controller.close()
