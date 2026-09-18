@@ -17,10 +17,10 @@
 | 1 | 看首屏 | Goal 看板四条 lane（需要你/执行中/观察中/已安排），每张 Goal 卡给出 Agent 与下一步那句话 | 已证明 |
 | 2 | 在 Goal 对话里向管家提要求 | 管家的有界快捷提示行（询问下一步 / 向 Agent 获取进度报告 / 配置定时检查 / 看阻塞 / 查证据）点击即发送、不留草稿，这句话成为一个被接受的 Turn，被准入的团队计划卡落在同一个对话里 | 已证明 |
 | 3 | 阅读计划卡 | 每条 lane 的 Agent、第一刀 Todo（含优先级与 action kind）、验收信号，以及一条明确“未配齐”并保留未派工工作的 lane；配额包络与停止条件；以及“确认才会建 lane”的说明 | 已证明 |
-| 4 | 确认 | 恰好一次 apply、一次 durable write；卡片提示 LoopX 状态将刷新 | 已证明，但见缺口 1 |
-| 5 | 检查到底谁能干活 | — | 缺口 2 |
-| 6 | 暂停或撤销某条 lane | — | 缺口 3 |
-| 7 | 等某条 lane 失败，问谁负责修 / 用什么判定完成 | — | 缺口 4、5 |
+| 4 | 确认 | 恰好一次 apply、一次 durable write；结果逐条点名已分配的工作与落在哪条 lane，以及哪些没派出去、原因是什么，并说明这份结果不主张执行进度 | 已证明 |
+| 5 | 检查到底谁能干活 | — | 缺口 1 |
+| 6 | 暂停或撤销某条 lane | — | 缺口 2 |
+| 7 | 等某条 lane 失败，问谁负责修 / 用什么判定完成 | — | 缺口 3、4 |
 
 第 5–7 拍由场景以 typed gap 记录，并带上“探针找过什么”的证据：不是“这里先不做”的一句话，而是列出了查找的选择器和文本、以及实际找到什么。
 
@@ -52,11 +52,15 @@ LOOPX_PERSONAL_WORKSPACE_SCENARIO=steward-journey \
 
 | # | 缺口 | 场景记录的证据 | 归属面 |
 | --- | --- | --- | --- |
-| 1 | 确认后不区分 committed / partial / all-gap / stale / rejected | 探针：只有一条通用的“已应用”提示 | 管家计划落地（roadmap R1 剩余项） |
-| 2 | 没有 per-lane readiness 阶梯（registered → bound → launchable → executing） | 探针：无 lane-readiness 元素或文本 | 管家 readiness（roadmap R2 / 审计 F6） |
-| 3 | 没有 lane 级纠偏（暂停或撤销已确认承诺） | 探针：无 lane-correction 元素；只有运行中 Turn 的纠偏 | shared alignment（roadmap R4） |
-| 4 | lane 失败后不说明阻塞归属与下一步 | 探针：无 lane-blocker 元素或文本 | 恢复与继续（roadmap R3） |
-| 5 | 不用 lane 的回传结果判定完成 | 探针：无 lane-return 元素或文本 | 交付回收（roadmap R3） |
+| 1 | 没有 per-lane readiness 阶梯（registered → bound → launchable → executing） | 探针：无 lane-readiness 元素或文本 | 管家 readiness（roadmap R2 / 审计 F6） |
+| 2 | 没有 lane 级纠偏（暂停或撤销已确认承诺） | 探针：无 lane-correction 元素；只有运行中 Turn 的纠偏 | shared alignment（roadmap R4） |
+| 3 | lane 失败后不说明阻塞归属与下一步 | 探针：无 lane-blocker 元素或文本 | 恢复与继续（roadmap R3） |
+| 4 | 不用 lane 的回传结果判定完成 | 探针：无 lane-return 元素或文本 | 交付回收（roadmap R3） |
+
+确认结果原为缺口 1，当时的证据是“只有一条通用的『已应用』提示”。现在确认后的结果会
+说明它分配了哪些工作、分给谁、哪些没有派出去以及原因，因此场景改为对它做断言而不是记为
+缺口：结果必须点名每一条已分配的 lane 与每一项未派工的工作及其原因。它仍然不主张执行——
+界面说的是“分配已记录，执行进度请查看目标”，所以第 5 拍仍是缺口 1，而不是已证明。
 
 管家快捷提示行原为缺口 1。现在场景对它做断言而不是探针：提示行必须出现五个已发布标签，
 点击“看阻塞”必须把消息作为一次被接受的 Turn 发出，输入区必须保持为空。回归时失败信息
