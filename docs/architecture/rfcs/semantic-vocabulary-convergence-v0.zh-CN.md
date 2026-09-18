@@ -666,6 +666,7 @@ owner 符号集合的组：`EffectiveAction` 与 `EFFECTIVE_ACTIONS` 是同一�
 | 度量覆盖两种载体形状并过滤局部命名 | `uv run --extra test python -m pytest tests/architecture/test_semantic_inventory.py` | 通过，含冲突与模块局部约定两组夹具 | 规则来自本 RFC 而非扫描输出 |
 | 两处 owner 修正不改变行为 | `uv run --extra test python -m pytest tests/test_loopx_turn_transaction.py tests/test_loop_turn_loop_controller.py tests/test_turn_loop_disposition.py tests/test_loopx_turn_managed_step.py tests/control_plane -k authority` 与 `uv run --extra test loopx canary premerge --from-git-diff` | 通过 | 在干净树上可复现的 `main` 既有环境失败除外 |
 | 文档治理接受这对 RFC | `python3 examples/docs-governance-smoke.py` | 通过 | 检查镜像、链接、索引 |
+| 对声明了槽位的词表按位点报告消费者角色，并写明未知量（B5，可选项） | `uv run python scripts/generate_semantic_inventory.py --report --consumer-evidence` 与 `uv run --extra test python -m pytest tests/architecture/test_semantic_consumer_report.py` | 报告先写明自己的覆盖面以及它拒绝分析的词表，再打印 read/interpret/pass-through/unknown 计数、两个未知占比，以及每种未知原因及其位点数；测试通过 | 仅为参考，且在 #4447 中属可选项：在两个根目录的扫描范围内度量语法使用，既不是数据流，也永远不是闸门。覆盖面是 26 个已注册词表中声明了 `literal_scan.field` 的那 1 个；其余 25 个作为 `missing_slot_identity` 上报，不做分析 |
 | 退休预算按子串而非标识符计数 | 分别以 `in file.text` 与 `\bgoal_boundary\b` 统计 `goal_boundary` | 基线上 35 对 30 个 Python 模块 | 已知边界；M3 的零读者门需要标识符计数，见第 12 节 |
 | 模块局部约定过滤器是一次代码修改 | 扩宽 `inventory.py` 的 `MODULE_LOCAL_CONVENTION` 并重新生成 | `*_semantic` 预算下降而别处无代码改动 | 已知边界；正则在代码里，扩宽是可评审的 diff，未过滤总数仍在预算内 |
 | 无人生产的注册值失败（M0.5） | 在基线上运行生产形式扫描 | 失败并点名 `effective_action` 与 `skip`；删除 `skip` 或列入 `compatibility_only` 后通过 | 第一个预期的 I12 失败；只被比较的值不算已携带 |
@@ -905,6 +906,62 @@ PR review 保留这些层级。普通改动记录检查范围和理由，无共�
    仍然是证据缺口。Owner：内核维护者。
 
 ## 附录 A：执行账本（非规范）
+
+### 2026-09-17 — B5：对声明了槽位的词表报告消费者角色
+
+非规范性；仅为参考证据，且 B5 是 #4447 的可选项。当前源码树上没有任何检查的
+通过/失败结果改变，本次新增的内容也不闸住任何合并。
+
+- `consumer_ranking` 统计的是**提及**某符号的模块数。第 5 节早已写明这个数字
+  “既不分类角色，也不证明数据流”，因此 B5 新增
+  `loopx/semantics/consumer_report.py`：一次有界的 AST 扫描，把每个消费位点分类为
+  `read`、`interpret`、`pass_through` 或 `unknown`，并逐行携带位置
+  （`module::symbol` 与行号）、扫描所依据的源码 SHA、涉及的值域，以及适用于该行的
+  边界说明。
+- **覆盖面由注册表声明决定，不靠猜测，而它是 26 中的 1。** B5 以具体的槽位身份为
+  前置条件，而只有 `effective_action` 声明了 `literal_scan.field`——与 drift smoke
+  已经上报的 `literal_scan_fields:1/1` 是同一个事实。初版实现在没有声明字段时回退到
+  词表 id，于是把 25 个词表按一个谁也没声明过存在的字段名去分析，下游每一行都继承了
+  这个猜测。该回退已删除：没有声明槽位的词表按名字列在 `missing_slot_identity` 下、
+  计入表头，并且完全不做分析——不做部分分析，也不单靠 owner 类分析。
+- 锚点全部来自注册表已有的身份，这正是以 B2 为前置条件的原因：已声明的槽位名，以及
+  它注册的 owner 类——后者沿用 producer 扫描器同一套“一跳、未改名”的导入绑定纪律，
+  且只在没有更近的绑定接管该名字时成立。扫描范围与 `PRODUCER_ROOTS` 一样由代码所有，
+  注册表数据无法扒宽它。
+- **角色只从能确立它的语法中得出。** 调用、f-string 与再一层属性访问都会终止向上
+  攀爬，记为 `unknown` 并写明是哪种构造。`Kind(value)` 与 `sink(value)` 是同一种语法，
+  因此都不能当作“值原样出来了”的证据；先前的实现把两者都报成 `pass_through`，还把
+  `.value` 当成保义的枚举拆包——而它并未确立那个对象是枚举成员。现在
+  `pass_through` 的含义是 AST 显示该值本身被搬运：被返回、被存入、被放进结构，且
+  路上没有施加任何函数。已观察到的分支仍然压过未解析的同级用法，因为解释是等级的
+  顶端，不可能有更强的东西被藏住。
+- 在 `d8e7af141` 上、跨 `loopx/control_plane` 与 `loopx/cli_commands`、
+  1213 个已跟踪源文件中的 485 个上实测：**713 行——`read` 0 行、`interpret` 61 行、
+  `pass_through` 9 行、`unknown` 643 行，未知占比 90.2%。** 若只看归属
+  `effective_action` 的 111 行，未知占比为 36.9%。相对带猜测的实现，这是 921 行降到
+  713 行、未知占比从 78.9% 升到 90.2%：报告变小了、也变得更不自信，而这正是证据
+  支持的方向。
+- 未知量是这次度量的主体，不是待清扫的残渣。602 个位点以计算出的键读取映射，
+  因而对被覆盖的词表未解析；18 个模块写出了槽位名却没有可识别的锚点；13 个位点把值
+  交给了本扫描不跟进的被调方；9 个携带槽位名的已跟踪 TypeScript 源文件未被遍历，
+  因为这条路径上没有 TypeScript 解析器；1 个是不稳定局部变量。每一条都是带位置与
+  记录原因的行，沿用 B2 为未解析 producer 位点确立的做法，且两类行都不再被过滤出打印
+  清单：有归属的行与无归属的行各自成块、共用同一个 `--top` 配额。只展示语法解析得出
+  的那些行，读起来就像是该槽位读者的一份完整普查；而把两类行合成一份按位置排序的清单，
+  又会让那 602 行把有归属的行压下去——那是同一种遮蔽的另一种写法。
+- 该报告确立的是**语法使用，而非数据流**。它不证明该值来自已注册的 producer，
+  不证明该分支可达，也不证明没有行的词表就没有读者——计算键那一群位点，恰恰就是按
+  名字归组的扫描无法作出最后这个论断的原因。
+- 通过既有报告表面暴露为
+  `scripts/generate_semantic_inventory.py --report --consumer-evidence`，缺少
+  `--report` 时它会拒绝运行，因为它是参考证据而不是检查。全树上按位点扫描三次运行
+  耗时 4.1–4.4 秒，而 `--report` 本已打印的排名约需 217 秒。drift smoke 不会调用它。
+- **这让 B5 还剩多少价值。** 一个词表、111 行有归属的行、其中 41 行未知，并且在某次
+  M1/M3 迁移为另一个词表声明槽位之前，覆盖面无法增加。诚实的读法是：这套机制跑在了
+  它所读的注册表前面；价值要等第一次迁移需要它时才出现，而不是现在。
+- 本次未处理：扫描范围是两个根目录而非整棵树；TypeScript 只计数、不解析；
+  跟随局部变量只走一跳，因此经过两次别名传递的值是未知而非被追踪。扒宽这三者中的
+  任何一个，都是自带风险的另一个变更。
 
 ### 2026-09-17 — `cross_runtime` 层的逐值含义
 
@@ -1154,6 +1211,7 @@ PR review 保留这些层级。普通改动记录检查范围和理由，无共�
 | 2026-09-16 | Q9：全树按需计算；移除已提交结构清单 | 根据[维护者反馈](https://github.com/huangruiteng/loopx/pull/4360#issuecomment-5692062394)实现，PR 评审待完成 | 取代合并后补再生成；拒绝只扫描 diff | 1、I6、3、5、9、10、12 |
 | 2026-09-16 | B2：Python producer 扫描器绑定一跳未改名再导出 | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B2；PR 评审待完成 | 要求每个消费者都从 owner 模块导入（脆弱；M2 中已静默失效）；拒绝无界多跳解析 | 5、附录 A |
 | 2026-09-16 | B1 改名不变性：新增按名字归组的分歧报告；写明它未闭合的边界 | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B1；PR 评审待完成 | 把预算改按值集归组（否决：`CONFIDENCE_LEVELS` 与 `EDGE_CASE_COMPLEXITIES` 共享 `high/low/medium` 而含义不同）；提交名字账本（M0 否决：Q9 已退役提交式清单）。该报告列出仍然存在的分叉；初稿称它能抓住单侧改名，实测证否，故两份镜像按真实行为写明边界 | 9 |
+| 2026-09-17 | B5（可选项）：只对声明了 `literal_scan.field` 的词表按位点报告消费者角色，并写明未知占比，而不是把一切都分类 | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B5；PR 评审待完成 | 没有声明槽位时回退到词表 id（评审中否决：这把 26 个词表中的 25 个按一个谁也没声明过的字段名去分析，下游每一行都继承了该猜测；它们现在列在 `missing_slot_identity` 下，不做分析）；在注册表中登记消费者（否决：跟踪 issue 明令禁止全量消费者登记，且一份声明清单是主张而非证据）；把该报告做成合并闸门（否决：F3 属于参考层级，90.2% 的未知占比也不足以闸住任何东西）；只报告语法能解析的位点（否决：这会让表格读起来像是完整的，因此未识别的提及与计算键读取都作为带原因的行打印出来） | 9、附录 A、附录 B、附录 C |
 | 2026-09-17 | B0：为 I2/I11-I14 与各强制层级分别陈述 schema 校验、实施阶段、证据状态与阻断行为；要求每个形式不变量 ID 恰好出现一次 | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) B0；PR 评审待完成 | 把 `blocking_next` 层级改名以匹配其行为（否决：层级名字表示拥有该检查的里程碑，改名会丢掉这层含义，并从另一个方向把两种读法重新合并）；在 `formal_model` 中加一个 `blocks_today` 布尔字段（否决：那只会多出一个可被读者误当作度量的声明字段，而该事实是 smoke `main()` 的性质，任何注册表修改都改不了它）；保留原注解、只在账本里记一笔缺口（否决：评审者引用的正是那句注解） | 2、5、11、附录 A、附录 B |
 | 2026-09-17 | 将 F1/F2 限定在 kernel 层与扫描范围，把 F4 重述为作用域枚举完备性，并给每条义务加上可推导的 `domain` | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447)；**需要内核维护者批准，尚未获得** | 保留无条件表述、只在正文记一笔缺口（否决：该表述比 `validate_production` 自己的 docstring 还强）；把 F4 重述为各上下文值集互斥（否决：会被仓库自身数据推翻，`scope_declarations` 恰恰就是为了允许合理的同名复用）；扒宽扫描让无条件声明成立（否决：那是自带风险的另一个变更） | 5、9、附录 B、附录 C |
 | 2026-09-17 | 为每个 `cross_runtime` 值写明产生它的条件，把逐值覆盖率从 68/149 提到 149/149，并用一个独立测试文件加以棘轮化 | 实现，Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447) Track A；PR 评审待完成 | 追加到 `test_semantic_vocabulary_drift.py` 末尾的 kernel 棘轮（否决：已有三个未合 PR 在该处冲突，而同一 diff 内的规则正是合并时最容易丢失的东西）；为两个没有生产者的值推断含义（按证据规则否决：一旦写进表里，臆测的备注与经核实的备注无法区分）；只记录由分支选择的值（否决：那会让由作者声明的值看起来像是没写，而“由作者声明”本身才是更有用的事实）；用字符下限加非停用词计数来强制“不得只是复述”这条标准，并把未解析数量上限钉在 2（评审中双双否决：词数无法说明一条备注写出了产生条件，只会奖励灌水；而给诚实设预算会逼迫下一位作者编造条件，而不是如实记下证据缺失） | 附录 A、附录 B |
@@ -1184,6 +1242,7 @@ PR review 保留这些层级。普通改动记录检查范围和理由，无共�
 | E21 | F1/F2 写成无条件，但只在一个层上被验证 | `3ca868193` | 从源码树读 `check_producers` 的跳过谓词与 producer 扫描根目录 | 26 个词表中 6 个声明了 `producers`，恰好是 `tier: kernel` 那几个；被跳过的 20 个全部是 `cross_runtime`；扫描触及 1203 个已跟踪 `loopx/**/*.{py,ts}` 中的 432 个（35.9%），未覆盖部分主要是 capabilities 285、其余控制面 192、extensions 83 | 计数来自注册表与已跟踪源码树；分母会随任何新模块移动，所以只上报、不钉住 |
 | E22 | 15 个被上报的未解析位点永远不可能成为证据 | `3ca868193` | smoke 报告的 `unresolved_producer_blockers` | 41 个未解析位点，其中 `argument_name_only` 10 个、`annotation_only` 5 个分别是以字段名命名的关键字参数和裸声明；其余 26 个是动态或跨过程的 | 按标签归组；这两个标签在扫描器里由代码持有，因此这个下界只能靠改代码移动 |
 | E23 | F4 写法本身不可能被违反 | `3ca868193` | 对照 F4 表述阅读 `check_scope_declarations` | 作用域是声明的、从不推断，所以 `conflict := collision ∧ scope_overlap` 是一条定义；真正被强制的是一份声明必须恰好枚举每个定义模块，范围是 1 份声明、4 个上下文 | 阅读检查后的判断；各上下文值集互斥故意*不*作为该性质，因为 `SOURCE_SURFACES` 正是合理地在四个上下文复用同一个名字（E19） |
+| E26 | B5 消费者证据覆盖 26 个已注册词表中的 1 个 | `d8e7af141` | `scripts/generate_semantic_inventory.py --report --consumer-evidence`，并与 drift smoke 的 `literal_scan_fields` 覆盖面互相印证 | 1 个词表声明了 `literal_scan.field`（`effective_action`）并被分析；25 个作为 `missing_slot_identity` 上报、不做分析。在 1213 个已跟踪源文件中的 485 个上共 713 行：`read` 0、`interpret` 61、`pass_through` 9、`unknown` 643（90.2%）；归属 `effective_action` 的 111 行中有 41 行未知（36.9%）。被删除的“回退到词表 id”实现当时报出 921 行、未知占比 78.9% | 覆盖面是注册表的性质而非代码的性质：只有当某个词表声明了槽位时它才会变化。各行是两个根目录范围内的语法使用，不是数据流；该扫描仅为参考——缺少 `--report` 时会拒绝运行 |
 | E13 | 冲突预算主要在度量局部命名 | `1dc6ad8d8` | 对 `conflicting_values` 与 `same_runtime_forks` 名字应用 `MODULE_LOCAL_CONVENTION` | 18 个冲突中 16 个、25 个分叉中 7 个是模块局部约定；语义子集分别为 2 与 18 | 分类是名字模式，已在扫描器中说明并由夹具测试钉住 |
 
 ## 附录 D：被否决或取代的方案
