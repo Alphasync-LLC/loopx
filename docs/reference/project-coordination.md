@@ -60,9 +60,19 @@ project Chat endpoint does not inherit `trusted_owner`, the steward's model or
 its cross-project evidence sources. Actual project Agents retain their own
 execution profiles and independently verified runtime capabilities.
 
+This is not yet per-project provider configuration. Ordinary Goal Chat defaults
+to the Codex endpoint unless the caller selects another endpoint. Its Codex
+model, provider and effort come from the Chat service's configured Codex home;
+the steward supplies its separate machine-configured model/effort overrides.
+Both Codex conversation types share that service-level provider/login selection.
+Changing it affects new Codex conversations; existing home-bound sessions cannot
+silently resume under another home. Registered members' own execution profiles
+are separate from this conversation runtime.
+
 ## Current local product path
 
-Open an existing Goal and choose **Chat**. Ask about its current work or explicitly
+Select an existing Goal and use its bottom message composer, including while
+viewing tasks; replies open in place. **Chat** opens the full history. Ask about its current work or explicitly
 ask to pass a correction to a named registered member. Project Chat now uses the
 same evidence and semantic handoff path as the steward, bounded to that Goal:
 
@@ -113,6 +123,8 @@ its existing context-version refresh. Unrelated model settings do not change.
 An exact Goal channel is not evidence that every incoming message is private.
 Lark inputs using a bound Goal session do not receive the local-owner evidence
 reader or handoff grant; a preceding local Turn's handler is cleared. External
+inputs calling the still-declared project tool receive
+`conversation_scope_unavailable`, not a host-approval request. External
 manager audiences continue to require their existing sender/resource grants.
 A deliberately bound Goal session still shares its existing conversation history;
 clearing a tool handler does not erase prior model context or create a private
@@ -161,6 +173,16 @@ These are existing R2/R3/R4/R6 responsibilities, not another orchestration progr
 的具体成员，处理结论自动回到这段对话。无需先跳回管家，也没有另一个团队账本。
 全局管家的跨项目视角保持独立。范围由宿主保存的会话身份和真实来源决定，不能靠
 模型写一句“我是负责人”扩大。项目对话也不继承管家的模型设置或主机权限。
+
+在项目任务页底部也能直接输入，回复就地展开；“对话”页用于看完整历史。
+例如：“按当前证据列出各成员的下一步，区分旧记录和仍待核验的情况”；或明确说
+“把以下补充交给成员 X，处理结论回到这里”。后者是收件箱投递，实际接收与执行
+仍需成员自己的运行入口。
+
+模型配置只做到部分独立：项目 Chat 默认选 Codex，也可选择其他执行器。
+管家有独立的模型/推理强度设置；项目 Codex Chat 读取 Chat 服务所选 Codex home
+中的默认值。两者共用服务级 provider/登录选择，目前没有逐项目 provider 设置。
+项目成员自己的执行 profile 仍然独立；项目 Chat 不等于这些成员的原会话。
 
 这不等于项目 Chat 已变成原投研 coordinator：原 Agent 的身份、会话和工作承诺
 仍由原来的绑定拥有。此次收件不会自动启动执行，也不承诺 queue/steer；下一步按
