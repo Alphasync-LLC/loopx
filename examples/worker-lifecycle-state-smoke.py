@@ -12,10 +12,16 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Add the repository root to the path for direct execution
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+
+def _recent_activity() -> str:
+    """Activity timestamp within the activity threshold (8 hours)."""
+    return (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
 
 from loopx.control_plane.agents.management_projection import (
     WORKER_LIFECYCLE_STATE_ADDRESSABLE,
@@ -88,7 +94,7 @@ def build_status_payload() -> dict:
                                 "todo_id": "todo-executing",
                                 "claimed_by": "worker-executing",
                                 "status": "open",
-                                "updated_at": "2026-09-17T15:00:00+00:00",
+                                "updated_at": _recent_activity(),
                             },
                             {
                                 "todo_id": "todo-blocked",

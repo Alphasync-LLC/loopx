@@ -34,9 +34,10 @@ def _todo(
     task_class: str = "advancement_task",
     claimed_by: str | None = "agent-a",
     updated_at: str | None = None,
+    todo_id: str = "todo_test_001",
 ) -> dict:
     return {
-        "todo_id": "todo_test_001",
+        "todo_id": todo_id,
         "goal_id": "test-goal",
         "status": status,
         "task_class": task_class,
@@ -322,4 +323,20 @@ class TestLifecycleStateNegativeCases:
             last_activity_at=None,
         )
         # Unclaimed todo with no binding: still launchable (has active todo)
+        assert state == WORKER_LIFECYCLE_STATE_LAUNCHABLE
+
+    def test_unrelated_blocked_todo_does_not_block_worker(self) -> None:
+        """A worker with runnable current_todo and unrelated blocked maintenance todo
+        should not be blocked per the protocol contract: "blocker remains visible
+        without making the whole peer appear blocked."
+        """
+        runnable_todo = _todo(status="open", task_class="advancement_task", claimed_by="agent-a", todo_id="todo_runnable")
+        blocked_todo = _todo(status="blocked", task_class="blocker", claimed_by="agent-b", todo_id="todo_blocked_maintenance")
+        state = _agent_lifecycle_state(
+            [runnable_todo, blocked_todo],
+            current=runnable_todo,
+            has_session_binding=False,
+            last_activity_at=None,
+        )
+        # Worker with runnable current todo should be launchable, not blocked
         assert state == WORKER_LIFECYCLE_STATE_LAUNCHABLE
