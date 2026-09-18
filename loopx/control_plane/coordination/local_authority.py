@@ -13,6 +13,7 @@ from typing import Any
 from uuid import uuid4
 
 from ...agent_registry import registered_agent_ids_from_registry
+from .authority_source_capture import authority_registry_source
 from ..runtime.time import now_local_iso as now_local
 from ..effect_runtime import effect_runtime_result
 from .coordination_state_contract import (
@@ -28,8 +29,8 @@ from .legacy_writer_fence import legacy_coordination_writer_fence_path
 
 
 LOCAL_COORDINATION_TODO_LIST_METHOD = "coordination.local_authority.todo_list"
-LOCAL_COORDINATION_TODO_CLAIM_REQUEST_SCHEMA = (
-    "loopx_local_coordination_todo_claim_request_v0"
+LOCAL_COORDINATION_TODO_CLAIM_WITNESSED_REQUEST_SCHEMA = (
+    "loopx_local_coordination_todo_claim_request_v1"
 )
 LOCAL_COORDINATION_TODO_CLAIM_METHOD = "coordination.local_authority.todo_claim"
 
@@ -103,19 +104,20 @@ def claim_canonical_todo_if_promoted(
 
     if not local_authority_is_promoted(runtime_root=runtime_root, goal_id=goal_id):
         return None
+    with authority_registry_source(registry_path) as registry_source:
+        registered = registered_agent_ids_from_registry(registry_path, goal_id)
     result = effect_runtime_result(
         LOCAL_COORDINATION_TODO_CLAIM_METHOD,
         {
-            "schema_version": LOCAL_COORDINATION_TODO_CLAIM_REQUEST_SCHEMA,
+            "schema_version": LOCAL_COORDINATION_TODO_CLAIM_WITNESSED_REQUEST_SCHEMA,
             "runtime_root": str(runtime_root.expanduser().resolve(strict=False)),
             "goal_id": goal_id,
             "todo_id": todo_id,
             "role": role,
             "claimed_by": claimed_by,
             "actor_agent_id": actor_agent_id,
-            "registered_agents": registered_agent_ids_from_registry(
-                registry_path, goal_id
-            ),
+            "registered_agents": registered,
+            "registry_source": registry_source,
             "operation_id": (
                 operation_id
                 if operation_id is not None

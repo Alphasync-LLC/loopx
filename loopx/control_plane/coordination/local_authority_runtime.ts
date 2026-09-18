@@ -1,3 +1,4 @@
+import {registryAuthoritySourceCheck} from "./authority_source.ts";
 import {decodeTaskLeaseProof} from "./task_lease_proof.ts";
 import {COORDINATION_TODO_ARCHIVE_RESULT_SCHEMA} from "./todo_archive.ts";
 import {readCoordinationOwnership} from "./ownership_observation.ts";
@@ -10,7 +11,7 @@ import {createHash} from "node:crypto";
 
 import type { JsonObject } from "../effect_program.ts";
 import {acceptanceWorkGuard, projectGoalAcceptance} from "../goals/acceptance_contract.ts";
-import {executeCoordinationMonitorPoll, COORDINATION_MONITOR_POLL_REQUEST_SCHEMA, COORDINATION_LEASED_MONITOR_POLL_REQUEST_SCHEMA,
+import {executeCoordinationMonitorPoll, COORDINATION_MONITOR_POLL_REQUEST_SCHEMA, COORDINATION_LEASED_MONITOR_POLL_REQUEST_SCHEMA, COORDINATION_WITNESSED_MONITOR_POLL_REQUEST_SCHEMA,
   COORDINATION_MONITOR_POLL_RESULT_SCHEMA} from "./todo_monitor_poll.ts";
 import { requireJsonObject } from "../runtime_decode.ts";
 import {
@@ -86,10 +87,13 @@ import { compactPythonWhitespace } from "./todo_agents.ts";
 
 export const LOCAL_COORDINATION_TODO_CLAIM_REQUEST_SCHEMA =
   "loopx_local_coordination_todo_claim_request_v0";
+export const LOCAL_COORDINATION_TODO_CLAIM_WITNESSED_REQUEST_SCHEMA = "loopx_local_coordination_todo_claim_request_v1";
 export const LOCAL_COORDINATION_TODO_CREATE_REQUEST_SCHEMA =
   "loopx_local_coordination_todo_create_request_v0";
+export const LOCAL_COORDINATION_TODO_CREATE_WITNESSED_REQUEST_SCHEMA = "loopx_local_coordination_todo_create_request_v1";
 export const LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_REQUEST_SCHEMA =
   "loopx_local_coordination_todo_terminal_lifecycle_request_v0";
+export const LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_WITNESSED_REQUEST_SCHEMA = "loopx_local_coordination_todo_terminal_lifecycle_request_v1";
 export const LOCAL_COORDINATION_TODO_ARCHIVE_REQUEST_SCHEMA =
   "loopx_local_coordination_todo_archive_request_v0";
 export const LOCAL_COORDINATION_TODO_ARCHIVE_ACK_REQUEST_SCHEMA =
@@ -118,10 +122,13 @@ export async function pollLocalCoordinationMonitor(value: unknown,
   try {
     const input = requireJsonObject(value, "local Monitor poll request");
     if (input.schema_version !== COORDINATION_MONITOR_POLL_REQUEST_SCHEMA &&
-        input.schema_version !== COORDINATION_LEASED_MONITOR_POLL_REQUEST_SCHEMA) throw new TypeError("Monitor poll schema mismatch");
-    if (input.lease_proof != null && input.schema_version !== COORDINATION_LEASED_MONITOR_POLL_REQUEST_SCHEMA) {
+        input.schema_version !== COORDINATION_LEASED_MONITOR_POLL_REQUEST_SCHEMA &&
+        input.schema_version !== COORDINATION_WITNESSED_MONITOR_POLL_REQUEST_SCHEMA) throw new TypeError("Monitor poll schema mismatch");
+    if (input.lease_proof != null && input.schema_version === COORDINATION_MONITOR_POLL_REQUEST_SCHEMA) {
       throw new TypeError("lease-backed Monitor poll requires request v1");
     }
+    const authoritySourcesCurrent = registryAuthoritySourceCheck(input,
+      input.schema_version === COORDINATION_WITNESSED_MONITOR_POLL_REQUEST_SCHEMA);
     const proof = decodeTaskLeaseProof(input.lease_proof);
     if (input.schema_version === COORDINATION_LEASED_MONITOR_POLL_REQUEST_SCHEMA && !proof) {
       throw new TypeError("Monitor poll request v1 requires lease_proof");
@@ -140,7 +147,7 @@ export async function pollLocalCoordinationMonitor(value: unknown,
         observation: requireJsonObject(input.observation, "Monitor observation"),
         intent: requireJsonObject(input.intent, "Monitor successor intent"),
         lease_proof: proof, now: new Date(),
-      }), ...evidence};
+      }, authoritySourcesCurrent), ...evidence};
     });
   } catch (error) {
     return {schema_version: COORDINATION_MONITOR_POLL_RESULT_SCHEMA, status: "failed", changed: false,
@@ -675,9 +682,12 @@ export async function claimLocalCoordinationTodo(
   let sourceAuthority = "file_v0";
   try {
     const input = requireJsonObject(value, "local coordination Todo claim request");
-    if (input.schema_version !== LOCAL_COORDINATION_TODO_CLAIM_REQUEST_SCHEMA) {
+    if (input.schema_version !== LOCAL_COORDINATION_TODO_CLAIM_REQUEST_SCHEMA &&
+        input.schema_version !== LOCAL_COORDINATION_TODO_CLAIM_WITNESSED_REQUEST_SCHEMA) {
       throw new Error("local coordination Todo claim request schema mismatch");
     }
+    const authoritySourcesCurrent = registryAuthoritySourceCheck(input,
+      input.schema_version === LOCAL_COORDINATION_TODO_CLAIM_WITNESSED_REQUEST_SCHEMA);
     if (typeof input.dry_run !== "boolean") {
       throw new Error("dry_run must be a JSON boolean");
     }
@@ -725,7 +735,7 @@ export async function claimLocalCoordinationTodo(
         lease_request: leaseRequest,
         dry_run: input.dry_run === true,
         now: claimObservedAt(input.observed_at),
-      });
+      }, authoritySourcesCurrent);
       return {
         ...result,
         source_authority: sourceAuthority,
@@ -760,9 +770,12 @@ export async function createLocalCoordinationTodo(
   };
   try {
     const input = requireJsonObject(value, "local coordination Todo create request");
-    if (input.schema_version !== LOCAL_COORDINATION_TODO_CREATE_REQUEST_SCHEMA) {
+    if (input.schema_version !== LOCAL_COORDINATION_TODO_CREATE_REQUEST_SCHEMA &&
+        input.schema_version !== LOCAL_COORDINATION_TODO_CREATE_WITNESSED_REQUEST_SCHEMA) {
       throw new TypeError("local coordination Todo create request schema mismatch");
     }
+    const authoritySourcesCurrent = registryAuthoritySourceCheck(input,
+      input.schema_version === LOCAL_COORDINATION_TODO_CREATE_WITNESSED_REQUEST_SCHEMA);
     if (typeof input.dry_run !== "boolean") {
       throw new TypeError("dry_run must be a JSON boolean");
     }
@@ -787,7 +800,7 @@ export async function createLocalCoordinationTodo(
         operation_id: requireAuthorityStoreId(input.operation_id, "operation id"),
         dry_run: input.dry_run === true,
         now: claimObservedAt(input.observed_at),
-      });
+      }, authoritySourcesCurrent);
       return {
         ...result,
         ...providerEvidence,
@@ -831,23 +844,9 @@ export async function updateLocalCoordinationTodo(
       "expected_provider_revision", "expected_registry_sha256"].some(field => Object.hasOwn(input, field))) {
       throw new TypeError("Todo update admission and revision fields require request v2");
     }
-    const source = reviewed ? requireJsonObject(input.registry_source, "registry_source") : null;
-    if (source !== null && (typeof source.path !== "string" || !isAbsolute(source.path) ||
-        typeof source.sha256 !== "string" || !/^[a-f0-9]{64}$/u.test(source.sha256))) {
-      throw new TypeError("registry_source requires an absolute path and SHA-256 digest");
-    }
     const grants = reviewed ? input.lifecycle_grants : [];
     if (!Array.isArray(grants)) throw new TypeError("lifecycle_grants must be an array");
-    const authoritySourcesCurrent = async () => {
-      if (source === null) return true;
-      if (input.expected_registry_sha256 != null && input.expected_registry_sha256 !== source.sha256) return false;
-      try {
-        return createHash("sha256").update(await readFile(String(source.path))).digest("hex") === source.sha256;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-        throw error;
-      }
-    };
+    const authoritySourcesCurrent = registryAuthoritySourceCheck(input, reviewed, input.expected_registry_sha256);
     const root = runtimeRoot(input.runtime_root);
     const goalId = requireAuthorityStoreId(input.goal_id, "goal id");
     return await withCanonicalWriter(root, goalId, input.dry_run === true, async () => {
@@ -904,9 +903,12 @@ export async function terminalLifecycleLocalCoordinationTodo(
     decision_read_from_provider: true, legacy_fallback_used: false};
   try {
     const input = requireJsonObject(value, "local coordination Todo terminal request");
-    if (input.schema_version !== LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_REQUEST_SCHEMA) {
+    if (input.schema_version !== LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_REQUEST_SCHEMA &&
+        input.schema_version !== LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_WITNESSED_REQUEST_SCHEMA) {
       throw new TypeError("local coordination Todo terminal request schema mismatch");
     }
+    const authoritySourcesCurrent = registryAuthoritySourceCheck(input,
+      input.schema_version === LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_WITNESSED_REQUEST_SCHEMA);
     if (!Array.isArray(input.registered_agents) || !Array.isArray(input.lifecycle_grants) ||
         !Array.isArray(input.successor_intents) ||
         !Array.isArray(input.linked_successor_todo_ids)) {
@@ -988,7 +990,7 @@ export async function terminalLifecycleLocalCoordinationTodo(
             ? null : requireJsonObject(input.completion_policy_request, "completion_policy_request"),
         dry_run: input.dry_run as boolean,
         now: claimObservedAt(input.observed_at),
-      }), ...providerEvidence};
+      }, authoritySourcesCurrent), ...providerEvidence};
     });
   } catch (error) {
     return {schema_version: COORDINATION_TODO_TERMINAL_LIFECYCLE_RESULT_SCHEMA,

@@ -1,3 +1,4 @@
+import {AUTHORITY_SOURCE_CHANGED, uncheckedAuthoritySource, type AuthoritySourceCheck} from "./authority_source.ts";
 import type { JsonObject } from "../effect_program.ts";
 import {CoordinationCommandReceipt} from "./command_receipt.ts";
 import type { AuthorityStore } from "./authority_store.ts";
@@ -190,6 +191,7 @@ async function commitCreate(
 export async function executeCoordinationTodoCreate(
   store: AuthorityStore,
   rawInput: CoordinationTodoCreateInput,
+  authoritySourcesCurrent: AuthoritySourceCheck = uncheckedAuthoritySource,
 ): Promise<CoordinationTodoCreateResult> {
   let input: CoordinationTodoCreateInput;
   try {
@@ -210,6 +212,7 @@ export async function executeCoordinationTodoCreate(
   const existing = await createReceipt(input, requestSha).read(store);
   if (existing !== null) return existing;
 
+  if (!await authoritySourcesCurrent()) return failure(AUTHORITY_SOURCE_CHANGED.code, AUTHORITY_SOURCE_CHANGED.reason);
   const head = await store.loadAuthority();
   if (head.status !== "loaded") {
     return {schema_version: COORDINATION_TODO_CREATE_RESULT_SCHEMA, ...head};
@@ -227,6 +230,7 @@ export async function executeCoordinationTodoCreate(
   const todoId = requireAuthorityStoreId(input.todo.todo_id, "todo id");
   const readModel = canonicalAuthorityObject(head.head.todo_read_model, "Todo read model");
   const plan = planCoordinationTodoCreate(input, projection.todos, readModel.schema_version);
+  if (!await authoritySourcesCurrent()) return failure(AUTHORITY_SOURCE_CHANGED.code, AUTHORITY_SOURCE_CHANGED.reason);
   if (plan.status !== "planned") return {...plan, provider_revision: head.provider_revision, cursor: head.cursor};
   const created = canonicalAuthorityObject(plan.todo, "created Todo");
   if (input.dry_run) {

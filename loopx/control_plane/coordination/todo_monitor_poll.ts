@@ -1,3 +1,4 @@
+import {AUTHORITY_SOURCE_CHANGED, uncheckedAuthoritySource, type AuthoritySourceCheck} from "./authority_source.ts";
 /** One canonical transaction for an observation and its independent successors.
  * Network polling, quota settlement and display delivery are separate effects. */
 import type {JsonObject} from "../effect_program.ts";
@@ -18,6 +19,7 @@ import {requireStringLiteral} from "../runtime_decode.ts";
 
 export const COORDINATION_MONITOR_POLL_REQUEST_SCHEMA = "loopx_coordination_monitor_poll_request_v0";
 export const COORDINATION_LEASED_MONITOR_POLL_REQUEST_SCHEMA = "loopx_coordination_monitor_poll_request_v1";
+export const COORDINATION_WITNESSED_MONITOR_POLL_REQUEST_SCHEMA = "loopx_coordination_monitor_poll_request_v2";
 export const COORDINATION_MONITOR_POLL_RESULT_SCHEMA = "loopx_coordination_monitor_poll_result_v0";
 const RECEIPT_SCHEMA = "loopx_coordination_monitor_poll_receipt_v0";
 
@@ -176,7 +178,8 @@ function planWriteback(input: NormalizedMonitorPollInput, head: JsonObject) {
 }
 
 export async function executeCoordinationMonitorPoll(store: AuthorityStore,
-  raw: CoordinationMonitorPollInput): Promise<JsonObject> {
+  raw: CoordinationMonitorPollInput,
+  authoritySourcesCurrent: AuthoritySourceCheck = uncheckedAuthoritySource): Promise<JsonObject> {
   let input: NormalizedMonitorPollInput;
   try { input = normalize(raw); }
   catch (error) { return failure("invalid_monitor_poll_request", String(error)); }
@@ -187,11 +190,13 @@ export async function executeCoordinationMonitorPoll(store: AuthorityStore,
   const receipt = monitorReceipt(input, hash);
   const previous = await receipt.read(store);
   if (previous) return previous;
+  if (!await authoritySourcesCurrent()) return failure(AUTHORITY_SOURCE_CHANGED.code, AUTHORITY_SOURCE_CHANGED.reason);
   const head = await store.loadAuthority();
   if (head.status !== "loaded") return {schema_version: COORDINATION_MONITOR_POLL_RESULT_SCHEMA, ...head};
   let plan: ReturnType<typeof planWriteback>;
   try { plan = planWriteback(input, head.head); }
   catch (error) { return failure("monitor_poll_rejected", error instanceof Error ? error.message : String(error)); }
+  if (!await authoritySourcesCurrent()) return failure(AUTHORITY_SOURCE_CHANGED.code, AUTHORITY_SOURCE_CHANGED.reason);
   if (input.dry_run) return {schema_version: COORDINATION_MONITOR_POLL_RESULT_SCHEMA,
     status: "planned", changed: true, writeback: plan.writeback, provider_revision: head.provider_revision};
   const commit = prepareCoordinationProjectionCommit({goal_id: input.goal_id, operation_id: input.operation_id,

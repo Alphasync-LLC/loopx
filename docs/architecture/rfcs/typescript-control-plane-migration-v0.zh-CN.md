@@ -21,6 +21,15 @@
 
 ## 当前实现检查点
 
+Canonical create/claim/update/Monitor poll/terminal 事务现共用
+`coordination/authority_source.ts`；Python adapter 经 `authority_registry_source`
+在注册/grant 投影前后校验来源。外部验证结束后保留原 witness，在新 effect/提交前
+复核；历史回执保留原身份，claim 回放仍另行校验当前 acceptance。见
+[版本化 witness 合同](../../project-agent-todo-contract.md#canonical-registry-source-witnesses)。
+这闭合上述 T1/T2 caller 的 registry 事实边界，不等于完整迁移、默认切换、
+task-lease source 协议迁移或共享网络服务。
+
+
 投影交付阶段现已闭合跨语言边界：typed TypeScript mutation 结果与 Python
 兼容 provider 共用四态契约（`pending`、`delivered`、`current`、`not_required`）。
 Provider readback 在 acknowledgement 决策前进行校验，端到端因果链由共享组合

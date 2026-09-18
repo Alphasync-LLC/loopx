@@ -1051,6 +1051,56 @@ Chat 自行记录基线，不能从 caller context 注入权限。非终态预�
 展示 pending 不冒充验证成功，原卡片重试恢复回执并投影当前 head。完成和立即运行
 仍归各自 owner，不补造 lease proof，也不开启 provider promotion。
 
+### Canonical registry source witnesses
+
+Promoted local Todo create, claim, update, Monitor poll and complete/supersede
+share one registry-source check. Python captures the registry SHA-256 before
+reading registration/grant facts and verifies it after projection. TypeScript
+verifies the same witness before admitting new work, issuing a validation effect,
+and returning a successful preview or committing. Completion reuses the original
+witness after external validation: a successful validator does not authorize a
+commit under registration that changed while it ran.
+
+| Local request | Witnessed wire | Retained legacy wires |
+| --- | --- | --- |
+| `loopx_local_coordination_todo_create_request` | v1 | v0 |
+| `loopx_local_coordination_todo_claim_request` | v1 | v0 |
+| `loopx_local_coordination_todo_update_request` | v2 | v0, v1 |
+| `loopx_coordination_monitor_poll_request` | v2 | v0, v1 |
+| `loopx_local_coordination_todo_terminal_lifecycle_request` | v1 | v0 |
+
+Witnessed requests require `registry_source` with an absolute `path` and a
+lowercase SHA-256 `sha256`. Legacy versions retain their existing fact contract
+and reject this field; Monitor v1 still requires its execution proof, while v2
+supports the existing leased and unleased paths. The witness does not enter
+immutable operation identity or public receipts. A matching historical
+create/update/poll/terminal receipt is recovered before checking current source
+contents. Claim replay retains its current acceptance check and rejects a stale
+source while preserving `original_receipt`; this adds no new claim grant.
+
+On `authority_source_changed`, inspect current registration and the Todo again
+before issuing new work. The rejected attempt writes no canonical head or receipt;
+an external validator already executed may have its own effects. This is an
+optimistic byte-snapshot check, not a lock, grant, cross-resource transaction or
+linearizable revocation guarantee. Unrelated registry changes can also require
+retry. Provider CAS still owns atomic head/receipt persistence. Service-owned
+PostgreSQL callers retain their authenticated fact boundary; a local selector
+cannot manufacture one. Provider defaults and promotion do not change.
+
+晋升后的本地 create、claim、update、Monitor poll 和 complete/supersede 共用同一
+registry 来源校验。Python 在采集注册/grant 事实前后比较来源摘要；TS 在新操作准入、
+发出 validation effect 和成功预览/提交前复核。外部验证结束后沿用原 witness，
+不能刷新注册事实来掩盖验证期间发生的撤权。
+
+上表新 wire 必须携带绝对路径与 SHA-256，旧 wire 保留原合同并拒绝夹带此字段。
+来源不是操作身份：create/update/poll/terminal 先恢复匹配的历史回执；claim 仍检查
+当前 acceptance，来源失效时拒绝继续，但保留 `original_receipt`。遇到
+`authority_source_changed` 应重新检查注册和 Todo；拒绝不会写 canonical head/回执，
+但已经运行的外部验证可能有自己的副作用。整个 registry 的无关修改也可能导致重试。
+该机制是乐观字节快照校验，不是跨资源原子事务或线性一致的撤权保证；provider CAS
+继续负责状态与回执的原子持久化，不改变默认 provider、promotion 或 PostgreSQL 的
+service-owned 认证边界。
+
 ### Canonical nonterminal planning updates
 
 An explicitly promoted agent Todo also accepts a bounded planning update through
@@ -1094,7 +1144,7 @@ post-commit projection delivery restores the managed Todo display.
 清除 resume 时一起清除 generation fence，省略则保留。校验读取完整 canonical
 inventory，不依赖摘要条数或 Markdown。补 evidence 不会重新设置已满足的 Monitor
 等待；更改其拓扑需要先清除旧条件。API 中空 successor 数组和 `no_followup=false`
-不是省略值。规划使用 v1 请求，旧 runtime 必须拒绝整次请求，不能只提交 text/note。
+不是省略值。当前规划 transport 使用 v2 请求，旧 runtime 必须拒绝整次请求，不能只提交 text/note。
 仅包含规划字段的更新保留既有 `last_actor_agent_id`，与 legacy public planner 一致；
 若同时包含 raw text/note 修正，则继续沿用既有文案修正的 actor 归属语义。
 权限不扩大：未 claim 的工作仍可由未被排除的注册 agent 修改，不能改写

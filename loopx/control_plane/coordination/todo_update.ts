@@ -1,3 +1,4 @@
+import {AUTHORITY_SOURCE_CHANGED, uncheckedAuthoritySource, type AuthoritySourceCheck} from "./authority_source.ts";
 import type { JsonObject } from "../effect_program.ts";
 import {acceptanceWorkGuard} from "../goals/acceptance_contract.ts";
 import { TODO_OWNERSHIP_INTENT_FIELDS } from "../todos/authoring_scope.ts";
@@ -223,7 +224,7 @@ function prepareUpdatedTodo(
 /** Update mutable Todo metadata from the canonical provider head. */
 export async function executeCoordinationTodoUpdate(
   store: AuthorityStore, rawInput: CoordinationTodoUpdateInput,
-  authoritySourcesCurrent: () => Promise<boolean> = async () => true,
+  authoritySourcesCurrent: AuthoritySourceCheck = uncheckedAuthoritySource,
 ): Promise<CoordinationTodoUpdateResult> {
   let input: CoordinationTodoUpdateInput;
   try { input = normalizeInput(rawInput); } catch (error) {
@@ -234,8 +235,7 @@ export async function executeCoordinationTodoUpdate(
   const receipt = updateReceipt(input, requestSha);
   const replay = await receipt.read(store);
   if (replay !== null) return replay;
-  const sourceChanged = () => failure("authority_source_changed",
-    "Todo authority registration changed; review the current state before continuing");
+  const sourceChanged = () => failure(AUTHORITY_SOURCE_CHANGED.code, AUTHORITY_SOURCE_CHANGED.reason);
   if (!await authoritySourcesCurrent()) return sourceChanged();
   // Legacy single-agent callers historically omitted actor_agent_id for an
   // unowned Todo. Keep that narrow compatibility path, while retaining the

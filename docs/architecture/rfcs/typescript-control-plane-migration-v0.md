@@ -22,6 +22,16 @@ Retain T0 caller/parity inventory, T1/T2 transaction/effect convergence, T3 comp
 
 ## Current implementation checkpoint
 
+Canonical create/claim/update/Monitor poll/terminal transactions now share
+`coordination/authority_source.ts`; Python adapters bracket registration/grant
+projection through `authority_registry_source`. The original witness survives
+external validation and is checked before new effects/commit. Historical receipts
+retain their identities; claim replay separately preserves current acceptance.
+See the [versioned witness contract](../../project-agent-todo-contract.md#canonical-registry-source-witnesses).
+This closes the registry-fact boundary across these T1/T2 callers, not the whole
+migration, local default cutover, task-lease source protocol or shared transport.
+
+
 The projection-delivery stage now closes the cross-language boundary: typed
 TypeScript mutation results and the Python compatibility provider share the
 same four-state contract (`pending`, `delivered`, `current`, `not_required`).

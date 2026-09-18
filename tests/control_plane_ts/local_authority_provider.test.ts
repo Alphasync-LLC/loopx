@@ -30,6 +30,7 @@ for (const [fault, source, reason] of [
 ] as const) {
   test(`selected provider ${fault} has accurate failure across runtime entrypoints and no fallback`, async t => {
     const directory = await root(t);
+    await writeFile(join(directory, "registry.json"), "{}");
     await selectLocalSqliteAuthority(directory, "goal-a", true);
     const store = await openLocalAuthorityStore(directory, "goal-a");
     assert.ok(store instanceof SqliteAuthorityStore);
@@ -101,6 +102,10 @@ function providerCalls(directory: string, revision: string, dryRun: boolean) {
   // Legacy update requests must reach provider opening without v2-only fields.
   const input = {...updateInput, expected_provider_revision: revision,
     lifecycle_grants: [], successor_intents: [], linked_successor_todo_ids: []};
+  // Current transports must reach the same provider boundary with a valid
+  // witness; keep it out of legacy requests, which intentionally reject it.
+  const witnessed = {...input, registry_source: {path: join(directory, "registry.json"),
+    sha256: createHash("sha256").update("{}").digest("hex")}};
   type Entrypoint = {[K in keyof typeof runtime]: typeof runtime[K] extends
     (value: unknown) => Promise<unknown> ? K : never}[keyof typeof runtime];
   // A new exported runtime action must deliberately enter this failure matrix.
@@ -110,17 +115,26 @@ function providerCalls(directory: string, revision: string, dryRun: boolean) {
     readLocalCoordinationTodo: [{...input, schema_version: runtime.LOCAL_COORDINATION_TODO_READ_REQUEST_SCHEMA}],
     mutateLocalCoordinationAuthority: [{...input, schema_version: runtime.LOCAL_COORDINATION_MUTATION_REQUEST_SCHEMA,
       mutations: [{kind: "todo_remove", todo_id: "todo-a"}]}],
-    createLocalCoordinationTodo: [{...input, schema_version: "loopx_local_coordination_todo_create_request_v0", todo: {}}],
-    claimLocalCoordinationTodo: [{...input, schema_version: runtime.LOCAL_COORDINATION_TODO_CLAIM_REQUEST_SCHEMA}],
+    createLocalCoordinationTodo: [
+      {...input, schema_version: runtime.LOCAL_COORDINATION_TODO_CREATE_REQUEST_SCHEMA, todo: {}},
+      {...witnessed, schema_version: runtime.LOCAL_COORDINATION_TODO_CREATE_WITNESSED_REQUEST_SCHEMA, todo: {}}],
+    claimLocalCoordinationTodo: [
+      {...input, schema_version: runtime.LOCAL_COORDINATION_TODO_CLAIM_REQUEST_SCHEMA},
+      {...witnessed, schema_version: runtime.LOCAL_COORDINATION_TODO_CLAIM_WITNESSED_REQUEST_SCHEMA}],
     updateLocalCoordinationTodo: [
       {...updateInput, schema_version: "loopx_local_coordination_todo_update_request_v0"},
-      {...updateInput, schema_version: "loopx_local_coordination_todo_update_request_v1", planning_intent: {status: "blocked"}}],
+      {...updateInput, schema_version: "loopx_local_coordination_todo_update_request_v1", planning_intent: {status: "blocked"}},
+      {...witnessed, schema_version: "loopx_local_coordination_todo_update_request_v2"}],
     editLocalCoordinationTodo: [input],
-    terminalLifecycleLocalCoordinationTodo: [{...input, schema_version: runtime.LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_REQUEST_SCHEMA}],
+    terminalLifecycleLocalCoordinationTodo: [
+      {...input, schema_version: runtime.LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_REQUEST_SCHEMA},
+      {...witnessed, schema_version: runtime.LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_WITNESSED_REQUEST_SCHEMA}],
     archiveLocalCoordinationTodos: [{...input, schema_version: runtime.LOCAL_COORDINATION_TODO_ARCHIVE_REQUEST_SCHEMA, max_active_done: 0}],
     acknowledgeLocalCoordinationTodoArchive: [{...input, schema_version: runtime.LOCAL_COORDINATION_TODO_ARCHIVE_ACK_REQUEST_SCHEMA}],
     promoteLocalCoordinationAuthority: [promotionRequest(directory, {}, "file:synthetic:1")],
-    pollLocalCoordinationMonitor: [{...input, schema_version: "loopx_coordination_monitor_poll_request_v0", observation: {}, intent: {}}],
+    pollLocalCoordinationMonitor: [
+      {...input, schema_version: "loopx_coordination_monitor_poll_request_v0", observation: {}, intent: {}},
+      {...witnessed, schema_version: "loopx_coordination_monitor_poll_request_v2", observation: {}, intent: {}}],
     continueLocalTodo: [{...input, schema_version: "loopx_local_coordination_todo_continuation_request_v0",
       todo_id: "todo-a", agent_id: "agent-a", session_id: "session-1", action: "inspect",
       registered_agents: ["agent-a", "agent-b"]}],
