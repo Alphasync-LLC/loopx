@@ -31,6 +31,15 @@
 
 ## Current implementation checkpoint
 
+The local registry witness now spans canonical create/claim/update/Monitor poll
+and terminal mutations through one TS owner. File, SQLite and service-injected
+PostgreSQL execute the same source checks and preserve historical receipts.
+The [witness contract](../../project-agent-todo-contract.md#canonical-registry-source-witnesses)
+distinguishes source freshness, operation identity and provider CAS. This is
+optimistic source validation, not cross-resource atomicity or provider promotion;
+existing L1–L5 qualification and default-cutover owners retain the remaining work.
+
+
 The machine-owned coordination projection now has one packaged,
 provider-neutral record contract shared by Python and TypeScript. File, NoKV,
 and PostgreSQL candidates consume the same canonical Todo read shape; a

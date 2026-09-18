@@ -28,6 +28,14 @@
 
 ## 当前实现检查点
 
+本地 registry witness 现经同一 TS owner 覆盖 canonical create/claim/update、
+Monitor poll 与 terminal mutation；File、SQLite、service-injected PostgreSQL
+执行相同来源检查并保留历史回执。
+[Witness 合同](../../project-agent-todo-contract.md#canonical-registry-source-witnesses)
+区分来源新鲜度、操作身份和 provider CAS。这是乐观来源校验，不是跨资源原子性或
+provider 晋升；剩余工作仍归既有 L1–L5 资格化与默认切换 owner。
+
+
 machine-owned coordination 投影现已有一份由 Python 与 TypeScript 共享的、随包
 发布且 provider-neutral 的 record contract。file、NoKV 与 PostgreSQL 候选读取同一
 份 canonical Todo read shape；provider-bound 投影遇到未知字段会拒绝，而不是静默
