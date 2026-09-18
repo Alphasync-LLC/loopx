@@ -1,0 +1,256 @@
+{
+  "en": {
+    "meta": "LHTB / FIVE-ARM EXPLORATORY STUDY",
+    "back": "LoopX home",
+    "source": "Study source",
+    "title": "Five ways to keep an agent working across a long horizon.",
+    "deck": "A 46-task comparison of plain Codex, native Goal, LoopX SSH-Goal, legacy Heartbeat, and a new fresh-exec Heartbeat. The result is a mechanism study: how durable state, bounded Todos, and replanning change continuation behavior.",
+    "evidenceTag": "GPT-5.6 Sol · max reasoning · 46 tasks · one effective trial per cell",
+    "contributorsLabel": "Contributors",
+    "readingLabel": "Reading path",
+    "readingPath": [
+      ["01", "Result", "#result"],
+      ["02", "Mechanisms", "#mechanisms"],
+      ["03", "Insights", "#insights"],
+      ["04", "46 tasks", "#scores"]
+    ],
+    "resultEyebrow": "00 / Core result",
+    "resultTitle": "The newest Heartbeat has the highest mean reward, with gains concentrated in recoverable, externally visible work.",
+    "resultBody": "Mean reward rises from 0.4218 for Plain to 0.4948 for New Heartbeat. Against Legacy Heartbeat, the new runtime wins 17 tasks, ties 19, and loses 10. The +0.0154 mean delta is useful directional evidence, not a causal estimate.",
+    "summaryColumns": ["Arm", "Mean reward", "Solved ≥ 0.95", "Recorded tokens", "USD"],
+    "armLabels": {
+      "plain": "Plain",
+      "native_goal": "Native Goal",
+      "ssh_goal": "LoopX SSH-Goal",
+      "legacy_heartbeat": "Legacy Heartbeat",
+      "new_heartbeat": "New Heartbeat"
+    },
+    "armKinds": {
+      "plain": "baseline · app-server",
+      "native_goal": "baseline · app-server",
+      "ssh_goal": "LoopX · app-server",
+      "legacy_heartbeat": "LoopX 0.5.3 · app-server",
+      "new_heartbeat": "LoopX 1.0.3 · generic_cli"
+    },
+    "deltaMean": "mean reward vs legacy Heartbeat",
+    "deltaWins": "task wins",
+    "deltaTies": "ties",
+    "deltaLosses": "losses",
+    "readingNoteLabel": "How to read this",
+    "readingNote": "The first four arms are historical Codex app-server runs. New Heartbeat uses generic_cli with a fresh codex exec per wake, so the comparison changes several runtime dimensions together. Historical token costs are estimates; New Heartbeat cost is recorded telemetry.",
+    "benchmarkEyebrow": "01 / The benchmark",
+    "benchmarkTitle": "LHTB grades durable artifacts after hundreds of dependent terminal actions.",
+    "benchmarkBody": "Long-Horizon Terminal-Bench contains 46 containerized tasks across nine categories. Hidden rebuild-from-artifact verifiers grade the final workspace on a continuous [0,1] scale; self-reported completion does not count. Reward ≥ 0.95 is the solved threshold.",
+    "officialLinks": [
+      ["Official benchmark", "Task taxonomy, leaderboard, methodology, and harness notes.", "https://zli12321.github.io/LHTB/index.html"],
+      ["LHTB paper", "Long-Horizon Terminal-Bench, arXiv:2607.08964.", "https://arxiv.org/abs/2607.08964"]
+    ],
+    "benchmarkFacts": [
+      ["46", "containerized tasks", "games, software, science, multimodal, security, and professional workflows"],
+      ["9", "task categories", "heterogeneous tools, artifacts, and success criteria"],
+      ["0–1", "continuous reward", "partial credit exposes progress below full solve"],
+      ["≥ .95", "solved threshold", "the strict outcome used in this study"]
+    ],
+    "mechanismEyebrow": "02 / Five execution mechanisms",
+    "mechanismTitle": "The model is shared. Continuation ownership and durable state are not.",
+    "mechanismBody": "All five arms use GPT-5.6 Sol at max reasoning with web search disabled. The experiment varies who decides that work should continue, how the next unit of work is represented, and whether a new executor can recover the frontier without old conversation instructions.",
+    "mechanismRows": [
+      ["plain", "Plain", "Model session owns stopping", "A normal app-server turn plans, edits, and returns. There is no persistent Goal or LoopX registry."],
+      ["native_goal", "Native Goal", "Codex Goal owns continuity", "A persistent “Finish the task” Goal survives turns, without LoopX Todo, quota, or registry control."],
+      ["ssh_goal", "LoopX SSH-Goal", "LoopX dispatcher owns the next slice", "Registry, quota, claimed Todo, bounded work, and writeback make the next action explicit across phases."],
+      ["legacy_heartbeat", "Legacy Heartbeat", "Periodic LoopX obligation in app-server", "LoopX 0.5.3 periodically re-enters a long-lived app-server setup and asks it to advance one bounded slice."],
+      ["new_heartbeat", "New Heartbeat", "Durable control, replaceable executor", "LoopX 1.0.3 starts a fresh codex exec on every wake. Workspace and registry persist; old conversation instructions do not. Three completed advancement Todos open a replan review."]
+    ],
+    "insightEyebrow": "03 / LoopX insight",
+    "insightTitle": "The advantage is not a longer chat. It is a recoverable task frontier.",
+    "insightBody": "The strongest evidence appears when progress can be externalized into files and Todos: the current stage, passed checks, remaining modules, and next falsifiable action. A fresh executor can then continue from project evidence instead of reconstructing intent from prose history.",
+    "insights": [
+      ["State survives the session", "Workspace artifacts plus LoopX registry and Todo state preserve where work stopped. Executor sessions become replaceable rather than the sole memory owner."],
+      ["Todos make continuation inspectable", "A claimed bounded slice separates current work, completed checks, and successor work. This lowers restart ambiguity on staged repairs and multi-artifact workflows."],
+      ["Replan can reopen false endings", "After three qualifying Todo completions, New Heartbeat opens a review obligation. Negative evidence can redirect the frontier instead of accepting a stale “done.”"],
+      ["Fresh execution limits instruction drift", "Each wake gets the current task body and project state, not an accumulated conversation. This creates a cleaner boundary between durable control state and model-session state."]
+    ],
+    "gainTitle": "Where the new Heartbeat gained",
+    "gainCases": [
+      ["tabular-data-feature-covshift", "0.292", "0.743", "A compact artifact-and-check workflow gave successor work a concrete target; the largest observed gain."],
+      ["rush-hour-campaign", "0.481", "0.772", "Board state and unfinished stages were recoverable, so subsequent work continued the search instead of restarting it."],
+      ["apex-management-consulting-matter", "0.433", "0.513", "After interruption, a fresh executor recovered at stage S27 and completed the final four stages."],
+      ["unknown-config-semantics", "0.000", "0.231", "Externalized artifacts gave a new wake enough evidence to make partial progress where the legacy run produced none."]
+    ],
+    "lossTitle": "Where more continuation was not enough",
+    "lossCases": [
+      ["duckdb-optimizer-closure", "0.771", "0.000", "A later optimization replaced a correctness-safe version with a nondeterministic one. LoopX needs best-so-far checkpointing and final rollback."],
+      ["satellite-flood-change-detection-audit", "0.285", "0.040", "Additional work did not recover the hidden semantic target; continuation without diagnostic evidence can extend the wrong hypothesis."],
+      ["sokoban", "0.981", "0.890", "The task remained strong, but the independent run found a weaker solution. Single-trial sampling variation remains material."],
+      ["apex-openroad-ibex-signoff", "0.000", "0.000", "One physical-design baseline consumed most of the budget. The limiting factor was tool runtime, not frontier recovery."]
+    ],
+    "scoresEyebrow": "04 / Complete task matrix",
+    "scoresTitle": "All 46 tasks, on one denominator.",
+    "scoresBody": "Scores are LHTB continuous rewards. The highest observed value in each row is highlighted. Filters expose large cross-arm spreads and material New-vs-Legacy Heartbeat changes.",
+    "searchPlaceholder": "Search task",
+    "filterLabel": "Task filters",
+    "filters": {"all": "All 46", "spread": "Spread ≥ 0.20", "heartbeat": "Heartbeat |Δ| ≥ 0.05"},
+    "taskColumn": "Task",
+    "visibleCount": "Showing {count} tasks",
+    "programEyebrow": "05 / Research-program mapping",
+    "programTitle": "This study feeds the LoopX long-horizon benchmark program.",
+    "programBody": "The five-arm study predates the shared runtime matrix introduced later in LoopX. It should be read as evidence that motivated the program, not as a completed run of every current execution-mode × task-entry cell.",
+    "programSteps": [
+      ["Native metric", "Keep LHTB reward and the ≥0.95 solve threshold; do not collapse it into a private LoopX score."],
+      ["Typed treatment", "Record continuation owner, session mode, task entry, replan policy, model, effort, and budget as separate dimensions."],
+      ["Mechanism evidence", "Use trajectories to test stall, recovery, repeated work, and correction after contradictory evidence."],
+      ["Integrity gate", "Treat verifier isolation and benchmark fairness as independent qualification axes, not optional footnotes."]
+    ],
+    "programAction": "Read the Long-Horizon Harness RFC",
+    "programUrl": "https://github.com/huangruiteng/loopx/blob/main/docs/architecture/rfcs/long-horizon-harness-benchmark-research-program-v0.md",
+    "limitsEyebrow": "06 / Evidence boundary",
+    "limitsTitle": "Promising mechanism evidence, not a universal capability claim.",
+    "limits": [
+      "One effective trial per task-arm cell; there are no repeated seeds or confidence intervals.",
+      "New Heartbeat changes transport, session lifetime, LoopX version, and replan policy together; the comparison is not a single-variable ablation.",
+      "The effective aggregates include designated replacement trials. Some New Heartbeat replacements used longer budgets; all replacements are disclosed in the underlying study artifacts.",
+      "LoopX receives no hidden verifier diagnostics. More continuation cannot identify an invisible semantic mismatch by itself.",
+      "Tokens and USD use different telemetry conventions across historical and new runs; treat cost as descriptive, not a normalized efficiency ranking."
+    ],
+    "nextTitle": "The next decisive experiment",
+    "nextBody": "Run the shared LoopX runtime matrix with repeated seeds and one variable changed at a time: task entry, fresh vs resumed executor context, replan cadence, and best-so-far rollback. Pre-register reward, solve rate, cost, stall recovery, and repeated-work metrics.",
+    "sourcesEyebrow": "07 / Sources",
+    "sourcesTitle": "Public links and reproducible aggregate evidence.",
+    "sourceItems": [
+      ["LoopX LHTB runner", "Current generic_cli + fresh codex exec Heartbeat implementation and fairness contract.", "https://github.com/huangruiteng/loopx/tree/main/benchmark/LHTB"],
+      ["LHTB official site", "Benchmark definition, leaderboard, and methodology.", "https://zli12321.github.io/LHTB/index.html"],
+      ["LHTB paper", "Long-Horizon Terminal-Bench, arXiv:2607.08964.", "https://arxiv.org/abs/2607.08964"],
+      ["LoopX benchmark RFC", "The broader long-horizon harness benchmark and research program.", "https://github.com/huangruiteng/loopx/blob/main/docs/architecture/rfcs/long-horizon-harness-benchmark-research-program-v0.md"]
+    ],
+    "attestation": "Public aggregate only: no credentials, local paths, gateway addresses, hidden verifier data, or raw trajectories are published here.",
+    "footer": "An exploratory LoopX research brief built from 46-task aggregate evidence.",
+    "backTop": "Back to top"
+  },
+  "zh": {
+    "meta": "LHTB / 五臂探索性研究",
+    "back": "返回 LoopX",
+    "source": "研究代码",
+    "title": "五种让 Agent 跨越长程任务持续工作的方式。",
+    "deck": "对比 Plain、原生 Goal、LoopX SSH-Goal、旧版 Heartbeat 与 fresh-exec 新版 Heartbeat 在 46 个任务上的表现。重点不是只看榜单，而是研究持久状态、Todo 与 replan 如何改变续跑行为。",
+    "evidenceTag": "GPT-5.6 Sol · max 推理 · 46 任务 · 每个 cell 1 条有效轨迹",
+    "contributorsLabel": "研究贡献者",
+    "readingLabel": "阅读路径",
+    "readingPath": [
+      ["01", "结果", "#result"],
+      ["02", "五臂机制", "#mechanisms"],
+      ["03", "LoopX Insight", "#insights"],
+      ["04", "46 题", "#scores"]
+    ],
+    "resultEyebrow": "00 / 核心结果",
+    "resultTitle": "新版 Heartbeat 均分最高，收益集中在进度可外部化、可恢复的任务。",
+    "resultBody": "Plain 均分为 0.4218，新版 Heartbeat 为 0.4948。与旧版 Heartbeat 相比，新版在 46 题中 17 胜、19 平、10 负，均分增加 0.0154。这是有价值的方向性证据，不是因果效应估计。",
+    "summaryColumns": ["实验臂", "平均 Reward", "通过 ≥ 0.95", "记录 Tokens", "USD"],
+    "armLabels": {
+      "plain": "Plain",
+      "native_goal": "原生 Goal",
+      "ssh_goal": "LoopX SSH-Goal",
+      "legacy_heartbeat": "旧版 Heartbeat",
+      "new_heartbeat": "新版 Heartbeat"
+    },
+    "armKinds": {
+      "plain": "基线 · app-server",
+      "native_goal": "基线 · app-server",
+      "ssh_goal": "LoopX · app-server",
+      "legacy_heartbeat": "LoopX 0.5.3 · app-server",
+      "new_heartbeat": "LoopX 1.0.3 · generic_cli"
+    },
+    "deltaMean": "相对旧 Heartbeat 均分",
+    "deltaWins": "任务胜出",
+    "deltaTies": "持平",
+    "deltaLosses": "下降",
+    "readingNoteLabel": "阅读口径",
+    "readingNote": "前四臂是历史 Codex app-server 实验；新版 Heartbeat 使用 generic_cli，每次 wake 启动全新的 codex exec。因此新旧比较同时改变了多个 runtime 维度。历史成本为估算值，新版 Heartbeat 成本来自运行记录。",
+    "benchmarkEyebrow": "01 / Benchmark",
+    "benchmarkTitle": "LHTB 在数百个依赖终端动作之后，按最终产物评分。",
+    "benchmarkBody": "Long-Horizon Terminal-Bench 包含 46 个容器化任务，覆盖九大类别。隐藏的 rebuild-from-artifact verifier 在 [0,1] 连续区间评价最终工作区；模型自报完成不计分。本研究采用 Reward ≥ 0.95 作为通过阈值。",
+    "officialLinks": [
+      ["LHTB 官方网站", "任务分类、排行榜、方法和 harness 说明。", "https://zli12321.github.io/LHTB/index.html"],
+      ["LHTB 论文", "Long-Horizon Terminal-Bench，arXiv:2607.08964。", "https://arxiv.org/abs/2607.08964"]
+    ],
+    "benchmarkFacts": [
+      ["46", "个容器化任务", "游戏、软件、科学、多模态、安全和专业工作流"],
+      ["9", "类任务", "工具、产物与成功标准高度异构"],
+      ["0–1", "连续 Reward", "Partial credit 能显示未完全通过时的进度"],
+      ["≥ .95", "通过阈值", "本研究采用的严格完成标准"]
+    ],
+    "mechanismEyebrow": "02 / 五种执行机制",
+    "mechanismTitle": "模型相同；续跑权和持久状态的归属不同。",
+    "mechanismBody": "五臂均使用 GPT-5.6 Sol、max 推理，并关闭 web search。实验改变的是谁决定继续工作、下一段工作如何表示，以及新执行器能否不依赖旧对话指令恢复任务前沿。",
+    "mechanismRows": [
+      ["plain", "Plain", "由模型会话决定停止", "普通 app-server turn 自己规划、修改并返回；没有持久 Goal，也没有 LoopX registry。"],
+      ["native_goal", "原生 Goal", "由 Codex Goal 维持连续性", "持久的“Finish the task”目标可跨 turn 保留，但不引入 LoopX Todo、quota 或 registry 控制。"],
+      ["ssh_goal", "LoopX SSH-Goal", "由 LoopX dispatcher 决定下一工作切片", "Registry、quota、已领取 Todo、bounded work 与 writeback 让跨 phase 的下一动作保持显式。"],
+      ["legacy_heartbeat", "旧版 Heartbeat", "app-server 中的周期 LoopX 义务", "LoopX 0.5.3 周期性重入长生命周期 app-server，并要求推进一个有边界的工作切片。"],
+      ["new_heartbeat", "新版 Heartbeat", "持久控制面，可替换执行器", "LoopX 1.0.3 每次 wake 启动全新的 codex exec。工作区与 registry 持久化，旧对话指令不复用；每完成三个有效推进 Todo 打开一次 replan review。"]
+    ],
+    "insightEyebrow": "03 / LoopX Insight",
+    "insightTitle": "优势不是更长的聊天，而是可恢复的任务前沿。",
+    "insightBody": "当进度能写入文件和 Todo 时，证据最清楚：当前阶段、已通过检查、剩余模块以及下一条可证伪动作都留在环境中。新的执行器无需从长对话叙述重建意图，就能从项目证据继续。",
+    "insights": [
+      ["状态跨会话存续", "工作区产物加 LoopX registry/Todo 保留停止位置，执行器会话不再是唯一的记忆所有者。"],
+      ["Todo 让续跑可检查", "已领取的 bounded slice 分开当前工作、已完成检查和 successor 工作，降低分阶段修复和多产物任务的恢复歧义。"],
+      ["Replan 能重新打开假终点", "三个有效 Todo 完成后，新版 Heartbeat 打开 review 义务；负面证据可以重定向任务前沿，而不是接受陈旧的“完成”。"],
+      ["Fresh exec 降低指令漂移", "每次 wake 只取得当前 task body 与项目状态，不继承累积对话，把持久控制状态和模型会话状态分开。"]
+    ],
+    "gainTitle": "新版 Heartbeat 提升样例",
+    "gainCases": [
+      ["tabular-data-feature-covshift", "0.292", "0.743", "紧凑的产物—检查闭环给 successor 工作提供了明确目标，是本轮最大提升。"],
+      ["rush-hour-campaign", "0.481", "0.772", "棋盘状态和未完成阶段可以恢复，后续工作继续搜索，而不是重新开始。"],
+      ["apex-management-consulting-matter", "0.433", "0.513", "首轮中断后，fresh executor 从 S27 恢复并完成最后四个 stage。"],
+      ["unknown-config-semantics", "0.000", "0.231", "外部化产物为下一次 wake 提供了足够证据，使旧版零分任务取得部分进展。"]
+    ],
+    "lossTitle": "仅靠继续工作仍解决不了的情况",
+    "lossCases": [
+      ["duckdb-optimizer-closure", "0.771", "0.000", "后续优化把正确安全版本替换成非确定版本；LoopX 仍缺 best-so-far checkpoint 和最终回滚。"],
+      ["satellite-flood-change-detection-audit", "0.285", "0.040", "额外工作没有命中隐藏语义目标；缺少诊断证据时，续跑也可能延长错误假设。"],
+      ["sokoban", "0.981", "0.890", "新版仍然较高，但独立采样找到的解更弱；单 trial 的采样方差不可忽略。"],
+      ["apex-openroad-ibex-signoff", "0.000", "0.000", "一次物理设计 baseline 消耗了大部分时限，瓶颈是外部工具时长，不是任务前沿恢复。"]
+    ],
+    "scoresEyebrow": "04 / 46 题完整矩阵",
+    "scoresTitle": "46 个任务使用同一分母。",
+    "scoresBody": "表格展示 LHTB 连续 Reward，并高亮每题观测到的最高值。筛选器可查看臂间差异较大的任务，以及新旧 Heartbeat 变化明显的任务。",
+    "searchPlaceholder": "搜索任务",
+    "filterLabel": "任务筛选",
+    "filters": {"all": "全部 46 题", "spread": "臂间差异 ≥ 0.20", "heartbeat": "Heartbeat |Δ| ≥ 0.05"},
+    "taskColumn": "任务",
+    "visibleCount": "当前展示 {count} 个任务",
+    "programEyebrow": "05 / 映射到研究计划",
+    "programTitle": "这项实验为 LoopX 长程 benchmark 研究计划提供输入。",
+    "programBody": "五臂实验早于 LoopX 后续统一的 shared runtime matrix。它应被理解为推动研究计划形成的证据，而不是已经跑完所有新版 execution-mode × task-entry cell。",
+    "programSteps": [
+      ["保留原生 Metric", "继续报告 LHTB Reward 与 ≥0.95 通过率，不把它折叠成私有 LoopX 分数。"],
+      ["Treatment 类型化", "把续跑所有者、会话模式、任务入口、replan 策略、模型、推理强度和时限分开记录。"],
+      ["机制证据", "用轨迹研究 stall、恢复、重复工作，以及矛盾证据出现后的纠偏质量。"],
+      ["独立诚信门槛", "Verifier 隔离和 benchmark 公平性是独立资格轴，不能只放在脚注里。"]
+    ],
+    "programAction": "阅读 Long-Horizon Harness RFC",
+    "programUrl": "https://github.com/huangruiteng/loopx/blob/main/docs/architecture/rfcs/long-horizon-harness-benchmark-research-program-v0.zh-CN.md",
+    "limitsEyebrow": "06 / 证据边界",
+    "limitsTitle": "这是有希望的机制证据，不是普适能力结论。",
+    "limits": [
+      "每个 task-arm cell 只有一条有效轨迹，没有多 seed 重复或置信区间。",
+      "新版 Heartbeat 同时改变 transport、会话生命周期、LoopX 版本和 replan 策略，不是单变量消融。",
+      "有效聚合包含指定的替代 trial；部分新版 Heartbeat 替代运行使用更长时限，底层研究产物中保留了披露。",
+      "LoopX 不会获得隐藏 verifier 的诊断信息；单纯增加续跑无法自己识别不可见的语义偏差。",
+      "历史臂与新版臂的 token、USD telemetry 口径不同；成本只作描述，不作为归一化效率排行。"
+    ],
+    "nextTitle": "下一项决定性实验",
+    "nextBody": "按统一 LoopX runtime matrix 做多 seed 对照，每次只改变一个变量：task entry、fresh/resume executor context、replan cadence，以及 best-so-far rollback。预先注册 Reward、通过率、成本、stall recovery 和重复工作指标。",
+    "sourcesEyebrow": "07 / 来源",
+    "sourcesTitle": "公开链接与可复现的聚合证据。",
+    "sourceItems": [
+      ["LoopX LHTB runner", "当前 generic_cli + fresh codex exec Heartbeat 实现与公平性契约。", "https://github.com/huangruiteng/loopx/tree/main/benchmark/LHTB"],
+      ["LHTB 官方网站", "Benchmark 定义、排行榜与方法。", "https://zli12321.github.io/LHTB/index.html"],
+      ["LHTB 论文", "Long-Horizon Terminal-Bench，arXiv:2607.08964。", "https://arxiv.org/abs/2607.08964"],
+      ["LoopX benchmark RFC", "更完整的长程 harness benchmark 与研究计划。", "https://github.com/huangruiteng/loopx/blob/main/docs/architecture/rfcs/long-horizon-harness-benchmark-research-program-v0.zh-CN.md"]
+    ],
+    "attestation": "这里只发布公开聚合数据，不包含凭据、本地路径、网关地址、隐藏 verifier 数据或原始轨迹。",
+    "footer": "基于 46 题聚合证据的 LoopX 探索性研究简报。",
+    "backTop": "回到顶部"
+  }
+}
