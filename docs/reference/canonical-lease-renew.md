@@ -152,6 +152,9 @@ The request decoder separates canonical commands from legacy held-fence requests
 as a discriminated union. Canonical commands never construct `lock_token`, PID,
 terminal-release or shadow-capture fields. The retained legacy executor shares
 the lease decision/materializer, while provider transactions own canonical CAS.
+Identity diagnostics now follow the field being decoded: a missing or non-string
+Todo ID reports `invalid_todo_id`, instead of being mislabeled `invalid_goal_id`
+when the validation message used an underscore.
 
 Responses expose provider/revision/cursor and current-versus-expected version
 on a version conflict. They do not invent a `lease_path`, write a second shadow
@@ -242,6 +245,8 @@ CLI 联合提交后通过原投影器更新展示；失败返回 `projection_del
 不能恢复旧文件。该能力不包含上下文自动送达、接收方确认、capability 授权或外部
 effect fencing。新的专用 wire 保证旧 runtime 不会只执行 lease 半边；解码后的
 判别联合也让 canonical 命令不再携带旧式 lock token、PID、terminal release 字段。
+身份错误码直接对应正在解码的字段：缺失或非字符串 Todo ID 现在返回
+`invalid_todo_id`，不再因错误文案中的下划线而误报为 `invalid_goal_id`。
 
 完整 canonical Todo/lease 集合决定 scope 冲突，不能只看 UI 页面。归档、排除、
 注销或与当前 claim 冲突的 holder 不阻挡新的合格执行。独立 acquire 和原子的

@@ -26,6 +26,17 @@ import {atomicWriteJson} from "../../loopx/control_plane/effect_runtime_io.ts";
 
 const NOW = new Date("2026-09-13T10:05:00Z");
 const CHILD = fileURLToPath(new URL("./canonical_task_lease_renew_process.ts", import.meta.url));
+test("lifecycle identity diagnostics follow the invalid field, not error wording", async () => {
+  for (const [fields, code] of [
+    [{goal_id: 42, todo_id: "todo_valid"}, "invalid_goal_id"],
+    [{goal_id: "valid-goal", todo_id: 42}, "invalid_todo_id"],
+    [{goal_id: "valid-goal"}, "invalid_todo_id"],
+  ] as const) {
+    const result = await executeTaskLeaseLifecycle({schema_version: TASK_LEASE_CANONICAL_LIFECYCLE_REQUEST_SCHEMA,
+      operation: "release", ...fields});
+    assert.equal(result.error_code, code);
+  }
+});
 function sqliteSkipReason(): string | undefined {
   try { sqliteAuthorityRuntime(); return undefined; }
   catch { return "requires a WAL-fixed SQLite runtime with finalized statements"; }

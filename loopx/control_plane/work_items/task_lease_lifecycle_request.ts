@@ -339,13 +339,14 @@ export function decodeTaskLeaseLifecycleRequest(value: unknown): DecodedLifecycl
   }
   let goalId: string;
   let todoId: string;
+  let invalidIdentity: "invalid_goal_id" | "invalid_todo_id" = "invalid_goal_id";
   try {
     goalId = normalizeGoalId(input.goal_id);
+    invalidIdentity = "invalid_todo_id";
     todoId = normalizeTodoId(input.todo_id);
   } catch (error) {
     const message = error instanceof Error ? error.message : "lease identity is invalid";
-    const code = message.includes("todo id") ? "invalid_todo_id" : "invalid_goal_id";
-    throw new TaskLeaseLifecycleError(message, code);
+    throw new TaskLeaseLifecycleError(message, invalidIdentity);
   }
 
   if (canonical && operation === "release" && input.ttl_seconds != null) {

@@ -569,6 +569,34 @@ def _normalize_lifecycle_expected_version(
         ) from exc
 
 
+def _settle_canonical_lifecycle_result(
+    result: dict[str, Any], *, request: dict[str, Any], registry_path: Path | None,
+) -> dict[str, Any]:
+    """Validate provider provenance and deliver the committed Todo projection."""
+    if (
+        request["operation"] not in {"renew", "transfer", "release"}
+        or result.get("source_authority") not in ("file_v0", "sqlite_v0")
+        or result.get("decision_read_from_provider") is not True
+        or result.get("legacy_fallback_used") is not False
+    ):
+        raise RuntimeError("canonical task-lease result has invalid provider evidence")
+    # The provider already owns its lease/event/receipt. No legacy shadow write
+    # is allowed here, and lease-only commands require no Todo display delivery.
+    if request.get("transfer_claim") is not True:
+        return result
+    if result.get("transfer_claim") is not True or result.get("claimed_by") != request["new_owner"]:
+        raise RuntimeError("canonical claim transfer omitted its committed result")
+    from ..todos.provider_projection import settle_canonical_todo_projection
+
+    assert registry_path is not None
+    # Display failure cannot undo the joint authority commit. The existing
+    # outbox reports pending; retries render current head, not the old receipt.
+    return settle_canonical_todo_projection(
+        result, registry_path=registry_path, runtime_root=Path(request["runtime_root"]),
+        goal_id=request["goal_id"],
+    )
+
+
 def execute_native_task_lease_lifecycle(
     *,
     runtime_root: Path,
@@ -761,27 +789,7 @@ def execute_native_task_lease_lifecycle(
         if canonical_lifecycle and "source_authority" not in result:
             raise RuntimeError("canonical lease lifecycle omitted provider evidence")
         if "source_authority" in result:
-            if (
-                normalized_operation not in {"renew", "transfer", "release"}
-                or result.get("source_authority") not in ("file_v0", "sqlite_v0")
-                or result.get("decision_read_from_provider") is not True
-                or result.get("legacy_fallback_used") is not False
-            ):
-                raise RuntimeError("canonical task-lease result has invalid provider evidence")
-            # The canonical transaction already owns its lease/event/receipt.
-            # Do not attach a second legacy lease-file or shadow write.
-            if transfer_claim:
-                if result.get("transfer_claim") is not True or result.get("claimed_by") != new_owner:
-                    raise RuntimeError("canonical claim transfer omitted its committed result")
-                from ..todos.provider_projection import settle_canonical_todo_projection
-
-                # Display failure cannot undo the joint authority commit. The
-                # existing outbox reports pending and retries render current head.
-                assert registry_path is not None
-                return settle_canonical_todo_projection(
-                    result, registry_path=registry_path, runtime_root=runtime_root, goal_id=goal_id,
-                )
-            return result
+            return _settle_canonical_lifecycle_result(result, request=request, registry_path=registry_path)
         if authority is not None and authority.get("handoff_mode") and "handoff_mode" not in result:
             result["handoff_mode"] = authority["handoff_mode"]
         if _legacy_provider_projection:
