@@ -1635,7 +1635,7 @@ function PersonalGoalHome({
           return { ...current, [contextId]: [...updated, ...fresh.map((row) => ({
             id: managerMessageId.current++, sourceMessageId: row.message_id,
             role: "assistant" as const,
-            agentLabel: answerIdentityLabel(contextId, selectedAgent.label),
+            agentLabel: "协作回执",
             sourceLabel: "协作回执", text: visibleAgentMessage(row.text), lines: [],
             returnDelivery: row.return_delivery,
           }))] };
@@ -1733,6 +1733,8 @@ function PersonalGoalHome({
               sourceMessageId: message.message_id,
               agentLabel: message.role === "user"
                 ? undefined
+                : message.origin === "manager_followup"
+                  ? "协作回执"
                 : answerIdentityLabel(targetContextId, selectedAgent.label),
               attachments: workspaceImageAttachments(message.attachments),
               id: managerMessageId.current++,
