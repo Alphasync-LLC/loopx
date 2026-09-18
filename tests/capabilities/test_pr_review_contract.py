@@ -125,7 +125,7 @@ def test_execution_contract_owns_deep_review_requirements() -> None:
         "compatibility_only",
         "unknown",
     }
-    assert "raising a budget" in semantic["rule"]
+    assert "unjustified budget increases" in semantic["rule"]
     assert semantic["fields"] == ["checked_scope", "impact_reason", "verdict"]
     assert semantic["fields_by_verdict"]["not_applicable"] == []
     assert "analysis_limit" in semantic["fields_by_verdict"]["advisory"]
@@ -456,6 +456,18 @@ def test_public_cli_delivers_state_review_without_claiming_it_was_performed(caps
         "introduced_or_newly_enforced_state"
     )
     assert requirements["observable_semantics"]["state_projection_counterfactuals"]["cases"]
+    # The shipped packet must support justified growth as well as compaction;
+    # neither smaller output nor a passing revised ceiling proves correctness.
+    budget_rule = requirements["semantic_alignment"]["rule"]
+    for obligation in (
+        "hard limits from regression budgets and presentation caps",
+        "base/head measurements under the same workload and metric",
+        "consumer value, true redundancy, compatibility cost and headroom",
+        "Evidence-backed budget increases are valid",
+        "deleting decision semantics",
+        "Frozen experiment or promotion thresholds",
+    ):
+        assert obligation in budget_rule
     assert packet["pull_requests"]
     reviewed_code = False
     for item in packet["pull_requests"]:
@@ -469,6 +481,7 @@ def test_public_cli_delivers_state_review_without_claiming_it_was_performed(caps
             reviewed_code = True
             assert evidence["repository_reuse"] == {"status": "unverified"}
             assert evidence["observable_semantics"] == {"status": "unverified"}
+            assert evidence["semantic_alignment"] == {"status": "unverified"}
     assert reviewed_code
 
 

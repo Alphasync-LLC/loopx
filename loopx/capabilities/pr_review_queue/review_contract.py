@@ -4,7 +4,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 # Increment when review requirements change without changing the packet shape.
-REVIEW_POLICY_REVISION = 6
+REVIEW_POLICY_REVISION = 7
 
 REQUIRED_FINAL_SECTIONS = [
     "动机",
@@ -285,8 +285,18 @@ def build_review_execution_contract(*, wait_for_ci: bool = True) -> dict[str, An
                     "approval and must name the contract, PR trigger, observed evidence, minimum "
                     "repair and rerun command. Advisory cannot override a required CI failure "
                     "or concrete blocking finding. Do not promote future/advisory RFC properties "
-                    "to current obligations. Reject hiding a failure by renaming a symbol, "
-                    "raising a budget, narrowing the scan root or registering an unrelated value. "
+                    "to current obligations. For budget failures or changes, distinguish "
+                    "hard limits from regression budgets and presentation caps. Reuse "
+                    "validation_matrix and observable_semantics for base/head measurements under the same workload and metric; "
+                    "assess consumer value, true redundancy, compatibility cost and headroom. "
+                    "Evidence-backed budget increases are valid when the owning contract and "
+                    "tests change together; compare them with compaction or retaining the limit. "
+                    "Preserve the original failure and any remaining evidence gaps. Hard limits "
+                    "still require their owner's authority. Frozen experiment or promotion thresholds "
+                    "cannot be relaxed to relabel an existing result as passing. "
+                    "Reject hiding a failure through unjustified budget increases, "
+                    "deleting decision semantics, cosmetic renaming, narrowing the scan root or "
+                    "comparison workload, or registering an unrelated value. "
                     "Docs-only reviews may supply this same row when contract impact is found."
                 ),
             },
