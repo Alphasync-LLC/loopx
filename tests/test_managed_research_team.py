@@ -82,10 +82,11 @@ def test_canonical_delivery_requires_completed_current_dependencies(team, monkey
              "--todo-id", "todo_reviewer-initial", "--text", "Independently analyze the initial filing and sources")
     with pytest.raises(RuntimeError, match="goal_acceptance_stale"):
         demo.complete(root, "reviewer", "initial")
+    document = json.loads((root / "bootstrap.json").read_text())["document"]
+    provider_revision = inspect_goal_acceptance(**route)["provider_revision"]
     with pytest.raises(ValueError):
-        configure_goal_acceptance(**route, document=json.loads((root / "bootstrap.json").read_text())["document"],
-                                  agent_id="lead", expected_provider_revision=inspect_goal_acceptance(**route)["provider_revision"],
-                                  execute=True)
+        configure_goal_acceptance(**route, document=document, agent_id="lead",
+                                  expected_provider_revision=provider_revision, execute=True)
     held = plan(root, "reviewer", "initial")
     assert not held.get("turn_envelope", {}).get("action", {}).get("delivery_allowed", False), held
     # Explicit owner amendment for this negative fixture, never done by delegate().

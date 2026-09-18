@@ -253,7 +253,7 @@ def build_result(
         if field == "vision_unchanged_reason":
             continue
         value = candidate.get(field)
-        text = _bounded(value, limit=limit) if value else ""
+        text = _bounded(value, limit=limit)
         if text:
             result[field] = text
 

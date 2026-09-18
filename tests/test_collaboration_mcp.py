@@ -2,10 +2,21 @@
 
 import asyncio
 import json
+import subprocess
 import sys
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+
+
+def test_serving_mcp_still_requires_an_explicit_workspace(tmp_path):
+    result = subprocess.run([
+        sys.executable, "-m", "loopx.collaboration_mcp",
+        "--runtime-root", str(tmp_path), "--registry", str(tmp_path / "registry.json"),
+        "--goal-id", "delivery", "--agent-id", "builder",
+    ], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 2
+    assert "--workspace is required when serving MCP" in result.stderr
 
 
 def test_scoped_stdio_tools_do_not_offer_shell_or_sender_override(tmp_path):

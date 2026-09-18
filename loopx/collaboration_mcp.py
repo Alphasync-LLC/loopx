@@ -177,7 +177,6 @@ class Delegations:
             sys.executable, "-m", "loopx.collaboration_mcp", "--delegation-action", "worker", "--runtime-root", str(self.root),
             "--registry", str(self.registry), "--goal-id", self.goal_id,
             "--agent-id", self.agent_id, "--execution-config", str(self.config), "--operation-id=" + operation_id,
-            "--workspace", _read(self.path(operation_id))["identity"]["binding"]["workspace"],
         ], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True, close_fds=True)
 
@@ -305,6 +304,7 @@ class Delegations:
         request_id = row["identity"]["request_id"]
         common = ["--goal-id", self.goal_id, "--agent-id", binding["agent_id"]]
         host = binding["host_args"]
+        # Preserve the journaled validator argv so existing Turns retain their resume identity.
         validator = [sys.executable, "-m", "loopx.collaboration_mcp", "--delegation-action", "validate", "--runtime-root", str(self.root),
                      "--registry", str(self.registry), "--goal-id", self.goal_id,
                      "--agent-id", self.agent_id, "--execution-config", str(self.config),
@@ -407,7 +407,7 @@ def main():
     parser.add_argument("--registry", type=Path, required=True)
     parser.add_argument("--goal-id", required=True)
     parser.add_argument("--agent-id", required=True)
-    parser.add_argument("--workspace", type=Path, required=True)
+    parser.add_argument("--workspace", type=Path, help="Required when serving MCP; workers use their pinned binding")
     parser.add_argument("--execution-config", type=Path, help="Explicit operator-owned local execution bindings")
     parser.add_argument("--delegation-action", choices=["worker", "validate"],
                         help="Run a host-owned delegation action instead of serving MCP")
@@ -426,6 +426,8 @@ def main():
             except LockAcquireTimeoutError:
                 pass  # Another worker still owns the operation after the bounded wait.
         return
+    if args.workspace is None:
+        parser.error("--workspace is required when serving MCP")
     create_server(
         args.runtime_root.resolve(),
         args.registry.resolve(),

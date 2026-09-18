@@ -158,18 +158,22 @@ def test_detached_result_reconnects_without_duplicate_execution(service):
     assert (root / "analyst" / "initial" / "host-invocations").read_text() == "1"
     assert demo.canonical_tasks(root)["todo_analyst-initial"]["done"]
     returned = returns(original.root, original.goal_id, "lead")["items"]
-    assert len(returned) == 1 and returned[0]["decision"] == "adopt"
+    assert len(returned) == 1
+    assert returned[0]["decision"] == "adopt"
     assert wait(reconnected)["artifacts"] == result["artifacts"]
+    changed_brief = {**brief(), "purpose": "Changed instruction"}
     with pytest.raises(ValueError, match="identity conflict"):
-        reconnected.start("analysis", "analysis-1", {**brief(), "purpose": "Changed instruction"})
+        reconnected.start("analysis", "analysis-1", changed_brief)
+    ungranted = Delegations(original.root, original.registry, original.goal_id, "reviewer", original.config)
+    original_brief = brief()
     with pytest.raises(Exception, match="no delegation grant"):
-        Delegations(original.root, original.registry, original.goal_id, "reviewer", original.config).start("analysis", "other", brief())
+        ungranted.start("analysis", "other", original_brief)
     registry = json.loads(original.registry.read_text())
     registry["goals"][0]["status"] = "stopped"
     original.registry.write_text(json.dumps(registry))
     assert reconnected.read("analysis-1")["status"] == "accepted"
     with pytest.raises(ValueError, match="stopped"):
-        reconnected.start("analysis", "new-operation", brief())
+        reconnected.start("analysis", "new-operation", original_brief)
     registry["goals"][0]["status"] = "active"
     original.registry.write_text(json.dumps(registry))
     output = root / "analyst" / "initial" / "output.json"
@@ -183,7 +187,8 @@ def test_model_success_without_receiver_adoption_cannot_complete(service):
     (root / "skip-adoption").touch()
     runner.start("analysis", "analysis-1", brief())
     result = wait(runner)
-    assert result["status"] == "rejected" and "did not adopt" in result["error"]
+    assert result["status"] == "rejected"
+    assert "did not adopt" in result["error"]
     assert not demo.canonical_tasks(root)["todo_analyst-initial"]["done"]
 
 
