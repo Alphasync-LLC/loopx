@@ -134,14 +134,14 @@ def _normalize_cadence(value: Any) -> str:
     raise ValueError("cadence must look like 30m, 2h, 1d, hourly, or daily")
 
 
-def _monitor_metadata(parameters: Mapping[str, Any]) -> dict[str, str]:
+def _monitor_metadata(parameters: Mapping[str, Any], *, schedule: bool = True) -> dict[str, str]:
     metadata = {
         key: str(parameters[key])
         for key in ("target_key", "cadence")
         if parameters.get(key)
     }
     cadence = metadata.get("cadence")
-    if cadence:
+    if cadence and schedule:
         next_due_at = monitor_next_due_at(
             generated_at=now_utc().isoformat(),
             cadence=cadence,
@@ -427,6 +427,9 @@ class ChatActionService(
         )
 
     def _goal_state_fingerprint(self, goal_id: str) -> str:
+        basis = self._canonical_update_basis(goal_id)
+        if basis is not None:
+            return _digest({"goal_id": goal_id, "canonical_update_basis": basis})
         goal = self._goal(goal_id)
         project = Path(str(goal.get("repo") or "")).expanduser().resolve()
         state_file = Path(str(goal.get("state_file") or ""))
@@ -1134,6 +1137,7 @@ class ChatActionService(
         if not isinstance(parameters, Mapping) or not isinstance(context, Mapping):
             raise ValueError("normalized_parameters and context must be objects")
         normalized = self._normalize(action_kind, parameters)
+        canonical_update_basis = None
         if action_kind == "goal.create":
             project, _source_goal = self._project_for_goal_create(
                 {
@@ -1181,8 +1185,15 @@ class ChatActionService(
             ]
             permission = "durable_write"
         elif action_kind in {"todo.update", "monitor.update"}:
-            if action_kind == "todo.update":
-                canonical_preview = self._run_todo_update(normalized, dry_run=True)
+            reviewed_edit = (
+                action_kind == "todo.update" and normalized.get("operation") != "complete"
+            ) or (
+                action_kind == "monitor.update" and normalized.get("operation") not in {"stop", "run_now"}
+            )
+            canonical_update_basis = self._canonical_update_basis(normalized["goal_id"]) if reviewed_edit else None
+            if action_kind == "todo.update" or normalized.get("operation") != "run_now":
+                run = self._run_todo_update if action_kind == "todo.update" else self._run_monitor_update
+                canonical_preview = run(normalized, dry_run=True, basis=canonical_update_basis)
                 if canonical_preview.get("ok") is not True:
                     raise ValueError(
                         str(
@@ -1190,7 +1201,9 @@ class ChatActionService(
                             or "Todo transition failed canonical dry-run validation"
                         )
                     )
-            goal_fingerprint = self._goal_state_fingerprint(normalized["goal_id"])
+            goal_fingerprint = (_digest({"goal_id": normalized["goal_id"],
+                "canonical_update_basis": canonical_update_basis}) if canonical_update_basis is not None
+                else self._goal_state_fingerprint(normalized["goal_id"]))
             if (
                 action_kind == "monitor.update"
                 and normalized.get("operation") == "run_now"
@@ -1212,8 +1225,8 @@ class ChatActionService(
                 fingerprint = goal_fingerprint
             evidence = [
                 "Canonical LoopX Todo dry-run validated the requested transition."
-                if action_kind == "todo.update"
-                else "Canonical LoopX Todo state validated the requested transition."
+                if normalized.get("operation") != "run_now"
+                else "The monitor execution request is bound to the current Goal state."
             ]
             permission = "durable_write"
         else:
@@ -1245,6 +1258,7 @@ class ChatActionService(
             idempotency_key=_opaque(
                 request.get("idempotency_key"), field="idempotency_key"
             ),
+            canonical_update_basis=canonical_update_basis,
         )
         return (
             self.store.arm_operation(str(proposal["proposal_id"]))
