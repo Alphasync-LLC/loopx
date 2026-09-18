@@ -889,6 +889,7 @@ def check_contract(
     activation_state_filter: GoalActivationState | str | None = None,
     include_public_boundary_scan: bool = True,
     history_audit: RunHistoryAudit | None = None,
+    registry: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     error_diagnostics: list[dict[str, Any]] = []
     warnings: list[str] = []
@@ -936,7 +937,8 @@ def check_contract(
         for risk in boundary_payload.get("risks") or []:
             add_global_error("registry_boundary_risk", f"registry boundary risk: {risk}")
 
-    registry = load_registry(registry_path)
+    if registry is None:
+        registry = load_registry(registry_path)
     todo_contract_diagnostics, checked_user_gates = (
         _active_state_todo_contract_diagnostics(
             registry,
