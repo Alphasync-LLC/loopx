@@ -285,6 +285,41 @@ commit/push; approval of an unrelated copy edit does not approve this scene.
 
 ## 9. Acceptance
 
+### First live outcome: one understandable correction
+
+The immediate product target is one **real objection → revision → independent
+acceptance → requester adoption**, visible through the packaged workspace with
+usable evidence and intervention/stop controls. This is L1's exit condition;
+it is not postponed to a later visual polish or continuity phase. A synthetic
+script, current-status roster, or stream connection alone cannot satisfy it.
+
+| Moment / user question | Required production evidence and interaction |
+| --- | --- |
+| Who objected, and to what? | An attributed request or review outcome bound to the challenged claim/artifact version and its evidence; do not classify free text into an authoritative objection state |
+| What changed? | Explicit lineage between the original and revised artifacts, with inspectable inputs and a readable difference; differing hashes alone do not establish a correction |
+| What passed acceptance? | Independent acceptance for that exact revision, with verifier/source identity and freshness; superseded inputs invalidate the current badge rather than preserving a reassuring historical label |
+| Who adopted it? | Requester-owned evidence referencing the accepted revision and the resulting synthesis or next work; delivery, receiver task adoption, requester read/consumption and agreement counts are insufficient |
+| Can I intervene or stop? | An existing authorized intervention route with visible queued/delivered/applied distinctions, and a stop/pause route naming its actual target and returned effect; pending or failed control stays visible |
+
+Exercise this same real episode through the frontend and independent CLI
+readback. Show unexecuted work, rejected acceptance, missing adoption, stale
+artifacts and lost observation without completing the chain visually. A user
+must be able to locate the relevant evidence and tell what the control changed.
+Pausing the coordinator does not stop dispatched workers: name those workers and
+the remaining execution scope. If worker cancellation is unsupported, state it
+explicitly; a whole-team stop claim requires worker-owner termination readback.
+
+The current producer gap is substantive: `consume_return` records consumption,
+not version-bound requester adoption; research-specific adoption checks in an
+example are not a generic production projection. Extend the existing owning
+contract and its real caller where necessary, rather than inventing frontend
+completion from prose. Do not claim L1 complete until this gap is closed for the
+selected episode. Motion is retained only when it clarifies these transitions;
+remove effects that obscure absent execution, absent acceptance or source loss.
+Broader semantic zoom, extra actors and renderer experiments follow this exit.
+
+### Qualification matrix
+
 | ID | Required evidence | Passing result / exclusion |
 | --- | --- | --- |
 | V1 Truth | Synthetic lifecycle, stale artifact, missing adoption and lost connection | All axes remain distinct; no fabricated executing/accepted/complete state |
@@ -322,15 +357,16 @@ sensitive event bodies in diagnostics.
 | Slice | Complete useful result | Entry / exit | Owner and rollback |
 | --- | --- | --- | --- |
 | L0 Design and traceability | Interactive synthetic study, source audit and executable acceptance plan | Design review; V1/V3 concept checks; no live claim | Presentation; discard prototype, retain decisions |
-| L1 Live small-team scene | Existing Team execution opens current scoped work, follows returns and exposes exact evidence; list and scene agree | Existing admitted bindings; V1/V2/V3/V6 with real entrypoint | Collaboration projection + Chat/packaged UI; disable scene |
+| L1 One real correction | Objection→revision→independent acceptance→requester adoption is understandable, with evidence, intervention and accurately scoped stop controls | Section 9 first live outcome; V1/V2/V3/V6 and episode-level V7 through real frontend + CLI | Collaboration/evidence/control owners + Chat/packaged UI; disable scene without implying work stopped |
 | L2 Continuous research | Original research Agent completes V4 and the user replays correction→adoption→next cycle | Runtime credential/admission repairs and usable L1; qualify each host profile, then V4 | Existing R2/R3 owners; stop new admission and retain results |
 | L3 Semantic zoom and scale | Subteams, source/conclusion version comparison and focused replay at measured 10/30/100 display load | Typed lineage producers and L2; V5/V7 and approved first-screen composition | Presentation + evidence owner; reduce detail/revert renderer |
 
 The next executable implementation is **L1**, a complete observation-to-user
-vertical, not an event schema alone. Include source collection, typed projection,
-reconnect semantics, packaged UI, independent CLI readback and failure cases in
-one delivery plan. Inventory existing receipt identities before choosing a new
-transport schema. Keep expensive validation outside routine polling.
+vertical with the complete Section 9 correction episode. Include missing
+version/adoption producers, source collection, typed projection, reconnect
+semantics, packaged UI, evidence navigation, intervention/stop feedback,
+independent CLI readback and failure cases in one delivery plan. Inventory
+existing receipt identities before choosing a new transport schema. Keep expensive validation outside routine polling.
 
 R2 remains the execution priority: resolve runtime admission/authentication in its
 current owner; prove two useful cycles; then qualify governed task derivation and
@@ -345,8 +381,8 @@ its complete return journey is separately qualified and is not a 3D UI port.
 ## 12. Open decisions
 
 - **Presentation owner, before L1:** final art direction and motion grammar.
-  Recommendation: a command surface plus spatial research studio, with semantic
-  zoom and conclusion revision as the signature. Test populated and failed states.
+  Recommendation: a command surface plus spatial research studio, judged first
+  on one real correction. Defer expanded semantic zoom; test populated and failed states.
 - **Collaboration/transport owners, before L1:** reuse or extend existing event
   receipts for a restartable team stream. Audit durable coverage; choose a scoped
   cache only if the current owners cannot supply the needed projection directly.

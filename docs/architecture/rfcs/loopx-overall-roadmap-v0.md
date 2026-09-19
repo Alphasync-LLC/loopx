@@ -300,8 +300,9 @@ RFC](live-team-workspace-v0.md) joins a precise command surface with a spatial
 research studio: visible artifact exchange, sourced disagreement, conclusion
 revision, replay and semantic zoom. It is a presentation slice of existing
 owners, not a second orchestrator. The next complete frontend slice connects
-requester-scoped execution/return facts to one recoverable projection and the
-packaged workspace, with independent CLI readback and honest degraded states.
+one real objection→revision→independent acceptance→requester adoption episode
+to the packaged workspace, with inspectable evidence, intervention/stop feedback,
+independent CLI readback and honest degraded states.
 Then qualify the original research coordinator through the same two real cycles
 required above. Existing runtime admission/provider repairs retain their owner;
 a synthetic scene is not readiness evidence. Expand display load 10→30→100 only
