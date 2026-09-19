@@ -900,6 +900,27 @@ export type DelegationPreflight = {
   turn_eligible: boolean; acceptance_ready: boolean; turn_route: string;
   executor: {host: string; available: boolean | null; reason: string | null; profile: string | null};
 };
+export type DelegationReadback = {
+  operation_id: string; request_id: string; agent_id: string; todo_id: string;
+  status: string; worker_active: boolean; recovery_required: boolean;
+  artifacts?: Array<{ref: string; sha256: string; text: string}>; error?: string;
+};
+export function readLoopXTeamWork(sessionId: string, operationId: string) {
+  return requestJson<DelegationReadback>(`/api/chat/sessions/${sessionId}/loopx`, {
+    method: "POST", body: JSON.stringify({operation: "read", operation_id: operationId}),
+  });
+}
+// Keep inventory and selected-operation labels consistent; unknown states stay unknown.
+export function delegationStateLabel(row: {status: string; worker_active?: boolean; recovery_required: boolean | null}, zh: boolean) {
+  if (row.status === "unavailable") return zh ? "无法核验" : "Unavailable";
+  if (row.status === "accepted") return zh ? "已通过当前验收" : "Currently accepted";
+  if (row.status === "rejected") return zh ? "未通过验收" : "Rejected";
+  if (row.recovery_required) return zh ? "需要恢复原执行" : "Original execution needs recovery";
+  if (row.status === "running" && row.worker_active) return zh ? "执行中" : "Executing";
+  if (row.status === "turn_returned" && row.worker_active) return zh ? "正在验收" : "Validating";
+  if (["prepared", "running", "turn_returned"].includes(row.status)) return zh ? "已派发，等待执行回读" : "Dispatched; awaiting execution readback";
+  return zh ? "状态未知" : "Unknown state";
+}
 export function fetchLoopXTeamWork(sessionId: string, cursor?: string) {
   return requestJson<DelegationInventory>(`/api/chat/sessions/${sessionId}/loopx`, {
     method: "POST", body: JSON.stringify({operation: "operations", limit: 10, ...(cursor ? {cursor} : {})}),
@@ -915,9 +936,9 @@ export function updateLoopXMode(sessionId: string, operation: string, settings?:
     method: "POST", body: JSON.stringify({operation, operation_id: operationId, ...(settings ? {settings} : {})}),
   });
 }
-export function sendLoopXMessage(sessionId: string, message: string, deliveryMode: "queue" | "inbox" | "steer") {
+export function sendLoopXMessage(sessionId: string, message: string, deliveryMode: "queue" | "inbox" | "steer", operationId: string = crypto.randomUUID()) {
   return requestJson<{ok: true; status: string; delivery_mode: string}>(`/api/chat/sessions/${sessionId}/loopx`, {
-    method: "POST", body: JSON.stringify({operation: "message", operation_id: crypto.randomUUID(), message, delivery_mode: deliveryMode}),
+    method: "POST", body: JSON.stringify({operation: "message", operation_id: operationId, message, delivery_mode: deliveryMode}),
   });
 }
 

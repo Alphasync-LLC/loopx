@@ -220,15 +220,30 @@ Enabled MCP exposes `inspect_execution_binding`; newly enrolled Goal Chat tools
 accept `action=inspect` with `binding_id`. Existing native thread schemas remain
 unchanged. Owners can use **Team execution** directly below the Goal conversation
 controls after configuring its existing bindings, including while paused or
-before enabling LoopX mode. Expand it to recover paged work and artifact hashes,
-or check one member's prerequisites. Reads run only on request; ordinary polling
-does not run validators or preflight. Closing the panel changes no work state.
-This local operator entrypoint does not grant a Lark audience access.
+before enabling LoopX mode. Select **Evidence and feedback** on an original operation to read its bounded
+artifact content. This uses the same `delegate read` owner: bindings, pinned
+acceptance, canonical completion and current file bytes are checked again.
+Changed or unavailable evidence clears the prior content. These are on-demand
+observations, not continuous liveness; accepted output does not prove requester
+adoption. Text is rendered inertly, and source/version identifiers remain
+inspectable. Returning preserves the execution list and keyboard focus.
 
-中文：配置原有执行绑定后，在 Goal 对话中展开「团队执行情况」，不必让模型转述或
-跳到另一个页面。可分页查看原请求、当前验收与产物哈希，点「检查启动条件」读取
-指定任务的 Turn 决策及实际模型配置。运行时未探测时明确显示「尚未验证」，不能
-把已登记、已分配或 dry-run 成功当作正在运行。暂停时仍可检查；检查不启动成员。
+While the original coordinator is executing, feedback includes the selected
+operation and observed artifact hashes in its existing inbox. Pending and delivered
+receipts stay distinct from application; a retry after an uncertain response
+reuses the exact message and operation id. **Pause coordinator** stays in the
+panel and reports its actual scope. Dispatched members continue independently;
+this entrypoint cannot stop the whole team. Ordinary polling does not read artifact
+bodies or run preflight. Closing the panel changes no work state. This local
+operator entrypoint does not grant a Lark audience access.
+
+中文：配置原有执行绑定后，在 Goal 对话的「团队执行情况」中选择原执行的
+「查看证据与反馈」，直接读取经当前验收、绑定和文件核验的产物正文。文件变化或
+读取失败时清除旧内容；这是按需观察，验收通过不代表协调员已采用。来源和版本标识
+可展开查看，返回列表保留位置与键盘焦点。协调员运行时，可把执行标识、看到的
+产物哈希和反馈投递到原收件箱；等待投递、已交付和已应用不能混为一谈。不确定响应
+后重试同一消息和标识，避免重复投递。面板内的「暂停协调员」显示实际反馈，但不会
+停止已派发成员，也不宣称整个团队停止。暂停时仍可检查证据；读取不启动模型。
 
 ## Use the same bindings through MCP
 

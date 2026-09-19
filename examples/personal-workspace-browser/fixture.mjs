@@ -1474,6 +1474,22 @@ export async function installApi(page, { goalSubagentConfigurationEnabled = true
         await route.fulfill({json: paused});
         return;
       }
+      if (body.operation === "read") {
+        if (body.operation_id !== "accepted-analysis") {
+          await route.fulfill({status: 409, json: {ok: false, error: "delegation artifact unavailable"}});
+        } else {
+          await route.fulfill({json: {ok: true, operation_id: body.operation_id, request_id: "request-analysis",
+            agent_id: "local-analyst", todo_id: "todo_analysis", status: "accepted", worker_active: false,
+            recovery_required: false, artifacts: [{ref: "report.json", sha256: "d".repeat(64),
+              text: '{"cash_flow":75,"note":"<script>window.artifactExecuted=true</script>"}'}]}});
+        }
+        return;
+      }
+      if (body.operation === "message") {
+        current.ingress.push({client_ingress_id: body.operation_id, mode: "loopx_inbox", status: "pending"});
+        await route.fulfill({json: {ok: true, status: "pending", delivery_mode: "inbox"}});
+        return;
+      }
       if (body.operation === "operations") {
         const items = body.cursor ? [{record_id: "c".repeat(64), operation_id: "needs-recovery",
           agent_id: "cloud-reviewer", todo_id: "todo_review", status: "running", worker_active: false, recovery_required: true}]

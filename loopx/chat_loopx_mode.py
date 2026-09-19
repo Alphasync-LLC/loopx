@@ -250,20 +250,30 @@ class ChatLoopXMode:
     def read_team(self, session_id, body):
         """Owner readback stays available while paused; no model Turn is submitted."""
         operation = body.get("operation")
-        allowed = {"operation", "binding_id"} if operation == "inspect" else {"operation", "limit", "cursor"}
-        if operation not in {"inspect", "operations"} or set(body) - allowed:
+        fields = {
+            "inspect": {"operation", "binding_id"},
+            "operations": {"operation", "limit", "cursor"},
+            "read": {"operation", "operation_id"},
+        }
+        if operation not in fields or set(body) - fields[operation]:
             raise ValueError("invalid team readback request")
         session = self._session(session_id)
         settings = (session.get("loopx_mode") or {}).get("settings") or {}
         if not settings.get("agent_id"):
             raise ValueError("configure a coordinator identity before team readback")
         service, _, _, _ = self._execution(session, settings)
-        result = (service.inspect(body.get("binding_id", "")) if operation == "inspect" else
-                  service.operations(limit=body.get("limit", 10), cursor=body.get("cursor")))
+        if operation == "read":
+            from .control_plane.collaboration.peers import require_operation_id
+
+            result = service.read(require_operation_id(body.get("operation_id")))
+        elif operation == "inspect":
+            result = service.inspect(body.get("binding_id", ""))
+        else:
+            result = service.operations(limit=body.get("limit", 10), cursor=body.get("cursor"))
         return {"ok": True, **result}
 
     def apply(self, session_id, body, *, work_dir, objective):
-        if body.get("operation") in {"inspect", "operations"}:
+        if body.get("operation") in {"inspect", "operations", "read"}:
             return self.read_team(session_id, body)
         if set(body) - {
             "operation",

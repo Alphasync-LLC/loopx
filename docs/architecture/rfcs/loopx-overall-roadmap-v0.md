@@ -291,6 +291,13 @@ preflight through the actual Turn dry-run and selected executor/profile. Task
 admission, current pinned acceptance and runtime availability remain distinct;
 unprobed generic/cloud availability stays unknown. The same inspection is available
 to CLI and enabled MCP/new Chat tools, without a new state store or launch effect.
+The same owner-local panel now opens current validated artifact text and its
+version/source identifiers, accepts feedback through the original coordinator
+inbox and exposes coordinator pause with its actual scope. Stale reads clear prior
+content; delivery does not establish application, acceptance does not establish
+requester adoption, and coordinator pause does not stop workers. This inspection
+and control slice leaves correction lineage and version-bound requester adoption
+open; it is not qualification of a real objection/revision/acceptance/adoption episode.
 This qualifies a local execution-facts readback, not the full R2 ladder: assignment
 receipt integration, provisioning, remote probes, two-cycle continuation and Lark
 qualification remain open under their existing owners.
