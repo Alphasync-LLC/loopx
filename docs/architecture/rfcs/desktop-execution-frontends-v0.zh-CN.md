@@ -139,6 +139,13 @@ broker 保留显式的 Agent 与频道路由，一个 Bot 应用可以为多个�
 
 ### 一个有序的工作对话
 
+项目 coordinator 的基线入口就是现有的 **Goal → 对话**。已注册 peer 也可以
+承担这份职责；两种选择都不另建 coordinator 对话，也不改变管家的跨 Goal
+职责。[Codex 显式续跑](../../reference/goal-chat-continuation.md)复用输入框、
+旁的开启/暂停/恢复、流式运行与原本地历史，接入共享委派和独立验收的成员
+返回。queue/inbox/steer 保留不同回执；首次配置选择现有执行绑定，不从注册
+推导授权。Lark、其他主力驱动等价和无人值守运行仍需分别资格化。
+
 在实时操控和队列会话模式下，Web 与 Lark 消息进入所选 Agent 会话的同一个
 串行化入口流。每条消息记录 public-safe 的传输元数据，例如 `origin=web` 或
 `origin=lark`，但 origin 不会选择不同的 Agent、对话历史、执行器或 LoopX
