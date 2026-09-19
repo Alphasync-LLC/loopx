@@ -245,6 +245,11 @@ operator entrypoint does not grant a Lark audience access.
 后重试同一消息和标识，避免重复投递。面板内的「暂停协调员」显示实际反馈，但不会
 停止已派发成员，也不宣称整个团队停止。暂停时仍可检查证据；读取不启动模型。
 
+Screenshots use isolated synthetic research data, not a live-model qualification:
+[desktop evidence](../assets/personal-workspace/team-evidence-desktop.png),
+[mobile evidence](../assets/personal-workspace/team-evidence-mobile.png), and
+[stale evidence](../assets/personal-workspace/team-evidence-stale.png).
+
 ## Use the same bindings through MCP
 
 Start the existing stdio server with the explicit opt-in:
