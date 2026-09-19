@@ -108,12 +108,14 @@ worktree recovery instruction. Moving to an independent worktree and rerunning
 the guard with the same Turn id resumes the selected Todo; the wrapper must not
 rewrite this recoverable state as a settlement-identity conflict.
 
-An executed, turn-scoped `quota monitor-poll` is a no-spend closeout, but it is
-still that Turn's single settlement identity. Its response therefore includes
-`turn_continuation.next_turn_required=true` and an instruction to rerun
-`quota should-run` with a fresh `--turn-instance-id` before starting unrelated
-work. A host must not interpret successful no-spend closeout as permission to
-bind an independent Todo in the already-settled Turn.
+An executed, turn-scoped `quota monitor-poll` is a no-spend closeout only when
+its observed Todo exactly matches the Turn's `settlement_todo_id`. That response
+includes `turn_continuation.next_turn_required=true` and requires a fresh Turn
+before unrelated work. An admitted auxiliary monitor uses its own observed Todo
+while retaining the advancement Todo as `settlement_todo_id`; its continuation
+keeps `current_turn_settled=false` and `next_turn_required=false` so the original
+writeback and spend can finish. A missing exact or typed auxiliary binding never
+claims settlement.
 
 Portfolio v2 preserves v1's selection policy, candidate ordering, and
 settlement rules, and adds an optional `continuation_hint` to each suggested

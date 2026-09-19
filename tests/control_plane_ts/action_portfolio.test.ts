@@ -435,5 +435,28 @@ test("retained explicit selection cannot be replaced by a projected default", ()
     retained_todo_id: "todo_explicit001",
     projected_todo_id: "todo_recommended001",
     reason: "projected_default_differs_from_retained_explicit_choice",
+    projection: {
+      decision_patch: {
+        ok: false,
+        decision: "skip",
+        should_run: false,
+        effective_action: "quota_skip",
+        normal_delivery_allowed: false,
+        recovery_delivery_allowed: false,
+        self_repair_allowed: false,
+        state: "action_selection_required",
+        reason:
+          "the current projected default differs from the explicit Todo retained by this Turn",
+        recommended_action:
+          "rerun quota should-run with the same --turn-instance-id and an explicit eligible --todo-id",
+      },
+      execution_obligation_patch: {
+        must_attempt_work: false,
+        delivery_allowed: false,
+        reason:
+          "rerun quota should-run with the same --turn-instance-id and an explicit eligible --todo-id",
+      },
+      clear_fields: ["selected_todo", "todo_id", "agent_lane_next_action"],
+    },
   });
 });

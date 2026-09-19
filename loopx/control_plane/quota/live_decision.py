@@ -82,40 +82,33 @@ def _apply_retained_action_selection_reentry(
             "resume": "fresh_turn_after_replan_closeout",
         }
     elif disposition == "require_explicit_selection":
-        payload.update(
-            {
-                "ok": False,
-                "decision": "skip",
-                "should_run": False,
-                "effective_action": EffectiveAction.QUOTA_SKIP.value,
-                "normal_delivery_allowed": False,
-                "recovery_delivery_allowed": False,
-                "self_repair_allowed": False,
-                "state": "action_selection_required",
-                "reason": (
-                    "the current projected default differs from the explicit "
-                    "Todo retained by this Turn"
-                ),
-                "recommended_action": (
-                    "rerun quota should-run with the same --turn-instance-id "
-                    "and an explicit eligible --todo-id"
-                ),
-            }
-        )
+        projection = verdict.get("projection")
+        if not isinstance(projection, Mapping):
+            raise RuntimeError(
+                "TypeScript retained action-selection projection is missing"
+            )
+        decision_patch = projection.get("decision_patch")
+        obligation_patch = projection.get("execution_obligation_patch")
+        clear_fields = projection.get("clear_fields")
+        if (
+            not isinstance(decision_patch, Mapping)
+            or not isinstance(obligation_patch, Mapping)
+            or not isinstance(clear_fields, list)
+            or not all(isinstance(field, str) for field in clear_fields)
+        ):
+            raise RuntimeError(
+                "TypeScript retained action-selection projection is malformed"
+            )
+        payload.update(decision_patch)
         obligation = (
             dict(payload.get("execution_obligation") or {})
             if isinstance(payload.get("execution_obligation"), Mapping)
             else {}
         )
-        obligation.update(
-            must_attempt_work=False,
-            delivery_allowed=False,
-            reason=payload["recommended_action"],
-        )
+        obligation.update(obligation_patch)
         payload["execution_obligation"] = obligation
-        payload.pop("selected_todo", None)
-        payload.pop("todo_id", None)
-        payload.pop("agent_lane_next_action", None)
+        for field in clear_fields:
+            payload.pop(field, None)
     else:
         raise RuntimeError(
             "TypeScript retained action-selection disposition is unsupported"
