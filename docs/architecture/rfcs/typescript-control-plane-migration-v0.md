@@ -1017,6 +1017,19 @@ history before that checkpoint. Successful schemas, File/NoKV persisted bytes,
 request identity and revision algorithms remain compatible. This supports T3/D1
 readers but does not finish Todo writers, retention/compaction or promotion.
 
+Continuation readback now shares one typed succession resolver, handoff state
+machine and summary closure decision. The legacy adapter no longer owns those
+rules. Full-source evaluations survive display selection; nonexistent/self
+successors cannot certify closure and archived continuation evidence survives
+capture. The existing archive-capture request advances to v1 so older runtimes
+cannot silently omit the expanded graph. Query subsets do not emit whole-source
+closure proofs, and bounded handoff views preserve their state and exclusions.
+See [continuation readback](../../reference/todo-continuation-readback.md).
+This closes that T3/L5 consumer family and its bounded L7 dependency, not D1–D3
+or every T3 consumer. Python retains codecs, IO and the documented legacy route
+prose hint until its remaining writers emit explicit replan flags; no new
+capability/provider or parallel business authority is introduced.
+
 **T4 — collect full-writer retirement after durability cutover.**
 
 - The 2026-09-19 command audit retires two already-typed but unconsumed
