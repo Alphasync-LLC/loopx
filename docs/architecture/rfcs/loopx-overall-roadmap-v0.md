@@ -295,9 +295,14 @@ The same owner-local panel now opens current validated artifact text and its
 version/source identifiers, accepts feedback through the original coordinator
 inbox and exposes coordinator pause with its actual scope. Stale reads clear prior
 content; delivery does not establish application, acceptance does not establish
-requester adoption, and coordinator pause does not stop workers. This inspection
-and control slice leaves correction lineage and version-bound requester adoption
-open; it is not qualification of a real objection/revision/acceptance/adoption episode.
+requester adoption, and coordinator pause does not stop workers. Optional typed
+brief inputs now bind immediate response/revision/use relationships to exact
+accepted source versions. An explicit requester adoption decision binds a current
+accepted downstream result with that exact input; the panel links both artifacts
+and withdraws current evidence when a version or acceptance fails. Domain
+validators still own substantive dependency use. File/SQLite and packaged browser
+qualification do not establish a real-model correction episode: that L1 acceptance,
+including independent objection and useful synthesis, remains open.
 This qualifies a local execution-facts readback, not the full R2 ladder: assignment
 receipt integration, provisioning, remote probes, two-cycle continuation and Lark
 qualification remain open under their existing owners.

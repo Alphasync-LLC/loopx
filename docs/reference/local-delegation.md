@@ -102,6 +102,80 @@ LoopX mode is enabled. Dashboard, CLI/managed Turn and Lark keep their existing
 conversation and runtime owners; they may consume the shared bounded route
 projection described below, but they do not get another grant or scheduler.
 
+### Bind a later result to an exact accepted version
+
+A brief input may opt into requester-scoped provenance:
+
+```json
+{
+  "ref": "inputs/accepted-analysis.json",
+  "description": "Accepted analysis to use in the synthesis",
+  "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "delegation": {
+    "operation_id": "analysis-round-2",
+    "ref": "output.json",
+    "relation": "uses"
+  }
+}
+```
+
+Use the real digest from `delegate read`, not the illustrative digest above.
+`ref` addresses the receiving workspace's already supplied file; `delegation.ref`
+addresses an output of this requester's original operation. The source must be
+currently accepted and both files must match the specified hash. Start checks
+before dispatch and checks again before completing the consumer. It neither
+copies files nor grants workspace access. Existing briefs without `delegation`
+retain their behavior and readback shape.
+
+The typed relations are **requested intent**: `responds_to`, `revises` and `uses`.
+They do not assert that an objection is correct, a revision resolves it or an
+Agent has adopted a result. `read` returns the immediate dependency's specified
+version and current/unavailable observation; it does not flatten a whole team's
+graph or infer relationships from prose.
+
+After inspecting the independently accepted downstream result, the requester
+may explicitly record adoption into that result:
+
+```bash
+delegate adopt --operation-id analysis-round-2 \
+  --consumer-operation-id synthesis-round-1 --execute
+delegate read --operation-id analysis-round-2
+```
+
+Both executions must belong to this requester and remain accepted under their
+current bindings, canonical Todos, pinned validators and saved artifact hashes.
+The consumer's immutable brief must reference the source through `uses`, and
+its supplied input must still match. The receipt binds source hashes, consumer
+hashes and original request/task identities. Repeating the same decision is
+idempotent. At most twelve downstream adoption records can be attached to one
+source. Reading, receiver request acknowledgement and completing a consumer
+never create this requester decision automatically.
+
+Every read rechecks recorded adoption evidence. Changed output, missing input,
+revoked binding or failed acceptance makes that relationship `unavailable`;
+the historical reference remains visible, but its saved success is not replayed.
+This is evidence of the requester's explicit decision and a validated downstream
+artifact, not proof of model comprehension or arbitrary semantic claims. Domain
+acceptance must check substantive dependency use; matching an input hash alone
+cannot establish it. No Goal is completed and no new model is launched by adoption.
+
+MCP exposes `adopt_delegation_result(operation_id, consumer_operation_id)`;
+newly created Goal Chat tool sessions expose `action=adopt` with those fields.
+Existing native sessions keep their original schema; use the existing shell CLI
+when their tools do not include the action. Host tool approval still applies.
+The local Goal Chat evidence panel shows these version links and requester
+receipts, with direct navigation to source/downstream evidence and explicit
+missing or stale adoption. This owner-only surface does not grant Lark or shared
+audiences access. Stop supplying the optional provenance input to disable it for
+new work; existing decisions remain auditable and revalidated, not deleted.
+
+中文：输入可显式绑定当前请求方某次已验收产物及其哈希。`responds_to / revises / uses`
+只表达请求关系；不从文字或完成状态推导纠偏、采用。请求方检查后续已验收结果后，
+通过 `adopt --execute` 显式记录采用；读回重新核验源版本、接收方输入及后续产物。
+版本或验收失效时保留历史引用并显示不可核验，不重放旧成功。领域验收仍须验证实际
+使用了依赖及结论正确性。前端可沿关系打开证据、反馈或暂停协调员；整体 Goal、成员
+停止与跨受众权限均不因此改变。
+
 ### Publish bounded route readiness to the coordinator
 
 After the ignored operator file exists, register only its Goal-relative pointer
