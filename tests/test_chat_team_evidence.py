@@ -46,7 +46,13 @@ def test_chat_and_cli_read_same_accepted_artifact_and_reject_stale_scope(service
         "--runtime-root", str(runner.root), "delegation", "read", "--goal-id", runner.goal_id,
         "--agent-id", "lead", "--execution-config", str(config), "--operation-id", "analysis-1"],
         capture_output=True, text=True, check=True)
-    assert json.loads(cli.stdout) == observed == {"ok": True, **accepted}
+    cli_result = json.loads(cli.stdout)
+    assert observed["ok"] and cli_result["ok"]
+    assert observed["status"] == cli_result["status"] == "accepted"
+    # The worker lock may release between observations; compare durable evidence,
+    # not momentary liveness sampled at different times.
+    for key in ("operation_id", "request_id", "agent_id", "todo_id", "artifacts"):
+        assert observed[key] == cli_result[key] == accepted[key]
     assert observed["artifacts"][0]["text"] == (root / "analyst/initial/output.json").read_text()
     assert store.load_session(sid) == before
     assert (root / "analyst/initial/host-invocations").read_text() == "1"
