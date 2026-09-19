@@ -26,18 +26,22 @@ TOOL = {
     "Use action=bindings first; start requires binding_id, stable operation_id and brief with "
     "schema_version=collaboration_brief_v0, purpose, context, constraints (strings), inputs "
     "(relative ref, description, optional sha256), acceptance (strings), return_requirement. "
-    "Read/wait/resume use the original operation_id. Running is not failure; do not duplicate it.",
+    "Read/wait/resume use the original operation_id. Running is not failure; do not duplicate it. "
+    "After context loss, action=operations recovers this requester's durable work. Follow "
+    "next_cursor for more; unavailable means reconcile, not redispatch.",
     "inputSchema": {
         "type": "object",
         "additionalProperties": False,
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["bindings", "start", "read", "wait", "resume", "messages"],
+                "enum": ["bindings", "operations", "start", "read", "wait", "resume", "messages"],
             },
             "binding_id": {"type": "string"},
             "operation_id": {"type": "string"},
             "brief": {"type": "object"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+            "cursor": {"type": "string"},
         },
         "required": ["action"],
     },
@@ -505,9 +509,15 @@ class ChatLoopXMode:
                 "binding_id",
                 "operation_id",
                 "brief",
+                "limit",
+                "cursor",
             }:
                 raise ValueError("invalid collaboration arguments")
             action = arguments.get("action")
+            if action != "operations" and ("limit" in arguments or "cursor" in arguments):
+                raise ValueError("pagination is only valid for operations")
+            if action == "operations" and set(arguments) - {"action", "limit", "cursor"}:
+                raise ValueError("operations reads a page; use read to select an operation")
             operation_id = arguments.get("operation_id", "")
             if action == "messages":
                 rows = [
@@ -525,6 +535,8 @@ class ChatLoopXMode:
                 }
             elif action == "bindings":
                 result = service.directory()
+            elif action == "operations":
+                result = service.operations(limit=arguments.get("limit", 20), cursor=arguments.get("cursor"))
             elif action == "start":
                 result = service.start(
                     arguments.get("binding_id", ""),
