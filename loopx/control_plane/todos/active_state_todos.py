@@ -9,7 +9,7 @@ from ..coordination.local_authority import (
     read_canonical_todos_if_promoted,
 )
 
-from .succession import public_todo_summary
+from .succession_warning import public_todo_summary
 
 MONITOR_WRITEBACK_CONTRACT_SCHEMA_VERSION = "monitor_writeback_contract_v0"
 

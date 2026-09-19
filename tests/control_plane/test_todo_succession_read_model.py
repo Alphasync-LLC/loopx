@@ -94,7 +94,7 @@ def test_duplicate_archive_identity_cannot_be_hidden_by_active_row_overlay():
 
 
 def test_public_summary_drops_internal_evaluation_without_mutating_source():
-    from loopx.control_plane.todos.succession import public_todo_summary
+    from loopx.control_plane.todos.succession_warning import public_todo_summary
 
     source = summary([work("todo_source", no_followup=True)])
     public = public_todo_summary(source)

@@ -808,7 +808,7 @@ def active_next_action_todo_ids(value: Any) -> set[str]:
 
 def todo_successor_todo_ids(item: dict[str, Any], *, items: list[dict[str, Any]]) -> list[str]:
     """Compatibility call site for repair-delta; the typed graph owns links."""
-    from .succession import evaluate_succession
+    from .succession_warning import evaluate_succession
 
     selected = dict(item)
     evaluate_succession([selected], items)
@@ -816,7 +816,7 @@ def todo_successor_todo_ids(item: dict[str, Any], *, items: list[dict[str, Any]]
 
 
 def todo_item_is_succession_tracked_completion(item: dict[str, Any]) -> bool:
-    from .succession import project_succession
+    from .succession_warning import project_succession
 
     return project_succession([item])[0]["tracked_completion"] is True
 
@@ -965,7 +965,7 @@ def compact_todo_group(
         available_capabilities=available_capabilities,
         evaluated_at=evaluated_at,
     )
-    from .succession import evaluate_succession
+    from .succession_warning import evaluate_succession
 
     evaluate_succession(items, resume_source_items)
     return compact_evaluated_todo_group(
@@ -999,7 +999,7 @@ def compact_evaluated_todo_group(
         return None
     projected = _project_summary_lanes(items, preferred_todo_ids)
     lanes = _TodoGroupLanes(**projected["lanes"])
-    from .succession import project_succession
+    from .succession_warning import project_succession
 
     succession = project_succession(items, reuse=True)
     successor_gap_items = completed_without_successor_items(items, evaluations=succession)

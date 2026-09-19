@@ -119,7 +119,7 @@ def build_todo_handoff_gate_states(
     items: Iterable[Any], *, evaluations: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Render the typed full-source handoff decision; retain presentation only."""
-    from .succession import project_succession
+    from .succession_warning import project_succession
 
     todo_items = [item for item in items if isinstance(item, dict)]
     decisions = evaluations if evaluations is not None else project_succession(todo_items)

@@ -15,7 +15,7 @@ from ..status.active_state_projection import active_state_event_projection_field
 from .active_state_editing import TODO_SECTION_HEADINGS
 from .active_state_todo_parser import parse_active_state_todos
 from .list_projection import compact_explicit_limit_todo_summary
-from .succession import public_todo_summary
+from .succession_warning import public_todo_summary
 from .contract import (
     build_todo_id,
     normalize_todo_blocks_agent,
