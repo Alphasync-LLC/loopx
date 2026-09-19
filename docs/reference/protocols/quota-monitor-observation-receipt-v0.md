@@ -34,6 +34,9 @@ advancement work remains active.
   remains selected. A material observation may create its independently routed
   successor through the existing monitor contract, but it still does not
   replace the Turn's settlement identity.
+- An executed turn-scoped poll returns `turn_continuation` declaring the current
+  Turn settled and requiring a fresh `--turn-instance-id` before unrelated work.
+  A no-spend closeout does not make the settled Turn reusable.
 
 ### Acceptance
 
@@ -184,6 +187,9 @@ using a complete read-only snapshot with disposable File/SQLite/PostgreSQL arms.
   替换为本 Turn 的结算 Todo；多个辅助回执也绝不改变既有结算身份。
 - 辅助观察无变化后，原 advancement Todo 继续保持选中；若观察发生重大变化，
   可按既有 monitor 契约创建独立路由的 successor，但仍不替换本 Turn 的结算身份。
+- 执行成功的 turn-scoped poll 会返回 `turn_continuation`，明确当前 Turn 已结算；
+  开始无关工作前必须使用新的 `--turn-instance-id`。不计费 closeout 不代表原 Turn
+  可以再次绑定另一份独立工作。
 
 ### 验收
 

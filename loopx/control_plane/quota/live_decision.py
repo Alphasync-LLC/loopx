@@ -20,6 +20,11 @@ from ..work_items.interaction_contract import (
     build_interaction_contract,
     build_protocol_action_packet,
 )
+from ..work_items.action_portfolio import reconcile_retained_action_selection
+from ..work_items.autonomous_replan_obligation import (
+    replan_obligation_id_from_packet,
+)
+from ..todos.contract import normalize_todo_id
 from ..scheduler.execution_context import (
     SchedulerExecutionContextResolution,
     resolve_scheduler_execution_context,
@@ -31,6 +36,98 @@ from .unsettled_host_turn import (
 
 HostObservationResolver = Callable[..., Mapping[str, Any]]
 BoundedResearchFrontierProjector = Callable[..., Mapping[str, Any] | None]
+
+
+def _apply_retained_action_selection_reentry(
+    payload: dict[str, Any],
+    *,
+    retained_todo_id: str | None,
+    available_capabilities: list[str] | None,
+    scheduler_execution_context: (
+        Mapping[str, Any] | SchedulerExecutionContextResolution | None
+    ),
+    turn_instance_id: str | None,
+    runtime_root: Path,
+) -> None:
+    """Fence a no-argument reentry with its last explicit Todo choice."""
+
+    normalized_retained = normalize_todo_id(retained_todo_id)
+    if normalized_retained is None:
+        return
+    selected = (
+        payload.get("selected_todo")
+        if isinstance(payload.get("selected_todo"), Mapping)
+        else {}
+    )
+    projected_todo_id = normalize_todo_id(selected.get("todo_id"))
+    verdict = reconcile_retained_action_selection(
+        retained_todo_id=normalized_retained,
+        projected_todo_id=projected_todo_id,
+        effective_action=str(payload.get("effective_action") or ""),
+        replan_obligation_id=replan_obligation_id_from_packet(
+            payload.get("replan_action_packet")
+        ),
+    )
+    payload["retained_action_selection"] = verdict
+    disposition = verdict.get("disposition")
+    if disposition == "preserve_retained_todo":
+        return
+    if disposition == "bind_autonomous_replan":
+        payload.pop("selected_todo", None)
+        payload.pop("todo_id", None)
+        payload.pop("agent_lane_next_action", None)
+        payload["deferred_action_selection"] = {
+            "todo_id": normalized_retained,
+            "reason": "autonomous_replan_preemption",
+            "resume": "fresh_turn_after_replan_closeout",
+        }
+    elif disposition == "require_explicit_selection":
+        payload.update(
+            {
+                "ok": False,
+                "decision": "skip",
+                "should_run": False,
+                "effective_action": EffectiveAction.QUOTA_SKIP.value,
+                "normal_delivery_allowed": False,
+                "recovery_delivery_allowed": False,
+                "self_repair_allowed": False,
+                "state": "action_selection_required",
+                "reason": (
+                    "the current projected default differs from the explicit "
+                    "Todo retained by this Turn"
+                ),
+                "recommended_action": (
+                    "rerun quota should-run with the same --turn-instance-id "
+                    "and an explicit eligible --todo-id"
+                ),
+            }
+        )
+        obligation = (
+            dict(payload.get("execution_obligation") or {})
+            if isinstance(payload.get("execution_obligation"), Mapping)
+            else {}
+        )
+        obligation.update(
+            must_attempt_work=False,
+            delivery_allowed=False,
+            reason=payload["recommended_action"],
+        )
+        payload["execution_obligation"] = obligation
+        payload.pop("selected_todo", None)
+        payload.pop("todo_id", None)
+        payload.pop("agent_lane_next_action", None)
+    else:
+        raise RuntimeError(
+            "TypeScript retained action-selection disposition is unsupported"
+        )
+    payload["interaction_contract"] = build_interaction_contract(
+        payload,
+        available_capabilities=available_capabilities,
+        scheduler_execution_context=scheduler_execution_context,
+        turn_instance_id=turn_instance_id,
+        runtime_root=str(runtime_root),
+    )
+    payload["protocol_action_packet"] = build_protocol_action_packet(payload)
 
 
 def _fresh_read_covers_all_pending_material(
@@ -392,6 +489,7 @@ def build_live_quota_should_run_decision(
     receipt_bound_todo_id: str | None = None,
     requested_action_todo_id: str | None = None,
     receipt_bound_replan_obligation_id: str | None = None,
+    retained_action_selection_todo_id: str | None = None,
     turn_instance_id: str | None = None,
     interaction_projection_hooks: Sequence[InteractionProjectionHookRegistration]
     | None = None,
@@ -476,6 +574,14 @@ def build_live_quota_should_run_decision(
         receipt_bound_monitor_phase=receipt_bound_monitor_phase,
         receipt_bound_replay_phase=receipt_bound_replay_phase,
         receipt_bound_replan_obligation_id=receipt_bound_replan_obligation_id,
+        turn_instance_id=turn_instance_id,
+        runtime_root=runtime_root,
+    )
+    _apply_retained_action_selection_reentry(
+        payload,
+        retained_todo_id=retained_action_selection_todo_id,
+        available_capabilities=available_capabilities,
+        scheduler_execution_context=resolved_context,
         turn_instance_id=turn_instance_id,
         runtime_root=runtime_root,
     )

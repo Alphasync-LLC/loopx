@@ -29,9 +29,11 @@ from ..control_plane.quota.heartbeat_receipt import (
     HEARTBEAT_RECEIPT_SCHEMA_VERSION,
     fail_heartbeat_receipt,
     find_heartbeat_receipt,
+    heartbeat_receipt_pending_action_todo_id,
     heartbeat_receipt_settlement_replan_obligation_id,
     heartbeat_receipt_settlement_todo_id,
     heartbeat_receipt_view,
+    retain_pending_heartbeat_action_selection,
 )
 from ..control_plane.quota.live_decision import build_live_quota_should_run_decision
 from ..control_plane.quota.monitor_poll import find_quota_monitor_poll_turn
@@ -173,9 +175,9 @@ def _heartbeat_quota_action_selection_bindings(
     runtime_root: Path,
     args: argparse.Namespace,
     heartbeat_turn_id: str | None,
-) -> tuple[dict[str, object] | None, str | None, str | None]:
+) -> tuple[dict[str, object] | None, str | None, str | None, str | None]:
     if not heartbeat_turn_id:
-        return None, None, None
+        return None, None, None, None
     existing = find_heartbeat_receipt(
         runtime_root,
         goal_id=args.goal_id,
@@ -183,9 +185,14 @@ def _heartbeat_quota_action_selection_bindings(
         turn_instance_id=heartbeat_turn_id,
     )
     if not existing:
-        return None, None, None
+        return None, None, None, None
     todo_id, replan_obligation_id = _heartbeat_receipt_settlement_bindings(existing)
-    return existing, todo_id, replan_obligation_id
+    return (
+        existing,
+        todo_id,
+        replan_obligation_id,
+        heartbeat_receipt_pending_action_todo_id(existing),
+    )
 
 
 def _apply_requested_quota_action_selection_preflight(
@@ -548,6 +555,7 @@ def handle_quota_command(
                 heartbeat_receipt_existing,
                 receipt_bound_todo_id,
                 receipt_bound_replan_obligation_id,
+                receipt_pending_action_todo_id,
             ) = _heartbeat_quota_action_selection_bindings(
                 runtime_root=runtime_root,
                 args=args,
@@ -579,6 +587,13 @@ def handle_quota_command(
                     else None
                 ),
                 receipt_bound_replan_obligation_id=(receipt_bound_replan_obligation_id),
+                retained_action_selection_todo_id=(
+                    receipt_pending_action_todo_id
+                    if _requested_quota_action_todo_id(args) is None
+                    and receipt_bound_todo_id is None
+                    and receipt_bound_replan_obligation_id is None
+                    else None
+                ),
                 turn_instance_id=heartbeat_turn_id,
                 interaction_projection_hooks=interaction_projection_hooks,
                 turn_start_hook_dispatch=turn_start_hook_dispatch,
@@ -589,6 +604,37 @@ def handle_quota_command(
                 receipt_bound_todo_id=receipt_bound_todo_id,
                 receipt_bound_replan_obligation_id=receipt_bound_replan_obligation_id,
             )
+            if (
+                heartbeat_turn_id
+                and action_selection_preflight_failed
+                and heartbeat_receipt_existing is not None
+                and (requested_todo_id := _requested_quota_action_todo_id(args))
+                and isinstance(
+                    qualification := payload.get("action_selection_qualification"),
+                    Mapping,
+                )
+                and qualification.get("state") == "deferred"
+            ):
+                qualification_reason = str(
+                    qualification.get("reason") or "current_delivery_gate"
+                )
+                (
+                    heartbeat_receipt_existing,
+                    retained_selection_appended,
+                ) = retain_pending_heartbeat_action_selection(
+                    runtime_root,
+                    goal_id=args.goal_id,
+                    agent_id=args.agent_id,
+                    turn_instance_id=heartbeat_turn_id,
+                    todo_id=requested_todo_id,
+                    reason=qualification_reason,
+                )
+                heartbeat_receipt_existing_status = (
+                    "selection_retained"
+                    if retained_selection_appended
+                    else "replayed"
+                )
+                heartbeat_receipt_existing_appended = retained_selection_appended
             if heartbeat_turn_id:
                 if action_selection_preflight_failed:
                     heartbeat_receipt_ready = True
@@ -667,6 +713,13 @@ def handle_quota_command(
                             receipt_bound_todo_id=receipt_bound_todo_id,
                             receipt_bound_replan_obligation_id=(
                                 receipt_bound_replan_obligation_id
+                            ),
+                            retained_action_selection_todo_id=(
+                                receipt_pending_action_todo_id
+                                if _requested_quota_action_todo_id(args) is None
+                                and receipt_bound_todo_id is None
+                                and receipt_bound_replan_obligation_id is None
+                                else None
                             ),
                             turn_instance_id=heartbeat_turn_id,
                             interaction_projection_hooks=(interaction_projection_hooks),
@@ -781,8 +834,8 @@ def handle_quota_command(
                         payload,
                         receipt=heartbeat_receipt_existing,
                         turn_instance_id=heartbeat_turn_id,
-                        status="replayed",
-                        appended=False,
+                        status=heartbeat_receipt_existing_status,
+                        appended=heartbeat_receipt_existing_appended,
                     )
                 else:
                     _attach_uncommitted_action_selection_receipt(

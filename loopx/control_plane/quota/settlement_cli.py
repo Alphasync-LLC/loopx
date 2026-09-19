@@ -309,6 +309,12 @@ def quota_rollout_details(
     semantic_replan_obligation_id = replan_obligation_id_from_packet(
         payload.get("replan_action_packet")
     )
+    retained_selection = (
+        payload.get("retained_action_selection")
+        if isinstance(payload.get("retained_action_selection"), Mapping)
+        else {}
+    )
+    retained_disposition = str(retained_selection.get("disposition") or "")
     workspace_causality = build_delivery_workspace_causality(selected_todo)
     interaction = (
         payload.get("interaction_contract")
@@ -357,6 +363,23 @@ def quota_rollout_details(
         "quiet_noop_allowed": bool(agent_channel.get("quiet_noop_allowed")),
         "closeout_required": closeout_required,
     }
+    retained_todo_id = normalize_todo_id(retained_selection.get("retained_todo_id"))
+    if retained_todo_id:
+        retained_bound = retained_disposition == "preserve_retained_todo"
+        details.update(
+            {
+                "pending_action_selection_todo_id": retained_todo_id,
+                "pending_action_selection_state": (
+                    "bound" if retained_bound else "deferred_to_fresh_turn"
+                ),
+                "pending_action_selection_reason": (
+                    "explicit_choice_preserved"
+                    if retained_bound
+                    else "autonomous_replan_preemption"
+                ),
+                "pending_action_selection_settlement_bound": retained_bound,
+            }
+        )
     if workspace_causality:
         details.update(delivery_workspace_causality_event_fields(workspace_causality))
     return details

@@ -1463,6 +1463,17 @@ function payloadFor(
   if (request.turn_instance_id) {
     payload.turn_instance_id = request.turn_instance_id;
     payload.replayed = options.replayed;
+    if (request.execute) {
+      payload.turn_continuation = {
+        schema_version: "quota_turn_continuation_v0",
+        current_turn_settled: true,
+        same_turn_independent_settlement_allowed: false,
+        next_turn_required: true,
+        next_action:
+          "rerun quota should-run with a fresh --turn-instance-id before independent work",
+        reason: "the committed monitor-poll is this Turn's single settlement identity",
+      };
+    }
   }
   if (request.status_reload_warning) {
     payload.status_reload_warning = request.status_reload_warning;
