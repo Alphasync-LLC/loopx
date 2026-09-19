@@ -698,6 +698,8 @@ export function createEffectRuntimeHandlers(
             "binding_kind",
             "binding_kind has an unsupported settlement binding kind",
           ),
+        writeback_completes_binding:
+          params.writeback_completes_binding === true,
         completion_receipt_present: params.completion_receipt_present === true,
         durable_writeback_present: params.durable_writeback_present === true,
         quota_spend_present: params.quota_spend_present === true,

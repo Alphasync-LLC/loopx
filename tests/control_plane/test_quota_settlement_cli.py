@@ -4345,6 +4345,30 @@ def test_todoless_blocked_replan_settles_read_only_external_evidence_without_wor
     ] == ["validation", "durable_writeback", "quota_spend"]
     assert _spend_run_count(runtime) == 1
 
+    replay_rc, replay = _run_cli(
+        registry_path,
+        runtime,
+        "quota",
+        "should-run",
+        "--codex-app",
+        "--goal-id",
+        GOAL_ID,
+        "--agent-id",
+        AGENT_ID,
+        "--turn-instance-id",
+        turn_instance_id,
+        "--todo-id",
+        SELECTED_REPLAN_TODO_ID,
+        "--scan-path",
+        str(project),
+    )
+
+    assert replay_rc == 0, replay
+    assert replay["effective_action"] == "heartbeat_settled_skip"
+    assert replay["should_run"] is False
+    assert replay.get("selected_todo") is None
+    assert replay.get("unsettled_host_turn_recovery") is None
+
 
 def test_unbound_visible_goal_todoless_replan_reenters_through_guided_turn(
     tmp_path: Path,
