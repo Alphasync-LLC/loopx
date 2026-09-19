@@ -601,6 +601,26 @@ export function registerAuthorityStoreConformance(
         ["applied", "recovered", "replayed", "conflict"].includes(status)),
       JSON.stringify([first, second]),
     );
+    // Pin a receipt lookup before a peer commit and a head read after it.
+    let receiptMiss = true;
+    const crossedRead = new Proxy(contender, {get(target, property) {
+      if (property === "readReceipt") return async (operationId: string) => {
+        if (receiptMiss) {receiptMiss = false; return {status: "missing"};}
+        return target.readReceipt(operationId);
+      };
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    }});
+    const committedHead = await store.loadAuthority();
+    const crossed = await executeCoordinationTodoTerminalLifecycle(crossedRead, commitRequest);
+    assert.equal(crossed.status, "replayed", JSON.stringify(crossed));
+    assert.equal(crossed.changed, false);
+    const noReceipt = await executeCoordinationTodoTerminalLifecycle(contender,
+      {...commitRequest, operation_id: "unknown-terminal-operation"});
+    assert.equal(noReceipt.status, "failed");
+    assert.equal(noReceipt.reason_code, "invalid_todo_completion_transaction");
+    assert.deepEqual(await store.loadAuthority(), committedHead);
+
     const committedRevisions = [first, second]
       .filter((item) => item.status !== "conflict")
       .map((item) => item.provider_revision);

@@ -805,6 +805,13 @@ export async function executeCoordinationTodoTerminalLifecycle(
       todo_id: input.todo_id,
     }, "decision_rejection");
   }
+  // The first receipt read can precede a peer commit while this head already
+  // observes it. Recover only the matching operation receipt; never discard a
+  // validation receipt to manufacture a terminal replay from Todo state alone.
+  if (input.command === "complete" && todo.status === "done" && input.validation_receipt !== null) {
+    const committedReplay = await terminalReceipt(input, requestSha).read(store);
+    if (committedReplay !== null) return committedReplay;
+  }
   if (input.expected_role !== null && todo.role !== input.expected_role) {
     return terminalFailure(
       "todo_role_mismatch",

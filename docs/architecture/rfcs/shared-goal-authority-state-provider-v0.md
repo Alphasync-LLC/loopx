@@ -3019,7 +3019,9 @@ independent legacy three-arm comparison or D2 soak.
 Continuation and closure readback now uses the same TS relation evidence for
 completed-work gaps and handoff states before filtering/capping. Capture v1
 retains reachable archived successors and original deferred status; derived
-summary evaluations never enter provider records. Real CLI and complete-graph
+summary evaluations never enter provider records. Completion retries also
+recover the matching receipt when a peer commits between receipt and head reads,
+without accepting state-only replay with fresh validation evidence. Real CLI and complete-graph
 provider conformance cover the consumer family. See [operation and semantic
 changes](../../reference/todo-continuation-readback.md). This closes a bounded
 L5/L7 gap; permanent projection delivery/recovery, D2 and D3 are still open.

@@ -93,6 +93,12 @@ loopx --registry registry.json todo list --goal-id example-goal --format json
 loopx --registry registry.json todo list --goal-id example-goal --todo-id todo_source --limit 1 --format json
 ```
 
+Completion retries also close a receipt/head read race: if the first receipt
+lookup misses a peer commit but the head already shows completion, recheck the
+matching operation receipt before interpreting a supplied validation receipt.
+This returns the committed result without repeating effects; no matching
+receipt still follows the existing validation and identity guards.
+
 Reads do not repair Markdown, mutate Todo/lease state or replay a business
 operation. Missing promoted Markdown is acceptable; an unavailable provider is
 not an empty Goal. No frontend configuration changes are needed: CLI, manager
