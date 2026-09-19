@@ -1,10 +1,11 @@
+import {GoalTeamLineage} from "./goal-team-lineage";
 import {useEffect, useRef, useState} from "react";
 import {delegationStateLabel, readLoopXTeamWork, sendLoopXMessage, type DelegationReadback, type LoopXModeSnapshot} from "../../data/chat";
 
 /** Owner-only artifact readback. Text is evidence, never rendered as executable markup. */
-export function GoalTeamEvidence({sessionId, operationId, zh, canMessage, ingress}: {
+export function GoalTeamEvidence({sessionId, operationId, zh, canMessage, ingress, onInspect}: {
   sessionId: string; operationId: string; zh: boolean; canMessage: boolean;
-  ingress: LoopXModeSnapshot["ingress"];
+  ingress: LoopXModeSnapshot["ingress"]; onInspect: (operationId: string) => void;
 }) {
   const [result, setResult] = useState<DelegationReadback | null>(null);
   const [observedAt, setObservedAt] = useState("");
@@ -61,6 +62,7 @@ export function GoalTeamEvidence({sessionId, operationId, zh, canMessage, ingres
     {result ? <>
       <p role="status"><strong>{result.agent_id} · {delegationStateLabel(result, zh)}</strong>{" · "}{observedAt}</p>
       <p>{zh ? "按需读取的当前观察，不是持续在线状态；验收不代表协调员已采用。" : "An on-demand observation, not continuous liveness; acceptance does not establish coordinator adoption."}</p>
+      <GoalTeamLineage result={result} zh={zh} onInspect={onInspect}/>
       {result.error ? <p role="alert">{result.error}</p> : null}
       {result.status === "accepted" && result.artifacts?.length ? result.artifacts.map(artifact => <article key={artifact.ref}>
         <h4>{artifact.ref}</h4>

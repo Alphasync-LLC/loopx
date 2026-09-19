@@ -49,3 +49,7 @@
 .goal-team-evidence textarea:focus-visible, .goal-team-evidence pre:focus-visible { outline: 2px solid #0070f3; outline-offset: 2px; }
 .goal-team-control { border-top: 1px solid var(--pw-line, #ebebeb); padding-top: 16px; }
 .goal-team-evidence [role="alert"] { color: var(--pw-red, #b42318); }
+.goal-team-lineage { margin-block: 16px; padding-block: 16px; border-block: 1px solid var(--pw-line, #ebebeb); }
+.goal-team-lineage ul { list-style: none; padding: 0; margin: 12px 0; }
+.goal-team-lineage li { display: grid; gap: 8px; padding: 0 0 16px 16px; border-left: 2px solid var(--pw-line, #ebebeb); overflow-wrap: anywhere; }
+.goal-team-lineage button { justify-self: start; max-width: 100%; overflow-wrap: anywhere; text-align: start; }

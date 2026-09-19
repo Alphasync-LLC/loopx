@@ -50,7 +50,7 @@ export function GoalTeamWork({sessionId, members, zh, canMessage, ingress}: {ses
     runtime_unavailable: "Runtime unavailable", runtime_unverified: "Runtime availability unverified", launchable: "Local launch prerequisites met"};
   if (selected) return <div className="goal-team-work">
     <button ref={backButton} type="button" onClick={() => setSelected(null)}>{zh ? "返回执行列表" : "Back to executions"}</button>
-    <GoalTeamEvidence key={`${sessionId}:${selected}`} sessionId={sessionId} operationId={selected} zh={zh} canMessage={canMessage} ingress={ingress}/>
+    <GoalTeamEvidence key={`${sessionId}:${selected}`} sessionId={sessionId} operationId={selected} zh={zh} canMessage={canMessage} ingress={ingress} onInspect={setSelected}/>
   </div>;
   return <div className="goal-team-work">
     <section aria-label={zh ? "团队执行详情" : "Team execution details"}>

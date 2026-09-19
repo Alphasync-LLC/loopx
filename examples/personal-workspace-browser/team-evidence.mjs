@@ -30,6 +30,22 @@ export const teamEvidenceScenario = {
       assert.match(await content.textContent(), /<script>/);
       assert.equal(await page.evaluate(() => window.artifactExecuted), undefined);
       await evidence.getByText(/验收不代表协调员已采用/).waitFor();
+      await evidence.getByText("尚无请求方采用记录。", {exact: true}).waitFor();
+      mode.fixtureAdoptionState = "current";
+      await evidence.getByRole("button", {name: "重新读取证据", exact: true}).click();
+      await evidence.getByText("已记录采用 · 后续结果验收有效", {exact: true}).waitFor();
+      await evidence.getByRole("button", {name: "查看后续结果", exact: true}).click();
+      await evidence.getByLabel("证据内容: synthesis.json").waitFor();
+      await evidence.getByText("源产物与接收方输入一致", {exact: true}).waitFor();
+      await evidence.getByRole("button", {name: "accepted-analysis", exact: true}).click();
+      await content.waitFor();
+      mode.fixtureAdoptionState = "unavailable";
+      await evidence.getByRole("button", {name: "重新读取证据", exact: true}).click();
+      await evidence.getByText("采用证据已失效或无法核验", {exact: true}).waitFor();
+      assert.equal(await evidence.getByText("已记录采用 · 后续结果验收有效", {exact: true}).count(), 0);
+      mode.fixtureAdoptionState = "current";
+      await evidence.getByRole("button", {name: "重新读取证据", exact: true}).click();
+      await evidence.getByText("已记录采用 · 后续结果验收有效", {exact: true}).waitFor();
       assert.equal(api.turnRequests.length, 0, "Evidence reading must not start a model");
       await page.screenshot({path: resolve(outputDir, "team-evidence-desktop.png"), animations: "disabled"});
       // Lose the first acknowledgement; retry must preserve identity and content.

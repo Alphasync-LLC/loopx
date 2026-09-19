@@ -900,10 +900,21 @@ export type DelegationPreflight = {
   turn_eligible: boolean; acceptance_ready: boolean; turn_route: string;
   executor: {host: string; available: boolean | null; reason: string | null; profile: string | null};
 };
+export type DelegationDependency = {
+  operation_id: string; ref: string; sha256: string; input_ref: string;
+  relation: "responds_to" | "revises" | "uses"; state: "current" | "unavailable";
+};
+export type DelegationAdoption = {
+  requester_agent_id: string; consumer_operation_id: string; consumer_request_id: string;
+  consumer_agent_id: string; consumer_todo_id: string; state: "current" | "unavailable";
+  source_artifacts: Array<{ref: string; sha256: string}>;
+  consumer_artifacts: Array<{ref: string; sha256: string}>;
+};
 export type DelegationReadback = {
   operation_id: string; request_id: string; agent_id: string; todo_id: string;
   status: string; worker_active: boolean; recovery_required: boolean;
   artifacts?: Array<{ref: string; sha256: string; text: string}>; error?: string;
+  dependencies?: DelegationDependency[]; adoptions?: DelegationAdoption[];
 };
 export function readLoopXTeamWork(sessionId: string, operationId: string) {
   return requestJson<DelegationReadback>(`/api/chat/sessions/${sessionId}/loopx`, {
