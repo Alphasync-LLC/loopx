@@ -70,8 +70,8 @@ def reconcile_existing_heartbeat_receipt(
             # A fully settled Turn owns its immutable receipt regardless of a
             # later explicit CLI choice.  The live decision has already read
             # the exact settlement and projected ``heartbeat_settled_skip``;
-            # rechecking that new choice here would turn a harmless same-Turn
-            # replay into an identity conflict and reopen successor routing.
+            # action-selection preflight distinguishes a qualified current
+            # Todo from a conflicting explicit choice before this replay path.
             settled_replay = (
                 payload.get("effective_action")
                 == EffectiveAction.HEARTBEAT_SETTLED_SKIP.value

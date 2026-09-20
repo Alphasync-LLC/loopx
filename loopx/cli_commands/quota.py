@@ -22,6 +22,7 @@ from ..control_plane.quota.cli_projection import (
 )
 from ..control_plane.quota.effect_program import SettlementIdentity
 from ..control_plane.quota.error_codes import (
+    HeartbeatReceiptIdentityConflictError,
     QuotaCommandValidationError,
     QuotaActionSelectionConflictError,
     QuotaActionSelectionConflictKind,
@@ -176,9 +177,9 @@ def _heartbeat_quota_action_selection_bindings(
     runtime_root: Path,
     args: argparse.Namespace,
     heartbeat_turn_id: str | None,
-) -> tuple[dict[str, object] | None, str | None, str | None, str | None]:
+) -> tuple[dict[str, object] | None, str | None, str | None, str | None, bool]:
     if not heartbeat_turn_id:
-        return None, None, None, None
+        return None, None, None, None, False
     existing = find_heartbeat_receipt(
         runtime_root,
         goal_id=args.goal_id,
@@ -186,13 +187,19 @@ def _heartbeat_quota_action_selection_bindings(
         turn_instance_id=heartbeat_turn_id,
     )
     if not existing:
-        return None, None, None, None
+        return None, None, None, None, False
     todo_id, replan_obligation_id = _heartbeat_receipt_settlement_bindings(existing)
+    details_value = existing.get("details")
+    details: Mapping[str, object] = (
+        details_value if isinstance(details_value, Mapping) else {}
+    )
     return (
         existing,
         todo_id,
         replan_obligation_id,
         heartbeat_receipt_pending_action_todo_id(existing),
+        str(details.get("settlement_receipt_revision") or "")
+        == "identity_upgrade",
     )
 
 
@@ -202,10 +209,17 @@ def _apply_requested_quota_action_selection_preflight(
     requested_todo_id: str | None,
     receipt_bound_todo_id: str | None,
     receipt_bound_replan_obligation_id: str | None,
+    receipt_pending_action_todo_id: str | None,
+    receipt_identity_upgraded: bool,
 ) -> bool:
-    if not requested_todo_id or (
-        receipt_bound_todo_id or receipt_bound_replan_obligation_id
-    ):
+    if not requested_todo_id:
+        return False
+    if receipt_bound_todo_id:
+        if requested_todo_id != receipt_bound_todo_id:
+            raise HeartbeatReceiptIdentityConflictError(
+                "heartbeat receipt settlement identity conflicts with the "
+                "current selected Todo: explicitly requested Todo differs"
+            )
         return False
     selected_todo = payload.get("selected_todo")
     selected_todo_id = (
@@ -229,6 +243,20 @@ def _apply_requested_quota_action_selection_preflight(
             normalize_todo_id(qualification_selected.get("todo_id"))
             if isinstance(qualification_selected, Mapping)
             else None
+        )
+    if receipt_bound_replan_obligation_id:
+        if not receipt_identity_upgraded:
+            # A Turn that started directly in autonomous replan has no Todo
+            # selection authority to replace.  A later same-Turn --todo-id is
+            # therefore a harmless settled replay, not successor delivery.
+            return False
+        if requested_todo_id == receipt_pending_action_todo_id:
+            return False
+        raise QuotaActionSelectionConflictError(
+            QuotaActionSelectionConflictKind.CONFLICT,
+            requested_todo_id=requested_todo_id,
+            selected_todo_id=receipt_pending_action_todo_id,
+            qualification_state="retained_selection",
         )
     selection_binding = (
         selected_todo.get("selection_binding")
@@ -349,11 +377,15 @@ def _reconcile_requested_quota_action_selection(
     context: QuotaCommandContext,
     receipt_bound_todo_id: str | None,
     receipt_bound_replan_obligation_id: str | None,
+    receipt_pending_action_todo_id: str | None,
+    receipt_identity_upgraded: bool,
 ) -> bool:
     rejected = _apply_requested_quota_action_selection_preflight(
         payload, requested_todo_id=_requested_quota_action_todo_id(args),
         receipt_bound_todo_id=receipt_bound_todo_id,
         receipt_bound_replan_obligation_id=receipt_bound_replan_obligation_id,
+        receipt_pending_action_todo_id=receipt_pending_action_todo_id,
+        receipt_identity_upgraded=receipt_identity_upgraded,
     )
     if rejected:
         apply_action_selection_recovery(
@@ -687,6 +719,7 @@ def handle_quota_command(
                 receipt_bound_todo_id,
                 receipt_bound_replan_obligation_id,
                 receipt_pending_action_todo_id,
+                receipt_identity_upgraded,
             ) = _heartbeat_quota_action_selection_bindings(
                 runtime_root=runtime_root,
                 args=args,
@@ -734,6 +767,8 @@ def handle_quota_command(
                 payload, args, registry_path=registry_path, context=context,
                 receipt_bound_todo_id=receipt_bound_todo_id,
                 receipt_bound_replan_obligation_id=receipt_bound_replan_obligation_id,
+                receipt_pending_action_todo_id=receipt_pending_action_todo_id,
+                receipt_identity_upgraded=receipt_identity_upgraded,
             )
             if action_selection_preflight_failed:
                 (
