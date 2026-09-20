@@ -210,29 +210,102 @@ export function planExternalEvidenceRequest(params: JsonObject): JsonObject {
     ? readyProviders[0] ?? null
     : readyProviders.find((provider) => provider.provider_id === preferredProviderId) ?? null;
   const status = selected === null ? "blocked" : "ready";
-  return {
+  const executionEnvelope = selected === null
+    ? null
+    : {
+      schema_version: "loopx_external_evidence_execution_envelope_v0",
+      request_id: request.request_id,
+      provider_id: selected.provider_id,
+      provider_kind: selected.provider_kind,
+      protocol: selected.protocol,
+      authority: "read_external_sources_only",
+      raw_content_persistence: "provider_private",
+      result_contract: EXTERNAL_EVIDENCE_RECEIPT_SCHEMA_VERSION,
+    };
+  const plan = {
     schema_version: EXTERNAL_EVIDENCE_PLAN_SCHEMA_VERSION,
     status,
     request,
     provider_candidates: providers,
     selected_provider: selected,
-    execution_envelope: selected === null
-      ? null
-      : {
-        schema_version: "loopx_external_evidence_execution_envelope_v0",
-        request_id: request.request_id,
-        provider_id: selected.provider_id,
-        provider_kind: selected.provider_kind,
-        protocol: selected.protocol,
-        authority: "read_external_sources_only",
-        raw_content_persistence: "provider_private",
-        result_contract: EXTERNAL_EVIDENCE_RECEIPT_SCHEMA_VERSION,
-      },
+    execution_envelope: executionEnvelope,
     blocker: selected === null
       ? preferredProviderId === null
         ? "no_ready_provider"
         : "preferred_provider_not_ready"
       : null,
+  };
+  const planId = digest(plan);
+  return {
+    ...plan,
+    plan_id: planId,
+    execution_envelope: executionEnvelope === null
+      ? null
+      : { ...executionEnvelope, plan_id: planId },
+  };
+}
+
+function normalizeReadyPlan(value: unknown): JsonObject {
+  const plan = requireJsonObject(value, "external evidence plan");
+  requireThat(
+    plan.schema_version === EXTERNAL_EVIDENCE_PLAN_SCHEMA_VERSION && plan.status === "ready",
+    "external evidence execution requires a ready plan",
+  );
+  requireThat(plan.blocker === null, "a ready external evidence plan cannot have a blocker");
+  const request = normalizeRequest(plan.request);
+  const suppliedRequest = requireJsonObject(plan.request, "external evidence plan request");
+  requireThat(
+    suppliedRequest.request_id === request.request_id,
+    "external evidence plan request_id does not match its normalized request",
+  );
+  const providers = normalizeProviders(plan.provider_candidates);
+  const selected = normalizeProvider(plan.selected_provider, 0);
+  requireThat(selected.ready === true, "external evidence selected provider is not ready");
+  const selectedCandidate = providers.find(
+    (provider) => provider.provider_id === selected.provider_id,
+  );
+  requireThat(
+    selectedCandidate !== undefined && digest(selectedCandidate) === digest(selected),
+    "external evidence selected provider does not match its provider candidate",
+  );
+  const planId = boundedText(plan.plan_id, "external evidence plan.plan_id", 71);
+  requireThat(SHA256_RE.test(planId), "external evidence plan.plan_id is invalid");
+  const executionEnvelope = {
+    schema_version: "loopx_external_evidence_execution_envelope_v0",
+    request_id: request.request_id,
+    provider_id: selected.provider_id,
+    provider_kind: selected.provider_kind,
+    protocol: selected.protocol,
+    authority: "read_external_sources_only",
+    raw_content_persistence: "provider_private",
+    result_contract: EXTERNAL_EVIDENCE_RECEIPT_SCHEMA_VERSION,
+  };
+  const suppliedEnvelope = requireJsonObject(
+    plan.execution_envelope,
+    "external evidence execution envelope",
+  );
+  requireThat(
+    suppliedEnvelope.plan_id === planId &&
+      digest(suppliedEnvelope) === digest({ ...executionEnvelope, plan_id: planId }),
+    "external evidence execution envelope does not match the plan",
+  );
+  const normalizedPlan = {
+    schema_version: EXTERNAL_EVIDENCE_PLAN_SCHEMA_VERSION,
+    status: "ready",
+    request,
+    provider_candidates: providers,
+    selected_provider: selected,
+    execution_envelope: executionEnvelope,
+    blocker: null,
+  };
+  requireThat(
+    planId === digest(normalizedPlan),
+    "external evidence plan_id does not match the normalized ready plan",
+  );
+  return {
+    ...normalizedPlan,
+    plan_id: planId,
+    execution_envelope: { ...executionEnvelope, plan_id: planId },
   };
 }
 
@@ -277,11 +350,11 @@ function sourceRecord(value: unknown, index: number): JsonObject {
   };
 }
 
-function normalizeExecutionReceipt(plan: JsonObject, value: unknown): JsonObject {
-  requireThat(
-    plan.schema_version === EXTERNAL_EVIDENCE_PLAN_SCHEMA_VERSION && plan.status === "ready",
-    "external evidence execution requires a ready plan",
-  );
+function normalizeExecutionReceipt(
+  planValue: unknown,
+  value: unknown,
+): { plan: JsonObject; receipt: JsonObject } {
+  const plan = normalizeReadyPlan(planValue);
   const request = requireJsonObject(plan.request, "external evidence plan request");
   const selected = requireJsonObject(plan.selected_provider, "external evidence selected provider");
   const receipt = requireJsonObject(value, "external evidence receipt");
@@ -289,6 +362,7 @@ function normalizeExecutionReceipt(plan: JsonObject, value: unknown): JsonObject
     receipt.schema_version === EXTERNAL_EVIDENCE_RECEIPT_SCHEMA_VERSION,
     "external evidence receipt schema is invalid",
   );
+  requireThat(receipt.plan_id === plan.plan_id, "receipt plan_id does not match the plan");
   requireThat(receipt.request_id === request.request_id, "receipt request_id does not match the plan");
   requireThat(receipt.provider_id === selected.provider_id, "receipt provider_id does not match the plan");
   requireThat(receipt.provider_kind === selected.provider_kind, "receipt provider_kind does not match the plan");
@@ -303,24 +377,28 @@ function normalizeExecutionReceipt(plan: JsonObject, value: unknown): JsonObject
   requireThat(status !== "succeeded" || sources.length > 0, "a succeeded receipt requires evidence sources");
   requireThat(status === "succeeded" || sources.length === 0, "failed or no_evidence receipts cannot carry admitted sources");
   return {
-    schema_version: EXTERNAL_EVIDENCE_RECEIPT_SCHEMA_VERSION,
-    request_id: request.request_id,
-    provider_id: selected.provider_id,
-    provider_kind: selected.provider_kind,
-    status,
-    sources,
-    summary: boundedText(receipt.summary, "receipt.summary", 4096),
-    limitations: receipt.limitations === undefined
-      ? []
-      : boundedStrings(receipt.limitations, "receipt.limitations", 16, 1024),
-    completed_at: boundedText(receipt.completed_at, "receipt.completed_at", 64),
+    plan,
+    receipt: {
+      schema_version: EXTERNAL_EVIDENCE_RECEIPT_SCHEMA_VERSION,
+      plan_id: plan.plan_id,
+      request_id: request.request_id,
+      provider_id: selected.provider_id,
+      provider_kind: selected.provider_kind,
+      status,
+      sources,
+      summary: boundedText(receipt.summary, "receipt.summary", 4096),
+      limitations: receipt.limitations === undefined
+        ? []
+        : boundedStrings(receipt.limitations, "receipt.limitations", 16, 1024),
+      completed_at: boundedText(receipt.completed_at, "receipt.completed_at", 64),
+    },
   };
 }
 
 export function recordExternalEvidenceExecution(params: JsonObject): JsonObject {
-  const plan = requireJsonObject(params.plan, "external evidence plan");
-  const receipt = normalizeExecutionReceipt(plan, params.receipt);
+  const { plan, receipt } = normalizeExecutionReceipt(params.plan, params.receipt);
   const executionIdentity = {
+    plan_id: plan.plan_id,
     request_id: receipt.request_id,
     provider_id: receipt.provider_id,
     receipt_digest: digest(receipt),
@@ -328,6 +406,7 @@ export function recordExternalEvidenceExecution(params: JsonObject): JsonObject 
   return {
     schema_version: EXTERNAL_EVIDENCE_EXECUTION_SCHEMA_VERSION,
     execution_id: digest(executionIdentity),
+    plan_id: plan.plan_id,
     request_id: receipt.request_id,
     provider_id: receipt.provider_id,
     provider_kind: receipt.provider_kind,
@@ -345,10 +424,11 @@ export function recordExternalEvidenceExecution(params: JsonObject): JsonObject 
 }
 
 export function evaluateExternalEvidenceAdmission(params: JsonObject): JsonObject {
-  const plan = requireJsonObject(params.plan, "external evidence plan");
+  const normalized = normalizeExecutionReceipt(params.plan, params.receipt);
+  const plan = normalized.plan;
+  const receipt = normalized.receipt;
   const request = requireJsonObject(plan.request, "external evidence plan request");
   const selected = requireJsonObject(plan.selected_provider, "external evidence selected provider");
-  const receipt = normalizeExecutionReceipt(plan, params.receipt);
   const status = receipt.status as string;
   const sources = receipt.sources as JsonObject[];
   const completedAt = receipt.completed_at as string;
@@ -378,6 +458,7 @@ export function evaluateExternalEvidenceAdmission(params: JsonObject): JsonObjec
   );
   const admitted = sources.filter((source) => admittedRefs.includes(source.source_ref as string));
   const admissionIdentity = {
+    plan_id: plan.plan_id,
     request_id: request.request_id,
     provider_id: selected.provider_id,
     receipt_digest: receiptDigest,
@@ -387,6 +468,7 @@ export function evaluateExternalEvidenceAdmission(params: JsonObject): JsonObjec
   return {
     schema_version: EXTERNAL_EVIDENCE_ADMISSION_SCHEMA_VERSION,
     admission_id: digest(admissionIdentity),
+    plan_id: plan.plan_id,
     request_id: request.request_id,
     provider_id: selected.provider_id,
     provider_kind: selected.provider_kind,
@@ -398,6 +480,7 @@ export function evaluateExternalEvidenceAdmission(params: JsonObject): JsonObjec
     admitted_source_refs: admittedRefs,
     downstream_projection: {
       schema_version: "loopx_external_evidence_projection_v0",
+      plan_id: plan.plan_id,
       request_id: request.request_id,
       objective: request.objective,
       decision: request.decision,
@@ -432,6 +515,7 @@ export function projectExternalEvidenceRetirement(params: JsonObject): JsonObjec
   return {
     schema_version: EXTERNAL_EVIDENCE_RETIREMENT_SCHEMA_VERSION,
     admission_id: admission.admission_id,
+    plan_id: admission.plan_id,
     request_id: admission.request_id,
     status: retireReady ? "retire_ready" : "retained",
     retire_ready: retireReady,

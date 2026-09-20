@@ -47,10 +47,12 @@ function plan() {
   });
 }
 
-function receipt(requestId: unknown) {
+function receipt(currentPlan: Record<string, unknown>) {
+  const currentRequest = currentPlan.request as Record<string, unknown>;
   return {
     schema_version: "loopx_external_evidence_receipt_v0",
-    request_id: requestId,
+    plan_id: currentPlan.plan_id,
+    request_id: currentRequest.request_id,
     provider_id: methodProvider.provider_id,
     provider_kind: methodProvider.provider_kind,
     status: "succeeded",
@@ -116,6 +118,11 @@ test("plans one ready provider without treating registry presence as readiness",
     String((result.request as Record<string, unknown>).request_id),
     /^sha256:[0-9a-f]{64}$/,
   );
+  assert.match(String(result.plan_id), /^sha256:[0-9a-f]{64}$/);
+  assert.equal(
+    (result.execution_envelope as Record<string, unknown>).plan_id,
+    result.plan_id,
+  );
 });
 test("blocks when every provider is inventory-only", () => {
   const result = planExternalEvidenceRequest({
@@ -139,12 +146,12 @@ test("rejects a provider that claims ready without lifecycle readiness", () => {
 
 test("records provider execution without claiming coverage or admission", () => {
   const currentPlan = plan();
-  const requestId = (currentPlan.request as Record<string, unknown>).request_id;
   const result = recordExternalEvidenceExecution({
     plan: currentPlan,
-    receipt: receipt(requestId),
+    receipt: receipt(currentPlan),
   });
   assert.equal(result.status, "succeeded");
+  assert.equal(result.plan_id, currentPlan.plan_id);
   assert.match(String(result.execution_id), /^sha256:[0-9a-f]{64}$/);
   assert.deepEqual(result.truth_contract, {
     provider_execution_observed: true,
@@ -158,22 +165,70 @@ test("records provider execution without claiming coverage or admission", () => 
 
 test("execution receipt fails closed on stale provider identity", () => {
   const currentPlan = plan();
-  const requestId = (currentPlan.request as Record<string, unknown>).request_id;
   assert.throws(
     () => recordExternalEvidenceExecution({
       plan: currentPlan,
-      receipt: { ...receipt(requestId), provider_id: "connector:stale" },
+      receipt: { ...receipt(currentPlan), provider_id: "connector:stale" },
     }),
     /provider_id does not match/,
   );
 });
 
+test("execution receipt fails closed on stale plan identity", () => {
+  const currentPlan = plan();
+  assert.throws(
+    () => recordExternalEvidenceExecution({
+      plan: currentPlan,
+      receipt: { ...receipt(currentPlan), plan_id: `sha256:${"b".repeat(64)}` },
+    }),
+    /plan_id does not match/,
+  );
+});
+
+test("canonical ready-plan verification rejects semantic mutations", () => {
+  const mutations: Array<[
+    string,
+    (value: Record<string, unknown>) => void,
+  ]> = [
+    ["objective", (value) => {
+      (value.request as Record<string, unknown>).objective = "Use a different objective";
+    }],
+    ["decision", (value) => {
+      (value.request as Record<string, unknown>).decision = "Make a different decision";
+    }],
+    ["constraints", (value) => {
+      (value.request as Record<string, unknown>).constraints = ["private sources allowed"];
+    }],
+    ["provider readiness", (value) => {
+      const candidates = value.provider_candidates as Array<Record<string, unknown>>;
+      candidates[0].ready = false;
+      candidates[0].unavailable_reason = "became unavailable";
+    }],
+    ["execution envelope", (value) => {
+      (value.execution_envelope as Record<string, unknown>).authority = "write_external_sources";
+    }],
+  ];
+
+  for (const [label, mutate] of mutations) {
+    const currentPlan = plan();
+    const mutatedPlan = structuredClone(currentPlan) as Record<string, unknown>;
+    mutate(mutatedPlan);
+    assert.throws(
+      () => recordExternalEvidenceExecution({
+        plan: mutatedPlan,
+        receipt: receipt(currentPlan),
+      }),
+      undefined,
+      label,
+    );
+  }
+});
+
 test("admits exact source refs and exposes only compact provenance", () => {
   const currentPlan = plan();
-  const requestId = (currentPlan.request as Record<string, unknown>).request_id;
   const result = evaluateExternalEvidenceAdmission({
     plan: currentPlan,
-    receipt: receipt(requestId),
+    receipt: receipt(currentPlan),
     decision: {
       disposition: "admit",
       reason: "The source directly answers the interaction question.",
@@ -181,6 +236,7 @@ test("admits exact source refs and exposes only compact provenance", () => {
     },
   });
   assert.equal(result.disposition, "admit");
+  assert.equal(result.plan_id, currentPlan.plan_id);
   assert.match(String(result.admission_id), /^sha256:[0-9a-f]{64}$/);
   assert.match(String(result.receipt_digest), /^sha256:[0-9a-f]{64}$/);
   const projection = result.downstream_projection as Record<string, unknown>;
@@ -190,11 +246,13 @@ test("admits exact source refs and exposes only compact provenance", () => {
 
 test("admission fails closed on stale plan identity and local file provenance", () => {
   const currentPlan = plan();
-  const requestId = (currentPlan.request as Record<string, unknown>).request_id;
   assert.throws(
     () => evaluateExternalEvidenceAdmission({
       plan: currentPlan,
-      receipt: { ...receipt(requestId), request_id: `sha256:${"b".repeat(64)}` },
+      receipt: {
+        ...receipt(currentPlan),
+        request_id: `sha256:${"b".repeat(64)}`,
+      },
       decision: {
         disposition: "admit",
         reason: "stale",
@@ -203,7 +261,7 @@ test("admission fails closed on stale plan identity and local file provenance", 
     }),
     /request_id does not match/,
   );
-  const localReceipt = receipt(requestId);
+  const localReceipt = receipt(currentPlan);
   localReceipt.sources[0].source_ref = "file:///tmp/raw-transcript";
   assert.throws(
     () => evaluateExternalEvidenceAdmission({
@@ -221,10 +279,9 @@ test("admission fails closed on stale plan identity and local file provenance", 
 
 test("retirement waits for downstream use of every admitted source", () => {
   const currentPlan = plan();
-  const requestId = (currentPlan.request as Record<string, unknown>).request_id;
   const admission = evaluateExternalEvidenceAdmission({
     plan: currentPlan,
-    receipt: receipt(requestId),
+    receipt: receipt(currentPlan),
     decision: {
       disposition: "admit",
       reason: "direct evidence",

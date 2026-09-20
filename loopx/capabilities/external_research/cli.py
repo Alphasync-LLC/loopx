@@ -83,6 +83,7 @@ def _render(payload: dict[str, object]) -> str:
     lines = ["# LoopX External Evidence", ""]
     for field in (
         "status",
+        "plan_id",
         "request_id",
         "provider_id",
         "provider_kind",
