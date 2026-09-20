@@ -36,6 +36,44 @@ select `generic-cli`, `fresh`, and the optional adapter's `--config` invocation.
 Profiles, executables, workspace isolation and credential custody remain the
 operator's responsibility. No model tool accepts those values.
 
+A Codex binding launches an independent, resumable Codex Agent Session through
+the same governed Turn path. Pin both fields when the worker must use an exact
+profile:
+
+```json
+{
+  "id": "strong-independent-review",
+  "agent_id": "managed-reviewer",
+  "todo_id": "todo_review",
+  "requesters": ["lead"],
+  "workspace": "/absolute/reviewer-worktree",
+  "host_args": [
+    "--host", "codex-cli",
+    "--codex-model", "gpt-5.6-sol",
+    "--codex-reasoning-effort", "xhigh",
+    "--codex-sandbox", "workspace-write"
+  ],
+  "timeout_seconds": 300,
+  "output_refs": ["output.json"]
+}
+```
+
+This is not a native `multi_subagent` child. Native children remain temporary
+workers inside one parent execution and use the Goal's child model preference.
+The binding above has its own Agent identity, Todo, workspace, Codex Session and
+durable delegation operation. `delegation inspect` and the planning projection
+show `gpt-5.6-sol@xhigh`; start and resume pass both fields to that same Session.
+The requester still needs the exact binding grant, and a profile is not an
+acceptance or result-return receipt.
+
+中文：Codex binding 通过同一条受治理 Turn 链启动独立、可续接的 Codex Agent
+Session。需要精确执行配置时同时固定 `--codex-model` 与
+`--codex-reasoning-effort`。它不是 `multi_subagent` 的原生临时 child：后者仍在
+单个父执行内部使用 Goal 的 child model 偏好；前者拥有独立 Agent 身份、Todo、
+workspace、Codex Session 与持久 delegation operation。`delegation inspect` 和
+规划投影会读回例如 `gpt-5.6-sol@xhigh`，start/resume 也把同一配置送入原 Session。
+这不扩大 requester grant，也不把 profile 冒充验收或结果返回回执。
+
 ## Use an existing Agent conversation through its shell
 
 An attached Codex or other shell-capable Agent can use the same execution
