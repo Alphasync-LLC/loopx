@@ -895,7 +895,9 @@ def _structured_resume_source_items(
     ]
 
 
-def _project_summary_lanes(items: list[dict[str, Any]], preferred_todo_ids: set[str] | None) -> dict[str, Any]:
+def _project_summary_lanes(items: list[dict[str, Any]], preferred_todo_ids: set[str] | None,
+    selection: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Adapt legacy facts and read batch ordinals from the typed lane owner."""
     from ..effect_runtime import EffectRuntimeRejected, effect_runtime_result
 
@@ -918,23 +920,42 @@ def _project_summary_lanes(items: list[dict[str, Any]], preferred_todo_ids: set[
             "claimed": bool(item.get("claimed_by")), "preferred": item.get("todo_id") in (preferred_todo_ids or set()),
             "watch_only": projection_todo_item_is_watch_only_monitor(item),
             "due_at": due.timestamp() if due else None, "expires_at": expires.timestamp() if expires else None,
-            "sort": list(projection_todo_presentation_sort_key(item))})
+            "sort": list(projection_todo_presentation_sort_key(item)),
+            **({"todo_id": normalize_todo_id(item.get("todo_id")),
+                "claim": normalize_todo_claimed_by(item.get("claimed_by")),
+                "bound": normalize_todo_bound_agent(item.get("bound_agent")),
+                "blocks": normalize_todo_blocks_agent(item.get("blocks_agent")),
+                "global": bool(item.get("global_gate")),
+                "excluded": normalize_todo_excluded_agents(item.get("excluded_agents"))}
+                if selection is not None else {})})
     try:
         result = effect_runtime_result("todo.summary_lanes.project", {
-            "schema_version": "todo_summary_lanes_request_v0", "rows": rows, "observed_at": now_utc().timestamp(),
+            "schema_version": "todo_summary_lanes_request_v0" if selection is None else "todo_summary_lanes_request_v1",
+            "rows": rows, "observed_at": now_utc().timestamp(),
+            **({"selection": selection} if selection is not None else {}),
         })
     except EffectRuntimeRejected as error:
         raise ValueError(str(error)) from error
     if not isinstance(result, dict) or result.get("schema_version") != "todo_summary_lanes_v0":
         raise ValueError("invalid typed Todo summary lanes")
+    def valid_ordinals(value: Any) -> bool:
+        return (isinstance(value, list)
+            and all(type(index) is int and 0 <= index < len(items) for index in value)
+            and len(set(value)) == len(value))
+
     lanes = result["lanes"]
-    if not isinstance(lanes, dict) or any(
-        not isinstance(indices, list) or any(type(index) is not int or not 0 <= index < len(items) for index in indices)
-        for indices in lanes.values()
-    ):
+    if not isinstance(lanes, dict) or any(not valid_ordinals(indices) for indices in lanes.values()):
         raise ValueError("invalid Todo summary source ordinal")
+    selected = result.get("source_indices", list(range(len(items))))
+    if (not valid_ordinals(selected)
+        or selection is not None and ("source_indices" not in result or type(result.get("full_selection")) is not bool)):
+        raise ValueError("invalid typed Todo selection ordinals")
+    selected_set = set(selected)
+    if any(not set(indices) <= selected_set for indices in lanes.values()):
+        raise ValueError("Todo summary lane escaped the selected source")
     return {"lanes": {key: [items[index] for index in indices] for key, indices in lanes.items()},
-            "work_counts": result["work_counts"]}
+            "items": [items[index] for index in selected],
+            "full_selection": result.get("full_selection", True), "work_counts": result["work_counts"]}
 
 
 def compact_todo_group(
@@ -993,6 +1014,7 @@ def compact_evaluated_todo_group(
     vision_runs: list[dict[str, Any]] | None = None,
     lineage_items: list[dict[str, Any]] | None = None,
     full_selection: bool = True,
+    selection: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Filter/display an already evaluated snapshot, never re-evaluate topology.
 
@@ -1001,7 +1023,12 @@ def compact_evaluated_todo_group(
     """
     if not items and not include_empty_source:
         return None
-    projected = _project_summary_lanes(items, preferred_todo_ids)
+    projected = _project_summary_lanes(items, preferred_todo_ids, selection)
+    items = projected["items"]
+    if selection is not None:
+        full_selection = projected["full_selection"]
+    if not items and not include_empty_source:
+        return None
     lanes = _TodoGroupLanes(**projected["lanes"])
     from .succession_warning import project_succession
 
