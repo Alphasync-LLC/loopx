@@ -435,6 +435,43 @@ def _deliver_one(
     )
     card = build_team_plan_review_card(proposal, audience_id=audience_id)
     card_digest = _digest(card)
+    current = store.load(str(proposal["proposal_id"]))
+    review_card = current.get("review_card") if isinstance(current, Mapping) else None
+    recorded_deliveries = (
+        review_card.get("deliveries") if isinstance(review_card, Mapping) else None
+    )
+    recorded = (
+        recorded_deliveries.get(audience_id)
+        if isinstance(recorded_deliveries, Mapping)
+        else None
+    )
+    if isinstance(recorded, Mapping):
+        expected = {
+            "provider": "lark",
+            "chat_id": str(route["chat_id"]),
+            "app_id": str(route["bot_app_id"]),
+            "cli_bin": str(route["cli_bin"]),
+            "sender_profile": str(route["sender_profile"]),
+            "binding_digest": goal_channel_binding_digest(binding),
+            "card_digest": card_digest,
+            "submitted_card": card,
+            "authorized_principal": authorized_principal,
+        }
+        if not _MESSAGE_ID.fullmatch(str(recorded.get("message_id") or "")) or any(
+            recorded.get(key) != value for key, value in expected.items()
+        ):
+            raise ActionConflictError(
+                "recorded team plan review audience drifted before retry"
+            )
+        # The store only records an audience after exact native readback. Reuse
+        # that durable checkpoint instead of writing a duplicate actionable
+        # card when another audience made the prior attempt partial.
+        return {
+            "audience_id": audience_id,
+            "message_id": str(recorded["message_id"]),
+            "external_write_performed": False,
+            "readback_verified": True,
+        }
 
     def resolve_current() -> Mapping[str, Any]:
         payload = read_goal_channel_binding(binding_path)

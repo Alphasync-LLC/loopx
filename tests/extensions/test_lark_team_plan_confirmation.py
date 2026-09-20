@@ -7,6 +7,8 @@ from pathlib import Path
 from collections.abc import Mapping
 from typing import Any
 
+import pytest
+
 from loopx.chat_action_store import ChatActionStore
 from loopx.extensions.lark.team_plan_confirmation import (
     build_team_plan_review_card,
@@ -334,6 +336,116 @@ def test_delivery_projects_one_proposal_to_manager_and_goal_audiences(
     assert durable["review_card"]["deliveries"]["goal:goal-alpha"][
         "sender_profile"
     ] == "goal-profile"
+
+
+def test_delivery_retry_resumes_after_the_first_audience_checkpoint(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    import loopx.extensions.lark.team_plan_confirmation as confirmation
+
+    store = ChatActionStore(tmp_path / "actions")
+    proposal = _proposal(store)
+
+    def binding(*, manager: bool) -> dict[str, Any]:
+        goal_id = "manager-goal" if manager else "goal-alpha"
+        return {
+            "goal_id": goal_id,
+            "provider": "lark",
+            "enabled": True,
+            "connection_id": "manager-connection" if manager else "goal-connection",
+            "target_ref": "manager-target" if manager else "goal-target",
+            "routing": {
+                "conversation_kind": "manager" if manager else "goal",
+            },
+            "channel": {
+                "chat_id": "oc_manager" if manager else "oc_goal",
+            },
+            "identity": {
+                "mode": "project_bot",
+                "sender_profile": "manager-profile" if manager else "goal-profile",
+                "sender_identity": "bot",
+                "bot_app_id": "cli_manager" if manager else "cli_goal",
+                "bot_display_name": "Manager Bot" if manager else "Goal Bot",
+                "cli_bin": "manager-lark" if manager else "goal-lark",
+            },
+        }
+
+    def resolve_binding(**kwargs: Any):
+        selected = binding(manager=kwargs["manager_audience"])
+        return selected, tmp_path / "binding.json", tmp_path / "targets.json"
+
+    send_calls: list[str] = []
+    fail_goal_once = True
+
+    class DeliverySession:
+        def __init__(self, **kwargs: Any) -> None:
+            self.route: Mapping[str, Any] | None = None
+
+        def verify(self, route: Mapping[str, Any]) -> bool:
+            self.route = route
+            return True
+
+        def send(
+            self,
+            _card: Mapping[str, Any],
+            _key: str,
+            route: Mapping[str, Any],
+        ) -> dict[str, Any]:
+            nonlocal fail_goal_once
+            chat_id = str(route["chat_id"])
+            send_calls.append(chat_id)
+            if chat_id == "oc_goal" and fail_goal_once:
+                fail_goal_once = False
+                raise OSError("synthetic second-audience failure")
+            return {
+                "message_id": ("om_manager" if chat_id == "oc_manager" else "om_goal"),
+                "external_write_performed": True,
+            }
+
+        def readback(self, message_id: str) -> dict[str, Any]:
+            assert self.route is not None
+            return {
+                "verified": True,
+                "message_id": message_id,
+                "chat_id": self.route["chat_id"],
+                "sender_app_id": self.route["bot_app_id"],
+            }
+
+    monkeypatch.setattr(confirmation, "_resolved_binding", resolve_binding)
+    monkeypatch.setattr(
+        confirmation, "GoalChannelMessageDeliverySession", DeliverySession
+    )
+
+    kwargs = {
+        "proposal_ids": [proposal["proposal_id"]],
+        "manager_route": {
+            "goal_id": "manager-goal",
+            "connection_id": "manager-connection",
+            "source_sender_id": "ou_owner",
+        },
+        "registry_path": tmp_path / "registry.json",
+        "runtime_root": tmp_path,
+        "action_store_root": store.root,
+    }
+    with pytest.raises(OSError, match="second-audience failure"):
+        deliver_team_plan_review_cards(**kwargs)
+
+    partial = store.load(proposal["proposal_id"])
+    assert partial is not None
+    assert set(partial["review_card"]["deliveries"]) == {"manager"}
+
+    receipt = deliver_team_plan_review_cards(**kwargs)
+
+    assert send_calls == ["oc_manager", "oc_goal", "oc_goal"]
+    assert receipt["audience_count"] == 2
+    assert receipt["external_write_count"] == 1
+    assert receipt["readback_verified"] is True
+    durable = store.load(proposal["proposal_id"])
+    assert durable is not None
+    assert set(durable["review_card"]["deliveries"]) == {
+        "manager",
+        "goal:goal-alpha",
+    }
 
 
 def test_recovery_uses_the_first_durable_decision_not_a_later_click(
