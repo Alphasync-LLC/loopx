@@ -3016,6 +3016,16 @@ independent legacy three-arm comparison or D2 soak.
   move. Exit with deterministic freshness/readback and an actionable repair
   path; a successful render once is insufficient.
 
+Continuation and closure readback now uses the same TS relation evidence for
+completed-work gaps and handoff states before filtering/capping. Capture v1
+retains reachable archived successors and original deferred status; derived
+summary evaluations never enter provider records. Completion retries also
+recover the matching receipt when a peer commits between receipt and head reads,
+without accepting state-only replay with fresh validation evidence. Real CLI and complete-graph
+provider conformance cover the consumer family. See [operation and semantic
+changes](../../reference/todo-continuation-readback.md). This closes a bounded
+L5/L7 gap; permanent projection delivery/recovery, D2 and D3 are still open.
+
 **D2 — qualify exactly one local profile; independent of PostgreSQL deployment.**
 
 - Reconcile the SQLite candidate #4121 with Section 7.2 before adding code.
@@ -3073,8 +3083,9 @@ The reconciled baseline includes #4286 (command receipts/archive), #4289
 #4316 (Goal Channel observation), #4317 (provider opening), #4348 (renew),
 #4328 (first SQLite D2 batch) and #4334 (PostgreSQL service admission): all are
 merged at the 2026-09-20 checkpoint. Their existence does not qualify the full
-cards. #4732 remains the open Monitor observation/reactivation slice; #4224
-retains contributor ownership of SQLite D2. Re-read actual heads before work.
+cards. Monitor observation/reactivation #4732 and linked User completion #4754
+are also merged. #4224 retains contributor ownership of SQLite D2. Re-read
+actual heads before work.
 
 The identifiers below are **planned PR packages**, not reserved GitHub numbers.
 A package may split at a real effect/compatibility boundary; changing languages
@@ -3096,12 +3107,11 @@ or moving a helper is not by itself a package exit.
 packages as complete operations while L6/L7 progress independently. B integrates
 those contracts into complete user flows; C has one reproducible qualification
 checkpoint; D changes the default in its own reviewable PR. After the linked
-User completion slice, the 2026-09-20 planning estimate is **6–9 further cohesive
+User completion slice, the 2026-09-20 planning estimate is **5–8 further cohesive
 PRs**, conditional on the caller audit finding no additional missing effects:
 
 | Remaining work package | Estimated PRs | Exit |
 | --- | --- | --- |
-| Monitor observation/reactivation | 1, existing #4732 | Real caller and complete graph acceptance; avoid a duplicate implementation. |
 | Remaining L2/L3 caller and executor-effect fences | 1–2 | Actual CLI/Turn/Chat command inventory and external-effect boundary closure. |
 | L5 / D1 consumer and projection closure | 1 | Full consumer parity, lag/recovery and packaged client readback. |
 | L6 / SQLite D2 | 1–2, contributor-owned #4224 | Capacity, crash/restore and separately authorized elapsed-soak evidence on one profile. |
@@ -3113,8 +3123,8 @@ Scope may split only where a real effect/compatibility boundary warrants it.
 Small Python business-rule deletions can ship with each TS owner; rendering,
 private command execution and import/export keep their active adapters.
 
-截至 2026-09-20，关联 User 完成链路补齐后，按以上六类完整交付边界估算还需 **6–9 个 PR**。
-Monitor 复用 #4732，SQLite D2 仍归 #4224 contributor；其余顺序是调用方/执行围栏、
+截至 2026-09-20，关联 User 完成链路补齐后，按以上五类完整交付边界估算还需 **5–8 个 PR**。
+Monitor #4732 已合并，SQLite D2 仍归 #4224 contributor；其余顺序是调用方/执行围栏、
 消费与投影、capture 与整 Goal 演练，最后独立切换默认值。该估算以未发现更多缺失
 effect 为前提，不是合并数承诺，也不要求先删完 Python。TS owner 每收敛一块即可
 删除对应旧规则；仍有真实调用方的渲染、私有命令执行和导入导出适配器继续保留。

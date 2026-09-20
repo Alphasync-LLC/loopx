@@ -577,3 +577,36 @@ export function productionScaleUserCompletionFixture(goalId: string,
     schema, {handoff_mode: "hard_lease"}), source: String(source.todo_id), target: String(target.todo_id),
     scope, registered_agents: fixture.registered_agents};
 }
+
+/** Complete graph evidence must survive archive, selection and display limits. */
+export function productionScaleSuccessionFixture(goalId: string, schema: AuthorityProjectionSchema = "native") {
+  const fixture = productionScaleCoordinationFixture(goalId, schema);
+  const projection = structuredClone(fixture.projection);
+  const todos = projection.todos as Record<string, unknown>[];
+  const cases = envelope.semantic_cases.succession as Record<string, string>;
+  const base = todos.find(todo => todo.role === "agent")!;
+  const source = (key: string, fields: Record<string, unknown> = {}): Record<string, unknown> => ({...base,
+    todo_id: cases[key], text: "Verify the continuation relationship", index: todos.length + Object.keys(cases).indexOf(key) + 1,
+    status: "done", done: true, archive_state: "active", claimed_by: "agent-a", task_class: "advancement_task",
+    successor_todo_ids: [], superseded_by: null, resume_when: null, unblocks_todo_id: null,
+    no_followup: false, excluded_agents: [], ...fields});
+  const added = [source("inferred_source"), source("archived_target", {archive_state: "archive",
+    resume_when: `todo_done:${cases.inferred_source}`, no_followup: true}),
+    source("missing_source", {successor_todo_ids: ["todo_missing_continuation"]}),
+    source("self_source", {successor_todo_ids: [cases.self_source]}),
+    source("handoff_source", {excluded_agents: ["agent-b"], unblocks_todo_id: cases.inferred_source,
+      successor_todo_ids: [cases.explicit_target]}),
+    source("explicit_target", {status: "open", done: false}),
+    source("closed_source", {no_followup: true})];
+  for (const record of added) {
+    Reflect.deleteProperty(record, "material_change_generation");
+    if (schema === "native") {Reflect.deleteProperty(record, "index"); Reflect.deleteProperty(record, "source_section");}
+    else if (record.archive_state === "archive") record.source_section = "Completed Work Archive";
+  }
+  todos.push(...added);
+  todos.sort((left, right) => authorityUnicodeCompare(String(left.todo_id), String(right.todo_id)));
+  const readModel = projection.todo_read_model as Record<string, unknown>;
+  readModel.todo_count = todos.length;
+  readModel.records_sha256 = canonicalAuthoritySha256(todos);
+  return {projection, cases};
+}
