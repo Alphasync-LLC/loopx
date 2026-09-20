@@ -43,8 +43,14 @@ exact ready plan, records that execution was observed, and still does not claim
 evidence completeness, admission, or automatic promotion. Failure and empty
 evidence remain fail-open to the caller's original-source path.
 
-The receipt binds the exact request, selected provider, completion time, and a
-digest over the complete receipt. Each admitted source has a direct non-file
+The plan carries a content-addressed `plan_id` over its normalized request,
+provider candidates, selected ready provider, and execution envelope. The
+provider receipt must echo that `plan_id`; Core reconstructs the canonical plan
+and verifies the digest before it can report observed execution or admission.
+The digest detects semantic plan mutation but grants no provider authority.
+
+The receipt binds that exact plan, completion time, and a digest over the
+complete receipt. Each admitted source has a direct non-file
 reference, source family, evidence basis (`stated`,
 `observed`, `tested`, or `inferred`), finding, limitation, relevant dates, and a
 content digest. Raw provider content is never part of the Core projection.
@@ -81,6 +87,8 @@ inventory-only row for the same provider id.
 - method and connector providers use one protocol and receipt contract;
 - an observed provider receipt is bound to the exact plan without implying
   evidence coverage, admission, or promotion;
+- mutation of the request objective, decision, constraints, provider readiness,
+  or execution envelope fails canonical `plan_id` verification;
 - stale request/provider identity, file provenance, and unsupported evidence
   basis fail closed;
 - admitted source refs are a subset of receipt sources;
