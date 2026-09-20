@@ -110,6 +110,25 @@ loopx todo add \
   --action-kind monitor
 ```
 
+`watch_only=true` changes convergence and replan semantics, not schedulability.
+A scheduled watch-only monitor remains eligible at `next_due_at`, but it never
+creates autonomous replan pressure and never preempts runnable advancement.
+When both are present, `interaction_contract` keeps advancement primary and
+projects an optional, typed, no-spend `auxiliary_monitor_poll` route.
+The canonical watch-only/ordinary-due partition is produced inside the existing
+TypeScript Todo summary and quota-planning owners after Agent scope and
+capability admission; Python compatibility code only adapts legacy facts and
+renders the selected CLI/Lark route.
+
+`watch_only=true` 改变的是收敛与 replan 语义，而不是可调度性。带
+`next_due_at` 的 watch-only monitor 到期后仍可轮询，但不会制造 autonomous
+replan 压力，也不会抢占 runnable advancement；二者同时存在时，
+`interaction_contract` 保持 advancement 为主，并投影一条可选、typed、no-spend
+的 `auxiliary_monitor_poll` 路由。
+watch-only／普通 due 的权威分区由既有 TypeScript Todo summary 与 quota-planning
+owner 在 Agent scope 和 capability admission 之后生成；Python 兼容层只适配旧事实并
+渲染已选中的 CLI／Lark 路由。
+
 `--action-kind` is a public-safe token. Known generic tokens such as
 `run_eval`, `validate`, `rebuild`, `writeback`, `monitor`, and `poll` help the
 CLI project the lane consistently, but explicit `--task-class` is the authority

@@ -1188,6 +1188,15 @@ def _build_interaction_agent_channel(
         "quiet_noop_allowed": quiet_noop_allowed,
     }
     channel.update(build_primary_action_projection(payload, mode=mode))
+    work_lane = (
+        payload.get("work_lane_contract")
+        if isinstance(payload.get("work_lane_contract"), Mapping)
+        else {}
+    )
+    if isinstance(work_lane.get("auxiliary_monitor_poll"), Mapping):
+        channel["auxiliary_monitor_poll"] = dict(
+            work_lane["auxiliary_monitor_poll"]
+        )
     if isinstance(payload.get("action_portfolio"), dict):
         channel["action_portfolio_ref"] = "$.action_portfolio"
     selection.apply_action_selection_agent_gate(channel, payload)
@@ -1308,6 +1317,44 @@ def _build_interaction_cli_channel(
             spend_after_validation=spend_after_selection,
         ),
     }
+    work_lane = (
+        payload.get("work_lane_contract")
+        if isinstance(payload.get("work_lane_contract"), Mapping)
+        else {}
+    )
+    auxiliary_monitor = (
+        work_lane.get("auxiliary_monitor_poll")
+        if isinstance(work_lane.get("auxiliary_monitor_poll"), Mapping)
+        else None
+    )
+    if auxiliary_monitor is not None:
+        selected_monitor_id = normalize_todo_id(
+            auxiliary_monitor.get("selected_todo_id")
+        )
+        try:
+            auxiliary_scheduler_args = render_scheduler_execution_args(
+                scheduler_execution_context=scheduler_execution_context,
+            )
+        except ValueError:
+            auxiliary_scheduler_args = ""
+        if selected_monitor_id:
+            command_prefix = selection.render_cli_command_prefix(
+                runtime_root=runtime_root
+            )
+            agent_identity = (
+                payload.get("agent_identity")
+                if isinstance(payload.get("agent_identity"), dict)
+                else {}
+            )
+            channel["auxiliary_monitor_poll"] = {
+                **dict(auxiliary_monitor),
+                "command": (
+                    f"{command_prefix} quota monitor-poll --goal-id "
+                    f"{str(payload.get('goal_id') or '<GOAL_ID>')}"
+                    f"{_scoped_cli_args(agent_identity, available_capabilities=available_capabilities)}"
+                    f"{auxiliary_scheduler_args} --todo-id {selected_monitor_id} --execute"
+                ),
+            }
     selection.apply_action_selection_cli_gate(channel, payload)
     if settlement_plan is not None and spend_after_selection:
         channel["settlement_plan"] = settlement_plan

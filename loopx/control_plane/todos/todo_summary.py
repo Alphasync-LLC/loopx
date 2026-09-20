@@ -116,6 +116,10 @@ class _TodoGroupLanes:
     resume_blocked_items: list[dict[str, Any]]
     monitor_items: list[dict[str, Any]]
     monitor_due_items: list[dict[str, Any]]
+    watch_only_monitor_items: list[dict[str, Any]]
+    watch_only_monitor_due_items: list[dict[str, Any]]
+    non_watch_only_monitor_due_items: list[dict[str, Any]]
+    convergent_open_items: list[dict[str, Any]]
     monitor_schedule_gap_items: list[dict[str, Any]]
     claimed_advancement_items: list[dict[str, Any]]
     claimed_monitor_items: list[dict[str, Any]]
@@ -1096,25 +1100,9 @@ def compact_evaluated_todo_group(
         item.get("route_continuation_replan_required") is True
         for item in [*items, *handoff_gates]
     )
-    watch_only_monitor_items = [
-        item
-        for item in lanes.monitor_items
-        if projection_todo_item_is_watch_only_monitor(item)
-    ]
-    watch_only_ids = {
-        normalize_todo_id(item.get("todo_id"))
-        for item in watch_only_monitor_items
-    }
-    watch_only_monitor_due_items = [
-        item
-        for item in lanes.monitor_due_items
-        if normalize_todo_id(item.get("todo_id")) in watch_only_ids
-    ]
-    convergent_open_items = [
-        item
-        for item in lanes.open_items
-        if normalize_todo_id(item.get("todo_id")) not in watch_only_ids
-    ]
+    watch_only_monitor_items = lanes.watch_only_monitor_items
+    watch_only_monitor_due_items = lanes.watch_only_monitor_due_items
+    convergent_open_items = lanes.convergent_open_items
     summary: dict[str, Any] = {
         "schema_version": "todo_summary_v0",
         "source_section": source_section,
