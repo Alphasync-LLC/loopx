@@ -202,7 +202,7 @@ import {
   evaluateExternalEvidenceAdmission,
   planExternalEvidenceRequest,
   projectExternalEvidenceRetirement,
-} from "../capabilities/external_research/contract.ts";
+} from "./capabilities/external_evidence.ts";
 
 type EffectRuntimeHandler = (params: JsonObject) => unknown | Promise<unknown>;
 

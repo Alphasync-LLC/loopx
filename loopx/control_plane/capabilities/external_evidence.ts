@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 
-import type { JsonObject } from "../../control_plane/effect_program.ts";
-import { EffectRuntimeRequestError } from "../../control_plane/effect_runtime_errors.ts";
+import type { JsonObject } from "../effect_program.ts";
+import { EffectRuntimeRequestError } from "../effect_runtime_errors.ts";
 import {
   requireJsonObject,
   requireNonEmptyString,
   requireStringLiteral,
-} from "../../control_plane/runtime_decode.ts";
+} from "../runtime_decode.ts";
 
 export const EXTERNAL_EVIDENCE_REQUEST_SCHEMA_VERSION =
   "loopx_external_evidence_request_v0";

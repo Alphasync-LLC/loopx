@@ -5,7 +5,7 @@ import {
   evaluateExternalEvidenceAdmission,
   planExternalEvidenceRequest,
   projectExternalEvidenceRetirement,
-} from "../../loopx/capabilities/external_research/contract.ts";
+} from "../../loopx/control_plane/capabilities/external_evidence.ts";
 
 const request = {
   objective: "Compare current provider behavior",
