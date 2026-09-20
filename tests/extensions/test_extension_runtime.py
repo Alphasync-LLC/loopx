@@ -675,6 +675,21 @@ def test_executable_identity_is_content_addressed_across_paths(tmp_path: Path) -
     assert changed[1] != identity_a[1]
 
 
+def test_runtime_entrypoint_resolves_sibling_python_for_opaque_launcher(
+    tmp_path: Path,
+) -> None:
+    launcher = tmp_path / "provider.exe"
+    launcher.write_bytes(b"MZ opaque console launcher")
+    launcher.chmod(0o755)
+    sibling_python = tmp_path / "python.exe"
+    sibling_python.symlink_to(sys.executable)
+
+    resolved = resolve_runtime_entrypoint({"entrypoint": str(launcher)})
+
+    assert resolved is not None
+    assert resolved.python_executable == str(sibling_python)
+
+
 def test_standalone_runtime_does_not_require_a_capability_contract(
     tmp_path: Path,
 ) -> None:

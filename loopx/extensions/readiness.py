@@ -31,34 +31,51 @@ def _python_executable_for_script(path: Path) -> str | None:
     try:
         first_line = path.open("rb").readline(4096).decode("utf-8")
     except (OSError, UnicodeDecodeError):
-        return None
-    if not first_line.startswith("#!"):
-        return None
-    try:
-        command = shlex.split(first_line[2:].strip())
-    except ValueError:
-        return None
-    if not command:
-        return None
-    executable = command[0]
-    if Path(executable).name == "env":
-        candidates = [item for item in command[1:] if not item.startswith("-")]
-        if not candidates:
-            return None
-        executable = candidates[0]
-        executable = shutil.which(
-            executable,
-            path=str(path.parent) + os.pathsep + os.environ.get("PATH", os.defpath),
-        ) or ""
-    selected = Path(executable).expanduser()
-    if not selected.is_absolute():
-        selected = Path(os.path.abspath(selected))
-    identified = _file_identity(selected, executable=True)
-    if identified is None or not selected.name.lower().startswith("python"):
-        return None
-    # Preserve the selected venv launcher path. Resolving the symlink to the
-    # base interpreter would discard pyvenv.cfg and load the wrong packages.
-    return str(selected)
+        first_line = ""
+    selected: Path | None = None
+    if first_line.startswith("#!"):
+        try:
+            command = shlex.split(first_line[2:].strip())
+        except ValueError:
+            command = []
+        if command:
+            executable = command[0]
+            if Path(executable).name == "env":
+                candidates = [
+                    item for item in command[1:] if not item.startswith("-")
+                ]
+                executable = (
+                    shutil.which(
+                        candidates[0],
+                        path=str(path.parent)
+                        + os.pathsep
+                        + os.environ.get("PATH", os.defpath),
+                    )
+                    if candidates
+                    else None
+                ) or ""
+            selected = Path(executable).expanduser()
+            if not selected.is_absolute():
+                selected = Path(os.path.abspath(selected))
+
+    candidates = [selected] if selected is not None else []
+    # Windows console-script launchers are executable wrappers rather than
+    # text shebang scripts. Their venv interpreter remains a sibling in the
+    # same Scripts directory; the same fallback is safe for opaque POSIX
+    # launchers and fails closed for non-Python runtimes.
+    candidates.extend(
+        path.parent / name
+        for name in ("python.exe", "python3.exe", "python", "python3")
+    )
+    for candidate in candidates:
+        identified = _file_identity(candidate, executable=True)
+        if identified is None or not candidate.name.lower().startswith("python"):
+            continue
+        # Preserve the selected venv launcher path. Resolving the symlink to
+        # the base interpreter would discard pyvenv.cfg and load the wrong
+        # packages.
+        return str(candidate)
+    return None
 
 
 def runtime_process_environment(
