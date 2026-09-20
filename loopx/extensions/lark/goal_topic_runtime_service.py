@@ -13,6 +13,7 @@ from ...chat_manager import MANAGER_AGENT_OBJECTIVE
 from .goal_channel_contracts import bindings_for_goal
 from .manager_context import session_turn_effect
 from .team_plan_confirmation import (
+    active_profile_chat_ids,
     deliver_team_plan_review_cards_from_runtime,
     handle_lark_review_callback_for_profile,
 )
@@ -21,6 +22,8 @@ from .team_plan_confirmation import (
 SnapshotProvider = Callable[[], Mapping[str, Any]]
 ProfilePoller = Callable[[str, threading.Event], None]
 ManagerRouteReconciler = Callable[[Mapping[str, Any]], Mapping[str, Any]]
+ProfileWorkerFingerprint = tuple[str, str, tuple[str, ...]]
+ProfileWorker = tuple[threading.Event, threading.Thread, ProfileWorkerFingerprint]
 
 
 class LarkGoalTopicRuntimeService:
@@ -43,7 +46,7 @@ class LarkGoalTopicRuntimeService:
         self._profile_poller = profile_poller or self._poll_profile
         self.manager_route_reconciler = manager_route_reconciler
         self._lock = threading.Lock()
-        self._workers: dict[str, tuple[threading.Event, threading.Thread]] = {}
+        self._workers: dict[str, ProfileWorker] = {}
         self._health: dict[str, dict[str, Any]] = {}
         self._closed = threading.Event()
         self._startup_thread: threading.Thread | None = None
@@ -106,6 +109,23 @@ class LarkGoalTopicRuntimeService:
 
         with self._lock:
             return {profile: dict(health) for profile, health in self._health.items()}
+
+    def _profile_worker_fingerprint(
+        self,
+        snapshot: Mapping[str, Any],
+        profile: str,
+        profile_config: Mapping[str, str],
+    ) -> ProfileWorkerFingerprint:
+        callback_chats = (
+            tuple(active_profile_chat_ids(snapshot, profile))
+            if self.action_service is not None
+            else ()
+        )
+        return (
+            str(profile_config.get("cli_bin") or "lark-cli"),
+            str(profile_config.get("bot_app_id") or ""),
+            callback_chats,
+        )
 
     def _poll_profile(self, profile: str, stop: threading.Event) -> None:
         # Resolve through the compatibility module at call time so existing
@@ -251,8 +271,16 @@ class LarkGoalTopicRuntimeService:
                         restart_count=restart_count,
                     )
                 stop.wait(min(5.0, 0.25 * (2 ** min(restart_count, 4))))
+            current_thread = threading.current_thread()
+            with self._lock:
+                current_worker = self._workers.get(profile)
+                replaced_by_new_worker = (
+                    current_worker is not None
+                    and current_worker[1] is not current_thread
+                )
             if (
                 not self._closed.is_set()
+                and not replaced_by_new_worker
                 and self._health.get(profile, {}).get("status") != "inactive"
             ):
                 self._update_health(profile, status="stopped", error_code=None)
@@ -278,7 +306,15 @@ class LarkGoalTopicRuntimeService:
         if self._closed.is_set():
             return
         snapshot = self.snapshot_provider()
-        desired = set(runtime._active_profile_configs(snapshot))
+        profile_configs = runtime._active_profile_configs(snapshot)
+        desired = {
+            profile: self._profile_worker_fingerprint(
+                snapshot,
+                profile,
+                profile_config,
+            )
+            for profile, profile_config in profile_configs.items()
+        }
         if self._closed.is_set():
             return
         self._resume_session_queues(snapshot)
@@ -287,11 +323,15 @@ class LarkGoalTopicRuntimeService:
         with self._lock:
             if self._closed.is_set():
                 return
-            stale = set(self._workers) - desired
-            missing = desired - set(self._workers)
+            stale = (set(self._workers) - set(desired)) | {
+                profile
+                for profile in set(self._workers) & set(desired)
+                if self._workers[profile][2] != desired[profile]
+            }
             for profile in stale:
-                stop, _thread = self._workers.pop(profile)
+                stop, _thread, _fingerprint = self._workers.pop(profile)
                 stop.set()
+            missing = set(desired) - set(self._workers)
             for profile in sorted(missing):
                 stop = threading.Event()
                 self._health[profile] = {
@@ -309,7 +349,7 @@ class LarkGoalTopicRuntimeService:
                     name=f"loopx-lark-{profile}",
                     daemon=True,
                 )
-                self._workers[profile] = (stop, thread)
+                self._workers[profile] = (stop, thread, desired[profile])
                 thread.start()
 
     def _resume_session_queues(self, snapshot: Mapping[str, Any]) -> None:
@@ -363,9 +403,9 @@ class LarkGoalTopicRuntimeService:
         with self._lock:
             workers = list(self._workers.values())
             self._workers.clear()
-        for stop, _thread in workers:
+        for stop, _thread, _fingerprint in workers:
             stop.set()
-        for _stop, thread in workers:
+        for _stop, thread, _fingerprint in workers:
             thread.join(timeout=3)
 
 

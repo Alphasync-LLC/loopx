@@ -1128,6 +1128,103 @@ def test_runtime_service_uses_one_consumer_for_reused_app_profile(
     assert service.active_profiles() == []
 
 
+def test_runtime_service_restarts_profile_when_callback_chats_change(
+    tmp_path: Path,
+) -> None:
+    from loopx.extensions.lark.goal_topic_runtime import LarkGoalTopicRuntimeService
+    from loopx.extensions.lark.team_plan_confirmation import active_profile_chat_ids
+
+    snapshot: dict[str, Any] = {
+        "target_payload": {
+            "targets": {
+                "mew-product": {
+                    "enabled": True,
+                    "channel": {"chat_id": "oc_public_fixture"},
+                    "identity": {
+                        "sender_profile": "mew",
+                        "bot_app_id": "cli_public_fixture",
+                        "cli_bin": "fake-lark",
+                    },
+                },
+                "mew-second": {
+                    "enabled": True,
+                    "channel": {"chat_id": "oc_second_fixture"},
+                    "identity": {
+                        "sender_profile": "mew",
+                        "bot_app_id": "cli_public_fixture",
+                        "cli_bin": "fake-lark",
+                    },
+                },
+            }
+        },
+        "binding_payloads": {
+            "goal-alpha": {
+                "bindings": {
+                    "goal-alpha": {
+                        "goal_id": "goal-alpha",
+                        "provider": "lark",
+                        "enabled": True,
+                        "target_ref": "mew-product",
+                    }
+                }
+            }
+        },
+        "goal_contexts": {},
+    }
+    starts: list[tuple[list[str], threading.Event]] = []
+    stopped: list[threading.Event] = []
+    lifecycle = threading.Condition()
+
+    def poller(profile: str, stop: threading.Event) -> None:
+        with lifecycle:
+            starts.append((active_profile_chat_ids(snapshot, profile), stop))
+            lifecycle.notify_all()
+        stop.wait(2)
+        with lifecycle:
+            stopped.append(stop)
+            lifecycle.notify_all()
+
+    def wait_for_count(values: list[Any], count: int) -> None:
+        with lifecycle:
+            assert lifecycle.wait_for(lambda: len(values) >= count, timeout=1)
+
+    service = LarkGoalTopicRuntimeService(
+        snapshot_provider=lambda: snapshot,
+        runtime_root=tmp_path,
+        runtime_controller=object(),
+        action_service=object(),
+        profile_poller=poller,
+    )
+    service.refresh()
+    wait_for_count(starts, 1)
+    assert starts[0][0] == ["oc_public_fixture"]
+
+    snapshot["binding_payloads"]["goal-beta"] = {
+        "bindings": {
+            "goal-beta": {
+                "goal_id": "goal-beta",
+                "provider": "lark",
+                "enabled": True,
+                "target_ref": "mew-second",
+            }
+        }
+    }
+    service.refresh()
+    wait_for_count(starts, 2)
+    wait_for_count(stopped, 1)
+    assert starts[0][1].is_set()
+    assert starts[1][0] == ["oc_public_fixture", "oc_second_fixture"]
+
+    del snapshot["binding_payloads"]["goal-beta"]
+    service.refresh()
+    wait_for_count(starts, 3)
+    wait_for_count(stopped, 2)
+    assert starts[1][1].is_set()
+    assert starts[2][0] == ["oc_public_fixture"]
+
+    service.close()
+
+
 def test_runtime_service_exposes_content_free_listener_health(tmp_path: Path) -> None:
     from loopx.extensions.lark.goal_topic_runtime import LarkGoalTopicRuntimeService
 
@@ -1407,7 +1504,18 @@ def test_profile_stream_dispatches_only_team_plan_callbacks_for_bound_chats(
                         "bot_app_id": "cli_public_fixture",
                         "cli_bin": "fake-lark",
                     },
-                }
+                },
+                "mew-second": {
+                    "name": "mew-second",
+                    "provider": "lark",
+                    "enabled": True,
+                    "channel": {"chat_id": "oc_second_fixture"},
+                    "identity": {
+                        "sender_profile": "mew",
+                        "bot_app_id": "cli_public_fixture",
+                        "cli_bin": "fake-lark",
+                    },
+                },
             }
         },
         "binding_payloads": {
@@ -1418,6 +1526,16 @@ def test_profile_stream_dispatches_only_team_plan_callbacks_for_bound_chats(
                         "provider": "lark",
                         "enabled": True,
                         "target_ref": "mew-product",
+                    }
+                }
+            },
+            "goal-beta": {
+                "bindings": {
+                    "goal-beta": {
+                        "goal_id": "goal-beta",
+                        "provider": "lark",
+                        "enabled": True,
+                        "target_ref": "mew-second",
                     }
                 }
             }
@@ -1481,7 +1599,10 @@ def test_profile_stream_dispatches_only_team_plan_callbacks_for_bound_chats(
     assert result["ok"] is True
     assert len(captured_args) == 2
     callback_args = next(args for args in captured_args if "card.action.trigger" in args)
-    assert "select(.chat_id == \"oc_public_fixture\")" in callback_args
+    assert (
+        'select(.chat_id == "oc_public_fixture" or '
+        '.chat_id == "oc_second_fixture")' in callback_args
+    )
     assert handled == [callback]
 
 
