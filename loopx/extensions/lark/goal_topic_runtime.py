@@ -43,7 +43,6 @@ from .manager_reply_delivery import (
     load_delivery as _load_manager_delivery,
     pending_delivery as _pending_manager_delivery,
     text_digest as _manager_delivery_text_digest,
-    validate_team_plan_delivery_receipt,
     write_delivery as _write_manager_delivery,
 )
 from .manager_context import (
@@ -70,14 +69,17 @@ from .inbox_reactions import (
     _delete_reaction,
     ensure_lark_event_inbox_received_reaction,
 )
+from .team_plan_confirmation import (
+    proposal_ids_after_turn,
+    settle_team_plan_proposal_delivery,
+    start_team_plan_review_callback_stream,
+)
 
 Answer = Callable[[Mapping[str, Any], str], str | Mapping[str, Any]]
 SnapshotProvider = Callable[[], Mapping[str, Any]]
-ProfilePoller = Callable[[str, threading.Event], None]
 SimpleRunner = Callable[[list[str]], Mapping[str, Any]]
 ProcessFactory = Callable[[list[str]], Any]
 HealthSink = Callable[[Mapping[str, Any]], None]
-ManagerRouteReconciler = Callable[[Mapping[str, Any]], Mapping[str, Any]]
 ProposalDeliverer = Callable[
     [Mapping[str, Any], list[str]], Mapping[str, Any]
 ]
@@ -112,7 +114,6 @@ _EVENT_PROJECTION = (
 _EVENT_READY_PREFIX = "[event] ready "
 _EVENT_DIAGNOSTIC_PREFIX = "[event] "
 _EVENT_EXIT_REASON = re.compile(r"\(reason: (limit|timeout|signal)\)$")
-_TEAM_PLAN_CALLBACK_SCHEMA = "loopx_team_plan_card_action_v0"
 
 
 def _active_profile_configs(snapshot: Mapping[str, Any]) -> dict[str, dict[str, str]]:
@@ -146,43 +147,6 @@ def _active_profile_configs(snapshot: Mapping[str, Any]) -> dict[str, dict[str, 
                 },
             )
     return profiles
-
-
-def _active_profile_chat_ids(
-    snapshot: Mapping[str, Any], profile: str
-) -> list[str]:
-    binding_payloads = snapshot.get("binding_payloads")
-    binding_payloads = (
-        binding_payloads if isinstance(binding_payloads, Mapping) else {}
-    )
-    active_target_refs = {
-        str(binding.get("target_ref") or "")
-        for goal_id, payload in binding_payloads.items()
-        if isinstance(payload, Mapping)
-        for binding in bindings_for_goal(payload, str(goal_id))
-        if binding.get("enabled") is True
-    }
-    targets = snapshot.get("target_payload")
-    targets = targets.get("targets") if isinstance(targets, Mapping) else None
-    if not isinstance(targets, Mapping):
-        return []
-    chats: set[str] = set()
-    for target_ref, target in targets.items():
-        if not isinstance(target, Mapping) or target.get("enabled") is not True:
-            continue
-        if str(target_ref) not in active_target_refs:
-            continue
-        identity = target.get("identity")
-        channel = target.get("channel")
-        if not isinstance(identity, Mapping) or not isinstance(channel, Mapping):
-            continue
-        chat_id = str(channel.get("chat_id") or "")
-        if (
-            str(identity.get("sender_profile") or "") == profile
-            and re.fullmatch(r"oc_[A-Za-z0-9_-]+", chat_id)
-        ):
-            chats.add(chat_id)
-    return sorted(chats)
 
 
 def _default_simple_runner(args: list[str]) -> Mapping[str, Any]:
@@ -460,79 +424,19 @@ def stream_lark_goal_topic_profile(
             _EVENT_PROJECTION,
         ]
     )
-    callback_process = None
-    callback_thread: threading.Thread | None = None
-    callback_stop = threading.Event()
     callback_disconnected = threading.Event()
-    if review_callback_handler is not None:
-        chat_ids = _active_profile_chat_ids(snapshot, profile)
-        if chat_ids:
-            chat_filter = " or ".join(
-                f".chat_id == {json.dumps(chat_id)}" for chat_id in chat_ids
-            )
-            callback_process = process_factory(
-                [
-                    cli_bin,
-                    "--profile",
-                    profile,
-                    "event",
-                    "consume",
-                    "card.action.trigger",
-                    "--as",
-                    "bot",
-                    "--timeout",
-                    "30m",
-                    "--max-events",
-                    "0",
-                    "--jq",
-                    f"select({chat_filter})",
-                ]
-            )
-
-            def consume_review_callbacks() -> None:
-                stdout = callback_process.stdout
-                if stdout is None:
-                    return
-                for callback_line in stdout:
-                    if callback_stop.is_set() or stop.is_set():
-                        return
-                    stripped = callback_line.strip()
-                    if stripped.startswith(_EVENT_DIAGNOSTIC_PREFIX):
-                        continue
-                    try:
-                        callback_event = json.loads(callback_line)
-                    except json.JSONDecodeError:
-                        continue
-                    if not isinstance(callback_event, Mapping):
-                        continue
-                    raw_action = callback_event.get("action_value")
-                    try:
-                        callback_action = (
-                            json.loads(raw_action)
-                            if isinstance(raw_action, str)
-                            else raw_action
-                        )
-                    except json.JSONDecodeError:
-                        continue
-                    if (
-                        not isinstance(callback_action, Mapping)
-                        or callback_action.get("schema_version")
-                        != _TEAM_PLAN_CALLBACK_SCHEMA
-                    ):
-                        continue
-                    try:
-                        review_callback_handler(callback_event)
-                    except (OSError, RuntimeError, TypeError, ValueError):
-                        logging.getLogger(__name__).warning(
-                            "Lark manager review callback was rejected"
-                        )
-
-            callback_thread = threading.Thread(
-                target=consume_review_callbacks,
-                name=f"loopx-lark-review-callback-{profile}",
-                daemon=True,
-            )
-            callback_thread.start()
+    callback_stream = (
+        start_team_plan_review_callback_stream(
+            snapshot=snapshot,
+            profile=profile,
+            cli_bin=cli_bin,
+            process_factory=process_factory,
+            parent_stop=stop,
+            handler=review_callback_handler,
+        )
+        if review_callback_handler is not None
+        else None
+    )
     if health_sink is not None:
         # A live child process is not proof that lark-cli registered a consumer
         # with its local event bus.  Keep the connection non-ready until the
@@ -544,14 +448,12 @@ def stream_lark_goal_topic_profile(
     def stop_consumer() -> None:
         while not watcher_done.wait(1.0):
             if stop.is_set():
-                for child in (process, callback_process):
-                    if child is not None and child.poll() is None:
-                        child.terminate()
+                if process.poll() is None:
+                    process.terminate()
+                if callback_stream is not None:
+                    callback_stream.terminate()
                 return
-            if (
-                callback_process is not None
-                and callback_process.poll() is not None
-            ):
+            if callback_stream is not None and callback_stream.disconnected():
                 callback_disconnected.set()
                 if process.poll() is None:
                     process.terminate()
@@ -564,9 +466,10 @@ def stream_lark_goal_topic_profile(
             if not configured:
                 configuration_removed.set()
                 stop.set()
-                for child in (process, callback_process):
-                    if child is not None and child.poll() is None:
-                        child.terminate()
+                if process.poll() is None:
+                    process.terminate()
+                if callback_stream is not None:
+                    callback_stream.terminate()
                 return
 
     watcher = threading.Thread(
@@ -657,7 +560,6 @@ def stream_lark_goal_topic_profile(
                 )
     finally:
         watcher_done.set()
-        callback_stop.set()
         if process.poll() is None:
             process.terminate()
         try:
@@ -666,16 +568,8 @@ def stream_lark_goal_topic_profile(
             process.kill()
             returncode = process.wait(timeout=3)
         watcher.join(timeout=1)
-        if callback_process is not None:
-            if callback_process.poll() is None:
-                callback_process.terminate()
-            try:
-                callback_process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                callback_process.kill()
-                callback_process.wait(timeout=3)
-        if callback_thread is not None:
-            callback_thread.join(timeout=1)
+        if callback_stream is not None:
+            callback_stream.close()
     stopped = stop.is_set()
     # A bus can die after registering the consumer and tell the CLI to exit
     # successfully with reason=signal (e.g. a Feishu/Lark domain mismatch).
@@ -718,369 +612,6 @@ def stream_lark_goal_topic_profile(
         "event_count": event_count,
         "replied_count": replied_count,
     }
-
-
-class LarkGoalTopicRuntimeService:
-    """Own one event-consumer worker per reusable Lark App profile."""
-
-    def __init__(
-        self,
-        *,
-        snapshot_provider: SnapshotProvider,
-        runtime_root: str | Path,
-        runtime_controller: Any,
-        action_service: Any | None = None,
-        profile_poller: ProfilePoller | None = None,
-        manager_route_reconciler: ManagerRouteReconciler | None = None,
-    ) -> None:
-        self.snapshot_provider = snapshot_provider
-        self.runtime_root = Path(runtime_root).expanduser().resolve()
-        self.runtime_controller = runtime_controller
-        self.action_service = action_service
-        self._profile_poller = profile_poller or self._poll_profile
-        self.manager_route_reconciler = manager_route_reconciler
-        self._lock = threading.Lock()
-        self._workers: dict[str, tuple[threading.Event, threading.Thread]] = {}
-        self._health: dict[str, dict[str, Any]] = {}
-        self._closed = threading.Event()
-        self._startup_thread: threading.Thread | None = None
-
-    def start(self) -> None:
-        """Discover existing bindings without blocking the HTTP readiness path."""
-
-        with self._lock:
-            if self._closed.is_set() or self._startup_thread is not None:
-                return
-            self._startup_thread = threading.Thread(
-                target=self._refresh_on_start,
-                name="loopx-lark-startup",
-                daemon=True,
-            )
-            self._startup_thread.start()
-
-    def _refresh_on_start(self) -> None:
-        while not self._closed.is_set():
-            try:
-                self.refresh()
-                return
-            except Exception:
-                logging.getLogger(__name__).warning(
-                    "Lark binding discovery failed; retrying in the background"
-                )
-            self._closed.wait(5)
-
-    @staticmethod
-    def _now() -> str:
-        return datetime.now(timezone.utc).isoformat()
-
-    def _update_health(self, profile: str, **updates: Any) -> None:
-        with self._lock:
-            current = dict(
-                self._health.get(
-                    profile,
-                    {
-                        "status": "starting",
-                        "event_count": 0,
-                        "replied_count": 0,
-                        "last_event_status": None,
-                        "error_code": None,
-                        "restart_count": 0,
-                    },
-                )
-            )
-            current["event_count"] = int(current.get("event_count") or 0) + int(
-                updates.pop("event_count", 0) or 0
-            )
-            current["replied_count"] = int(current.get("replied_count") or 0) + int(
-                updates.pop("replied_count", 0) or 0
-            )
-            current.update(updates)
-            current["updated_at"] = self._now()
-            self._health[profile] = current
-
-    def health_snapshot(self) -> dict[str, dict[str, Any]]:
-        """Return content-free listener health keyed by safe profile reference."""
-
-        with self._lock:
-            return {profile: dict(health) for profile, health in self._health.items()}
-
-    def _poll_profile(self, profile: str, stop: threading.Event) -> None:
-        restart_count = 0
-        try:
-            while not stop.is_set():
-                self._update_health(
-                    profile,
-                    status="starting" if restart_count == 0 else "retrying",
-                    error_code=None,
-                    restart_count=restart_count,
-                )
-                try:
-
-                    def answer(
-                        route: Mapping[str, Any], text: str
-                    ) -> Mapping[str, Any]:
-                        effective_route = route
-                        if (
-                            route.get("conversation_kind") == "manager"
-                            and self.manager_route_reconciler is not None
-                        ):
-                            try:
-                                effective_route = self.manager_route_reconciler(route)
-                            except Exception as exc:
-                                raise LarkGoalTopicTurnFailed(
-                                    "manager_channel_route_reconcile_failed",
-                                    _session_turn_effect(route),
-                                ) from exc
-                        snapshot = self.snapshot_provider()
-                        contexts = snapshot.get("goal_contexts")
-                        contexts = contexts if isinstance(contexts, Mapping) else {}
-                        context = contexts.get(
-                            str(effective_route.get("goal_id") or "")
-                        )
-                        context = context if isinstance(context, Mapping) else {}
-                        answer_result = answer_lark_goal_topic(
-                            route=effective_route,
-                            text=text,
-                            work_dir=str(context.get("work_dir") or self.runtime_root),
-                            objective=str(
-                                context.get("objective")
-                                or effective_route.get("goal_id")
-                                or ""
-                            ),
-                            runtime_controller=self.runtime_controller,
-                        )
-                        if isinstance(answer_result, Mapping):
-                            response_text = str(
-                                answer_result.get("response_text") or ""
-                            )
-                            proposal_ids = list(
-                                answer_result.get("proposal_ids") or []
-                            )
-                        else:
-                            response_text = answer_result
-                            proposal_ids = []
-                        return {
-                            "response_text": response_text,
-                            "effect_receipt": _session_turn_effect(effective_route),
-                            "proposal_ids": proposal_ids,
-                        }
-
-                    def deliver_proposals(
-                        route: Mapping[str, Any], proposal_ids: list[str]
-                    ) -> Mapping[str, Any]:
-                        from .team_plan_confirmation import (
-                            deliver_team_plan_review_cards,
-                        )
-
-                        registry_path = getattr(
-                            self.runtime_controller, "registry_path", None
-                        )
-                        if not isinstance(registry_path, Path):
-                            raise ValueError(
-                                "Lark manager proposal delivery requires the active registry"
-                            )
-                        return deliver_team_plan_review_cards(
-                            proposal_ids=proposal_ids,
-                            manager_route=route,
-                            registry_path=registry_path,
-                            runtime_root=self.runtime_root,
-                            action_store_root=self.runtime_root
-                            / "chat"
-                            / "actions",
-                        )
-
-                    def handle_review_callback(
-                        event: Mapping[str, Any],
-                    ) -> Mapping[str, Any]:
-                        if self.action_service is None:
-                            raise ValueError(
-                                "Lark manager review callbacks require Chat actions"
-                            )
-                        from .team_plan_confirmation import (
-                            handle_lark_review_callback,
-                        )
-
-                        profile_config = _active_profile_configs(
-                            self.snapshot_provider()
-                        ).get(profile)
-                        if not isinstance(profile_config, Mapping):
-                            raise ValueError("Lark manager profile is unavailable")
-                        return handle_lark_review_callback(
-                            event,
-                            action_service=self.action_service,
-                            action_store_root=self.runtime_root
-                            / "chat"
-                            / "actions",
-                            profile_app_id=str(
-                                profile_config.get("bot_app_id") or ""
-                            ),
-                            cli_bin=str(profile_config.get("cli_bin") or "lark-cli"),
-                            profile=profile,
-                        )
-
-                    result = stream_lark_goal_topic_profile(
-                        profile=profile,
-                        snapshot_provider=self.snapshot_provider,
-                        stop=stop,
-                        runtime_root=self.runtime_root,
-                        answer=answer,
-                        proposal_deliverer=deliver_proposals,
-                        review_callback_handler=(
-                            handle_review_callback
-                            if self.action_service is not None
-                            else None
-                        ),
-                        health_sink=lambda update: self._update_health(
-                            profile, **dict(update)
-                        ),
-                    )
-                    if result.get("status") == "configuration_removed":
-                        self._update_health(
-                            profile,
-                            status="inactive",
-                            error_code="lark_route_configuration_removed",
-                            restart_count=restart_count,
-                        )
-                        break
-                    if stop.is_set():
-                        break
-                    restart_count += 1
-                    self._update_health(
-                        profile,
-                        status="retrying",
-                        error_code=(
-                            None
-                            if result.get("ok") is True
-                            else str(
-                                result.get("error_code")
-                                or "lark_event_listener_failed"
-                            )
-                        ),
-                        restart_count=restart_count,
-                    )
-                except Exception:
-                    restart_count += 1
-                    self._update_health(
-                        profile,
-                        status="retrying",
-                        error_code="lark_event_listener_failed",
-                        restart_count=restart_count,
-                    )
-                stop.wait(min(5.0, 0.25 * (2 ** min(restart_count, 4))))
-            if (
-                not self._closed.is_set()
-                and self._health.get(profile, {}).get("status") != "inactive"
-            ):
-                self._update_health(profile, status="stopped", error_code=None)
-        finally:
-            current_thread = threading.current_thread()
-            with self._lock:
-                worker = self._workers.get(profile)
-                if worker is not None and worker[1] is current_thread:
-                    self._workers.pop(profile, None)
-            if not self._closed.is_set():
-                try:
-                    reconfigured = profile in _active_profile_configs(
-                        self.snapshot_provider()
-                    )
-                except Exception:
-                    reconfigured = False
-                if reconfigured:
-                    self.refresh()
-
-    def refresh(self) -> None:
-        if self._closed.is_set():
-            return
-        snapshot = self.snapshot_provider()
-        desired = set(_active_profile_configs(snapshot))
-        if self._closed.is_set():
-            return
-        self._resume_session_queues(snapshot)
-        # A filesystem read may outlive server shutdown (for example, while
-        # waiting for OS directory consent). Never start effects after close.
-        with self._lock:
-            if self._closed.is_set():
-                return
-            stale = set(self._workers) - desired
-            missing = desired - set(self._workers)
-            for profile in stale:
-                stop, _thread = self._workers.pop(profile)
-                stop.set()
-            for profile in sorted(missing):
-                stop = threading.Event()
-                self._health[profile] = {
-                    "status": "starting",
-                    "event_count": 0,
-                    "replied_count": 0,
-                    "last_event_status": None,
-                    "error_code": None,
-                    "restart_count": 0,
-                    "updated_at": self._now(),
-                }
-                thread = threading.Thread(
-                    target=self._profile_poller,
-                    args=(profile, stop),
-                    name=f"loopx-lark-{profile}",
-                    daemon=True,
-                )
-                self._workers[profile] = (stop, thread)
-                thread.start()
-
-    def _resume_session_queues(self, snapshot: Mapping[str, Any]) -> None:
-        binding_payloads = snapshot.get("binding_payloads")
-        contexts = snapshot.get("goal_contexts")
-        if isinstance(binding_payloads, Mapping) and isinstance(contexts, Mapping):
-            for goal_id, payload in binding_payloads.items():
-                if not isinstance(payload, Mapping):
-                    continue
-                for binding in bindings_for_goal(payload, str(goal_id)):
-                    if self._closed.is_set():
-                        return
-                    raw_routing = binding.get("routing")
-                    routing: Mapping[str, Any] = (
-                        raw_routing if isinstance(raw_routing, Mapping) else {}
-                    )
-                    if routing.get("ingress_mode") != "session_queue":
-                        continue
-                    context = contexts.get(str(goal_id))
-                    context = context if isinstance(context, Mapping) else {}
-                    session_id = str(binding.get("session_id") or "")
-                    work_dir = str(context.get("work_dir") or "")
-                    try:
-                        has_queued_turns = bool(
-                            session_id
-                            and self.runtime_controller.store.queued_turns(session_id)
-                        )
-                    except KeyError:
-                        has_queued_turns = False
-                    if has_queued_turns and work_dir:
-                        resolved_work_dir = Path(work_dir).expanduser().resolve()
-                        # Discovery is slow I/O; only cancellation and the
-                        # controller's I/O-free worker admission belong here.
-                        with self._lock:
-                            if self._closed.is_set():
-                                return
-                            self.runtime_controller.resume_session_queue(
-                                session_id=session_id,
-                                work_dir=resolved_work_dir,
-                                objective=MANAGER_AGENT_OBJECTIVE
-                                if routing.get("conversation_kind") == "manager"
-                                else str(context.get("objective") or goal_id),
-                            )
-
-    def active_profiles(self) -> list[str]:
-        with self._lock:
-            return sorted(self._workers)
-
-    def close(self) -> None:
-        self._closed.set()
-        with self._lock:
-            workers = list(self._workers.values())
-            self._workers.clear()
-        for stop, _thread in workers:
-            stop.set()
-        for _stop, thread in workers:
-            thread.join(timeout=3)
 
 
 def answer_lark_goal_topic(
@@ -1213,20 +744,11 @@ def answer_lark_goal_topic(
         raise RuntimeError("Lark Goal Topic turn returned no message")
     if not manager:
         return reply_text
-    proposal_ids: list[str] = []
-    events_after = getattr(runtime_controller.store, "events_after", None)
-    if callable(events_after):
-        for event in events_after(session_id, str(turn["turn_id"]), None):
-            if not isinstance(event, Mapping) or event.get("kind") != "team_plan.projected":
-                continue
-            payload = event.get("payload")
-            proposal_id = (
-                str(payload.get("proposal_id") or "")
-                if isinstance(payload, Mapping)
-                else ""
-            )
-            if proposal_id and proposal_id not in proposal_ids:
-                proposal_ids.append(proposal_id)
+    proposal_ids = proposal_ids_after_turn(
+        runtime_controller,
+        session_id=session_id,
+        turn_id=str(turn["turn_id"]),
+    )
     if proposal_ids:
         return {
             "response_text": reply_text,
@@ -1801,42 +1323,21 @@ def process_lark_goal_topic_event(
                 "inbox_config_ref": config_ref,
                 "source_acknowledged": False,
             }
-        if proposal_ids and proposal_deliverer is None:
+        proposal_delivery_status = settle_team_plan_proposal_delivery(
+            delivery_state=delivery_state,
+            delivery_path=delivery_path,
+            route=route,
+            proposal_ids=proposal_ids,
+            proposal_deliverer=proposal_deliverer,
+        )
+        if proposal_delivery_status is not None:
             return {
                 "ok": False,
-                "status": "proposal_delivery_unavailable",
+                "status": proposal_delivery_status,
                 "goal_id": route["goal_id"],
                 "inbox_config_ref": config_ref,
                 "source_acknowledged": False,
             }
-        if proposal_ids and proposal_deliverer is not None:
-            existing_proposal_delivery = delivery_state.get("proposal_delivery")
-            if not isinstance(existing_proposal_delivery, Mapping):
-                try:
-                    proposal_delivery = validate_team_plan_delivery_receipt(
-                        proposal_deliverer(route, proposal_ids),
-                        proposal_ids=proposal_ids,
-                    )
-                except (OSError, ValueError, TypeError, KeyError):
-                    return {
-                        "ok": False,
-                        "status": "proposal_delivery_pending",
-                        "goal_id": route["goal_id"],
-                        "inbox_config_ref": config_ref,
-                        "source_acknowledged": False,
-                    }
-                delivery_state["proposal_delivery"] = proposal_delivery
-                delivery_state["updated_at"] = datetime.now(timezone.utc).isoformat()
-                try:
-                    _write_manager_delivery(delivery_path, delivery_state)
-                except OSError:
-                    return {
-                        "ok": False,
-                        "status": "proposal_delivery_receipt_unavailable",
-                        "goal_id": route["goal_id"],
-                        "inbox_config_ref": config_ref,
-                        "source_acknowledged": False,
-                    }
     if connector is not None:
         ack_decision = decide_external_event_ack(
             event_id=canonical["event_id"],
@@ -1921,3 +1422,10 @@ def process_lark_goal_topic_event(
         "goal_id": route["goal_id"],
         "inbox_config_ref": config_ref,
     }
+
+
+# Preserve the established import path while keeping worker lifecycle out of
+# the already hot message-processing module.
+from .goal_topic_runtime_service import (  # noqa: E402,F401
+    LarkGoalTopicRuntimeService,
+)

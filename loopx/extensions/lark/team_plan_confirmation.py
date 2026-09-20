@@ -5,8 +5,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 import json
+import logging
 import re
-from collections.abc import Mapping, Sequence
+import subprocess
+import threading
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -43,7 +46,11 @@ from .goal_channel_targets import (
     goal_channel_target_for_name,
     read_goal_channel_targets,
 )
-from .manager_reply_delivery import TEAM_PLAN_DELIVERY_RECEIPT_SCHEMA_VERSION
+from .manager_reply_delivery import (
+    TEAM_PLAN_DELIVERY_RECEIPT_SCHEMA_VERSION,
+    validate_team_plan_delivery_receipt,
+    write_delivery as write_manager_delivery,
+)
 from .presentation.kanban import CommandRunner, default_subprocess_runner
 from .presentation.team_plan import (
     TEAM_PLAN_CARD_ACTION_SCHEMA_VERSION,
@@ -57,6 +64,274 @@ _EVENT_ID = re.compile(r"^[A-Za-z0-9._:-]{1,240}$")
 _MESSAGE_ID = re.compile(r"^om_[A-Za-z0-9_-]+$")
 _CHAT_ID = re.compile(r"^oc_[A-Za-z0-9_-]+$")
 _OPEN_ID = re.compile(r"^ou_[A-Za-z0-9_-]+$")
+_EVENT_DIAGNOSTIC_PREFIX = "[event] "
+
+ProcessFactory = Callable[[list[str]], Any]
+ReviewCallbackHandler = Callable[[Mapping[str, Any]], Mapping[str, Any]]
+
+
+class TeamPlanReviewCallbackStream:
+    """Own the companion card-callback consumer for one Lark profile."""
+
+    def __init__(
+        self,
+        *,
+        process: Any,
+        thread: threading.Thread,
+        stop: threading.Event,
+    ) -> None:
+        self.process = process
+        self.thread = thread
+        self.stop = stop
+
+    def disconnected(self) -> bool:
+        return self.process.poll() is not None
+
+    def terminate(self) -> None:
+        self.stop.set()
+        if self.process.poll() is None:
+            self.process.terminate()
+
+    def close(self) -> None:
+        self.terminate()
+        try:
+            self.process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+            self.process.wait(timeout=3)
+        self.thread.join(timeout=1)
+
+
+def active_profile_chat_ids(
+    snapshot: Mapping[str, Any], profile: str
+) -> list[str]:
+    """Return active Goal-channel chats owned by one sender profile."""
+
+    binding_payloads = snapshot.get("binding_payloads")
+    binding_payloads = (
+        binding_payloads if isinstance(binding_payloads, Mapping) else {}
+    )
+    active_target_refs = {
+        str(binding.get("target_ref") or "")
+        for goal_id, payload in binding_payloads.items()
+        if isinstance(payload, Mapping)
+        for binding in bindings_for_goal(payload, str(goal_id))
+        if binding.get("enabled") is True
+    }
+    targets = snapshot.get("target_payload")
+    targets = targets.get("targets") if isinstance(targets, Mapping) else None
+    if not isinstance(targets, Mapping):
+        return []
+    chats: set[str] = set()
+    for target_ref, target in targets.items():
+        if not isinstance(target, Mapping) or target.get("enabled") is not True:
+            continue
+        if str(target_ref) not in active_target_refs:
+            continue
+        identity = target.get("identity")
+        channel = target.get("channel")
+        if not isinstance(identity, Mapping) or not isinstance(channel, Mapping):
+            continue
+        chat_id = str(channel.get("chat_id") or "")
+        if (
+            str(identity.get("sender_profile") or "") == profile
+            and _CHAT_ID.fullmatch(chat_id)
+        ):
+            chats.add(chat_id)
+    return sorted(chats)
+
+
+def start_team_plan_review_callback_stream(
+    *,
+    snapshot: Mapping[str, Any],
+    profile: str,
+    cli_bin: str,
+    process_factory: ProcessFactory,
+    parent_stop: threading.Event,
+    handler: ReviewCallbackHandler,
+) -> TeamPlanReviewCallbackStream | None:
+    """Start the filtered callback consumer paired with a message stream."""
+
+    chat_ids = active_profile_chat_ids(snapshot, profile)
+    if not chat_ids:
+        return None
+    chat_filter = " or ".join(
+        f".chat_id == {json.dumps(chat_id)}" for chat_id in chat_ids
+    )
+    process = process_factory(
+        [
+            cli_bin,
+            "--profile",
+            profile,
+            "event",
+            "consume",
+            "card.action.trigger",
+            "--as",
+            "bot",
+            "--timeout",
+            "30m",
+            "--max-events",
+            "0",
+            "--jq",
+            f"select({chat_filter})",
+        ]
+    )
+    local_stop = threading.Event()
+
+    def consume() -> None:
+        stdout = process.stdout
+        if stdout is None:
+            return
+        for callback_line in stdout:
+            if local_stop.is_set() or parent_stop.is_set():
+                return
+            stripped = callback_line.strip()
+            if stripped.startswith(_EVENT_DIAGNOSTIC_PREFIX):
+                continue
+            try:
+                callback_event = json.loads(callback_line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(callback_event, Mapping):
+                continue
+            raw_action = callback_event.get("action_value")
+            try:
+                callback_action = (
+                    json.loads(raw_action)
+                    if isinstance(raw_action, str)
+                    else raw_action
+                )
+            except json.JSONDecodeError:
+                continue
+            if (
+                not isinstance(callback_action, Mapping)
+                or callback_action.get("schema_version")
+                != TEAM_PLAN_CARD_ACTION_SCHEMA_VERSION
+            ):
+                continue
+            try:
+                handler(callback_event)
+            except (OSError, RuntimeError, TypeError, ValueError):
+                logging.getLogger(__name__).warning(
+                    "Lark manager review callback was rejected"
+                )
+
+    thread = threading.Thread(
+        target=consume,
+        name=f"loopx-lark-review-callback-{profile}",
+        daemon=True,
+    )
+    thread.start()
+    return TeamPlanReviewCallbackStream(
+        process=process,
+        thread=thread,
+        stop=local_stop,
+    )
+
+
+def proposal_ids_after_turn(
+    runtime_controller: Any, *, session_id: str, turn_id: str
+) -> list[str]:
+    """Project canonical team-plan proposal ids emitted by one manager turn."""
+
+    events_after = getattr(runtime_controller.store, "events_after", None)
+    if not callable(events_after):
+        return []
+    proposal_ids: list[str] = []
+    for event in events_after(session_id, turn_id, None):
+        if (
+            not isinstance(event, Mapping)
+            or event.get("kind") != "team_plan.projected"
+        ):
+            continue
+        payload = event.get("payload")
+        proposal_id = (
+            str(payload.get("proposal_id") or "")
+            if isinstance(payload, Mapping)
+            else ""
+        )
+        if proposal_id and proposal_id not in proposal_ids:
+            proposal_ids.append(proposal_id)
+    return proposal_ids
+
+
+def deliver_team_plan_review_cards_from_runtime(
+    *,
+    proposal_ids: Sequence[str],
+    manager_route: Mapping[str, Any],
+    runtime_controller: Any,
+    runtime_root: Path,
+) -> dict[str, Any]:
+    """Resolve the active registry before delivering canonical proposal cards."""
+
+    registry_path = getattr(runtime_controller, "registry_path", None)
+    if not isinstance(registry_path, Path):
+        raise ValueError("Lark manager proposal delivery requires the active registry")
+    return deliver_team_plan_review_cards(
+        proposal_ids=proposal_ids,
+        manager_route=manager_route,
+        registry_path=registry_path,
+        runtime_root=runtime_root,
+        action_store_root=runtime_root / "chat" / "actions",
+    )
+
+
+def handle_lark_review_callback_for_profile(
+    event: Mapping[str, Any],
+    *,
+    action_service: Any,
+    action_store_root: Path,
+    profile: str,
+    profile_config: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Bind a callback to the exact configured sender identity."""
+
+    if not isinstance(profile_config, Mapping):
+        raise ValueError("Lark manager profile is unavailable")
+    return handle_lark_review_callback(
+        event,
+        action_service=action_service,
+        action_store_root=action_store_root,
+        profile_app_id=str(profile_config.get("bot_app_id") or ""),
+        cli_bin=str(profile_config.get("cli_bin") or "lark-cli"),
+        profile=profile,
+    )
+
+
+def settle_team_plan_proposal_delivery(
+    *,
+    delivery_state: dict[str, Any],
+    delivery_path: Path,
+    route: Mapping[str, Any],
+    proposal_ids: Sequence[str],
+    proposal_deliverer: Callable[
+        [Mapping[str, Any], list[str]], Mapping[str, Any]
+    ]
+    | None,
+) -> str | None:
+    """Persist one verified dual-audience delivery or return its retry status."""
+
+    normalized_ids = [str(value) for value in proposal_ids]
+    if not normalized_ids:
+        return None
+    if proposal_deliverer is None:
+        return "proposal_delivery_unavailable"
+    if isinstance(delivery_state.get("proposal_delivery"), Mapping):
+        return None
+    try:
+        receipt = validate_team_plan_delivery_receipt(
+            proposal_deliverer(route, normalized_ids),
+            proposal_ids=normalized_ids,
+        )
+    except (OSError, ValueError, TypeError, KeyError):
+        return "proposal_delivery_pending"
+    delivery_state["proposal_delivery"] = receipt
+    delivery_state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    try:
+        write_manager_delivery(delivery_path, delivery_state)
+    except OSError:
+        return "proposal_delivery_receipt_unavailable"
+    return None
 
 
 def _digest(value: object) -> str:
