@@ -224,6 +224,9 @@ type PersonalAgentTodoItem = {
   taskDomain?: string | null;
   text: string;
   todoId: string;
+  validationDigest?: string | null;
+  validationRevision?: number | null;
+  validationRevisionActor?: string | null;
 };
 
 function inferLifecyclePhase(status?: string | null, run?: RunRecord) {
@@ -725,6 +728,7 @@ function personalTodoResumeReceiptId(todo: TodoItem) {
 }
 
 function personalAgentTodoFromItem(todo: TodoItem, row: GoalDirectoryRow): PersonalAgentTodoItem {
+  const latestValidationRevision = todo.completion_validation_revision_history.at(-1);
   return {
     resumeWhen: todo.resume_when ?? null,
     resumeReady: todo.resume_ready ?? null,
@@ -740,6 +744,9 @@ function personalAgentTodoFromItem(todo: TodoItem, row: GoalDirectoryRow): Perso
     taskDomain: todo.task_domain ?? null,
     text: personalTodoText(todo),
     todoId: todo.todo_id?.trim() || `${row.goal.id}:agent:${todo.index}`,
+    validationDigest: todo.completion_validation_sha256 ?? null,
+    validationRevision: todo.completion_validation_revision ?? null,
+    validationRevisionActor: latestValidationRevision?.actor_agent_id ?? null,
   };
 }
 
