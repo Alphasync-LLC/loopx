@@ -13,6 +13,7 @@ from ..capability_hooks import (
     InteractionProjectionHookRegistration,
     dispatch_interaction_projection_hooks,
 )
+from .effect_program import ReceiptBoundReplayPhase
 from .settlement import (
     read_heartbeat_settlement,
 )
@@ -514,16 +515,20 @@ def build_live_quota_should_run_decision(
         interaction = payload.get("interaction_contract")
         if isinstance(interaction, dict):
             interaction.update(projections)
-    apply_unsettled_host_turn_recovery_if_required(
-        payload,
-        registry_path=registry_path,
-        runtime_root=runtime_root,
-        goal_id=goal_id,
-        agent_id=agent_id,
-        current_turn_instance_id=turn_instance_id,
-        available_capabilities=available_capabilities,
-        scheduler_execution_context=resolved_context,
-    )
+    # The settled receipt owns the current Turn until it ends. An older
+    # unsettled Turn may be recovered only by a fresh Turn; allowing it to run
+    # here would overwrite heartbeat_settled_skip and reopen execution.
+    if receipt_bound_replay_phase is not ReceiptBoundReplayPhase.SETTLED:
+        apply_unsettled_host_turn_recovery_if_required(
+            payload,
+            registry_path=registry_path,
+            runtime_root=runtime_root,
+            goal_id=goal_id,
+            agent_id=agent_id,
+            current_turn_instance_id=turn_instance_id,
+            available_capabilities=available_capabilities,
+            scheduler_execution_context=resolved_context,
+        )
     if hook_dispatch["failures"]:
         payload["capability_hook_dispatch"] = {
             key: value for key, value in hook_dispatch.items() if key != "projections"

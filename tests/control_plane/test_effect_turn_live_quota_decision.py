@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from loopx.control_plane.effect_program import (
+    ReceiptBoundReplayPhase,
     interpret_quota_should_run_packet,
 )
 from loopx.control_plane.capability_hooks import (
@@ -174,7 +175,7 @@ def test_live_quota_decision_maps_to_effect_turn(tmp_path: Path) -> None:
     turn = interpret_quota_should_run_packet(
         packet,
         goal_id=GOAL_ID,
-        agent_id="codex-fixture",
+        agent_id=None,
         capabilities=["shell"],
     )
 
@@ -276,6 +277,53 @@ def test_managed_turn_projects_prior_unsettled_heartbeat_recovery(
     assert contract["mode"] == "unsettled_host_turn_recovery"
     assert contract["agent_channel"]["delivery_allowed"] is False
     assert contract["cli_channel"]["spend_after_validation"] is False
+
+
+def test_settled_turn_defers_prior_turn_recovery_to_a_fresh_turn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+    from loopx.control_plane.quota import live_decision
+
+    monkeypatch.setattr(
+        live_decision,
+        "read_heartbeat_settlement",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            replay_phase=ReceiptBoundReplayPhase.SETTLED,
+            monitor_phase=None,
+        ),
+    )
+
+    def forbidden_recovery(*_args, **_kwargs):
+        pytest.fail("settled current Turn entered prior-Turn recovery")
+
+    monkeypatch.setattr(
+        live_decision,
+        "apply_unsettled_host_turn_recovery_if_required",
+        forbidden_recovery,
+    )
+    payload = build_live_quota_should_run_decision(
+        _ordinary_status_payload(),
+        goal_id=GOAL_ID,
+        agent_id=None,
+        available_capabilities=["shell"],
+        include_scheduler_detail=False,
+        codex_app_current_rrule=None,
+        registry_path=tmp_path / "registry.json",
+        runtime_root=tmp_path / "runtime",
+        route_source="loopx_turn_plan",
+        turn_instance_id="managed-current-turn",
+        scheduler_execution_context={
+            "host_surface": "generic_cli",
+            "scheduler_owner": "agent_cli_loop",
+            "execution_mode": "interactive",
+        },
+    )
+
+    assert payload["effective_action"] == "heartbeat_settled_skip"
+    assert payload["should_run"] is False
+    assert payload["execution_obligation"]["must_attempt_work"] is False
+    assert payload.get("unsettled_host_turn_recovery") is None
 
 
 def test_managed_turn_accepts_exact_material_monitor_poll_closeout(
