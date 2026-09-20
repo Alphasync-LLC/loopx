@@ -14,8 +14,8 @@ export const EXTERNAL_EVIDENCE_DISCOVERY_SCHEMA_VERSION =
   "loopx_external_evidence_discovery_v0";
 export const EXTERNAL_EVIDENCE_PLAN_SCHEMA_VERSION =
   "loopx_external_evidence_plan_v0";
-export const EXTERNAL_EVIDENCE_EXECUTION_SCHEMA_VERSION =
-  "loopx_external_evidence_execution_v0";
+export const EXTERNAL_EVIDENCE_RECEIPT_OBSERVATION_SCHEMA_VERSION =
+  "loopx_external_evidence_receipt_observation_v0";
 export const EXTERNAL_EVIDENCE_RECEIPT_SCHEMA_VERSION =
   "loopx_external_evidence_receipt_v0";
 export const EXTERNAL_EVIDENCE_ADMISSION_SCHEMA_VERSION =
@@ -309,43 +309,47 @@ function normalizeReadyPlan(value: unknown): JsonObject {
   };
 }
 
-function sourceRecord(value: unknown, index: number): JsonObject {
-  const source = requireJsonObject(value, `receipt.sources[${index}]`);
-  const sourceRef = boundedText(source.source_ref, `receipt.sources[${index}].source_ref`, 2048);
+function sourceRecord(
+  value: unknown,
+  index: number,
+  label = "receipt.sources",
+): JsonObject {
+  const source = requireJsonObject(value, `${label}[${index}]`);
+  const sourceRef = boundedText(source.source_ref, `${label}[${index}].source_ref`, 2048);
   requireThat(
     SOURCE_REF_RE.test(sourceRef) && !sourceRef.startsWith("file://"),
-    `receipt.sources[${index}].source_ref must be a non-file provenance URI`,
+    `${label}[${index}].source_ref must be a non-file provenance URI`,
   );
   const contentDigest = boundedText(
     source.content_digest,
-    `receipt.sources[${index}].content_digest`,
+    `${label}[${index}].content_digest`,
     71,
   );
-  requireThat(SHA256_RE.test(contentDigest), `receipt.sources[${index}].content_digest is invalid`);
+  requireThat(SHA256_RE.test(contentDigest), `${label}[${index}].content_digest is invalid`);
   return {
     source_ref: sourceRef,
     source_family: boundedText(
       source.source_family,
-      `receipt.sources[${index}].source_family`,
+      `${label}[${index}].source_family`,
       128,
     ),
     basis: requireStringLiteral(
       source.basis,
       EVIDENCE_BASES,
-      `receipt.sources[${index}].basis`,
+      `${label}[${index}].basis`,
     ),
-    finding: boundedText(source.finding, `receipt.sources[${index}].finding`, 4096),
+    finding: boundedText(source.finding, `${label}[${index}].finding`, 4096),
     limitation: source.limitation === null || source.limitation === undefined
       ? null
-      : boundedText(source.limitation, `receipt.sources[${index}].limitation`, 2048),
+      : boundedText(source.limitation, `${label}[${index}].limitation`, 2048),
     publication_date: source.publication_date === null || source.publication_date === undefined
       ? null
       : boundedText(
         source.publication_date,
-        `receipt.sources[${index}].publication_date`,
+        `${label}[${index}].publication_date`,
         64,
       ),
-    accessed_at: boundedText(source.accessed_at, `receipt.sources[${index}].accessed_at`, 64),
+    accessed_at: boundedText(source.accessed_at, `${label}[${index}].accessed_at`, 64),
     content_digest: contentDigest,
   };
 }
@@ -369,7 +373,7 @@ function normalizeExecutionReceipt(
   const status = requireStringLiteral(receipt.status, RECEIPT_STATUSES, "receipt.status");
   requireThat(Array.isArray(receipt.sources), "receipt.sources must be an array");
   requireThat(receipt.sources.length <= 64, "receipt.sources has too many items");
-  const sources = receipt.sources.map(sourceRecord);
+  const sources = receipt.sources.map((source, index) => sourceRecord(source, index));
   requireThat(
     new Set(sources.map((source) => source.source_ref)).size === sources.length,
     "receipt source refs must be unique",
@@ -395,17 +399,17 @@ function normalizeExecutionReceipt(
   };
 }
 
-export function recordExternalEvidenceExecution(params: JsonObject): JsonObject {
+export function recordExternalEvidenceReceiptObservation(params: JsonObject): JsonObject {
   const { plan, receipt } = normalizeExecutionReceipt(params.plan, params.receipt);
-  const executionIdentity = {
+  const observationIdentity = {
     plan_id: plan.plan_id,
     request_id: receipt.request_id,
     provider_id: receipt.provider_id,
     receipt_digest: digest(receipt),
   };
   return {
-    schema_version: EXTERNAL_EVIDENCE_EXECUTION_SCHEMA_VERSION,
-    execution_id: digest(executionIdentity),
+    schema_version: EXTERNAL_EVIDENCE_RECEIPT_OBSERVATION_SCHEMA_VERSION,
+    receipt_observation_id: digest(observationIdentity),
     plan_id: plan.plan_id,
     request_id: receipt.request_id,
     provider_id: receipt.provider_id,
@@ -413,8 +417,9 @@ export function recordExternalEvidenceExecution(params: JsonObject): JsonObject 
     status: receipt.status,
     receipt,
     truth_contract: {
-      provider_execution_observed: true,
-      evidence_produced: receipt.status === "succeeded",
+      provider_receipt_observed: true,
+      provider_execution_attested: false,
+      evidence_produced_reported: receipt.status === "succeeded",
       evidence_coverage_observed: false,
       automatic_admission: false,
       automatic_promotion: false,
@@ -457,17 +462,21 @@ export function evaluateExternalEvidenceAdmission(params: JsonObject): JsonObjec
     "reject cannot carry admitted sources",
   );
   const admitted = sources.filter((source) => admittedRefs.includes(source.source_ref as string));
-  const admissionIdentity = {
+  const downstreamProjection = {
+    schema_version: "loopx_external_evidence_projection_v0",
     plan_id: plan.plan_id,
     request_id: request.request_id,
-    provider_id: selected.provider_id,
-    receipt_digest: receiptDigest,
+    objective: request.objective,
+    decision: request.decision,
     disposition,
-    admitted_source_refs: admittedRefs,
+    sources: admitted,
+    summary: boundedText(receipt.summary, "receipt.summary", 4096),
+    limitations: receipt.limitations === undefined
+      ? []
+      : boundedStrings(receipt.limitations, "receipt.limitations", 16, 1024),
   };
-  return {
+  const admission = {
     schema_version: EXTERNAL_EVIDENCE_ADMISSION_SCHEMA_VERSION,
-    admission_id: digest(admissionIdentity),
     plan_id: plan.plan_id,
     request_id: request.request_id,
     provider_id: selected.provider_id,
@@ -478,27 +487,46 @@ export function evaluateExternalEvidenceAdmission(params: JsonObject): JsonObjec
     disposition,
     reason,
     admitted_source_refs: admittedRefs,
-    downstream_projection: {
-      schema_version: "loopx_external_evidence_projection_v0",
-      plan_id: plan.plan_id,
-      request_id: request.request_id,
-      objective: request.objective,
-      decision: request.decision,
-      disposition,
-      sources: admitted,
-      summary: boundedText(receipt.summary, "receipt.summary", 4096),
-      limitations: receipt.limitations === undefined
-        ? []
-        : boundedStrings(receipt.limitations, "receipt.limitations", 16, 1024),
-    },
+    downstream_projection: downstreamProjection,
+  };
+  return {
+    ...admission,
+    admission_id: digest(admission),
   };
 }
 
-export function projectExternalEvidenceRetirement(params: JsonObject): JsonObject {
-  const admission = requireJsonObject(params.admission, "external evidence admission");
+function normalizeAdmission(value: unknown): JsonObject {
+  const admission = requireJsonObject(value, "external evidence admission");
   requireThat(
     admission.schema_version === EXTERNAL_EVIDENCE_ADMISSION_SCHEMA_VERSION,
     "external evidence admission schema is invalid",
+  );
+  const planId = boundedText(admission.plan_id, "admission.plan_id", 71);
+  const requestId = boundedText(admission.request_id, "admission.request_id", 71);
+  const receiptDigest = boundedText(
+    admission.receipt_digest,
+    "admission.receipt_digest",
+    71,
+  );
+  requireThat(SHA256_RE.test(planId), "admission.plan_id is invalid");
+  requireThat(SHA256_RE.test(requestId), "admission.request_id is invalid");
+  requireThat(SHA256_RE.test(receiptDigest), "admission.receipt_digest is invalid");
+  const providerId = boundedText(admission.provider_id, "admission.provider_id", 96);
+  requireThat(PROVIDER_ID_RE.test(providerId), "admission.provider_id is invalid");
+  const providerKind = requireStringLiteral(
+    admission.provider_kind,
+    PROVIDER_KINDS,
+    "admission.provider_kind",
+  );
+  const receiptStatus = requireStringLiteral(
+    admission.receipt_status,
+    RECEIPT_STATUSES,
+    "admission.receipt_status",
+  );
+  const disposition = requireStringLiteral(
+    admission.disposition,
+    ADMISSION_DECISIONS,
+    "admission.disposition",
   );
   const admittedRefs = boundedStrings(
     admission.admitted_source_refs,
@@ -506,6 +534,83 @@ export function projectExternalEvidenceRetirement(params: JsonObject): JsonObjec
     64,
     2048,
   );
+  requireThat(
+    new Set(admittedRefs).size === admittedRefs.length,
+    "admission admitted source refs must be unique",
+  );
+  requireThat(
+    disposition !== "admit" || (receiptStatus === "succeeded" && admittedRefs.length > 0),
+    "admission admit disposition requires succeeded evidence",
+  );
+  requireThat(
+    disposition !== "reject" || admittedRefs.length === 0,
+    "admission reject disposition cannot carry admitted sources",
+  );
+  const projection = requireJsonObject(
+    admission.downstream_projection,
+    "external evidence downstream projection",
+  );
+  requireThat(
+    projection.schema_version === "loopx_external_evidence_projection_v0" &&
+      projection.plan_id === planId &&
+      projection.request_id === requestId &&
+      projection.disposition === disposition,
+    "external evidence downstream projection does not match the admission",
+  );
+  requireThat(Array.isArray(projection.sources), "downstream projection sources must be an array");
+  requireThat(projection.sources.length <= 64, "downstream projection has too many sources");
+  const sources = projection.sources.map((source, index) =>
+    sourceRecord(source, index, "downstream_projection.sources")
+  );
+  const projectedRefs = sources.map((source) => source.source_ref as string);
+  requireThat(
+    projectedRefs.length === admittedRefs.length &&
+      projectedRefs.every((sourceRef) => admittedRefs.includes(sourceRef)),
+    "downstream projection sources do not match admitted source refs",
+  );
+  const normalizedAdmission = {
+    schema_version: EXTERNAL_EVIDENCE_ADMISSION_SCHEMA_VERSION,
+    plan_id: planId,
+    request_id: requestId,
+    provider_id: providerId,
+    provider_kind: providerKind,
+    receipt_status: receiptStatus,
+    receipt_digest: receiptDigest,
+    completed_at: boundedText(admission.completed_at, "admission.completed_at", 64),
+    disposition,
+    reason: boundedText(admission.reason, "admission.reason", 2048),
+    admitted_source_refs: admittedRefs,
+    downstream_projection: {
+      schema_version: "loopx_external_evidence_projection_v0",
+      plan_id: planId,
+      request_id: requestId,
+      objective: boundedText(projection.objective, "downstream_projection.objective"),
+      decision: boundedText(projection.decision, "downstream_projection.decision"),
+      disposition,
+      sources,
+      summary: boundedText(projection.summary, "downstream_projection.summary", 4096),
+      limitations: projection.limitations === undefined
+        ? []
+        : boundedStrings(
+          projection.limitations,
+          "downstream_projection.limitations",
+          16,
+          1024,
+        ),
+    },
+  };
+  const admissionId = boundedText(admission.admission_id, "admission.admission_id", 71);
+  requireThat(SHA256_RE.test(admissionId), "admission.admission_id is invalid");
+  requireThat(
+    admissionId === digest(normalizedAdmission),
+    "admission_id does not match the normalized admission",
+  );
+  return { ...normalizedAdmission, admission_id: admissionId };
+}
+
+export function projectExternalEvidenceRetirement(params: JsonObject): JsonObject {
+  const admission = normalizeAdmission(params.admission);
+  const admittedRefs = admission.admitted_source_refs as string[];
   const downstreamRefs = params.downstream_source_refs === undefined
     ? []
     : boundedStrings(params.downstream_source_refs, "downstream_source_refs", 64, 2048);

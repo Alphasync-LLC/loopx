@@ -21,7 +21,7 @@ EXTERNAL_RESEARCH_CATALOG_ENTRY: dict[str, Any] = {
     ),
     "user_value": (
         "Discover method and connector inventory, select only a currently ready provider, "
-        "bind an observed execution receipt to its exact plan, and admit or reject compact "
+        "bind a caller-presented provider receipt to its exact plan, and admit or reject compact "
         "provenance without copying raw provider content."
     ),
     "next_real_step": (

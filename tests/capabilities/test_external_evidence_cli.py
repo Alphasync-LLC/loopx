@@ -222,7 +222,7 @@ def test_receipt_passes_observed_execution_to_typed_owner(
         captured["method"] = method
         captured["params"] = params
         return {
-            "schema_version": "loopx_external_evidence_execution_v0",
+            "schema_version": "loopx_external_evidence_receipt_observation_v0",
             "status": "succeeded",
         }
 

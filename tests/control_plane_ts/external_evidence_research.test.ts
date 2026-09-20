@@ -6,7 +6,7 @@ import {
   planExternalEvidenceRequest,
   projectExternalEvidenceDiscovery,
   projectExternalEvidenceRetirement,
-  recordExternalEvidenceExecution,
+  recordExternalEvidenceReceiptObservation,
 } from "../../loopx/control_plane/capabilities/external_evidence.ts";
 
 const request = {
@@ -144,18 +144,19 @@ test("rejects a provider that claims ready without lifecycle readiness", () => {
   );
 });
 
-test("records provider execution without claiming coverage or admission", () => {
+test("records a provider receipt without attesting execution or claiming coverage", () => {
   const currentPlan = plan();
-  const result = recordExternalEvidenceExecution({
+  const result = recordExternalEvidenceReceiptObservation({
     plan: currentPlan,
     receipt: receipt(currentPlan),
   });
   assert.equal(result.status, "succeeded");
   assert.equal(result.plan_id, currentPlan.plan_id);
-  assert.match(String(result.execution_id), /^sha256:[0-9a-f]{64}$/);
+  assert.match(String(result.receipt_observation_id), /^sha256:[0-9a-f]{64}$/);
   assert.deepEqual(result.truth_contract, {
-    provider_execution_observed: true,
-    evidence_produced: true,
+    provider_receipt_observed: true,
+    provider_execution_attested: false,
+    evidence_produced_reported: true,
     evidence_coverage_observed: false,
     automatic_admission: false,
     automatic_promotion: false,
@@ -166,7 +167,7 @@ test("records provider execution without claiming coverage or admission", () => 
 test("execution receipt fails closed on stale provider identity", () => {
   const currentPlan = plan();
   assert.throws(
-    () => recordExternalEvidenceExecution({
+    () => recordExternalEvidenceReceiptObservation({
       plan: currentPlan,
       receipt: { ...receipt(currentPlan), provider_id: "connector:stale" },
     }),
@@ -177,7 +178,7 @@ test("execution receipt fails closed on stale provider identity", () => {
 test("execution receipt fails closed on stale plan identity", () => {
   const currentPlan = plan();
   assert.throws(
-    () => recordExternalEvidenceExecution({
+    () => recordExternalEvidenceReceiptObservation({
       plan: currentPlan,
       receipt: { ...receipt(currentPlan), plan_id: `sha256:${"b".repeat(64)}` },
     }),
@@ -214,7 +215,7 @@ test("canonical ready-plan verification rejects semantic mutations", () => {
     const mutatedPlan = structuredClone(currentPlan) as Record<string, unknown>;
     mutate(mutatedPlan);
     assert.throws(
-      () => recordExternalEvidenceExecution({
+      () => recordExternalEvidenceReceiptObservation({
         plan: mutatedPlan,
         receipt: receipt(currentPlan),
       }),
@@ -293,10 +294,52 @@ test("retirement waits for downstream use of every admitted source", () => {
     "retained",
   );
   assert.equal(
+    projectExternalEvidenceRetirement({ admission, downstream_source_refs: [] }).plan_id,
+    currentPlan.plan_id,
+  );
+  assert.equal(
     projectExternalEvidenceRetirement({
       admission,
       downstream_source_refs: ["https://example.com/original"],
     }).status,
     "retire_ready",
+  );
+});
+
+test("retirement fails closed on mutated admission semantics", () => {
+  const currentPlan = plan();
+  const admission = evaluateExternalEvidenceAdmission({
+    plan: currentPlan,
+    receipt: receipt(currentPlan),
+    decision: {
+      disposition: "admit",
+      reason: "direct evidence",
+      admitted_source_refs: ["https://example.com/original"],
+    },
+  });
+  const forgedReject = structuredClone(admission) as Record<string, unknown>;
+  forgedReject.disposition = "reject";
+  forgedReject.admitted_source_refs = [];
+  const forgedProjection = forgedReject.downstream_projection as Record<string, unknown>;
+  forgedProjection.disposition = "reject";
+  forgedProjection.sources = [];
+  assert.throws(
+    () => projectExternalEvidenceRetirement({
+      admission: forgedReject,
+      downstream_source_refs: [],
+    }),
+    /admission_id does not match/,
+  );
+
+  const mutatedFinding = structuredClone(admission) as Record<string, unknown>;
+  const mutatedProjection = mutatedFinding.downstream_projection as Record<string, unknown>;
+  const mutatedSources = mutatedProjection.sources as Array<Record<string, unknown>>;
+  mutatedSources[0].finding = "A different finding";
+  assert.throws(
+    () => projectExternalEvidenceRetirement({
+      admission: mutatedFinding,
+      downstream_source_refs: ["https://example.com/original"],
+    }),
+    /admission_id does not match/,
   );
 });
