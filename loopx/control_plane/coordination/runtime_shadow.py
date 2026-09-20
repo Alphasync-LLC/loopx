@@ -27,6 +27,8 @@ from .coordination_state_contract_generated import (
     COORDINATION_RUNTIME_SHADOW_ROLLBACK_RESULT_SCHEMA,
     COORDINATION_RUNTIME_SHADOW_TODO_READ_REQUEST_SCHEMA as RUNTIME_SHADOW_TODO_READ_REQUEST_SCHEMA_VERSION,
     COORDINATION_RUNTIME_SHADOW_TODO_READ_RESULT_SCHEMA,
+    LOCAL_COORDINATION_PROMOTION_REVIEW_REQUEST_SCHEMA,
+    LOCAL_COORDINATION_PROMOTION_REVIEW_RESULT_SCHEMA,
     LOCAL_AUTHORITY_SHADOW_TRANSACTION_PROJECTION_SCHEMA,
 )
 
@@ -38,6 +40,7 @@ RUNTIME_SHADOW_BOOTSTRAP_METHOD = "coordination.runtime_shadow.bootstrap"
 RUNTIME_SHADOW_ROLLBACK_METHOD = "coordination.runtime_shadow.rollback"
 RUNTIME_SHADOW_QUALIFY_METHOD = "coordination.runtime_shadow.qualify"
 RUNTIME_SHADOW_TODO_READ_METHOD = "coordination.runtime_shadow.todo_read_candidate"
+LOCAL_AUTHORITY_PROMOTION_REVIEW_METHOD = "coordination.local_authority.promotion_review"
 
 
 @dataclass(frozen=True)
@@ -45,6 +48,56 @@ class CoordinationRuntimeShadowConfig:
     enabled: bool
     provider: str | None
     reason_code: str
+
+
+def coordination_runtime_shadow_summary(
+    goal: Mapping[str, Any] | None,
+) -> dict[str, object]:
+    """Project the transaction-bound shadow configuration for operators."""
+
+    config = resolve_coordination_runtime_shadow_config(goal)
+    return {
+        "enabled": config.enabled,
+        "provider": config.provider,
+        "status": "enabled" if config.enabled else config.reason_code,
+    }
+
+
+def validate_coordination_runtime_shadow_change(
+    enable_file: bool,
+    clear: bool,
+) -> None:
+    if enable_file and clear:
+        raise ValueError(
+            "--coordination-runtime-shadow-file cannot be combined with "
+            "--clear-coordination-runtime-shadow"
+        )
+
+
+def apply_coordination_runtime_shadow_change(
+    goal: dict[str, Any],
+    enable_file: bool,
+    clear: bool,
+) -> None:
+    """Apply the explicit transaction-bound file-shadow opt-in."""
+
+    if not enable_file and not clear:
+        return
+    coordination = (
+        goal.get("coordination") if isinstance(goal.get("coordination"), dict) else {}
+    )
+    if clear:
+        coordination.pop("runtime_shadow", None)
+    else:
+        coordination["runtime_shadow"] = {
+            "enabled": True,
+            "schema_version": RUNTIME_SHADOW_CONFIG_SCHEMA_VERSION,
+            "provider": "file_v0",
+        }
+    if coordination:
+        goal["coordination"] = coordination
+    else:
+        goal.pop("coordination", None)
 
 
 def resolve_coordination_runtime_shadow_config(
@@ -525,6 +578,66 @@ def qualify_coordination_runtime_shadow(
             "qualified": False,
             "primary_writeback_preserved": True,
             "decision_read_from_shadow": False,
+        }
+    return dict(result)
+
+
+def review_local_coordination_authority_promotion(
+    *,
+    goal: Mapping[str, Any] | None,
+    runtime_root: Path,
+    goal_id: str,
+    operation_id: str,
+    projection: Mapping[str, Any],
+    source_snapshot: Mapping[str, Any],
+    minimum_operations: int,
+    required_event_kinds: list[str],
+    execute: bool,
+    runtime_invoker: RuntimeInvoker = effect_runtime_result,
+) -> dict[str, object]:
+    """Preview or atomically apply the reviewed whole-Goal cutover."""
+
+    config = resolve_coordination_runtime_shadow_config(goal)
+    if not config.enabled:
+        return {
+            "schema_version": LOCAL_COORDINATION_PROMOTION_REVIEW_RESULT_SCHEMA,
+            "status": "disabled",
+            "executed": False,
+            "reason_code": config.reason_code,
+            "legacy_writer_fenced": False,
+            "legacy_fallback_used": False,
+        }
+    request = {
+        "schema_version": LOCAL_COORDINATION_PROMOTION_REVIEW_REQUEST_SCHEMA,
+        "runtime_root": str(runtime_root.expanduser().absolute()),
+        "goal_id": goal_id,
+        "operation_id": operation_id,
+        "projection": dict(projection),
+        "source_snapshot": dict(source_snapshot),
+        "minimum_operations": minimum_operations,
+        "required_event_kinds": list(required_event_kinds),
+        "execute": execute,
+    }
+    try:
+        result = runtime_invoker(LOCAL_AUTHORITY_PROMOTION_REVIEW_METHOD, request)
+    except Exception as exc:
+        return {
+            "schema_version": LOCAL_COORDINATION_PROMOTION_REVIEW_RESULT_SCHEMA,
+            "status": "failed",
+            "executed": False,
+            "reason_code": "promotion_review_runtime_unavailable",
+            "reason": str(exc),
+            "legacy_writer_fenced": False,
+            "legacy_fallback_used": False,
+        }
+    if not isinstance(result, Mapping):
+        return {
+            "schema_version": LOCAL_COORDINATION_PROMOTION_REVIEW_RESULT_SCHEMA,
+            "status": "failed",
+            "executed": False,
+            "reason_code": "promotion_review_runtime_result_invalid",
+            "legacy_writer_fenced": False,
+            "legacy_fallback_used": False,
         }
     return dict(result)
 
