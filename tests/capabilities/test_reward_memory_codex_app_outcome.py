@@ -16,16 +16,44 @@ from loopx.capabilities.reward_memory.codex_app_outcome import (
 
 
 def _reflection() -> str:
+    evidence_refs = ["artifact:app-route", "receipt:app-validation"]
     return json.dumps(
         {
-            "schema_version": "turn_reward_memory_reflection_v0",
+            "schema_version": "turn_reward_memory_reflection_v1",
             "status": "eligible",
             "surface_id": "agent_workflow.turn_admission",
             "outcome_kind": "engineering",
             "content_summary": "Run the exact admission test before changing routing.",
             "reasoning_summary": "The independently checked route avoided stale state.",
             "confidence": "high",
-            "evidence_refs": ["artifact:app-route", "receipt:app-validation"],
+            "evidence_refs": evidence_refs,
+            "experience": {
+                "schema_version": "procedural_experience_contract_v0",
+                "applicability": ["Changing a managed Turn admission route"],
+                "observed_outcome": (
+                    "The exact admission test avoided a route based on stale state."
+                ),
+                "attribution": (
+                    "Independent validation bound the route result to current "
+                    "admission evidence."
+                ),
+                "future_behavior": {
+                    "trigger": "A managed Turn admission route may change.",
+                    "action": "Run the exact admission test before changing routing.",
+                    "validation": (
+                        "Bind the result to the declared validator and current route "
+                        "receipt."
+                    ),
+                    "stop_condition": (
+                        "Do not change routing when the validator or current receipt "
+                        "is missing."
+                    ),
+                },
+                "limitations": [
+                    "This result applies only to the validated route and revision."
+                ],
+                "evidence_refs": evidence_refs,
+            },
         }
     )
 
