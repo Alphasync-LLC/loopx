@@ -109,7 +109,12 @@ def test_due_watch_only_monitor_is_an_auxiliary_no_spend_route() -> None:
         agent_todo_items=items,
         next_action="Advance the bounded product slice.",
     )
-    guard = build_quota_should_run(payload, goal_id=GOAL_ID)
+    turn_instance_id = "turn-watch-only-auxiliary"
+    guard = build_quota_should_run(
+        payload,
+        goal_id=GOAL_ID,
+        turn_instance_id=turn_instance_id,
+    )
 
     assert guard["recommended_action"] == "[P1] Advance the bounded product slice."
     lane = guard["work_lane_contract"]
@@ -147,8 +152,53 @@ def test_due_watch_only_monitor_is_an_auxiliary_no_spend_route() -> None:
         "required"
     ] is False
     auxiliary_cli = interaction["cli_channel"]["auxiliary_monitor_poll"]
+    assert auxiliary_cli["schema_version"] == "auxiliary_monitor_poll_cli_v0"
+    assert auxiliary_cli["availability"] == "ready"
+    assert auxiliary_cli["turn_instance_id"] == turn_instance_id
     assert auxiliary_cli["spend_policy"] == "no_spend"
-    assert "--todo-id todo_watch_due --execute" in auxiliary_cli["command"]
+    assert f"--turn-instance-id {turn_instance_id}" in auxiliary_cli["command"]
+    assert "--todo-id todo_watch_due" in auxiliary_cli["command"]
+    assert '--result-hash "${LOOPX_MONITOR_RESULT_HASH:?}"' in auxiliary_cli[
+        "command"
+    ]
+    assert auxiliary_cli["command"].endswith("--execute")
+    assert "--material-change --execute" in auxiliary_cli[
+        "material_change_command"
+    ]
+    assert auxiliary_cli["input_contract"] == {
+        "schema_version": "auxiliary_monitor_observation_input_v0",
+        "result_hash": {
+            "required": True,
+            "environment_variable": "LOOPX_MONITOR_RESULT_HASH",
+            "source": "fresh_external_observation_digest",
+        },
+        "material_change": {
+            "required": True,
+            "unchanged_command_key": "command",
+            "changed_command_key": "material_change_command",
+        },
+    }
+
+
+def test_due_watch_only_monitor_without_turn_binding_is_not_executable() -> None:
+    items = _monitor_and_advancement()
+    items[0].update({"todo_id": "todo_watch_due", "watch_only": "true"})
+    items[1]["todo_id"] = "todo_advancement"
+
+    guard = build_quota_should_run(
+        _status(agent_todo_items=items),
+        goal_id=GOAL_ID,
+    )
+
+    auxiliary_cli = guard["interaction_contract"]["cli_channel"][
+        "auxiliary_monitor_poll"
+    ]
+    assert auxiliary_cli["availability"] == "turn_binding_required"
+    assert auxiliary_cli["reason_code"] == (
+        "auxiliary_monitor_turn_instance_id_missing"
+    )
+    assert "command" not in auxiliary_cli
+    assert "material_change_command" not in auxiliary_cli
 
 
 def test_watch_only_priority_cannot_hide_an_ordinary_due_monitor() -> None:
