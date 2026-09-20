@@ -17,7 +17,6 @@ from .effect_program import ReceiptBoundReplayPhase
 from .settlement import (
     read_heartbeat_settlement,
 )
-from .effect_program import ReceiptBoundReplayPhase
 from ..work_items.interaction_contract import (
     build_interaction_contract,
     build_protocol_action_packet,
