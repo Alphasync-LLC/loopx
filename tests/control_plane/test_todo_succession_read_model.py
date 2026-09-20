@@ -101,7 +101,8 @@ def test_public_summary_drops_internal_evaluation_without_mutating_source():
     source = summary([work("todo_source", no_followup=True)])
     public = public_todo_summary(source)
     assert "succession_evaluation" not in public["items"][0]
-    assert "succession_evaluation" in source["items"][0]
+    assert "succession_evaluation" not in source["items"][0]
+    assert filtered_todo_summary(source, role="agent", todo_id="todo_source")["total_count"] == 1
     assert public["terminal_closure_proof"] == source["terminal_closure_proof"]
 
 
@@ -112,3 +113,16 @@ def test_public_parser_rows_do_not_carry_internal_evaluations():
     fields = parse_active_state_todos(state, item_limit=None)
     assert fields["agent_todos"]["items"]
     assert all("succession_evaluation" not in row for row in fields["agent_todos"]["items"])
+
+
+def test_evaluation_does_not_mutate_or_expand_input_rows():
+    import json
+    from loopx.control_plane.todos.succession_warning import evaluate_succession
+
+    original = work("todo_source", no_followup=True)
+    rows = [original]
+    before = json.dumps(rows, sort_keys=True)
+    evaluate_succession(rows)
+    assert rows[0] is not original
+    assert json.dumps(rows, sort_keys=True) == before
+    assert "succession_evaluation" not in original

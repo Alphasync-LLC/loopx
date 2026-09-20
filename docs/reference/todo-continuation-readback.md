@@ -50,13 +50,15 @@ handoff state or permission. An explicit boolean replan flag takes precedence.
 
 ## Selection, proofs and transport
 
-A fresh full-source evaluation accompanies each internal summary row. Its fact
+A fresh full-source evaluation accompanies each internal summary row as an
+ephemeral Python attribute, outside dictionary fields and JSON serialization. Its fact
 digest prevents reuse after relevant item edits; it is a consistency check,
 not authentication. Fresh parsing/canonical reads always recompute it rather
 than trusting stored evaluations. Shadow capture discards this derived field;
 canonical records and durable source digests do not gain a second authority.
-Public parser rows and list/status responses omit the internal evaluation after selection,
-retaining the decision fields without expanding the hot-path payload.
+Public parser rows keep their existing dictionary schema. Final list/status
+responses copy plain dictionaries, retaining decision fields without exposing
+the internal evaluation or expanding the hot-path payload.
 
 Legacy archive/recreate can retain one archived and one active record with the
 same logical Todo ID. The active record owns that ID's inferred edges regardless

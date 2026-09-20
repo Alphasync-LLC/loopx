@@ -811,8 +811,8 @@ def todo_successor_todo_ids(item: dict[str, Any], *, items: list[dict[str, Any]]
     from .succession_warning import evaluate_succession
 
     selected = dict(item)
-    evaluate_succession([selected], items)
-    return list(selected["succession_evaluation"]["successor_todo_ids"])
+    evaluation = evaluate_succession([selected], items)[0]
+    return list(evaluation["successor_todo_ids"])
 
 
 def todo_item_is_succession_tracked_completion(item: dict[str, Any]) -> bool:

@@ -139,6 +139,14 @@ def todo_succession_gap_items(
     ]
 
 
+class _EvaluatedTodo(dict[str, Any]):
+    """Ephemeral graph evidence stays outside the public row/JSON contract."""
+
+    def __init__(self, item: dict[str, Any], evaluation: dict[str, Any]) -> None:
+        super().__init__(item)
+        self.succession_evaluation = evaluation
+
+
 def succession_facts(item: dict[str, Any]) -> dict[str, Any]:
     resume = normalize_todo_resume_when(item.get("resume_when")) or ""
     return {
@@ -174,7 +182,7 @@ def project_succession(items: list[dict[str, Any]], *, reuse: bool = False) -> l
     request: dict[str, Any] = {"schema_version": "todo_succession_request_v0",
         "rows": rows, "context_field_sets": contexts}
     if reuse:
-        request["evaluations"] = [item.get("succession_evaluation") for item in items]
+        request["evaluations"] = [item.succession_evaluation if isinstance(item, _EvaluatedTodo) else None for item in items]
     result = effect_runtime_result("todo.succession.project", request)
     if not isinstance(result, dict) or result.get("schema_version") != "todo_succession_result_v0":
         raise ValueError("invalid typed Todo succession result")
@@ -184,11 +192,11 @@ def project_succession(items: list[dict[str, Any]], *, reuse: bool = False) -> l
     return evaluations
 
 
-def evaluate_succession(items: list[dict[str, Any]], lineage: list[dict[str, Any]] | None = None) -> None:
+def evaluate_succession(items: list[dict[str, Any]], lineage: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     # Active evaluated rows override their unevaluated source versions; retained
     # history and other roles remain graph evidence but never become active rows.
     if not items:
-        return
+        return []
     # Replace one matching source row, not every occurrence of its identity.
     # Retained generations and conflicting authorities stay visible to TS.
     selected = {(normalize_todo_id(item.get("todo_id")), item.get("role"), item.get("archive_state") or "active")
@@ -202,14 +210,15 @@ def evaluate_succession(items: list[dict[str, Any]], lineage: list[dict[str, Any
             source.append(item)
     source.extend(items)
     evaluations = project_succession(source)
-    for item, evaluation in zip(items, evaluations[len(source) - len(items):], strict=True):
-        item["succession_evaluation"] = evaluation
+    selected_evaluations = evaluations[len(source) - len(items):]
+    items[:] = [_EvaluatedTodo(item, evaluation)
+        for item, evaluation in zip(items, selected_evaluations, strict=True)]
+    return selected_evaluations
 
 
 def public_todo_summary(summary: dict[str, Any]) -> dict[str, Any]:
     """Drop the internal full-graph handoff once a consumer has selected rows."""
     return {**summary, "items": [
-        {key: value for key, value in item.items() if key != "succession_evaluation"}
-        if isinstance(item, dict) else item
+        dict(item) if isinstance(item, dict) else item
         for item in summary.get("items") or []
     ]}

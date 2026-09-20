@@ -9,7 +9,6 @@ from .contract import (
     normalize_todo_id,
     TODO_TASK_PATTERN,
 )
-from .succession_warning import public_todo_summary
 from .standing_decision import build_standing_decision_authority
 from .machine_region import find_todo_source_regions, visible_markdown_lines
 from .todo_block_codec import decode_todo_blocks
@@ -64,10 +63,7 @@ def parse_active_state_todos(
     available_capabilities: Any = None,
     item_limit: int | None = MAX_STATUS_TODOS_PER_ROLE,
     evaluated_at: str | None = None,
-    _include_succession_evaluations: bool = False,
 ) -> dict[str, Any]:
-    # Internal list selection needs the full-source decisions. Ordinary parser
-    # consumers receive stable public rows suitable for canonical capture.
     resume_evaluated_at = evaluated_at or now_utc_iso()
     orchestration = compact_orchestration_policy(
         goal.get("spawn_policy") if isinstance(goal, dict) else None
@@ -120,9 +116,9 @@ def parse_active_state_todos(
             + archived_advancement_done_count
         )
     if user:
-        result["user_todos"] = user if _include_succession_evaluations else public_todo_summary(user)
+        result["user_todos"] = user
     if agent:
-        result["agent_todos"] = agent if _include_succession_evaluations else public_todo_summary(agent)
+        result["agent_todos"] = agent
     archived_decisions = [item for item in archive_items if item.get("role") == "user"]
     standing_authority = build_standing_decision_authority(
         [*items["user"], *archived_decisions],
