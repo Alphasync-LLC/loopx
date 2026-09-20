@@ -545,7 +545,7 @@ export function productionScaleLeasedMonitorFixture(goalId: string,
 
 /** A completed watch and its waiting dependent within the full mixed graph. */
 export function productionScaleCompletedMonitorFixture(goalId: string,
-  schema: AuthorityProjectionSchema = "native") {
+  schema: AuthorityProjectionSchema = "native", retainedLease: "absent" | "active" | "expired" | "released" = "absent") {
   const fixture = productionScaleLeasedMonitorFixture(goalId, schema);
   const todos = (fixture.projection.todos as Record<string, unknown>[]).map(todo =>
     todo.todo_id === fixture.target ? {...todo, status: "done", done: true,
@@ -553,8 +553,12 @@ export function productionScaleCompletedMonitorFixture(goalId: string,
       completion_continuation: "no_followup", completion_recovery: "same_turn_terminal_closeout",
       completion_turn_key: "retired-cycle", watch_only: "true"} : todo);
   return {...fixture, projection: authorityProjectionFixture(goalId, todos,
-    (fixture.projection.leases as Record<string, unknown>[]).filter(lease => lease.todo_id !== fixture.target),
-    schema, {source_authority: "synthetic_production_scale_fixture", handoff_mode: "legacy"})};
+    (fixture.projection.leases as Record<string, unknown>[]).flatMap(lease => lease.todo_id !== fixture.target ? [lease] :
+      retainedLease === "absent" ? [] : [{...lease,
+        status: retainedLease === "released" ? "released" : "active",
+        ...(retainedLease === "expired" ? {expires_at: "2026-09-01T00:20:00Z"} : {}),
+        ...(retainedLease === "released" ? {released_at: "2026-09-01T00:30:00Z"} : {})}]),
+    schema, {source_authority: "synthetic_production_scale_fixture", handoff_mode: retainedLease === "absent" ? "legacy" : "hard_lease"})};
 }
 
 /** User decisions act on an exact dependent inside the full mixed graph.
