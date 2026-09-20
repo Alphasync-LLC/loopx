@@ -139,14 +139,14 @@ changes.
 
 ## Planning, Research, And Adaptive Intelligence
 
-- [Optional Semantic Assistance — TypeSafe/Jev v0](optional-semantic-assistance-jev-v0.md)
+- [LoopX × TypeSafe/Jev — Directions and Value Evaluation v0](optional-semantic-assistance-jev-v0.md)
   ([中文版](optional-semantic-assistance-jev-v0.zh-CN.md))
-  - **RFC status:** Draft, proposed for maintainer review.
+  - **RFC status:** Draft; research scope and direction selection pending.
   - **Delivery on `main`:** Proposal only; no Jev integration or qualification.
-  - **Current boundary:** Six directions retain existing domain owners. Recommends
-    a Decision Context operator CLI pilot with explicit opt-in, no-key/failure
-    degradation, private readback and separate live/value qualification. No new
-    control-plane authority, mandatory provider or automatic worker adoption.
+  - **Current boundary:** Compares six candidate directions and the existing
+    workflow, existing-model assessment and Jev. No default implementation
+    direction, package or profile selected; bounded study and adoption need
+    separate owner decisions. No new control-plane authority.
 
 - [Frontier Science Research Program v0](frontier-science-research-program-v0.md)
   ([中文版](frontier-science-research-program-v0.zh-CN.md))
