@@ -763,14 +763,19 @@ all T2 commands or authorize whole-Goal promotion.
 
 - The retained issue-fix grouped Monitor caller now sends observation intent
   through the existing Todo update transaction (request v4). Observation,
-  explicit lease-free reactivation, terminal-marker cleanup, generation and
+  explicit reactivation, terminal-marker cleanup, generation and
   receipt commit together. Legacy and canonical updates reuse the same field
   and Monitor planners; no new RPC, raw patch authority or polling engine is
   added. A fresh post-completion observation advances the cycle even with an
   equal result hash; historical replay never reopens current work. Display
   retry also runs for unchanged groups, including priority-prefixed native text.
   See [observation updates](../../reference/protocols/quota-monitor-observation-receipt-v0.md#observation-updates-and-reactivation).
-  Retained execution leases/hard-lease reactivation, other lifecycle callers,
+  Canonical retained-lease/hard-lease reactivation now retires the old execution
+  in that same CAS; already-released history is preserved and a fresh execution
+  must be acquired explicitly. `todo_monitor_cycle.ts` owns shared update/poll
+  admission, removing their duplicate actor/lease branches and correcting their
+  soft-claim disagreement. No new Python transition owner or RPC is introduced.
+  Other lifecycle callers, executor acquisition for grouped reconciliation,
   legacy persistence/capture and whole-Goal qualification remain separate.
 - Preserve unchanged polling/reschedule behavior, generation fences,
   material-change successor deduplication and accountable settlement.
