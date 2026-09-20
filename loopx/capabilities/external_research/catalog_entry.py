@@ -1,0 +1,53 @@
+from __future__ import annotations
+
+from typing import Any
+
+
+EXTERNAL_RESEARCH_CATALOG_ENTRY: dict[str, Any] = {
+    "id": "external-evidence-research",
+    "origin": "builtin",
+    "visibility": "public",
+    "provider_id": "loopx-core",
+    "documentation": {
+        "source_root": "loopx/capabilities/external_research",
+        "site_root": "capabilities/external-evidence-research",
+        "canonical": "README.md",
+    },
+    "title": "Auditable external evidence research",
+    "status": "active-preview",
+    "real_world_anchor": (
+        "a decision-bound research question executed through either a host research "
+        "method or a connector provider, with source-level provenance"
+    ),
+    "user_value": (
+        "Plan one evidence request, select only a currently ready provider, and admit "
+        "or reject a compact provenance receipt without copying raw provider content."
+    ),
+    "next_real_step": (
+        "run `loopx external-evidence plan --help`, then provide a current provider "
+        "inventory and admit the returned provider receipt"
+    ),
+    "entry_command": "loopx external-evidence plan --help",
+    "commands": [
+        {
+            "command": "loopx external-evidence plan ... --provider-inventory-json providers.json",
+            "purpose": "Bind object, user activity, decision, and evidence kinds to one ready provider.",
+            "write_boundary": "read-only",
+        },
+        {
+            "command": "loopx external-evidence admit --plan-json plan.json --receipt-json receipt.json ...",
+            "purpose": "Validate source provenance and record the parent admit/reject decision.",
+            "write_boundary": "read-only typed reduction; caller owns durable writeback",
+        },
+        {
+            "command": "loopx external-evidence retire --admission-json admission.json ...",
+            "purpose": "Prove admitted sources reached a downstream projection before retirement.",
+            "write_boundary": "read-only",
+        },
+    ],
+    "implemented_protocols": ["external_evidence_research_v0"],
+    "smokes": [
+        "node --no-warnings --experimental-strip-types --test tests/control_plane_ts/external_evidence_research.test.ts",
+        "python -m pytest tests/capabilities/test_external_evidence_cli.py -q",
+    ],
+}

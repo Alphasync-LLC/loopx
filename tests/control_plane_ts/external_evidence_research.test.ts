@@ -1,0 +1,180 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  evaluateExternalEvidenceAdmission,
+  planExternalEvidenceRequest,
+  projectExternalEvidenceRetirement,
+} from "../../loopx/capabilities/external_research/contract.ts";
+
+const request = {
+  objective: "Compare current provider behavior",
+  user_activity: "Choose a research provider for a decision",
+  decision: "Whether the observed evidence is strong enough to adopt",
+  evidence_kinds: ["current_behavior", "counterexample"],
+  constraints: ["public sources only"],
+};
+
+const methodProvider = {
+  provider_id: "host:external-research",
+  provider_kind: "method",
+  protocol: "external_evidence_research_v0",
+  declared: true,
+  installed: true,
+  enabled: true,
+  ready: true,
+  unavailable_reason: null,
+};
+
+const registryOnlyConnector = {
+  provider_id: "connector:official-docs",
+  provider_kind: "connector",
+  protocol: "external_evidence_research_v0",
+  declared: true,
+  installed: false,
+  enabled: false,
+  ready: false,
+  unavailable_reason: "connector_registry_is_inventory_not_readiness",
+};
+
+function plan() {
+  return planExternalEvidenceRequest({
+    request,
+    providers: [methodProvider, registryOnlyConnector],
+    preferred_provider_id: "host:external-research",
+  });
+}
+
+function receipt(requestId: unknown) {
+  return {
+    schema_version: "loopx_external_evidence_receipt_v0",
+    request_id: requestId,
+    provider_id: methodProvider.provider_id,
+    provider_kind: methodProvider.provider_kind,
+    status: "succeeded",
+    sources: [
+      {
+        source_ref: "https://example.com/original",
+        source_family: "example-release",
+        basis: "observed",
+        finding: "The current release exposes the required interaction.",
+        limitation: "The page does not prove backend durability.",
+        publication_date: "2026-09-19",
+        accessed_at: "2026-09-20T10:00:00Z",
+        content_digest: `sha256:${"a".repeat(64)}`,
+      },
+    ],
+    summary: "One direct source supports the interaction claim.",
+    limitations: ["No durability test was performed."],
+  };
+}
+
+test("plans one ready provider without treating registry presence as readiness", () => {
+  const result = plan();
+  assert.equal(result.status, "ready");
+  assert.equal(
+    (result.selected_provider as Record<string, unknown>).provider_id,
+    "host:external-research",
+  );
+  assert.equal(
+    (result.execution_envelope as Record<string, unknown>).authority,
+    "read_external_sources_only",
+  );
+  assert.match(
+    String((result.request as Record<string, unknown>).request_id),
+    /^sha256:[0-9a-f]{64}$/,
+  );
+});
+test("blocks when every provider is inventory-only", () => {
+  const result = planExternalEvidenceRequest({
+    request,
+    providers: [registryOnlyConnector],
+  });
+  assert.equal(result.status, "blocked");
+  assert.equal(result.selected_provider, null);
+  assert.equal(result.blocker, "no_ready_provider");
+});
+
+test("rejects a provider that claims ready without lifecycle readiness", () => {
+  assert.throws(
+    () => planExternalEvidenceRequest({
+      request,
+      providers: [{ ...registryOnlyConnector, ready: true }],
+    }),
+    /cannot be ready/,
+  );
+});
+
+test("admits exact source refs and exposes only compact provenance", () => {
+  const currentPlan = plan();
+  const requestId = (currentPlan.request as Record<string, unknown>).request_id;
+  const result = evaluateExternalEvidenceAdmission({
+    plan: currentPlan,
+    receipt: receipt(requestId),
+    decision: {
+      disposition: "admit",
+      reason: "The source directly answers the interaction question.",
+      admitted_source_refs: ["https://example.com/original"],
+    },
+  });
+  assert.equal(result.disposition, "admit");
+  const projection = result.downstream_projection as Record<string, unknown>;
+  assert.equal((projection.sources as unknown[]).length, 1);
+  assert.equal(Object.hasOwn(projection, "raw_content"), false);
+});
+
+test("admission fails closed on stale plan identity and local file provenance", () => {
+  const currentPlan = plan();
+  const requestId = (currentPlan.request as Record<string, unknown>).request_id;
+  assert.throws(
+    () => evaluateExternalEvidenceAdmission({
+      plan: currentPlan,
+      receipt: { ...receipt(requestId), request_id: `sha256:${"b".repeat(64)}` },
+      decision: {
+        disposition: "admit",
+        reason: "stale",
+        admitted_source_refs: ["https://example.com/original"],
+      },
+    }),
+    /request_id does not match/,
+  );
+  const localReceipt = receipt(requestId);
+  localReceipt.sources[0].source_ref = "file:///tmp/raw-transcript";
+  assert.throws(
+    () => evaluateExternalEvidenceAdmission({
+      plan: currentPlan,
+      receipt: localReceipt,
+      decision: {
+        disposition: "admit",
+        reason: "local path",
+        admitted_source_refs: ["file:///tmp/raw-transcript"],
+      },
+    }),
+    /non-file provenance URI/,
+  );
+});
+
+test("retirement waits for downstream use of every admitted source", () => {
+  const currentPlan = plan();
+  const requestId = (currentPlan.request as Record<string, unknown>).request_id;
+  const admission = evaluateExternalEvidenceAdmission({
+    plan: currentPlan,
+    receipt: receipt(requestId),
+    decision: {
+      disposition: "admit",
+      reason: "direct evidence",
+      admitted_source_refs: ["https://example.com/original"],
+    },
+  });
+  assert.equal(
+    projectExternalEvidenceRetirement({ admission, downstream_source_refs: [] }).status,
+    "retained",
+  );
+  assert.equal(
+    projectExternalEvidenceRetirement({
+      admission,
+      downstream_source_refs: ["https://example.com/original"],
+    }).status,
+    "retire_ready",
+  );
+});

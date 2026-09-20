@@ -72,6 +72,10 @@ from .capabilities.connector_registry.cli import (
     handle_connector_command,
     register_connector_commands,
 )
+from .capabilities.external_research.cli import (
+    handle_external_evidence_command,
+    register_external_evidence_commands,
+)
 from .cli_commands import (
     handle_turn_command,
     handle_benchmark_command,
@@ -311,6 +315,8 @@ def build_parser() -> LoopXArgumentParser:
     register_value_connector_commands(sub, add_subcommand_format)
 
     register_connector_commands(sub, add_subcommand_format)
+
+    register_external_evidence_commands(sub, add_subcommand_format)
 
     register_ml_experiment_commands(sub, add_subcommand_format)
 
@@ -696,6 +702,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     if connector_result is not None:
         return connector_result
+
+    external_evidence_result = handle_external_evidence_command(
+        args, output_format=output_format, print_payload=print_payload,
+    )
+    if external_evidence_result is not None:
+        return external_evidence_result
 
     registry_admin_result = handle_registry_admin_command(
         args,
