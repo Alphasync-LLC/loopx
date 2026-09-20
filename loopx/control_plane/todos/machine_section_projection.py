@@ -344,6 +344,12 @@ _DERIVED_READ_MODEL_FIELDS = {
     "resume_condition",
     "resume_ready",
     "handoff_note",
+    # Revision receipts are canonical-provider audit state.  The readable
+    # Markdown projection intentionally carries only the private validation
+    # declaration needed to execute the current validator, so these fields
+    # cannot participate in Markdown parse/render parity.
+    "completion_validation_revision",
+    "completion_validation_revision_history",
 }
 
 
