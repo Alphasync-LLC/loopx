@@ -1,3 +1,6 @@
+import {evaluateTodoPriority} from "./todos/priority.ts";
+import {evaluateUserCompletion} from "./todos/user_completion.ts";
+import {projectTodoSuccession, projectTodoClosure} from "./todos/succession.ts";
 import {projectTodoSummaryLanes, projectLegacyTodoWorkCounts} from "./todos/summary_lanes.ts";
 import {recordDelegationAdoption, delegationInventoryItem, delegationInventoryQuery, delegationPreflight, delegationTurnPlanDecision, selectDelegationBinding, transitionDelegationObservation} from "./collaboration/delegation.ts";
 import {planChatMode} from "./collaboration/chat_mode.ts";
@@ -118,6 +121,7 @@ import {
 import {
   projectQuotaActionPortfolio,
   qualifyActionSelection,
+  reconcileRetainedActionSelection,
 } from "./work_items/action_portfolio.ts";
 import { projectQuotaPlanningHorizon } from "./work_items/planning_horizon.ts";
 import { projectTaskGraphTopology } from "./work_items/task_graph.ts";
@@ -408,11 +412,15 @@ export function createEffectRuntimeHandlers(
     ["todo.completion_state.require_metadata", requireTodoCompletionMetadataValue],
     ["todo.completion_state.continuation_for_write", selectTodoCompletionContinuation],
     ["todo.field_update.plan", planTodoFieldUpdate],
+    ["todo.priority.plan", evaluateTodoPriority],
     ["todo.public_update.plan", planPublicTodoUpdate],
     ["todo.standing_decision.project", evaluateStandingDecisionProjection],
     ["todo.summary_lanes.project", projectTodoSummaryLanes],
+    ["todo.succession.project", projectTodoSuccession],
+    ["todo.succession.closure", projectTodoClosure],
     ["todo.work_counts.project", projectLegacyTodoWorkCounts],
     ["todo.decision_scope.evaluate", evaluateDecisionScope],
+    ["todo.user_completion.plan", evaluateUserCompletion],
     ["agent.capability_gate.evaluate", evaluateCapabilityGate],
     ["agent.capability_memory", agentCapabilityMemory],
     ["todo.archive.capture_dependencies", captureArchivedTodoDependencies],
@@ -458,6 +466,10 @@ export function createEffectRuntimeHandlers(
     ["turn.delivery_route.evaluate", evaluateDeliveryRoute],
     ["work_item.action_portfolio.project", projectQuotaActionPortfolio],
     ["work_item.action_selection.qualify", qualifyActionSelection],
+    [
+      "work_item.action_selection.reconcile_retained",
+      reconcileRetainedActionSelection,
+    ],
     ["work_item.planning_horizon.project", projectQuotaPlanningHorizon],
     ["work_item.task_graph.topology", projectTaskGraphTopology],
     ["work_item.planning_inventory.project", projectTodoPlanningInventory],
@@ -697,6 +709,8 @@ export function createEffectRuntimeHandlers(
             "binding_kind",
             "binding_kind has an unsupported settlement binding kind",
           ),
+        writeback_completes_binding:
+          params.writeback_completes_binding === true,
         completion_receipt_present: params.completion_receipt_present === true,
         durable_writeback_present: params.durable_writeback_present === true,
         quota_spend_present: params.quota_spend_present === true,

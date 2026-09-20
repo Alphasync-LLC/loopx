@@ -22,6 +22,22 @@ Retain T0 caller/parity inventory, T1/T2 transaction/effect convergence, T3 comp
 
 ## Current implementation checkpoint
 
+Linked User completion now has one typed owner, `todos/user_completion.ts`.
+The terminal transaction commits exact-target scope consumption, reject/cancel
+outcomes and conditional resume with its own completion/receipt; the Markdown
+adapter invokes the same plan once instead of applying Python rules and making
+per-scope RPCs. This repairs a reproduced native-provider omission rather than
+assuming a migrated terminal serializer closes the caller. The shared mixed
+fixture covers concurrent CAS loss, lost response, replay and a remaining User
+blocker across File/SQLite/PostgreSQL. See [semantics, callers and compatibility](../../reference/canonical-todo-completion-update.md#linked-user-completion-effects).
+T1/T2's linked User completion slice is closed; the remaining L2–L9 program and
+whole-Goal default remain unqualified.
+
+关联 User 完成的决策消解、拒绝/取消和条件恢复统一归属 TS，并与完成回执原子提交；
+旧 Markdown 适配器只传一次完整快照并执行计划，删除重复 Python 规则及逐 scope RPC。
+这修复了原生 provider 漏掉联动的真实缺口，仅关闭 T1/T2 中这一完整调用链，不能据此
+宣布 L2–L9、整 Goal 默认切换或全部 Python 删除完成。
+
 Canonical create/claim/update/Monitor poll/terminal transactions now share
 `coordination/authority_source.ts`; Python adapters bracket registration/grant
 projection through `authority_registry_source`. The original witness survives
@@ -42,11 +58,22 @@ remaining lifecycle writers have migrated.
 
 The same stage also removes duplicated Python read policy around that boundary.
 Task-class resolution, title-aware actionability, dependency readiness, agent
-eligibility, priority ordering, and canonical Todo read records now have one
-Python semantic owner while TypeScript remains the transaction owner. The old
+eligibility and canonical Todo read records have one Python semantic owner
+while TypeScript remains the transaction owner. Priority authoring and ordering
+now share `todos/priority.ts`; Python compatibility readers consume its generated
+vocabulary and legacy grammar instead of maintaining independent patterns. The old
 projection module is an import-only compatibility facade. This keeps the
 replacement-first rule intact: compatibility remains available, but it cannot
 silently become a second semantic implementation.
+
+The priority-intent slice connects CLI add/update/clear, reviewed Chat edits and
+the Dashboard selector to the existing typed Todo transaction. Text-only edits
+preserve priority; conflicting declarations fail before writes. P3/P4 ordering,
+legacy decorated labels and successor inheritance share the same owner. See the
+[caller contract](../../project-agent-todo-contract.md#priority-intent). Real CLI
+File/SQLite readback, isolated PostgreSQL and the shared complex fixture qualify
+this boundary. It retires duplicate priority knowledge, not the remaining T1/T3
+callers, Python compatibility IO or the D1–D3 default-cutover gates.
 
 Native update now composes `todos/public_update.ts` for a bounded nonterminal
 planning intent (status, evidence/reason, resume/clear and successor links),
@@ -1000,6 +1027,19 @@ with an older head. The scan proves its requested interval, not an audit of
 history before that checkpoint. Successful schemas, File/NoKV persisted bytes,
 request identity and revision algorithms remain compatible. This supports T3/D1
 readers but does not finish Todo writers, retention/compaction or promotion.
+
+Continuation readback now shares one typed succession resolver, handoff state
+machine and summary closure decision. The legacy adapter no longer owns those
+rules. Full-source evaluations survive display selection; nonexistent/self
+successors cannot certify closure and archived continuation evidence survives
+capture. The existing archive-capture request advances to v1 so older runtimes
+cannot silently omit the expanded graph. Query subsets do not emit whole-source
+closure proofs, and bounded handoff views preserve their state and exclusions.
+See [continuation readback](../../reference/todo-continuation-readback.md).
+This closes that T3/L5 consumer family and its bounded L7 dependency, not D1–D3
+or every T3 consumer. Python retains codecs, IO and the documented legacy route
+prose hint until its remaining writers emit explicit replan flags; no new
+capability/provider or parallel business authority is introduced.
 
 **T4 — collect full-writer retirement after durability cutover.**
 
