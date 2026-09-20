@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -21,6 +22,43 @@ class ResolvedRuntimeEntrypoint:
     argv_prefix: tuple[str, ...]
     identity: str
     path_prefix: str | None = None
+    python_executable: str | None = None
+
+
+def _python_executable_for_script(path: Path) -> str | None:
+    """Resolve the interpreter selected by one verified console script."""
+
+    try:
+        first_line = path.open("rb").readline(4096).decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    if not first_line.startswith("#!"):
+        return None
+    try:
+        command = shlex.split(first_line[2:].strip())
+    except ValueError:
+        return None
+    if not command:
+        return None
+    executable = command[0]
+    if Path(executable).name == "env":
+        candidates = [item for item in command[1:] if not item.startswith("-")]
+        if not candidates:
+            return None
+        executable = candidates[0]
+        executable = shutil.which(
+            executable,
+            path=str(path.parent) + os.pathsep + os.environ.get("PATH", os.defpath),
+        ) or ""
+    selected = Path(executable).expanduser()
+    if not selected.is_absolute():
+        selected = Path(os.path.abspath(selected))
+    identified = _file_identity(selected, executable=True)
+    if identified is None or not selected.name.lower().startswith("python"):
+        return None
+    # Preserve the selected venv launcher path. Resolving the symlink to the
+    # base interpreter would discard pyvenv.cfg and load the wrong packages.
+    return str(selected)
 
 
 def runtime_process_environment(
@@ -97,6 +135,7 @@ def resolve_runtime_entrypoint(
             argv_prefix=(str(resolved[0]),),
             identity=resolved[1],
             path_prefix=str(resolved[0].parent),
+            python_executable=_python_executable_for_script(resolved[0]),
         )
 
     interpreter_path = Path(sys.executable).expanduser()
@@ -124,6 +163,7 @@ def resolve_runtime_entrypoint(
     return ResolvedRuntimeEntrypoint(
         argv_prefix=(str(interpreter_path), "-m", str(python_module)),
         identity=hashlib.sha256(serialized.encode("utf-8")).hexdigest(),
+        python_executable=str(interpreter_path),
     )
 
 
