@@ -141,12 +141,12 @@ changes.
 
 - [Agent Judgment and Optional Independent Assessment v0](optional-semantic-assistance-jev-v0.md)
   ([中文版](optional-semantic-assistance-jev-v0.zh-CN.md))
-  - **RFC status:** Draft; discussion-document intake pending.
+  - **RFC status:** Draft; M0 [accepted-for-discussion](https://github.com/loopx-project/loopx/pull/4749#pullrequestreview-5259253204) only; Q1–Q7 remain pending.
   - **Delivery on `main`:** Proposal only; no Jev integration or qualification.
   - **Current boundary:** Discusses Agent/assessment roles in six unranked
     scenarios; Jev is one comparator alongside existing models and workflow.
-    This proposed entry requests Draft intake only; study selection and
-    product adoption remain separate decisions. No new runtime authority.
+    M0 accepts discussion intake only; research, data/spend, qualification,
+    product adoption and runtime authority remain pending and unapproved.
 
 - [Frontier Science Research Program v0](frontier-science-research-program-v0.md)
   ([中文版](frontier-science-research-program-v0.zh-CN.md))
