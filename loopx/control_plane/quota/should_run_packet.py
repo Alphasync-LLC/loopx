@@ -19,7 +19,6 @@ from ..agents.agent_lane_recommendation import (
 )
 from ..agents.agent_scope import (
     AgentScopeFrontierAction,
-    _action_scope_tokens_from_text,
     _agent_lane_frontier_hint,
     _agent_scope_deferred_resume_candidates,
     _agent_scope_frontier_action,
@@ -48,9 +47,6 @@ from ..quota.policy_constants import (
     MONITOR_DUE_ITEM_LIMIT,
 )
 from ..quota.recent_runs import (
-    goal_latest_runs as _goal_latest_runs,
-)
-from ..quota.recent_runs import (
     recent_external_monitor_observation_unchanged as _recent_external_monitor_observation_unchanged,
 )
 from ..quota.selected_todo_projection import (
@@ -72,12 +68,6 @@ from ..quota.task_orchestration import (
 )
 from ..quota.task_orchestration import (
     payload_work_lane_contract as _payload_work_lane_contract,
-)
-from ..runtime.decision_freshness import (
-    decision_freshness_warning as _decision_freshness_warning,
-)
-from ..runtime.promotion_readiness import (
-    promotion_readiness_warning as _promotion_readiness_warning,
 )
 from ..scheduler.automation_liveness import build_automation_liveness
 from ..scheduler.execution_context import (
@@ -102,9 +92,6 @@ from ..todos.quota_summary import (
 from ..todos.user_gate import (
     apply_scoped_user_gate_fallback_projection as _apply_scoped_user_gate_fallback_projection,
     scoped_user_gate_fallback_fields,
-)
-from ..todos.user_gate import (
-    build_gate_prompt as _build_gate_prompt,
 )
 from ..todos.user_gate import (
     build_user_todo_notification as _build_user_todo_notification,
@@ -140,6 +127,11 @@ from .settlement_precedence import (
     clear_quota_action_projections,
 )
 from .should_run_prepare import _QuotaDecisionPreparation
+from ._supporting_projections import (
+    _attach_quota_supporting_projections,
+    _attach_truthy_fields,
+    _dict_field,
+)
 
 
 def _interaction_runtime_root(
@@ -240,77 +232,6 @@ def _execution_obligation(
         user_gate_owns_frontier=user_gate_owns_frontier,
         successor_replan_mode=AgentScopeFrontierAction.SUCCESSOR_REPLAN_REQUIRED.value,
     )
-
-
-def _recent_reward_lessons(status_payload: dict[str, Any], *, goal_id: str) -> list[dict[str, Any]]:
-    lessons: list[dict[str, Any]] = []
-    for run in _goal_latest_runs(status_payload, goal_id=goal_id):
-        reward = run.get("human_reward") if isinstance(run.get("human_reward"), dict) else {}
-        lesson = reward.get("lesson") if isinstance(reward.get("lesson"), dict) else {}
-        if not lesson:
-            continue
-        lessons.append(
-            {
-                "generated_at": run.get("generated_at"),
-                "decision": reward.get("decision"),
-                "reward": reward.get("reward"),
-                "kind": lesson.get("kind"),
-                "summary": lesson.get("summary"),
-                "avoid": lesson.get("avoid") if isinstance(lesson.get("avoid"), list) else [],
-                "prefer": lesson.get("prefer") if isinstance(lesson.get("prefer"), list) else [],
-            }
-        )
-    return lessons
-
-
-def _reward_lesson_projection_warning(
-    status_payload: dict[str, Any],
-    *,
-    goal_id: str,
-    recommended_action: str | None,
-) -> dict[str, Any] | None:
-    action = str(recommended_action or "").strip()
-    if not action:
-        return None
-    action_lower = action.lower()
-    action_tokens = _action_scope_tokens_from_text(action)
-    matches: list[dict[str, Any]] = []
-    for lesson in _recent_reward_lessons(status_payload, goal_id=goal_id):
-        for avoid in lesson.get("avoid") or []:
-            avoid_text = str(avoid or "").strip()
-            if not avoid_text:
-                continue
-            avoid_tokens = _action_scope_tokens_from_text(avoid_text)
-            exact_match = avoid_text.lower() in action_lower
-            if not exact_match and not avoid_tokens:
-                continue
-            token_overlap = sorted(action_tokens & avoid_tokens)
-            if not exact_match and len(token_overlap) < min(2, len(avoid_tokens)):
-                continue
-            matches.append(
-                {
-                    "generated_at": lesson.get("generated_at"),
-                    "decision": lesson.get("decision"),
-                    "kind": lesson.get("kind"),
-                    "summary": lesson.get("summary"),
-                    "avoid": avoid_text,
-                    "token_overlap": token_overlap[:5],
-                }
-            )
-    if not matches:
-        return None
-    return {
-        "schema_version": "reward_lesson_projection_warning_v0",
-        "source": "run_history.human_reward.lesson",
-        "goal_id": goal_id,
-        "message": (
-            "recommended_action overlaps a recent human_reward lesson avoid rule; "
-            "rebase the route or update the affected todo/next action before continuing"
-        ),
-        "recommended_action": action,
-        "match_count": len(matches),
-        "matches": matches[:3],
-    }
 
 
 def _apply_agent_monitor_only_precedence(
@@ -444,61 +365,6 @@ def _apply_agent_monitor_only_precedence(
     if isinstance(frontier, dict):
         frontier.pop("vision_continuation_audit", None)
     clear_quota_action_projections(payload)
-
-
-def _attach_truthy_fields(payload: dict[str, Any], **fields: Any) -> None:
-    payload.update({key: value for key, value in fields.items() if value})
-
-
-def _dict_field(payload: dict[str, Any], key: str) -> dict[str, Any] | None:
-    return payload.get(key) if isinstance(payload.get(key), dict) else None
-
-
-def _attach_quota_supporting_projections(
-    payload: dict[str, Any],
-    *,
-    status_payload: dict[str, Any],
-    item: dict[str, Any],
-    project_asset: dict[str, Any],
-    goal_id: str,
-    selected_recommended_action: Any,
-    state: str,
-    user_todo_summary: dict[str, Any] | None,
-    should_run: bool,
-    state_action_projection_warning: dict[str, Any] | None,
-    next_action_warning: dict[str, Any] | None,
-    replan_obligation: dict[str, Any] | None,
-    notify_gate: bool = True,
-) -> None:
-    _attach_truthy_fields(
-        payload,
-        stale_latest_run_warning=_dict_field(item, "stale_latest_run_warning"),
-        state_action_projection_warning=state_action_projection_warning,
-        next_action_projection_warning=next_action_warning,
-        backlog_hygiene_warning=_dict_field(item, "backlog_hygiene_warning"),
-        completed_todo_archive_warning=_dict_field(item, "completed_todo_archive_warning"),
-        autonomous_replan_obligation=replan_obligation,
-        dreaming_proposal=_dict_field(item, "dreaming_proposal"),
-        dreaming_lane_badge=_dict_field(item, "dreaming_lane_badge"),
-        interface_budget_cadence=_dict_field(project_asset, "interface_budget_cadence"),
-        decision_freshness_warning=_decision_freshness_warning(status_payload, goal_id=goal_id),
-        promotion_readiness_warning=_promotion_readiness_warning(status_payload),
-        reward_lesson_projection_warning=_reward_lesson_projection_warning(
-            status_payload,
-            goal_id=goal_id,
-            recommended_action=selected_recommended_action,
-        ),
-    )
-    if state == "operator_gate" and (
-        gate_prompt := _build_gate_prompt(item, user_todo_summary=user_todo_summary)
-    ):
-        payload["gate_prompt"] = gate_prompt
-        if notify_gate:
-            payload["notify_user_on_gate"] = True
-    _attach_truthy_fields(
-        payload, next_handoff_condition=item.get("next_handoff_condition"),
-        agent_command=item.get("agent_command") if should_run else None,
-    )
 
 
 def _delivery_preemptions_for_route(
@@ -780,20 +646,14 @@ def _resolve_quota_should_run_route(
     prepared: _QuotaDecisionPreparation,
 ) -> _QuotaDecisionRoute:
     item = prepared.item
-    normal_delivery_allowed = prepared.normal_delivery_allowed
-    recovery_allowed = prepared.recovery_allowed
-    self_repair_allowed = prepared.self_repair_allowed
-    state = prepared.state
-    quota = prepared.quota
-    reason = prepared.reason
     run_decision = resolve_quota_run_decision(
-        normal_delivery_allowed=normal_delivery_allowed,
-        recovery_delivery_allowed=recovery_allowed,
-        self_repair_allowed=self_repair_allowed,
+        normal_delivery_allowed=prepared.normal_delivery_allowed,
+        recovery_delivery_allowed=prepared.recovery_allowed,
+        self_repair_allowed=prepared.self_repair_allowed,
         stall_self_repair=prepared.stall_self_repair,
-        state=state,
-        quota=quota,
-        reason=reason,
+        state=prepared.state,
+        quota=prepared.quota,
+        reason=prepared.reason,
         capability_gate=prepared.capability_gate,
         capability_monitor_fallback=prepared.capability_monitor_fallback,
         workspace_guard=prepared.workspace_guard,
