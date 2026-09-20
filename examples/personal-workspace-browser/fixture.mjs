@@ -874,8 +874,10 @@ export async function installApi(page, { goalSubagentConfigurationEnabled = true
       runtime_profile: "restricted",
     };
     const stewardExecutorConfiguration = {
-      schema_version: "steward_executor_machine_defaults_v0",
+      schema_version: "steward_executor_machine_defaults_v1",
+      selection_policy: "preferred",
       executor_endpoint: "codex",
+      eligible_endpoints: [],
       executor_model: null,
       executor_reasoning_effort: null,
     };
@@ -920,8 +922,8 @@ export async function installApi(page, { goalSubagentConfigurationEnabled = true
           {
             namespace: "steward_executor",
             title: "Steward executor",
-            description: "Executor, model, and reasoning effort the steward channel answers on for this machine.",
-            schema_versions: ["steward_executor_machine_defaults_v0"],
+            description: "Executor, model, reasoning effort, and selection boundary for this machine's steward channel.",
+            schema_versions: ["steward_executor_machine_defaults_v0", "steward_executor_machine_defaults_v1"],
             configuration_template: stewardExecutorConfiguration,
             template_status: "ready",
           },
@@ -971,7 +973,7 @@ export async function installApi(page, { goalSubagentConfigurationEnabled = true
         }, {
           capability_id: "steward_executor",
           display_name: "Steward executor",
-          description: "Executor, model, and reasoning effort the steward channel answers on for this machine.",
+          description: "Executor, model, reasoning effort, and selection boundary for this machine's steward channel.",
           available_scopes: ["machine"],
           machine_namespace: "steward_executor",
           configuration_editor: {
@@ -980,12 +982,25 @@ export async function installApi(page, { goalSubagentConfigurationEnabled = true
             supported_scopes: ["machine"],
             writable_scopes: ["machine"],
             fields: [{
+              key: "selection_policy",
+              label: "Selection policy",
+              description: "Preferred permits an explicit user choice; pinned rejects another executor; flexible permits fallback only inside the eligible pool.",
+              input_kind: "select",
+              required: true,
+              options: ["preferred", "pinned", "flexible"],
+            }, {
               key: "executor_endpoint",
-              label: "Steward executor",
+              label: "Primary steward executor",
               description: "The executor this machine's steward channel answers on. The choice outranks the Chat service environment.",
               input_kind: "select",
               required: true,
               options: ["codex", "dsh"],
+            }, {
+              key: "eligible_endpoints",
+              label: "Flexible eligible executors",
+              description: "One authorized executor id per line. Required only for flexible selection; include the primary executor.",
+              input_kind: "string_list",
+              required: false,
             }, {
               key: "executor_model",
               label: "Model",
