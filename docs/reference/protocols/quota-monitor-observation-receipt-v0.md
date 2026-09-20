@@ -34,6 +34,13 @@ advancement work remains active.
   remains selected. A material observation may create its independently routed
   successor through the existing monitor contract, but it still does not
   replace the Turn's settlement identity.
+- An executed turn-scoped poll returns `turn_continuation`. An exact match
+  between `settlement_todo_id` and the observed `todo_id` closes the no-spend
+  monitor Turn and requires a fresh `--turn-instance-id`. A different admitted
+  monitor Todo is auxiliary: it records the observation but leaves the original
+  advancement Turn open for its durable writeback and single spend. Without an
+  exact or typed auxiliary binding the response fails closed from claiming the
+  Turn settled.
 
 ### Acceptance
 
@@ -128,17 +135,30 @@ knows only Monitor facts. No frontend or Lark configuration/command is added.
 - An ordinary observation requires an open, active Agent Monitor and the
   registered owner/binding/exclusion checks. A held lease additionally requires
   its current key/version; the observation never renews or changes it.
-- Reactivation requires an unarchived, non-superseded completed Monitor, no
-  retained execution lease, and material evidence strictly newer than its
-  completion and not older than its latest observation. Hard-lease mode does
-  not gain a missing-proof exemption. Reactivation clears current completion
-  markers and advances generation even when the member hash is unchanged.
-  A new observation cycle is not an execution lease or independent delivery.
+- Reactivation requires an unarchived, non-superseded completed Monitor and
+  material evidence strictly newer than completion and not older than its last
+  observation. It is admitted by the registered actor's current claim, binding
+  and exclusions, without a delegated override. A supplied execution proof is
+  rejected: a completed cycle cannot lend its grant to the next one.
+- The same provider CAS reopens the Monitor, advances its observation generation,
+  clears terminal markers and releases any retained active/expired lease.
+  Already-released history remains byte-identical. Release preserves version and
+  epoch; subsequent explicit acquire uses a **new key** and advances both. Old
+  renewal/proof and old acquisition receipts cannot restore execution rights.
+  Hard-lease mode also permits reactivation when no prior lease exists, but the
+  next ordinary observation still requires a fresh lease.
+- Both observation entry points share `todo_monitor_cycle.ts` admission. In
+  `soft_claim`, a released leftover does not become execution authority: polling
+  without proof uses current claim admission. A retained active lease or supplied
+  execution proof is rejected. This fixes the former update/poll disagreement.
+  Reactivation returns `monitor_lifecycle_transition`, including
+  `execution_authority_granted=false`, the historical retirement and next
+  admission requirement. A replay reports historical facts, not present rights.
 - A stable observation effect ID is also the canonical operation ID unless
   the caller supplies an explicit update operation ID. Exact retry returns the
   original transition; a later completion remains completed. Changed intent
   under that operation ID fails. Replay grants no current write permission.
-- Generation, status and receipt share one provider CAS. Existing quota poll
+- Generation, status, lease retirement and receipt share one provider CAS. Existing quota poll
   and successor transactions continue using the same Monitor planner. Neither
   observation updates nor grouped reconciliation spend quota or replace Turn
   settlement. Reconciliation is per Todo, not an atomic batch across buckets.
@@ -147,7 +167,7 @@ knows only Monitor facts. No frontend or Lark configuration/command is added.
   Native priority-prefixed text can render without persisted derived title/
   priority fields; explicit disagreements still fail parity validation.
 
-Legacy Goals retain their writer but use the same reactivation rules. This
+Legacy Goals retain their writer and the shared observation/time planner; atomic retained-lease retirement is canonical-only. This
 intentionally rejects stale observations that previously reopened completed
 work, and removes stale terminal markers from a new cycle. v0–v3 update request
 identities and receipts remain unchanged; old runtimes reject v4 instead of
@@ -184,6 +204,12 @@ using a complete read-only snapshot with disposable File/SQLite/PostgreSQL arms.
   替换为本 Turn 的结算 Todo；多个辅助回执也绝不改变既有结算身份。
 - 辅助观察无变化后，原 advancement Todo 继续保持选中；若观察发生重大变化，
   可按既有 monitor 契约创建独立路由的 successor，但仍不替换本 Turn 的结算身份。
+- 执行成功的 turn-scoped poll 会返回 `turn_continuation`。仅当
+  `settlement_todo_id` 与被观察的 `todo_id` 精确一致时，才完成该 monitor Turn 的
+  不计费结算，并要求后续使用新的 `--turn-instance-id`。不同但已准入的 monitor
+  Todo 属于辅助观察：只写观察回执，原 advancement Turn 仍需完成 durable
+  writeback 与唯一一次 spend。既非精确匹配、也无 typed auxiliary binding 时，响应
+  必须失败关闭，不能宣称 Turn 已结算。
 
 ### 验收
 
@@ -233,10 +259,17 @@ issue-fix 分组 Monitor 的成员变化仍使用现有 `update_goal_todo` 与
 - 观察是证据、时间和调度输入，不是 raw counter／owner patch；只可伴随 reason
   与显式 `status=open, no_followup=false`。普通观察要求 open／active Agent Monitor
   及当前注册、claim、binding、exclusion；保留 lease 时还须当前 key/version，且不修改租约。
-- 再激活要求未归档、未 supersede 的 done Monitor，无保留的 execution lease，
-  material 观察严格晚于 completed_at 且不早于 last_checked_at。Hard-lease 模式
-  不获缺失凭据的豁免。新周期清除当前 completion 标记；即使成员 hash 相同也推进
-  generation，从而正确满足 `monitor_changed` 等待。这不授予执行租约或交付资格。
+- 再激活要求未归档、未 supersede 的 done Monitor，material 观察严格晚于
+  completed_at 且不早于 last_checked_at；由当前注册 actor、claim、binding、exclusion
+  准入，不接受 delegated override 或旧 execution proof。
+- 重开、generation、completion 标记清理、旧 active／expired lease 的 release 与
+  receipt 在同一 CAS 提交；已 released 的历史记录保持不变。Release 保留 version／epoch，
+  下次显式 acquire 必须使用新 key，并推进两者。Hard-lease 下没有历史 lease 也可重开，
+  但后续普通观察仍须新租约；旧回执不会恢复执行权。
+- update 与 quota poll 共用 `todo_monitor_cycle.ts`。Soft-claim 下 released 历史记录
+  不构成第二个权威源，无 proof 的观察按 claim 准入；active 遗留租约或携带 proof 则拒绝。
+  此处修复了两个入口过去的不一致。返回的 `monitor_lifecycle_transition` 明确标明
+  `execution_authority_granted=false`；重放描述历史转换，不代表当前权限。
 - 未指定显式 update operation ID 时，稳定观察 effect ID 同时作为 canonical
   operation ID。精确重试返回原 transition，不重开后来完成的任务；同 ID 不同意图
   被拒绝。历史成功不等于当前写权限。
@@ -247,8 +280,26 @@ issue-fix 分组 Monitor 的成员变化仍使用现有 `update_goal_todo` 与
   带优先级前缀的 native 文本无需持久化派生 title／priority 即可显示，但显式字段
   冲突仍被 parity 校验拒绝。
 
-Legacy 保留 writer 并共用再激活规则：旧观察不再重开已完成任务，新周期不携带旧
+Legacy 保留 writer 并共用观察／时间 planner；上述保留租约的原子退役仅在 canonical provider 实施：旧观察不再重开已完成任务，新周期不携带旧
 终结标记。v0–v3 update identity／receipt 保持兼容，旧 runtime 整体拒绝 v4。
 回滚须保留可恢复 pending retry 的兼容代码，不能关闭 writer fence；provider 默认
 与 promotion 不变。上述演练的冻结基线须已支持 leased poll，以区分旧路径 parity
 和新的 observation-update 增量。
+
+### Qualification boundary for retained execution
+
+The snapshot rehearsal now compares a frozen pre-fix baseline (which rejects
+retained-lease reactivation) with real File, SQLite and an isolated PostgreSQL
+service. It preserves the complete source Todo/lease population, adds only a
+synthetic Monitor and successor, and checks equal final provider heads, fresh
+execution epoch, immutable replay and unchanged unrelated records. Provider
+conformance additionally covers released, expired and time-active historical
+leases, both Todo wire schemas, preview, stale authority, CAS loss and response
+loss. Python facade tests complete and reopen a leased Monitor with missing
+Markdown, then acquire and observe through the actual CLI/runtime.
+
+This closes the canonical Monitor cycle transition, not automatic executor
+acquisition for grouped reconciliation. A grouped caller in hard-lease mode
+still needs an admitted execution for later polling/completion; it must not
+infer one from the reactivation receipt. No default profile, frontend setting,
+Lark command, quota settlement authority or PostgreSQL deployment policy changes.

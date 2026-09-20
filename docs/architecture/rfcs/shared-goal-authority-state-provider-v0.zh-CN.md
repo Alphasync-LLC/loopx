@@ -1426,6 +1426,8 @@ promotion shadow，也不能参与协调决策。
 管理面 caller 是显式且 preview-first 的：
 
 ```bash
+loopx configure-goal --goal-id <goal-id> \
+  --coordination-runtime-shadow-file --execute
 loopx coordination-shadow inspect --goal-id <goal-id>
 loopx coordination-shadow bootstrap --goal-id <goal-id>
 loopx coordination-shadow bootstrap --goal-id <goal-id> --execute
@@ -1433,12 +1435,23 @@ loopx coordination-shadow qualify --goal-id <goal-id> \
   --minimum-operations 3 \
   --require-event-kind todo_claim \
   --require-event-kind task_lease_acquire
+loopx coordination-shadow promote --goal-id <goal-id> \
+  --minimum-operations 3 \
+  --require-event-kind todo_claim
+loopx coordination-shadow promote --goal-id <goal-id> \
+  --minimum-operations 3 \
+  --require-event-kind todo_claim --execute
 loopx coordination-shadow rollback --goal-id <goal-id> \
   --provider-revision <revision-from-inspect> --execute
 ```
 
 它从当前 canonical Todo 与 task-lease view 派生紧凑 projection，只报告计数与摘要，
-并要求 `--execute` 才调用 bootstrap。写入成功后会立即通过 typed parity inspection
+并要求 `--execute` 才调用 bootstrap 或 promotion。`promote` 未带 `--execute` 时零写入；
+preview 返回精确的 qualified revision、projection digest、writer-fence identity 和
+rollback identity。apply 会在同一段 maintenance 与 legacy source 锁生命周期内重新
+验证 source snapshot、资格化精确 shadow lineage、engage 持久 writer fence、提交
+canonical head，并读回 promotion receipt。v0 会拒绝尚未资格化为 `hard_lease` 的 Goal，
+且绝不会把 handoff mode 变化藏在 promotion 副作用中。写入成功后会立即通过 typed parity inspection
 读回。除非目标开启精确的 goal-level `file_v0` shadow opt-in，否则该命令不可执行。
 
 promotion 前 rollback 带精确 revision fence，且不删除数据。TypeScript 会把命中的
@@ -1486,9 +1499,21 @@ Todo 读取，尚无 lifecycle 或 settlement 调用方消费这个答案。正�
 把 provider-first read flip 与 legacy-writer fencing 作为同一个受审原子边界；flip 后
 回退 Markdown 会重新制造双权威，因此禁止。
 
-后续仍需完成 provider-first read flip，并 fence 全部 legacy coordination writer；这些
-仍是独立评审的本地 canonical promotion 的强制证据。因此 NoKV/PostgreSQL 远端 shadow
-仍属于 Stage 3，不能把这个默认关闭的 hook 当作 authority。
+受评审的 operator path 现在把 provider-first read flip 与 legacy writer fence 收进同一
+个 TypeScript-owned cutover transaction；任何 read、delegation、frontend 或 Lark 路径
+都不能隐式调用它。真实 Goal 仍必须分别完成精确 qualification、静止态 `hard_lease`
+切换、preview、显式 apply、重启读回和 managed-worker acceptance，之后才能宣称该 Goal
+已经 promoted。因此 NoKV/PostgreSQL 远端 shadow 仍属于 Stage 3，不能把这个默认关闭的
+hook 当作 authority。
+
+只读消费者现在复用一份显式的 authority-transition 投影。managed delegation preflight
+及其打包 Dashboard 展示会区分 `promotion_required`、`unavailable` 与 `promoted`，并给出
+typed next action，但不会启动 Turn 或执行器。Lark 使用的 Goal Channel 投影遵守同一边界，
+继续通过现有 `mode=read_only` 与 truth contract 声明
+`projection_is_writable=false`、`write_authority=none`，renderer 再为 operator 派生对应的
+next action。只有经评审的 TypeScript preview 才能证明 readiness。这补齐了解释链路，
+同时不会在每份 status payload 重复相同的来源／权限事实，也不会把 Chat 或 Lark 变成
+第二个 promotion owner。
 
 下一块 Stage 2C 实现加入了 TypeScript cutover kernel，但尚未改变默认 runtime。
 同一个纯 reducer 从一次 Todo/lease mutation 派生 projection、event 与 receipt；显式
@@ -1506,8 +1531,10 @@ fail-closed write-check hook；promotion 可按 operation receipt 重放，provi
 时检查同一个 fence。fence 不存在时保持零 runtime 调用的默认兼容路径；fence 存在、
 不可读或不合法时一律 fail closed。后续 promotion orchestrator 必须先取得这两把 legacy
 lock，再 engage fence，从而保证不存在某次 legacy write 已通过检查、却在 cutover 后才
-提交。provider-first CLI 路由和持锁 promotion operation 仍是下一切片；在它们落地前，
-本集成选择阻断 split-brain 写入，而不会静默回退。
+提交。持锁的 `coordination-shadow promote` 路径现在完成了这一切片。剩余验收属于逐
+Goal 的 qualification 与产品投影，而不是第二套 Python promotion state machine；若
+发生 fence 已写入但 canonical readback 不成立的中断，会 fail closed 等待 operator
+recovery，绝不静默回退。
 
 Todo collection-read 切片只在 durable fence 已存在时把 `loopx todo list` 路由到
 `FileAuthorityStore`。它与 legacy 路径复用同一套过滤、排序、resume 和 summary
@@ -2188,6 +2215,13 @@ Python 生产 caller 直接从 `todos/todo_semantics.py` 导入；`todos/project
 mutation intent（`pending`/`not_required`）与 provider readback（`delivered`/`current`）；
 未知状态在 acknowledgement 之前 fail closed。
 
+优先级意图现接入 File、SQLite、PostgreSQL 既有的准入 create/update 事务。
+显式设置/清除、参数缺省及与旧文字前缀的冲突由 `todos/priority.ts` 处理，Python
+读取共享生成的语法。Markdown 保留兼容展示，native record 保存一致的 priority/title。
+CLI 与经过审阅的 Chat 编辑保留 CAS 和历史重试身份。真实后端回读及长期本地 Goal 的
+一次性隔离副本验证这条边界，见[调用合同](../../project-agent-todo-contract.md#priority-intent)。
+这不改变 provider 默认，也不关闭其余 promotion 门禁。
+
 展示语义属于 projection 层，而不是 domain record。`source_section` 与 `index` 是 v0
 wire shape 的展示坐标；native record 根据 role/archive state 推导相同的展示 section，
 并以时间戳和 Todo identity 做确定性回退，不制造假的持久 index。因此即使 wire shape
@@ -2432,11 +2466,12 @@ route planner 本身仍不授予权限。CLI 将已提交回执交给既有 jour
 资格化；其部署不阻塞本地路线。
 
 核对基线：#4286（命令回执／归档）、#4289（typed 工作／归属 intent）、#4292
-（声明式 decision metadata）、#4304（canonical handoff mode）已合并。#4316
-是 Goal Channel observation 候选，#4317 是 provider opening 候选，#4348 是
-canonical renew 候选，#4328 是 SQLite D2 首批测量／恢复候选；它们尚不能算作已
-合并前提或完整执行卡证据。#4334 是独立 PostgreSQL service admission 候选。
-组合前重读实际 head，不能把已合并祖先再次算成新变化。
+（声明式 decision metadata）、#4304（canonical handoff mode）、#4316
+（Goal Channel observation）、#4317（provider opening）、#4348（canonical renew）、
+#4328（SQLite D2 首批测量／恢复）、#4334（PostgreSQL service admission）均已合并；
+这些已合并切片仍不等于完整执行卡合格。#4732 Monitor、#4754 关联 User completion
+也已合并，#4224 继续由 contributor 负责 D2。组合前重读实际 head，不能把已合并
+祖先再次算成新变化。
 
 下表编号表示**计划 PR 包**，不是预留 GitHub 编号。可沿真实 effect／兼容边界拆分；
 仅换语言或移动 helper 不构成一个包的退出条件。
@@ -2446,7 +2481,7 @@ canonical renew 候选，#4328 是 SQLite D2 首批测量／恢复候选；它�
 | A／L1：Monitor 配置（本切片） | 现有 `todo update` 配置进入 TS planner／CAS／receipt，删除 Python 重复 intent 字段表；区分配置与观察 hash、时间、代数。 | 普通 CLI/API、清除／省略、active lease proof、no-op／replay、展示失败恢复、完整 fixture 和真实 provider。不宣称完成委托 Chat 或 leased polling。 |
 | A／L2：公共 mutation admission 闭合 | 用户 completion update 已共用 TS 编辑／terminal 事务与 Chat 审阅后恢复；继续盘点剩余 effect-owned 决策、委托 owner 动作和 Monitor lifecycle 的 CLI／Turn／Chat caller。见[调用合同](../../reference/canonical-todo-completion-update.md)。 | 复用已合并 T1 owner，不开通通用 raw patch；验证权限拒绝和 caller 响应，删除替代的 Python admission，列全未支持命令。 |
 | A／L3：canonical lease 生命周期 | 独立 acquire/接管、原子 claim 的 lease 准入及维护复用 TS facts/decision/materializer 与同一 provider opening fence。显式联合交接由源持有者授权，一次提交 Todo 归属与新租约 generation；canonical 请求类型不再携带 legacy 持锁字段。Acquire 成功必须校验当前执行 proof；canonical 完成可恢复缺失展示。 | 已覆盖完整 head scope 冲突、归档/失效 holder、创建 CAS 原样重试、旧执行、进程中断、真实 CLI 与四臂演练。[操作及剩余 caller](../../reference/canonical-lease-renew.md)。跨外部 effect 的 executor 持锁 fence 仍为明确工作；保留 D1–D3/default hold。 |
-| B／L4：leased Monitor poll 与 settlement | 当前 execution proof 贯穿 CLI intent、观察／generation／独立 successor CAS 和历史业务回执；业务写入前冻结 quota 准入，租约结束后仍按原决策恢复结算。 | 既有 L3 lease lifecycle、真实 File／SQLite／PostgreSQL、混合 fixture、业务与 quota 间真实进程退出、并发 renewal 和 unchanged poll；见[操作与快照演练](../../reference/protocols/quota-monitor-observation-receipt-v0.md)。不操作 lease lifecycle、不消耗 quota，不把两个 authority 假装成同一事务。保留的分组 Monitor 观察／再激活 caller 现使用 Todo update v4 与共享 Monitor planner，无变化重试也能恢复显示。保留 lease 的再激活、更广 L2 准入及 D1–D3/default 仍开放。 |
+| B／L4：leased Monitor poll 与 settlement | 当前 execution proof 贯穿 CLI intent、观察／generation／独立 successor CAS 和历史业务回执；业务写入前冻结 quota 准入，租约结束后仍按原决策恢复结算。 | 既有 L3 lease lifecycle、真实 File／SQLite／PostgreSQL、混合 fixture、业务与 quota 间真实进程退出、并发 renewal 和 unchanged poll；见[操作与快照演练](../../reference/protocols/quota-monitor-observation-receipt-v0.md)。普通 poll 不修改 lease、不消耗 quota，不把两个 authority 假装成同一事务。保留的分组 Monitor 观察／再激活 caller 现使用 Todo update v4 与共享 Monitor planner，无变化重试也能恢复显示。Canonical 再激活现将保留执行权退役与观察周期重开在同一 CAS 提交，和轮询共用 typed 准入；下一次执行仍须显式 acquire。分组维护的 executor acquire、更广 L2 准入及 D1–D3/default 仍开放。 |
 | B／L5：consumer 与展示闭合 | 核对 #4316，审计 Turn／quota／Dashboard／Chat 的来源，复用 projection outbox 完成 D1 新鲜度和恢复。 | 验证 CLI、Lark／Chat、打包 frontend 的受影响交互；缺失／陈旧展示、权威空状态、pending 投影及超过 UI 上限的数据。逐个删除晋升后的 legacy fallback。 |
 | A–C／L6：本地持久化资格 | 延续 contributor 认领的 #4224／#4328，在选定 SQLite profile 上补齐第 7.2 节 ledger，复用 File／NoKV 对照。 | capacity、真实进程／crash／restore／upgrade、历史 receipt／scan、consumer lag、支持的 runtime／OS，以及另行授权的 >=10 天合成 soak。缺项继续 hold。 |
 | A–C／L7：capture 连续性 | 核对已合入的 #4315 归档／lease membership 修复，完成对应 ladder row／mutant 与持续 mixed-writer／event-source 矩阵；不重复实现已关闭缺陷。 | 真实 CLI／File capture、保留历史、半完成 drain 不合格、crash／replay，以及归档／rebootstrap 后再申请 lease。不能借 T4 跳过迁移窗口证明。 |
@@ -2454,9 +2489,18 @@ canonical renew 候选，#4328 是 SQLite D2 首批测量／恢复候选；它�
 | D／L9：新 Goal 默认与有界退役 | 单独 default-change PR 让新建／onboarding 选择合格本地 profile，配齐 settings／readback、installer 和打包客户端；最后 caller 与迁移窗口退出才删除旧业务 writer。 | L8 整体产品／回滚资格；区分新 Goal 默认和已有 Goal 迁移。发布兼容／停用说明，保留显式 provider、永久 renderer 和合法 import/export。T4 可在默认启用后继续收尾。 |
 
 **开发节奏以证据推进。** 先核对在途 stack，再按完整操作交付 A；L6/L7 可独立推进。
-B 汇合为完整用户流程，C 形成一次可复现资格检查点，D 用独立 PR 修改默认。此时约
-九个完整包，不是代码行数指标，也不承诺恰好九次 merge。同一 transaction owner
-避免并发重写，先共享 fixture／合同，owner 合入后再 rebase。
+B 汇合为完整用户流程，C 形成一次可复现资格检查点，D 用独立 PR 修改默认。
+按当前已合并边界，剩余 caller／executor 约 1–2 个包，consumer／投影 1 个，
+contributor-owned D2 1–2 个，capture／整 Goal 演练 1–2 个，默认与有界删除 1 个；
+相邻边界可在证据允许时合并，整体沿用英文 RFC 的 **5–8 个 PR** 条件估计。
+同一 transaction owner 避免并发重写，先共享 fixture／合同，owner 合入后再 rebase。
+
+Monitor 周期事务关闭了 L4 的一个具体 hold，不等于关闭整个剩余交付包。
+当前 **5–8 个完整 PR** 的条件估计仍保留，不能按已提交的修复数量递减：
+剩余 caller／executor、L5 consumer、contributor-owned D2、整 Goal 演练和默认
+onboarding 决定最终边界。本批收敛两套 TS 准入规则，未新增 Python twin；
+仍有调用方的宿主执行、渲染与导入导出适配器继续保留。
+
 
 L2/L3 命令盘点与 L6 缺失证据未闭合前，不给虚假的日历承诺。>=10 天 soak 是
 **被测 profile 就绪之后**的真实时间下限，不是从写计划当天计时；明确授权后可与

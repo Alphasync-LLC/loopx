@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from loopx.control_plane.quota import live_decision
+from loopx.control_plane.quota.effect_program import ReceiptBoundReplayPhase
 from loopx.control_plane.effect_program import (
     interpret_quota_should_run_packet,
 )
@@ -178,8 +181,6 @@ def test_live_quota_decision_maps_to_effect_turn(tmp_path: Path) -> None:
         capabilities=["shell"],
     )
 
-    assert "protocol_action_packet" not in packet
-    assert turn.observation.protocol_summary is None
     assert turn.observation.decision == "run"
     assert turn.observation.effective_action == "normal_run"
     assert turn.interpretation.route == "advancement_task"
@@ -189,8 +190,9 @@ def test_live_quota_decision_maps_to_effect_turn(tmp_path: Path) -> None:
     assert turn.next_effect.cli_actions[0].startswith("loopx --runtime-root ")
 
 
+@pytest.mark.parametrize("reads", [False, True])
 def test_managed_turn_projects_prior_unsettled_heartbeat_recovery(
-    tmp_path: Path,
+    tmp_path: Path, reads: bool,
 ) -> None:
     runtime_root = tmp_path / "runtime"
     agent_id = "codex-fixture"
@@ -260,6 +262,7 @@ def test_managed_turn_projects_prior_unsettled_heartbeat_recovery(
         codex_app_current_rrule=None,
         registry_path=tmp_path / "registry.json",
         runtime_root=runtime_root,
+        turn_start_hook_dispatch=_turn_start_dispatch(required=reads),
         route_source="loopx_turn_plan",
         turn_instance_id="managed-current-turn",
         scheduler_execution_context={
@@ -269,7 +272,6 @@ def test_managed_turn_projects_prior_unsettled_heartbeat_recovery(
         },
     )
 
-    assert "protocol_action_packet" not in packet
     assert packet["runtime_root"] == str(runtime_root)
     assert packet["effective_action"] == "unsettled_host_turn_recovery"
     assert packet["unsettled_host_turn_recovery"]["prior_turn_instance_id"] == (
@@ -279,6 +281,81 @@ def test_managed_turn_projects_prior_unsettled_heartbeat_recovery(
     assert contract["mode"] == "unsettled_host_turn_recovery"
     assert contract["agent_channel"]["delivery_allowed"] is False
     assert contract["cli_channel"]["spend_after_validation"] is False
+
+
+def test_settled_turn_defers_prior_turn_recovery_to_a_fresh_turn(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime_root = tmp_path / "runtime"
+    registry_path = tmp_path / "registry.json"
+    registry_path.write_text(json.dumps({"goals": []}), encoding="utf-8")
+
+    monkeypatch.setattr(
+        live_decision,
+        "read_heartbeat_settlement",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            monitor_phase=None,
+            replay_phase=ReceiptBoundReplayPhase.SETTLED,
+        ),
+    )
+
+    def fail_if_recovery_runs(*_args: object, **_kwargs: object) -> bool:
+        pytest.fail("a settled host Turn must not inspect prior-Turn recovery")
+
+    monkeypatch.setattr(
+        live_decision,
+        "apply_unsettled_host_turn_recovery_if_required",
+        fail_if_recovery_runs,
+    )
+    todo_text = "[P1] Keep advancing the selected task."
+    status = quota_status_payload(
+        goal_id=GOAL_ID,
+        status="active",
+        agent_todo_items=[
+            {
+                "todo_id": "todo_ordinary_work",
+                "index": 1,
+                "text": todo_text,
+                "role": "agent",
+                "status": "open",
+                "priority": "P1",
+                "task_class": "advancement_task",
+            }
+        ],
+        recommended_action=todo_text,
+        next_action=todo_text,
+        coordination={
+            "registered_agents": ["codex-fixture"],
+            "agent_model": "peer_v1",
+        },
+        claim_scope_agent_id="codex-fixture",
+    )
+
+    packet = build_live_quota_should_run_decision(
+        status,
+        goal_id=GOAL_ID,
+        agent_id="codex-fixture",
+        available_capabilities=["shell"],
+        include_scheduler_detail=False,
+        codex_app_current_rrule=None,
+        registry_path=registry_path,
+        runtime_root=runtime_root,
+        route_source="loopx_turn_plan",
+        receipt_bound_todo_id="todo_ordinary_work",
+        turn_instance_id="managed-settled-turn",
+        scheduler_execution_context={
+            "host_surface": "generic_cli",
+            "scheduler_owner": "agent_cli_loop",
+            "execution_mode": "interactive",
+        },
+    )
+
+    assert packet["decision"] == "skip"
+    assert packet["effective_action"] == "heartbeat_settled_skip"
+    assert packet["should_run"] is False
+    assert packet.get("selected_todo") is None
+    assert packet.get("unsettled_host_turn_recovery") is None
 
 
 def test_managed_turn_accepts_exact_material_monitor_poll_closeout(
@@ -1015,3 +1092,45 @@ def test_packet_retirement_preserves_reads_and_independent_capability_command(tm
     assert authority["primary_action"] == "Generate the exact report."
     assert envelope["writeback"]["next_cli_actions"] == [command]
     assert authority["required_reads"]
+
+
+def test_retained_selection_reentry_stays_packet_free_and_signed(
+    tmp_path: Path,
+) -> None:
+    from loopx.control_plane.quota.turn_envelope import (
+        build_turn_envelope,
+        quota_action_signature_document,
+        turn_envelope_action_signature_document,
+    )
+    from loopx.control_plane.turn_driver.host_candidate import extract_turn_authority
+
+    payload = build_live_quota_should_run_decision(
+        _ordinary_status_payload(),
+        goal_id=GOAL_ID,
+        agent_id=None,
+        available_capabilities=["shell"],
+        include_scheduler_detail=False,
+        codex_app_current_rrule=None,
+        registry_path=tmp_path / "registry.json",
+        runtime_root=tmp_path / "runtime",
+        retained_action_selection_todo_id="todo_retained_explicit",
+        turn_instance_id="turn-retained-packet-retirement",
+    )
+
+    assert payload["retained_action_selection"]["disposition"] == (
+        "require_explicit_selection"
+    )
+    assert payload["state"] == "action_selection_required"
+    assert payload["should_run"] is False
+    assert "selected_todo" not in payload
+    assert "protocol_action_packet" not in payload
+
+    envelope = build_turn_envelope(payload)
+    assert "protocol_action_packet" not in envelope["contract_capsule"]
+    assert quota_action_signature_document(payload) == (
+        turn_envelope_action_signature_document(envelope)
+    )
+    authority = extract_turn_authority({"turn_envelope": envelope})
+    assert authority["primary_action"] == payload["interaction_contract"][
+        "agent_channel"
+    ]["primary_action"]
