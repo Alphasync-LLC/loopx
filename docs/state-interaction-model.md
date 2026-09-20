@@ -166,8 +166,16 @@ loopx --format json quota should-run --goal-id <goal-id>
 
 The guard's `interaction_contract` is the first-class protocol. Older fields
 such as `execution_obligation`, `heartbeat_recommendation`,
-`work_lane_contract`, `external_evidence_observation`, `goal_boundary`, and
-`protocol_action_packet` remain compatibility and drill-down fields.
+`work_lane_contract`, `external_evidence_observation`, and `goal_boundary`
+remain compatibility and drill-down fields. Historical `protocol_action_packet`
+summaries are read-only observations. The
+[candidate PR-05 migration](reference/protocols/protocol-action-packet-decision-v0.md)
+proposes omitting the packet from new quota/live/paused/recovery outputs while
+retaining historical packet, opaque/residue, and signature reads without
+rewriting records. Current consumers use typed contracts; a missing packet
+neither relaxes an obligation nor grants authority. Public output version and
+historical-support binding remain pending user/maintainer decisions; rollback
+to a 1.1.0 reader and unknown external consumers need separate qualification.
 Executors should treat `interaction_contract.agent_channel.primary_action` as
 the single action entrypoint for the current turn. If it carries a
 `resolution_trace`, that trace is only a compact explanation of which projected

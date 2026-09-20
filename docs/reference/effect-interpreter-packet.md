@@ -146,7 +146,16 @@ The decision is returned as:
 | `effective_action` | Machine-visible effective action |
 | `recommended_action` | Next concrete action text |
 | `action_portfolio` | Primary plus bounded typed fallbacks, when present |
-| `protocol_action_packet.summary` | Compact actor-facing summary |
+| `protocol_action_packet.summary` | Optional historical actor-facing summary; no action authority |
+
+For a source without `protocol_action_packet`, the quota lens exposes
+`protocol_summary=null`; typed interaction, lane, and scheduler contracts still
+supply obligations and next effects. Historical v0 and opaque summaries remain
+readable observations and cannot override those contracts. The
+[candidate PR-05 migration](protocols/protocol-action-packet-decision-v0.md)
+proposes packet-free new quota/live/paused/recovery outputs; release-version
+binding and the historical-support window remain pending. Reader fixtures do
+not establish compatibility for unknown consumers or a 1.1.0 rollback.
 
 `EffectTurn.observation.action_portfolio` is the canonical TypeScript-owned
 observation of this field. Python supplies only scope/capability-admitted todo

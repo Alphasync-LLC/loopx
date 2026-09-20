@@ -1,65 +1,72 @@
 # Protocol Action Packet Decision v0
 
-## Decision
+## Historical v0 Contract
 
-Keep `protocol_action_packet_v0` as the hot-path protocol simplification
-contract for `quota should-run`.
+`protocol_action_packet_v0` was the deterministic hot-path summary emitted by
+`quota should-run`. Full decisions retained the packet, and TurnEnvelope
+compacted its summary only after field-level reconstruction parity. The summary
+encoded actor, user/agent action requirements, quiet-noop allowance, work lane,
+and a compact action label with `llm=no_api`. It was an observation, never an
+execution or permission authority.
 
-The opt-in TurnEnvelope may reconstruct this packet from its structured action
-contracts and omit the repeated summary only when field-level parity succeeds;
-the full decision continues to persist the compatibility packet.
+The router comparison and Codex CLI wrapper experiments evaluated that summary.
+Their results do not establish compatibility for removing it from public output.
 
-The hot path remains deterministic and rule-only:
+## Candidate PR-05 Migration
 
-- `llm=no_api`
-- primary actor: user or agent
-- user-action requirement
-- agent-action requirement
-- quiet-noop allowance
-- work lane
-- compact action label
+PR-05 proposes the following behavior for the next release window. The public
+output version marker and historical-reader support window remain for the
+user/maintainer to bind before release; no release date, support duration, or
+approved cutover is declared here.
 
-Use the Codex CLI wrapper only as an explicit cold-path sidecar experiment. Do
-not run it during routine quota/status/heartbeat routing.
+- New quota decisions, including live, paused, and recovery outputs, omit
+  `protocol_action_packet`, including the full-decision cold path. This changes
+  the default payload, independently of the opt-in TurnEnvelope view.
+- Current consumers use typed contracts: `interaction_contract` for user/agent
+  obligations and executable CLI actions, `work_lane_contract` for lane duties,
+  and `scheduler_hint` for cadence. Removing the summary does not change
+  delivery, spending, permission, scheduler, or settlement rules.
+- Keep historical v0 packet readers, ordered semantic-field projection
+  `protocol_action_packet_fields`, and the summary renderer used for historical
+  compatibility. Read stored packets and envelopes without rewriting their
+  records, summaries, residues, or signatures. Do not regenerate an opaque
+  summary from current action text or let a historical summary override it.
+- Preserve TurnEnvelope's verified reconstruction, field-level `residue`, and
+  `unverified_retain_summary` paths. A source without a packet has no packet
+  witness in `contract_capsule`; the semantic action fields remain signed.
+  Its source signature document and envelope signature document must agree.
+  Omitting `contract_capsule.protocol_action_packet` can change the digest
+  compared with a packet-bearing source: this is not a hash-compatibility
+  promise and does not permit weakening signature validation.
 
-Defer direct LLM API wiring until a separate backend-comparison experiment
-proves a measurable gain over deterministic labels on payload size,
-user/agent-action clarity, and public-boundary safety.
+## Qualification and Rollback
 
-## Evidence
+The compatibility fixtures in `tests/test_turn_envelope.py` and
+`tests/control_plane_ts/protocol_action_packet_compat.test.ts` cover absent,
+synthetic historical v0, opaque, and residue cases through named readers. They
+also exercise signature and authority boundaries. These fixtures are not a
+complete historical archive replay or evidence about every possible reader.
 
-The decision is based on four public-safe slices:
+Before release, qualify actual new quota/live/paused/recovery outputs and their
+CLI, TurnEnvelope, host, and display consumers. Verify typed action, gate,
+spend, and scheduler behavior with the packet absent; historical records must
+remain unchanged and signature tampering must still fail closed. Reconcile
+smokes that assert packet presence or the former default-payload wording.
 
-1. `protocol_action_packet_v0` made `quota should-run` expose a compact
-   rule-only summary while preserving the detailed guard payload.
-2. `protocol_router_comparison_v0` compared advancement, user-action, and
-   monitor-only scenarios and kept the minimum payload shrinkage above the
-   acceptance floor without model calls.
-3. `protocol_action_packet_codex_cli_wrapper_v0` proved the Codex CLI command
-   envelope can be represented as a fake-contract smoke without invoking a
-   model.
-4. The opt-in real Codex CLI probe ran once in an isolated fixture and produced
-   a compact sidecar while leaving the default smoke path fake/no-model.
+Rollback to the current 1.1.0 reader requires an actual test against candidate
+outputs and retained historical records. Record the reader version, tested
+cases, and failures before calling rollback compatible. Until that passes, a
+reader downgrade is unqualified; reverting the producer change is the code
+rollback, not proof that the older reader accepts intervening outputs. Unknown
+external consumers that require the packet need their own migration or
+qualification and must not be assumed compatible.
 
-## Operating Rule
+## Operating Boundary
 
-`quota should-run`, dashboard status, and recurring heartbeat routing should
-consume `protocol_action_packet_v0` directly. They should not call Codex CLI,
-direct LLM APIs, runner adapters, Docker/cloud environments, or paid compute.
-
-Cold-path experiments may call Codex CLI only when the command is explicit,
-isolated, ephemeral, and sidecar-only. The sidecar may record a final compact
-summary, prompt length, return code, and stdout/stderr character counts; it
-must not persist raw stderr, raw session history, private traces, credentials,
-or local auth material.
-
-## Next Work
-
-The protocol simplification spike is complete enough for the current meta
-lane. Future work should move back to the long-horizon benchmark program unless
-a concrete protocol regression appears.
-
-The next benchmark-side step is the approved Terminal-Bench/Harbor execution
-environment readiness lane: check whether local Docker or an approved cloud
-execution environment is available, then attempt a single-task no-submit Harbor
-Codex pilot only after the environment and benchmark rules are clear.
+Routine quota/status/heartbeat routing stays deterministic and should not call
+Codex CLI, direct LLM APIs, runner adapters, or paid compute for this migration.
+Cold-path summarizer experiments remain explicit, isolated, and sidecar-only;
+they must not persist raw stderr, private session traces, or credentials.
+PR-05 neither introduces a CLI flag nor closes #4447. Release binding, rollback
+qualification, and historical-support acceptance remain separate from this
+candidate contract.

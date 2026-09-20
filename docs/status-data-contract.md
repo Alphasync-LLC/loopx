@@ -1525,9 +1525,10 @@ carry any writeback review guidance. The trace is not an independent
 next-action authority and does not imply automatic active-state writeback.
 `execution_obligation`,
 `heartbeat_recommendation`, `work_lane_contract`,
-`external_evidence_observation`, `goal_boundary`, and
-`protocol_action_packet` remain compatibility and drill-down fields under that
-contract, not competing sources of truth.
+`external_evidence_observation`, and `goal_boundary` remain compatibility and
+drill-down fields under that contract, not competing sources of truth.
+`protocol_action_packet` belongs to the historical summary contract; the
+candidate PR-05 migration below proposes omitting it from new outputs.
 The same payload includes `scheduler_hint.schema_version=scheduler_hint_v0`.
 This is the scheduling contract for host runtimes, not a delivery permission:
 Codex App can back off its automation cadence for long waits, while Codex CLI
@@ -1591,23 +1592,23 @@ requires `execution_obligation.must_attempt_work=false` and no blocker-push
 notification such as `notify_user_on_open_todo=true`; when both are present,
 notify the user and do not spend. Verified `mapped_noop_if_unchanged` remains a
 quiet no-op case.
-The guard also emits `protocol_action_packet.schema_version =
-protocol_action_packet_v0`, a compact rule-only packet for executor and future
-LLM-router experiments. It distills the same quota guard into one primary actor,
-user/agent action requirement, quiet-noop allowance, execution lane, and a short
-`llm=no_api` marker inside a single `summary` string so the hot path stays
-within interface budget. The detailed spend policy remains in
-`heartbeat_recommendation.spend_policy`. This packet is not a new source of
-authority and does not authorize model/API use; it is the deterministic baseline
-that an optional Codex/LLM summarizer must beat on payload shrinkage and
-user/agent action clarity before direct LLM API wiring is added. When an open
-todo uses the common `[P*] short title: details` shape, the packet uses the
-short title as the action label so long progress notes do not re-enter the hot
-path.
-If open user todos coexist with executable agent work, the packet keeps the
-primary actor as `agent` but adds `user_action_pending=true` plus a compact
-`user_action` label. This preserves the owner-visible blocker without
-mislabeling that owner todo as `agent_action`.
+Historical guard outputs carried `protocol_action_packet_v0`, a deterministic
+summary of actor, action requirements, quiet-noop allowance, and lane with
+`llm=no_api`. It conveyed no independent execution or model/API authority.
+The [candidate PR-05 migration](reference/protocols/protocol-action-packet-decision-v0.md)
+proposes omitting `protocol_action_packet` from all new quota/live/paused/recovery
+outputs, including full-decision cold reads. Current executors and status/display
+consumers should read the typed interaction, lane, and scheduler contracts above;
+packet absence must not imply permission to deliver, spend, or stay quiet.
+Historical packet, opaque-summary, residue, and signature readers remain;
+stored records are not rewritten. New source/envelope signature documents may
+omit the capsule's packet witness while preserving semantic fields: equal hashes
+with older packet-bearing outputs are not promised. The public output version
+marker and historical-support window await user/maintainer binding. Rollback to
+a 1.1.0 reader requires actual compatibility testing, and unknown external
+consumers are not presumed compatible. See the migration contract for evidence
+limits and qualification requirements.
+
 When a registry-enabled goal has `control_plane.self_repair.enabled=true`,
 `quota should-run` may return `decision=self_repair`,
 `self_repair_allowed=true`, `stall_self_repair`, and an `effective_action` such
