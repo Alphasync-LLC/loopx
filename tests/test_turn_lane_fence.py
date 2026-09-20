@@ -8,9 +8,11 @@ one Turn and then its replay through the same entry.
 
 from __future__ import annotations
 
+import socket
 from pathlib import Path
 
 from loopx.control_plane.turn_driver.executor import run_loopx_turn_once
+from loopx.file_lock import _safe_label
 from loopx.control_plane.turn_driver.lane_fence import (
     REMEDY_WAIT_FOR_IN_FLIGHT_TURN,
     TURN_LANE_IN_FLIGHT,
@@ -119,7 +121,10 @@ def test_the_holder_readback_stays_public_safe(tmp_path: Path) -> None:
     assert holder["agent_id"] == AGENT_ID
     assert holder["operation"] == TURN_LANE_OPERATION
     assert isinstance(holder["pid"], int)
-    assert set(holder) == {"agent_id", "operation", "pid", "acquired_at"}
+    # The machine name travels with the pid: two hosts can share one runtime
+    # root, and a pid without its host is not an actionable identity.
+    assert holder["host"] == _safe_label(socket.gethostname(), fallback="unknown")
+    assert set(holder) == {"agent_id", "operation", "pid", "acquired_at", "host"}
     # The private lock identity and the runtime path never leave the process.
     assert str(tmp_path) not in str(holder)
     assert turn_lane_holder_readback(tmp_path / "absent.lane") == {}
