@@ -1,6 +1,7 @@
 """A binding inspection must use the actual Turn without launching or spending."""
 
 import json
+import sys
 
 import pytest
 
@@ -193,6 +194,19 @@ def test_selected_codex_managed_agent_profile_is_projected_exactly(service):
     assert result["state"] == "runtime_unverified"
     assert not any(result["effects"].values())
     assert not (root / "host-started").exists()
+
+    binding = runner.binding("analysis", require_active=True)
+    execution = runner._execution_arguments(binding, "native-tool-inspection")
+    encoded = execution[execution.index("--codex-mcp-server-json") + 1]
+    native = json.loads(encoded)
+    assert native["schema_version"] == "codex_stdio_mcp_server_v0"
+    assert native["name"] == "loopx_delegation"
+    command = native["command"]
+    assert command[:3] == [sys.executable, "-m", "loopx.collaboration_mcp"]
+    assert command[command.index("--agent-id") + 1] == "analyst"
+    assert command[command.index("--workspace") + 1] == binding["workspace"]
+    assert command[command.index("--execution-config") + 1] == str(runner.config)
+    assert "lead" not in command
 
 
 def test_preflight_does_not_call_an_invalidated_acceptance_ready(service):
