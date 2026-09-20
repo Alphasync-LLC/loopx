@@ -1766,3 +1766,15 @@ new capability/provider, or Python storage migration is introduced. Python keeps
 input normalization and rendering until their actual host consumers migrate.
 See [the read contract](../../reference/todo-work-counts.md); broader L5/D1 and
 local-default qualifications remain open.
+
+### T2 canonical read and display confirmation boundary
+
+Canonical single-Todo and full-source reads now have one read-only TypeScript
+module, separate from mutation orchestration and sharing the provider opening
+boundary. Projection delivery composes a revision confirmation with the existing
+full-source read; ordinary callers retain their response shape. Python owns
+physical Markdown durability/retry, not the current-head comparison. Three-attempt
+recovery and pinned-intent preservation use the existing journal-backed path;
+no new RPC method, durable ACK or provider default. The stronger confirmation
+costs one additional read on a stable delivery. Full L5/D1 qualification, D2 and
+cutover remain open; see the [projection contract](../../reference/protocols/active-state-structured-projection-v0.md).
