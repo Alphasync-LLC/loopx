@@ -1880,6 +1880,16 @@ apply, restart readback, and managed-worker acceptance before that Goal may be
 called promoted. Remote NoKV/PostgreSQL shadowing therefore remains Stage 3
 and cannot use this default-off hook as authority.
 
+Read-only consumers now share an explicit authority-transition projection.
+Managed-delegation preflight and its packaged Dashboard view distinguish
+`promotion_required`, `unavailable`, and `promoted`, and publish a typed next
+action without starting a Turn or executor. The Goal Channel projection used
+by Lark exposes the same boundary and always reports
+`promotion_from_channel_allowed=false`; it intentionally keeps
+`promotion_ready=false` because only the reviewed TypeScript preview may prove
+readiness. This closes the explanatory path without turning Chat or Lark into
+a second promotion owner.
+
 The next Stage 2C implementation slice adds the TypeScript cutover kernel but
 does not yet change the default runtime. One pure reducer now derives the
 Todo/lease projection, event, and receipt from the same mutation. An explicit

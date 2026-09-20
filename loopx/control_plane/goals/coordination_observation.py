@@ -7,6 +7,41 @@ from ..effect_runtime import effect_runtime_result
 from ..runtime.time import now_local_iso
 
 
+def coordination_authority_transition(observation: dict[str, Any]) -> dict[str, Any]:
+    """Project a read-only authority transition without granting promotion.
+
+    Goal Channel consumers (including Lark) need the same explanation as the
+    managed-delegation preflight: legacy state is not launchable, canonical
+    state is promoted, and a failed canonical readback needs repair.  The
+    projection deliberately never claims ``promotion_ready``; only the
+    reviewed TypeScript promotion preview can establish that stronger fact.
+    """
+
+    source = str(observation.get("source_authority") or "")
+    if source in LOCAL_AUTHORITY_SOURCES:
+        state = "promoted"
+        next_action = "inspect_managed_delegation"
+    elif observation.get("status") != "loaded":
+        state = "unavailable"
+        next_action = (
+            "repair_canonical_authority"
+            if source == "canonical_unavailable"
+            else "repair_authority_observation"
+        )
+        source = source or "unavailable"
+    else:
+        state = "promotion_required"
+        next_action = "preview_reviewed_goal_authority_promotion"
+        source = source or "legacy_markdown_and_task_lease"
+    return {
+        "state": state,
+        "source_authority": source,
+        "next_action": next_action,
+        "promotion_from_channel_allowed": False,
+        "promotion_ready": False,
+    }
+
+
 def observe_goal_coordination(*, runtime_root: Any, goal_id: str,
                               agent_todos: list[dict[str, Any]],
                               explicit_entries: list[dict[str, Any]] | None) -> dict[str, Any]:
