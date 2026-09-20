@@ -10,7 +10,7 @@
 
 ## Document map and maintenance contract
 
-Sections 1–10 propose the research question, comparison method and boundaries; section 11 defines conditional milestones; section 12 lists unresolved decisions. Section 4 records source facts at the named baseline. Appendices preserve history, decisions and evidence. The Chinese document is a semantic mirror; revise both together. D1–D6, I1–I8 and F01–F12 are document identifiers, not new runtime enums or obligations created by publishing this Draft.
+Sections 1–10 propose the research question, comparison method and boundaries; section 11 defines conditional milestones; section 12 lists unresolved decisions. Section 4 records source facts at the named baseline. Appendices preserve history, decisions and evidence. The Chinese document is a semantic mirror; revise both together. D1–D8, I1–I8 and F01–F12 are document identifiers, not new runtime enums or obligations created by publishing this Draft.
 
 For why the proposal changed, read [Appendix E](#appendix-e-discussion-evolution-and-review-lessons); for what has actually been decided, read [Appendix B](#appendix-b-decision-log).
 
@@ -18,7 +18,7 @@ No direction, provider, package, profile version, command or storage design is a
 
 ## 1. Decision requested
 
-**Which judgments are already handled adequately by the existing Agent workflow, where could a separate bounded assessment help, and would Jev add value over an existing model in that role?** The six scenarios below are unranked candidates for discussing that division of work. Retaining the current workflow, improving evidence alone, using an existing model, postponing evaluation and rejecting Jev are valid outcomes.
+**Which judgments are already handled adequately by the existing Agent workflow, where could a separate bounded assessment help, and would Jev add value over an existing model in that role?** The eight scenarios below discuss that division of work, with a provisional expected-value investigation order in section 3. Retaining the current workflow, improving evidence alone, using an existing model, postponing evaluation and rejecting Jev are valid outcomes.
 
 The maintainer has accepted repository intake of this material as a Draft discussion proposal only: [M0 intake decision](https://github.com/loopx-project/loopx/pull/4749#pullrequestreview-5259253204), reviewed at `62db4478afbf2c947b1c864e52b690146fbf3f94`. The decision boundaries are:
 
@@ -28,9 +28,9 @@ The maintainer has accepted repository intake of this material as a Draft discus
 | Study selection (Q1–Q4, before M1) | Select a real problem, finite question, checkpoint, comparator, data and budget, or defer/reject | No production adoption or runtime authority |
 | Product adoption (Q5–Q7, before M2) | Decide whether measured value supports a named caller and separately reviewed implementation | No blanket rollout or transfer of existing authority |
 
-This records M0 intake only, not a governance change or final PR approval. The review requests this decision writeback before exact-head re-review. Q1–Q7, Jev research, data/egress and spend, model qualification, product adoption and runtime authority remain pending and unapproved; none follows from Draft intake.
+PR #4749 merged the M0 discussion artifact. That completed intake, not study selection or product adoption; the new opportunity ordering remains a proposal. Q1–Q7, Jev research, data/egress and spend, model qualification, product adoption and runtime authority remain pending and unapproved; none follows from Draft intake.
 
-The target users are operators reviewing long-running work and developers/reviewers investigating concrete changes. Their potential problem is costly or late recognition that activity does not advance an approved outcome. LoopX already uses executing and reviewing Agents for semantic judgment. Whether a better-defined assessment helps, and whether Jev is the better implementation, are separate questions.
+The target users are operators reviewing long-running work and developers/reviewers investigating concrete changes. Their potential problems include costly or late recognition that activity does not advance an approved outcome, and allocating scarce work or research capacity among legal alternatives. LoopX already uses executing and reviewing Agents for semantic judgment. Whether a better-defined assessment helps, and whether Jev is the better implementation, are separate questions.
 
 [PR #4749](https://github.com/loopx-project/loopx/pull/4749) is the public proposal and decision-request surface. The [maintainer review](https://github.com/loopx-project/loopx/pull/4749#pullrequestreview-5257146745) requests a verifiable problem and owner decision before provider-specific architecture. The [prior review](https://github.com/loopx-project/loopx/pull/4749#pullrequestreview-5259173141) requested a scope decision before indexing. The subsequent [M0 intake decision](https://github.com/loopx-project/loopx/pull/4749#pullrequestreview-5259253204) accepts only the discussion artifact, keeping later study selection separate. [#4447](https://github.com/loopx-project/loopx/issues/4447) and [#4743](https://github.com/loopx-project/loopx/issues/4743) are adjacent vocabulary work, not authorization for Jev, D1 or a new configuration format. Appendix B records accepted M0 intake and the still-pending research/adoption decisions.
 
@@ -68,9 +68,9 @@ Jev offers bounded typed questions and probability distributions that may fit a 
 - **I7 — Keep the existing owner.** One bounded question has one responsible domain; no second planner, evaluator policy, registry or installer.
 - **I8 — Bound cost and preserve exit.** No silent retries/provider switching. Lack of benefit permits stopping; missing live evidence never becomes a passed qualification.
 
-## 3. Six candidate scenarios without a preset ranking
+## 3. Application opportunities and provisional value ordering
 
-Choose any future study by an evidenced user need, existing ownership, available context, evidence readiness, error cost, maintenance and removability. D1–D6 are stable discussion identifiers, not priorities, an implementation sequence or a claim that each scenario needs another model. No direction is preferred before a concrete case supports it.
+D1–D8 are stable discussion identifiers, not priorities or runtime types. Section 3.1 recommends an investigation order from source-grounded opportunities; it is neither measured Jev superiority nor an implementation commitment. Study selection still needs a concrete case, owner, comparator, permitted data and budget. This extends the original six scenarios with two distinct callers: choosing the next eligible Todo and choosing an Explore candidate portfolio.
 
 | Scenario | Target user | Existing judgment and baseline | Primary value hypothesis | Readiness and rejection condition |
 | --- | --- | --- | --- | --- |
@@ -80,10 +80,74 @@ Choose any future study by an evidenced user need, existing ownership, available
 | **D4 — Material/evidence reranking** | operator or evidence consumer | Actual retrieval candidates, ordering, Agent selection and mandatory reads | Less reading to find useful evidence | Needs relevance judgments and coverage accounting; reject hidden required sources or missing candidates |
 | **D5 — Skill/capability suggestions** | task operator | Host discovery, existing catalog and Agent/user selection | Fewer missed or irrelevant capability selections | Needs real task/catalog cases; reject suggestions that duplicate discovery or imply installation authority |
 | **D6 — Replan candidate comparison** | planner/manager | Existing planner, legal alternatives, attributable history and constraints | Better identification of redundant exploration | Needs meaningful alternatives and prior outcomes; reject a competing planner or suppression of legitimate exploration |
+| **D7 — Same-priority Todo ordering** | Agent or steward choosing next work | Existing Agent selection, typed eligibility/claim rules and deterministic priority/order keys | More accepted goal value from the next bounded work window | Needs comparable eligible Todos and goal/dependency evidence; reject priority inversion, starvation or merely reproducing the Agent's judgment |
+| **D8 — Explore harness ordering** | research operator allocating a fixed exploration budget | Existing static branch scoring, enabled router feedback, portfolio/admission constraints and Agent judgment | More decision-useful evidence from the same budget | Needs a fixed candidate set, history and independent outcome evaluation; reject duplicate research, novelty bias or an apparent gain obtained by changing the evaluator |
 
-Each selected experiment chooses one primary hypothesis: added detection, earlier detection, reduced judgment cost or reduced reading. Other metrics are guardrails, not simultaneous promised benefits. D3 does not require D1/D2 and D5 does not require D4 unless a real dependency is demonstrated.
+Each selected experiment chooses one primary hypothesis: added detection, earlier detection, reduced judgment cost, reduced reading or greater useful outcome value within a fixed budget. Other metrics are guardrails, not simultaneous promised benefits. D3 does not require D1/D2 and D5 does not require D4 unless a real dependency is demonstrated.
 
-D1 is the worked research example because section 2 identifies a concrete detector boundary. Its proposed question is whether a bounded assessment, at a useful checkpoint, improves recognition of goal deviation relative to the full existing workflow. This example is not a ranking or approval to study or implement D1. The other directions remain candidates, not five future delivery commitments.
+D1 remains the worked deviation-detection example in section 2. The opportunity analysis below recommends D7/D8 for the first study-selection discussion because they expose bounded alternatives and recurring allocation decisions. None is approved for experimentation or implementation.
+
+### 3.1 Where comparison is most likely to be useful
+
+This is a qualitative **expected net value of adding assessment**, not a leaderboard of models. Consider decision frequency and consequence, plausible improvement over the full baseline, evidence readiness, error cost, assessment/latency/maintenance cost and reversibility. High potential benefit with weak outcome attribution can rank below a smaller, easier-to-evaluate intervention. There are no measured effect sizes or invented numeric weights here; order within a tier remains tentative.
+
+| Investigation order | Opportunity | Why this position / decisive uncertainty | Primary outcome to test |
+| --- | --- | --- | --- |
+| **First · 1** | **D7: same-priority Todo ordering** | Repeated choice directly affects goal progress; candidate identities and priority already exist. Counterfactual value and full-context Agent coverage still need evaluation | Accepted goal contribution within a fixed budget/window, relative to normal Agent selection |
+| **First · 2** | **D8: Explore branches, experiments and worker bundles** | Existing harness provides a bounded comparison seam and outcome history. Stronger existing heuristics/router make incremental benefit harder to establish | Independently useful findings, refutations or decisions per fixed total research budget |
+| **Next · 3** | **D4: material and memory evidence ordering** | Frequent bounded retrieval can reduce reading cost; sources and mandatory coverage are observable. Relevance alone does not prove outcome utility | Reading effort to obtain sufficient decision evidence, without losing required/contradictory sources |
+| **Next · 4** | **D3: review focus and additional validation selection** | A missed consequential claim can be expensive. Rank investigation targets within existing review obligations; do not replace exact-head review | Independently confirmed consequential mismatches found within the review budget; missed-issue guardrail |
+| **Next · 5** | **D1: progress/deviation assessment** | Large potential waste avoidance, but approved intent, artifact history and prerequisite context are costly to assemble; false alarms consume attention | Earlier actionable detection with bounded false alarms relative to the complete workflow |
+| **Later · 6** | **D6: continue, switch or replan alternatives** | Potentially high leverage but long feedback delays and intervention costs. Unlike D7, this may change the proposed work rather than order existing work | Better independently assessed plan choices including switching/recovery costs |
+| **Later · 7** | **D2: concept and owner reuse** | Concrete developer benefit, but first establish that inventory/search improvements do not solve it | Less owner-search/rework effort without false semantic equivalence |
+| **Later · 8** | **D5: skill/capability suggestions** | Bounded catalog, but substantial overlap with existing discovery and Agent selection | Fewer consequential missed capabilities at lower total selection effort |
+
+D3 includes prioritizing optional probes by defect likelihood × consequence × detectability minus investigation cost; compulsory validation and community/aging review tiers remain with their owners. D4 includes evidence-window construction and memory recall; it grants no authority to forget or delete material. D8 includes experiment/composition selection and branch/bundle ordering, not choosing a harness profile by its own self-score. Hold the harness/profile fixed when testing the ranker; profile comparison is a separate treatment.
+
+Other plausible uses are executor/model allocation, replay-checkpoint placement and human-attention triage. Defer a separate Jev caller until there is a demonstrated semantic gap: [executor availability/cost](../../reference/protocols/local-agent-launch-plan-v1.md) and replay savings already have dedicated owners, while attention triage must preserve required escalation. Do not replace measured resource or replay arithmetic with model guesses. D1/D3 can supply review evidence without introducing a second attention scheduler.
+
+### 3.2 What “expected value” means for a candidate
+
+Keep **application priority** (section 3.1) separate from **candidate utility within a selected application**. For an eligible candidate `a`, a useful research decomposition is:
+
+```text
+expected net value(a | current evidence, decision horizon)
+  = expected incremental accepted-outcome contribution
+  + non-overlapping dependency-unblocking value
+  + decision-relevant information value
+  - execution, verification and coordination cost
+  - expected failure, rework and switching loss
+```
+
+This is a discussion model, not a new score field or production formula. Benefit belongs to the approved goal and horizon, not the model; deduplicate downstream contribution so unblocking and final delivery are not counted twice. Count a negative experiment when it eliminates a consequential uncertainty. Confidence, probability of task completion, evidence volume and semantic similarity are different quantities from value. Multiply probability by impact only for a well-defined event with calibration evidence; a Jev distribution is not automatically a calibrated engineering success probability.
+
+Start with attributable ordinal judgments/ranges for contribution, unblocking, information gain, cost, risk and uncertainty. Do not add ordinal buckets as if they were common numerical units. Use dominance or a caller-owned comparison rubric, expose tradeoffs and retain ties/unknowns. Numeric aggregation later needs a common utility scale, independent calibration and sensitivity analysis. Value per scarce resource is useful only with explicit resource constraints; naive value/time can indefinitely postpone large indispensable work. Preserve the owning fairness/deadline policy, dependency closure and useful exploration; missing evidence is not zero value.
+
+For example, among eligible P1 Todos, a small fix that unlocks several accepted dependencies may outrank easy polish; a bounded experiment may outrank both if it cheaply rules out an expensive approach. In Explore, a discriminating refutation can be more useful than another high-success repetition. These are illustrative preferences conditional on actual goal and cost evidence, not fixed task-class bonuses.
+
+### 3.3 D7: order within a legal Todo cohort
+
+1. The existing typed owner supplies the current legal candidate set. Preserve explicit priority, binding/claim/lease, dependencies, holds, quota and mandatory lane/fairness rules; compare only within the resulting same-priority, policy-equivalent cohort. A high value estimate cannot make a blocked or other-owned Todo eligible.
+2. Bind a bounded card to Todo identity/revision, approved goal/acceptance basis, outcome contribution, dependency/unblocking evidence, remaining effort, recent attempts and uncertainty. Compare against the normal Agent with its usual context, not just a weakened FIFO baseline.
+3. Initially return a shadow recommendation: ordered candidate references, reasons/evidence, ties, missing context and baseline order. Do not rewrite canonical priority, persisted/display order, ownership or state. Presentation order and execution selection are different contracts.
+4. Keep the full candidate set recoverable. If the window is truncated, record coverage and the selection rule; rotate/sample outside the top window to detect blind spots and starvation. No silent top-k exclusion. Incomplete/invalid/stale answers fall back to the unchanged baseline, with the reason visible.
+5. Any later adoption happens at the existing selection boundary with eligibility rechecked against current state; no inference in a pure reducer, status read or write transaction. Record recommendation versus actual selection/outcome separately. Reassess on relevant evidence changes or an explicit request, not every poll.
+
+### 3.4 D8: rank marginal research value under a fixed budget
+
+Current Explore is not a blank ranker: static scores encode priority/actionability/claims/frontier overlap, and the optional router uses history, uncertainty/coverage terms, novelty and infrastructure feedback. Its routing bias is separate from admission/value accounting. A proposed semantic estimate must be evaluated against that complete enabled baseline, not replace those quantities with Jev confidence.
+
+Compare eligible experiment or branch candidates using hypothesis, supporting/refuting evidence, prior attempts, expected discriminating observation, dependency/write-scope/resource constraints and total probe/verification cost. Estimate **marginal** information or outcome value given already selected candidates; correlated branches and shared setup make independent per-item sorting insufficient. Preserve dependency closure, diversity/exploration allowance, resource limits and the option to leave a lane unused. Distinguish scientific refutation from infrastructure failure. Neither novelty nor predicted success alone is the objective.
+
+Keep branch ordering, bundle construction, admission and outcome measurement separate. A ranker study changes ordering only; a bundle/admission change is another declared treatment. The existing composition-selection RFC supplies the bounded legal-set/model-choice design; do not create a competing selection protocol. Harness recommendations remain read-only and cannot launch workers, claim Todos, spend, promote findings or close research obligations.
+
+### 3.5 Evidence needed to retain the priority recommendation
+
+Use the section 6 A/B/C comparison for D7/D8, with the current deterministic order as a diagnostic ablation and the full Agent/router workflow as the real baseline. Freeze candidate snapshots, priority cohorts, profile, goal basis, history cutoff, independent utility rubric, budget and held-out task families. Count evidence preparation, ranker calls, latency, execution/verification, failed probes and human correction in total cost. A cheaper call that slows the whole workflow is not a saving.
+
+Offline replay can test coverage, constraint preservation, rank stability and agreement with independently judged preferences; it cannot establish the outcomes of unexecuted alternatives. Actual utility claims require authorized matched isolated runs or a prospective controlled study, preserving the same evaluator and budget. Avoid outcome leakage, repeated-task contamination and selection bias; report unobserved alternatives as unknown. Freeze numeric adoption/stop thresholds before provider results and report uncertainty rather than retrospectively choosing the winning metric.
+
+Include same-priority ties, a high-value blocked item, a low-cost low-impact item, a prerequisite with delayed benefit, uncertain high-upside work, negative experiments, correlated branches, cold start, infrastructure failures, stale/partial rankings, misleading self-description and repeated starvation. Measure useful outcome/value and decision regret where alternatives were actually evaluated; use top-k agreement and rank correlation only as diagnostics. Reorder or stop the proposal if gains vanish with better context, the existing model matches Jev at lower full cost, or decision quality/fairness degrades. No result from this documentation revision qualifies any provider.
 
 ## 4. Existing system and ownership
 
@@ -97,7 +161,19 @@ D1 is the worked research example because section 2 identifies a concrete detect
 | D5 skills | [Project Skill Delivery](../../../loopx/capabilities/project_skill_delivery/README.md), [extensions](../../reference/extensions.md) | Discovery, install, activation and domain permission remain separate. |
 | D6 planning / automation | [Explore](../../../loopx/capabilities/explore/README.md), [Manager Handoff](capable-manager-semantic-handoff-v0.md), [post-writeback hooks](provider-neutral-post-writeback-capability-hooks-v0.md), [Effect Interpreter](agent-loop-effect-interpreter-v0.md), [TS migration](typescript-control-plane-migration-v0.md) | Keep planner/effect authority in the existing typed owner. No network in pure reducers or primary writeback transactions; no automatic hook selected. |
 
-Placement is deliberately conditional: D1 would first investigate `decision_context`, D2 semantic developer tooling, D3 `pr_review_queue`, and D4–D6 their actual callers. No capability ID, provider ID, built-in addition or extension package is introduced. Existing owner sufficiency and the [extension placement rules](../../reference/extensions.md) must be reviewed for a real adopted caller, before code placement is chosen. The overall roadmap remains authoritative; this proposal does not reorder it.
+Placement is deliberately conditional: D1 would first investigate `decision_context`, D2 semantic developer tooling, D3 `pr_review_queue`, and D4–D6 their actual callers; D7 belongs to existing Todo selection/projection ownership and D8 to `explore`. Provider ID/delivery remain unselected; there is no new generic ranking capability. No capability ID, provider ID, built-in addition or extension package is introduced. Existing owner sufficiency and the [extension placement rules](../../reference/extensions.md) must be reviewed for a real adopted caller, before code placement is chosen. The overall roadmap remains authoritative; this proposal does not reorder it.
+
+### Source check for the opportunity extension
+
+The following paths were inspected at merged `main` `60d23a04f` for sections 3.1–3.5; this does not refresh every historical source claim above or establish a live quality result.
+
+| Caller / adjacent boundary | Existing owner and observed behavior | Proposed extension boundary |
+| --- | --- | --- |
+| D7 Todo selection/display | [Todo semantics](../../../loopx/control_plane/todos/todo_semantics.py): projection sorts by priority/index; display preserves explicit order or native timestamp/identity ties. [Scoped fallback](../../../loopx/control_plane/todos/decision_scope.ts): typed eligibility, priority, monitor-debt preference and persisted-order selection | These are specific paths, not proof of one global selector. Preserve policy tiers and display identity; reuse the typed selection owner for any later adoption |
+| D8 Todo/worker branch plans | [Todo branch plan](../../../loopx/capabilities/explore/todo_branch_plan.py), [worker branch plan](../../../loopx/capabilities/explore/worker_branch_plan.py), [scheduler](../../../loopx/capabilities/explore/speculative_scheduler.py), [router state](../../../loopx/capabilities/explore/router_state.py) | Static branch confidence/evidence units are heuristic; enabled routing feedback and admission already exist. Study semantic ranking increment without rewriting value accounting |
+| D8 composition candidate choice | [Research exploration RFC §8.4](research-exploration-control-plane-v0.md#84-bounded-autonomous-model-selection-deferred) | Bounded autonomous model selection is deferred design, not shipped Jev integration; reuse its legal-set/selection-receipt boundary if adopted |
+| D3 review ordering | [Review scheduling](../../../loopx/capabilities/pr_review_queue/scheduling.py) | Community/owner policy and aging tiers already exist; semantic review focus cannot displace required review or those tiers |
+| Deferred replay placement | [Adaptive replay planner](../../../loopx/capabilities/explore/adaptive_replay_planner.py) | Measured/adapter-estimated savings, fidelity and costs have a dedicated owner; no evidence here that another model improves this arithmetic |
 
 ## 5. Proposed bounded comparison
 
@@ -178,7 +254,7 @@ If persistence or cross-process deduplication is introduced, define its retentio
 
 | Claim | Evidence / required result | Boundary |
 | --- | --- | --- |
-| Reviewable comparison proposal | Matching English/Chinese scope, six candidates, actual baseline, A/B/C, alternatives and stop rules; valid references | Document completeness does not approve the research topic or certify model value |
+| Reviewable comparison proposal | Matching English/Chinese scope, eight candidates and provisional ordering, actual baseline, A/B/C, alternatives and stop rules; valid references | Document completeness does not approve the research topic or certify model value |
 | Document intake decision | Section 1 and Appendix B record the [M0 intake decision](https://github.com/loopx-project/loopx/pull/4749#pullrequestreview-5259253204): accepted-for-discussion only | Q1–Q7 remain pending; intake does not authorize an M1 study, qualify Jev or approve product adoption |
 | Source-bounded motivation | Section 2 is traceable to the named trigger and section 4 distinguishes other owners | No whole-system blindness or strict-superset claim |
 
@@ -225,11 +301,11 @@ Choose supplementary observation, bounded replacement or prioritization explicit
 
 ## 11. Conditional delivery plan
 
-M0 concerns the discussion document and its intake decision; Q1–Q4 concern admission to M1, and Q5–Q7 concern any later product adoption. These decisions are recorded separately. The [M0 intake decision](https://github.com/loopx-project/loopx/pull/4749#pullrequestreview-5259253204) accepts M0 discussion intake; final exact-head review and merge remain separate. Later milestones are conditional, not a promise to study or build all scenarios; historical entries remain historical.
+M0 concerns the discussion document and its intake decision; Q1–Q4 concern admission to M1, and Q5–Q7 concern any later product adoption. These decisions are recorded separately. The [M0 intake decision](https://github.com/loopx-project/loopx/pull/4749#pullrequestreview-5259253204) accepted M0 discussion intake, subsequently merged in #4749; this extension remains subject to its own PR review. Later milestones are conditional, not a promise to study or build all scenarios; historical entries remain historical.
 
 | Stage | Deliverable | Entry / exit decision | Exit or rollback |
 | --- | --- | --- | --- |
-| M0 | Bilingual discussion of Agent/assessment roles, six unranked scenarios and comparison criteria | **Accepted-for-discussion** by the [M0 intake decision](https://github.com/loopx-project/loopx/pull/4749#pullrequestreview-5259253204); record the decision in both languages and index | Discussion intake only; Q1–Q7 remain pending, with no study or implementation authorized |
+| M0 | Bilingual discussion of Agent/assessment roles and comparison criteria; proposed eight-scenario opportunity ordering | **Accepted-for-discussion** by the [M0 intake decision](https://github.com/loopx-project/loopx/pull/4749#pullrequestreview-5259253204); record the decision in both languages and index | Discussion intake only; Q1–Q7 remain pending, with no study or implementation authorized |
 | M1 | One authorized A/B/C comparison, or a documented inability to evaluate | Q1–Q4 explicitly resolved for the selected study: caller, checkpoint, inputs, rubric, permission and budget → evidence supports adoption or stopping | Stop calls; retain/delete study evidence by policy; no production commitment |
 | M2 | One conditional product pilot under the existing owner | Supported value and owner adoption decision → real entrypoint, applicable F01–F12, compatibility and operator acceptance | Disable/remove optional path; preserve original authority |
 | M3 | A second independently justified caller | Real need and qualification → demonstrated reusable mechanism | Extract only proven duplication; do not manufacture a second caller |
@@ -241,8 +317,8 @@ No default D1 implementation, automatic worker adoption or hidden mandatory-mode
 
 | ID | Decision / options | Recommendation and evidence needed | Owner / dependent stage |
 | --- | --- | --- | --- |
-| Q1 | Is this research topic worth pursuing; which direction or none? | No preset ranking; select only from an evidenced problem, current Agent coverage, context needs and comparison feasibility | Product and domain maintainer; before M1 |
-| Q2 | Which finite question, checkpoint and observation window? | One primary hypothesis; D1 relationship/increment with waiting and missing history represented honestly | Selected caller and evaluation owner; before M1 |
+| Q1 | Is this research topic worth pursuing; which direction or none? | Start the selection discussion with D7/D8 (section 3.1); confirm an evidenced problem, current Agent coverage, context and comparison feasibility, or reorder/defer | Product and domain maintainer; before M1 |
+| Q2 | Which finite question, checkpoint and observation window? | One primary hypothesis; D7 uses a legal same-priority cohort, D8 a fixed research portfolio; D1 preserves relation/increment, waiting and missing history | Selected caller and evaluation owner; before M1 |
 | Q3 | Existing-model comparator and independent rubric | A/B/C with fair inputs; freeze thresholds, error costs, language strata and adjudication before results | Evaluation owner; before M1 |
 | Q4 | Authorized data, destination, model and spend | Minimum necessary input, pinned/actual model, bounded calls and retention; reject if infeasible | Data/operations owner; before live comparison |
 | Q5 | Observation, replacement, triage or no adoption? | Adopt only demonstrated full-workflow value; triage includes unflagged sampling | Product/domain owner; before M2 |
@@ -273,6 +349,12 @@ No default D1 implementation, automatic worker adoption or hidden mandatory-mode
 - **Delivered:** Reframed the question around Agent/assessment roles, removed candidate priority rankings, added context-sensitive comparison criteria, and proposed separate M0 intake, M1 study and M2 adoption decisions.
 - **Boundary:** Documentation revision only. Intake, study selection and adoption remain unapproved; no experiment or runtime change.
 
+### 2026-09-20 — Expected-value opportunity extension
+
+- **Baseline:** merged `main` `60d23a04f`; source check in section 4.
+- **Delta:** D7/D8, provisional opportunity ordering, expected-value decomposition and bounded ranking comparisons; bilingual text and index updated.
+- **Evidence/remaining gap:** source inspection and documentation only. No live provider comparison, production ranker or new authority; Q1–Q7 remain pending.
+
 ## Appendix B: Decision log
 
 | Date | Proposal / decision | Owner / approval state | Alternatives | Sections |
@@ -296,7 +378,7 @@ Record any future accepting decision with its actual public link and exact scope
 
 ## Appendix D: Deferred mechanisms and rejected shortcuts
 
-The earlier D1 CLI/profile v1/optional-package/private-attempt proposal remains in Git history as an unselected alternative. Reopen only after a real caller and comparative value justify it; do not maintain a second full specification. Reject confidence-to-action shortcuts, probability-shaped rules, model output as a verifier receipt, whole-system claims inferred from one detector, and a generic six-scenario framework without callers.
+The earlier D1 CLI/profile v1/optional-package/private-attempt proposal remains in Git history as an unselected alternative. Reopen only after a real caller and comparative value justify it; do not maintain a second full specification. Reject confidence-to-action shortcuts, probability-shaped rules, model output as a verifier receipt, whole-system claims inferred from one detector, and a generic multi-scenario framework without callers.
 
 ## Appendix E: Discussion evolution and review lessons
 
@@ -311,6 +393,7 @@ This is a public-safe synthesis of the reasoning, not a transcript, a new experi
 | 5. Compare with the models already present | Does Jev add a capability, or duplicate executing/reviewing Agents? | Evidence preparation, role separation and provider replacement can each cause apparent improvement. API success alone cannot distinguish them. | Section 6 adds A/B/C, full-workflow cost and legitimate no-adoption outcomes. D1 remains a worked hypothesis; the earlier provisional rankings are removed, leaving six unranked scenarios. |
 | 6. Reconcile the proposal with maintainer review | The original draft made a detailed D1 CLI/package/profile/attempt proposal. | The [maintainer review](https://github.com/loopx-project/loopx/pull/4749#pullrequestreview-5257146745) found no accepted owner decision supporting that investment; the [author self-review](https://github.com/loopx-project/loopx/pull/4749#pullrequestreview-5256367074) had assessed internal completeness, which does not establish demand. | Sections 1, 11 and 12 now request a research-scope decision. Mechanisms are deferred in Appendix D. Appendix B records owner acceptance as pending; this correction does not dismiss the request-changes. |
 | 7. Separate intake from investment | Does keeping a Draft imply that its research or provider is selected? | The [review at that revision](https://github.com/loopx-project/loopx/pull/4749#pullrequestreview-5259173141) requests a scope decision before indexing. Document readiness cannot supply it, but the requested intake scope must also be distinguished from experiment approval. | Sections 1/9/11 propose an explicit discussion-only intake decision; Q1–Q4 still precede M1 and Q5–Q7 precede adoption. Section 3 removes priorities; section 6 compares context needs and judgment quality without assuming either evaluator is smarter. No approval or review dismissal is inferred. |
+| 8. Prioritize concrete allocation opportunities | Same-priority Todos and Explore candidates offer recurring bounded choices. | Existing Agents and Explore routing already rank work; semantic value, calibrated probability and authority are different. | Section 3 now recommends a source-grounded investigation order and marginal-value comparison. This supersedes the earlier no-ranking recommendation, not the M0-only acceptance boundary; Q1–Q7 remain pending. |
 
 **Current decision:** M0 is accepted-for-discussion by the [M0 intake decision](https://github.com/loopx-project/loopx/pull/4749#pullrequestreview-5259253204); earlier pending statements in the history describe their then-current state.
 
