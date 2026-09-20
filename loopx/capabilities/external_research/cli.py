@@ -40,9 +40,10 @@ def _provider_inventory(value: Mapping[str, Any]) -> list[dict[str, object]]:
 
 
 def _connector_inventory(path_text: str | None) -> list[dict[str, object]]:
-    if not path_text:
+    if path_text is None:
         return []
-    state = load_connector_registry(Path(path_text).expanduser())
+    registry_path = None if path_text == "" else Path(path_text).expanduser()
+    state = load_connector_registry(registry_path)
     return [
         {
             "provider_id": f"connector:{connector['id']}",
@@ -93,6 +94,17 @@ def _render(payload: dict[str, object]) -> str:
     selected = payload.get("selected_provider")
     if isinstance(selected, Mapping):
         lines.append(f"- selected_provider: `{selected.get('provider_id')}`")
+    summary = payload.get("summary")
+    if isinstance(summary, Mapping):
+        for field in (
+            "provider_count",
+            "method_count",
+            "connector_count",
+            "ready_count",
+            "unavailable_count",
+        ):
+            if field in summary:
+                lines.append(f"- {field}: `{summary.get(field)}`")
     return "\n".join(lines) + "\n"
 
 
@@ -106,6 +118,14 @@ def register_external_evidence_commands(
     )
     actions = parser.add_subparsers(dest="external_evidence_action", required=True)
 
+    discover = actions.add_parser(
+        "discover",
+        help="Project method and connector inventory without claiming execution readiness.",
+    )
+    discover.add_argument("--provider-inventory-json")
+    discover.add_argument("--connector-registry", nargs="?", const="")
+    add_subcommand_format(discover)
+
     plan = actions.add_parser("plan", help="Select one currently ready evidence provider.")
     plan.add_argument("--objective", required=True)
     plan.add_argument("--user-activity", required=True)
@@ -113,7 +133,7 @@ def register_external_evidence_commands(
     plan.add_argument("--evidence-kind", action="append", required=True)
     plan.add_argument("--constraint", action="append", default=[])
     plan.add_argument("--provider-inventory-json", required=True)
-    plan.add_argument("--connector-registry")
+    plan.add_argument("--connector-registry", nargs="?", const="")
     plan.add_argument("--preferred-provider-id")
     add_subcommand_format(plan)
 
@@ -140,7 +160,23 @@ def handle_external_evidence_command(
     if args.command != "external-evidence":
         return None
     try:
-        if args.external_evidence_action == "plan":
+        if args.external_evidence_action == "discover":
+            providers = _merge_providers(
+                _connector_inventory(args.connector_registry),
+                []
+                if args.provider_inventory_json is None
+                else _provider_inventory(
+                    _load_object(
+                        args.provider_inventory_json,
+                        label="external evidence provider inventory",
+                    )
+                ),
+            )
+            payload = effect_runtime_result(
+                "external_evidence.discover",
+                {"providers": providers},
+            )
+        elif args.external_evidence_action == "plan":
             inventory = _load_object(
                 args.provider_inventory_json,
                 label="external evidence provider inventory",
@@ -188,7 +224,7 @@ def handle_external_evidence_command(
                 },
             )
         else:
-            raise ValueError("external-evidence requires plan, admit, or retire")
+            raise ValueError("external-evidence requires discover, plan, admit, or retire")
     except (RuntimeError, ValueError) as exc:
         payload = {
             "ok": False,

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   evaluateExternalEvidenceAdmission,
   planExternalEvidenceRequest,
+  projectExternalEvidenceDiscovery,
   projectExternalEvidenceRetirement,
 } from "../../loopx/control_plane/capabilities/external_evidence.ts";
 
@@ -69,6 +70,35 @@ function receipt(requestId: unknown) {
     completed_at: "2026-09-20T10:01:00Z",
   };
 }
+
+test("discovers method and connector inventory without claiming execution", () => {
+  const result = projectExternalEvidenceDiscovery({
+    providers: [methodProvider, registryOnlyConnector],
+  });
+  assert.equal(result.status, "ready");
+  assert.deepEqual(result.ready_provider_ids, ["host:external-research"]);
+  assert.deepEqual(result.summary, {
+    provider_count: 2,
+    method_count: 1,
+    connector_count: 1,
+    ready_count: 1,
+    unavailable_count: 1,
+  });
+  assert.deepEqual(result.truth_contract, {
+    registry_presence_is_readiness: false,
+    supported_status_is_readiness: false,
+    execution_observed: false,
+    evidence_coverage_observed: false,
+  });
+});
+
+test("reports connector-only discovery as inventory-only", () => {
+  const result = projectExternalEvidenceDiscovery({
+    providers: [registryOnlyConnector],
+  });
+  assert.equal(result.status, "inventory_only");
+  assert.deepEqual(result.ready_provider_ids, []);
+});
 
 test("plans one ready provider without treating registry presence as readiness", () => {
   const result = plan();

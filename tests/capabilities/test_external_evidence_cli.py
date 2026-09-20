@@ -13,6 +13,69 @@ def _print_payload(payload, _format, _renderer):
     _print_payload.payload = payload
 
 
+def test_discover_projects_connector_registry_as_inventory_only(
+    tmp_path: Path, monkeypatch
+) -> None:
+    registry_path = tmp_path / "connectors.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "connector_registry_v1",
+                "connectors": [
+                    {
+                        "id": "official-docs",
+                        "name": "Official docs",
+                        "layer": "L1",
+                        "kind": "documentation",
+                        "status": "supported",
+                        "value_tier": "P1",
+                    }
+                ],
+                "usage": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_runtime(method, params):
+        captured["method"] = method
+        captured["params"] = params
+        return {
+            "schema_version": "loopx_external_evidence_discovery_v0",
+            "status": "inventory_only",
+        }
+
+    monkeypatch.setattr(cli, "effect_runtime_result", fake_runtime)
+    args = argparse.Namespace(
+        command="external-evidence",
+        external_evidence_action="discover",
+        provider_inventory_json=None,
+        connector_registry=str(registry_path),
+    )
+    assert cli.handle_external_evidence_command(
+        args,
+        output_format=lambda _args: "json",
+        print_payload=_print_payload,
+    ) == 0
+    assert captured["method"] == "external_evidence.discover"
+    connector = next(
+        provider
+        for provider in captured["params"]["providers"]
+        if provider["provider_id"] == "connector:official-docs"
+    )
+    assert connector == {
+        "provider_id": "connector:official-docs",
+        "provider_kind": "connector",
+        "protocol": "external_evidence_research_v0",
+        "declared": True,
+        "installed": False,
+        "enabled": False,
+        "ready": False,
+        "unavailable_reason": "connector_registry_is_inventory_not_readiness",
+    }
+
+
 def test_plan_projects_registry_as_inventory_not_readiness(tmp_path: Path, monkeypatch) -> None:
     provider_path = tmp_path / "providers.json"
     provider_path.write_text(
@@ -169,3 +232,50 @@ def test_source_cli_reaches_typescript_owner(tmp_path: Path) -> None:
     assert payload["schema_version"] == "loopx_external_evidence_plan_v0"
     assert payload["status"] == "ready"
     assert payload["selected_provider"]["provider_id"] == "host:external-research"
+
+
+def test_source_cli_discovers_inventory_without_claiming_readiness(tmp_path: Path) -> None:
+    registry_path = tmp_path / "connectors.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "connector_registry_v1",
+                "connectors": [
+                    {
+                        "id": "official-docs",
+                        "name": "Official docs",
+                        "layer": "L1",
+                        "kind": "documentation",
+                        "status": "supported",
+                        "value_tier": "P1",
+                    }
+                ],
+                "usage": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "loopx.cli",
+            "external-evidence",
+            "discover",
+            "--connector-registry",
+            str(registry_path),
+            "--format",
+            "json",
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+    assert payload["schema_version"] == "loopx_external_evidence_discovery_v0"
+    assert payload["status"] == "inventory_only"
+    assert payload["summary"]["provider_count"] >= 1
+    assert payload["summary"]["connector_count"] == payload["summary"]["provider_count"]
+    assert payload["summary"]["ready_count"] == 0
+    assert payload["truth_contract"]["execution_observed"] is False

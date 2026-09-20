@@ -17,21 +17,25 @@ provider 的调用与回执语义，但不把两者伪装成同一种实现：
 
 The lifecycle is:
 
-1. `plan`: bind **object + user activity + decision** and required evidence
+1. `discover`: project method and connector inventory plus current readiness,
+   while explicitly keeping registry presence, execution, and evidence coverage
+   false unless separately observed;
+2. `plan`: bind **object + user activity + decision** and required evidence
    kinds to one provider that is currently declared, installed, enabled, and
    ready;
-2. provider execution: the selected host method or connector reads external
+3. provider execution: the selected host method or connector reads external
    sources under its own adapter and permission boundary;
-3. `admit`: validate the exact request/provider identity and source-level
+4. `admit`: validate the exact request/provider identity and source-level
    provenance, bind the complete receipt digest, then record the parent agent's
    admit/reject decision;
-4. downstream projection: pass only compact findings, limitations, direct
+5. downstream projection: pass only compact findings, limitations, direct
    references, evidence basis, dates, and content digests;
-5. `retire`: retire rejected evidence immediately, or admitted evidence only
+6. `retire`: retire rejected evidence immediately, or admitted evidence only
    after every admitted source reference appears in downstream readback.
 
-生命周期为：`plan` 绑定“对象 + 用户活动 + 决策”并选择当前真实 ready 的
-provider；provider 在自己的权限边界内执行；`admit` 校验请求、provider、完成时间、
+生命周期为：`discover` 只读投影 method/connector 库存与当前 readiness，并明确区分
+registry presence、真实执行和证据覆盖；`plan` 绑定“对象 + 用户活动 + 决策”并选择当前
+真实 ready 的 provider；provider 在自己的权限边界内执行；`admit` 校验请求、provider、完成时间、
 完整 receipt digest 与逐来源 provenance，并记录父 Agent 的采纳/拒绝；下游只投影紧凑证据；被采纳的来源全部完成
 下游读回后才可 `retire`。
 
@@ -47,6 +51,10 @@ provider 生命周期读回证明 installed/enabled/ready 之前仍投影为 `re
 ## CLI / 命令行
 
 ```bash
+loopx external-evidence discover \
+  --connector-registry \
+  --format json
+
 loopx external-evidence plan \
   --objective "Compare current behavior" \
   --user-activity "Choose an implementation" \
@@ -82,12 +90,12 @@ credentials, and private notes remain provider-private.
 - Python adapts the existing CLI and effect-runtime transport; it does not
   reimplement those decisions.
 - Managed Turn callers can invoke the same effect-runtime methods:
-  `external_evidence.plan`, `external_evidence.admit`, and
+  `external_evidence.discover`, `external_evidence.plan`, `external_evidence.admit`, and
   `external_evidence.retire`.
 - Frontend and Lark are companion slices. They should render the same plan and
   admission projection; neither gets an independent provider registry or
   evidence state machine.
 
-TypeScript 是请求身份、provider 准入、provenance 校验、父 Agent 采纳、紧凑投影与
+TypeScript 是 discovery 真值边界、请求身份、provider 准入、provenance 校验、父 Agent 采纳、紧凑投影与
 退休条件的唯一语义 owner。Python 仅适配 CLI 与 effect-runtime transport。Managed
 Turn 复用同一方法；frontend/Lark 后续只渲染同源投影，不新建 registry 或状态机。

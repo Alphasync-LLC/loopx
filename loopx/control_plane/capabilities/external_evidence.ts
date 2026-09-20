@@ -10,6 +10,8 @@ import {
 
 export const EXTERNAL_EVIDENCE_REQUEST_SCHEMA_VERSION =
   "loopx_external_evidence_request_v0";
+export const EXTERNAL_EVIDENCE_DISCOVERY_SCHEMA_VERSION =
+  "loopx_external_evidence_discovery_v0";
 export const EXTERNAL_EVIDENCE_PLAN_SCHEMA_VERSION =
   "loopx_external_evidence_plan_v0";
 export const EXTERNAL_EVIDENCE_RECEIPT_SCHEMA_VERSION =
@@ -147,15 +149,50 @@ function normalizeProvider(value: unknown, index: number): JsonObject {
   };
 }
 
-export function planExternalEvidenceRequest(params: JsonObject): JsonObject {
-  const request = normalizeRequest(params.request);
-  requireThat(Array.isArray(params.providers), "providers must be an array");
-  requireThat(params.providers.length <= 64, "providers has too many items");
-  const providers = params.providers.map(normalizeProvider);
+function normalizeProviders(value: unknown): JsonObject[] {
+  requireThat(Array.isArray(value), "providers must be an array");
+  requireThat(value.length <= 64, "providers has too many items");
+  const providers = value.map(normalizeProvider);
   requireThat(
     new Set(providers.map((provider) => provider.provider_id)).size === providers.length,
     "provider ids must be unique",
   );
+  return providers;
+}
+
+export function projectExternalEvidenceDiscovery(params: JsonObject): JsonObject {
+  const providers = normalizeProviders(params.providers);
+  const readyProviders = providers.filter((provider) => provider.ready === true);
+  const methodCount = providers.filter((provider) => provider.provider_kind === "method").length;
+  const connectorCount = providers.length - methodCount;
+  return {
+    schema_version: EXTERNAL_EVIDENCE_DISCOVERY_SCHEMA_VERSION,
+    status: providers.length === 0
+      ? "empty"
+      : readyProviders.length > 0
+      ? "ready"
+      : "inventory_only",
+    providers,
+    summary: {
+      provider_count: providers.length,
+      method_count: methodCount,
+      connector_count: connectorCount,
+      ready_count: readyProviders.length,
+      unavailable_count: providers.length - readyProviders.length,
+    },
+    ready_provider_ids: readyProviders.map((provider) => provider.provider_id),
+    truth_contract: {
+      registry_presence_is_readiness: false,
+      supported_status_is_readiness: false,
+      execution_observed: false,
+      evidence_coverage_observed: false,
+    },
+  };
+}
+
+export function planExternalEvidenceRequest(params: JsonObject): JsonObject {
+  const request = normalizeRequest(params.request);
+  const providers = normalizeProviders(params.providers);
   const preferredProviderId = params.preferred_provider_id === undefined ||
       params.preferred_provider_id === null
     ? null

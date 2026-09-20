@@ -31,6 +31,12 @@ constraints. A provider is selectable only when current readback says all four
 of `declared`, `installed`, `enabled`, and `ready`. Provider kinds are `method`
 and `connector`; their execution remains with their existing owner.
 
+Discovery is a read-only typed projection. It reports method/connector counts,
+ready and unavailable counts, and ready provider ids. It also carries an
+explicit truth contract: registry presence and `supported` status are not
+readiness, and discovery itself observes neither provider execution nor
+evidence coverage.
+
 The receipt binds the exact request, selected provider, completion time, and a
 digest over the complete receipt. Each admitted source has a direct non-file
 reference, source family, evidence basis (`stated`,
@@ -55,8 +61,8 @@ inventory-only row for the same provider id.
 
 ## Product surfaces
 
-- CLI: `external-evidence plan|admit|retire`.
-- Managed Turn: the same three effect-runtime methods.
+- CLI: `external-evidence discover|plan|admit|retire`.
+- Managed Turn: the same four effect-runtime methods.
 - Frontend/Lark: not changed in this Core slice. A companion slice should render
   the same typed plan/admission projection and readback; it must not invent a
   second registry or lifecycle.
@@ -64,6 +70,8 @@ inventory-only row for the same provider id.
 ## Acceptance
 
 - inventory-only connectors cannot be selected;
+- discovery distinguishes empty, inventory-only, and ready inventories without
+  claiming execution or evidence coverage;
 - method and connector providers use one protocol and receipt contract;
 - stale request/provider identity, file provenance, and unsupported evidence
   basis fail closed;
