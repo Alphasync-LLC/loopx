@@ -203,6 +203,7 @@ def _task_lease_authority_projection(
     todo_id: str,
     goal: dict[str, Any] | None,
     state_file: Path | None,
+    project_todos: bool = True,
 ) -> tuple[Any, list[Any], list[dict[str, Any]], dict[str, Any] | None]:
     from ...todos import list_goal_todos
     from ..goals.active_state_metadata import parse_state_frontmatter
@@ -215,6 +216,8 @@ def _task_lease_authority_projection(
         handoff_mode = parse_state_frontmatter(
             state_file.read_text(encoding="utf-8")
         ).get("handoff_mode")
+    if not project_todos:
+        return handoff_mode, _raw_registered_agent_candidates(goal), [], None
     try:
         projection = list_goal_todos(
             registry_path=registry_path,
@@ -258,6 +261,7 @@ def _task_lease_authority_snapshot_attempt(
     registry_path: Path,
     goal_id: str,
     todo_id: str,
+    project_todos: bool = True,
 ) -> dict[str, Any] | None:
     registry_receipt_before = _authority_source_receipt("registry", registry_path)
     registry = load_registry(registry_path)
@@ -279,6 +283,7 @@ def _task_lease_authority_snapshot_attempt(
             todo_id=todo_id,
             goal=goal,
             state_file=state_file,
+            project_todos=project_todos,
         )
     )
 
@@ -309,14 +314,16 @@ def task_lease_acquire_authority_facts(
     registry_path: Path,
     goal_id: str,
     todo_id: str,
+    project_todos: bool = True,
 ) -> dict[str, Any]:
-    """Project a source-stable, decision-free acquire input snapshot."""
+    """Project source-stable facts; inspection can defer Todo parsing to TS demand."""
 
     for _attempt in range(TASK_LEASE_AUTHORITY_SNAPSHOT_ATTEMPTS):
         facts = _task_lease_authority_snapshot_attempt(
             registry_path=registry_path,
             goal_id=goal_id,
             todo_id=todo_id,
+            project_todos=project_todos,
         )
         if facts is not None:
             return facts
@@ -827,3 +834,56 @@ def execute_native_task_lease_lifecycle(
         # fence read it from the nested native payload before redacting it.
         return result
     raise RuntimeError("native task-lease lifecycle exhausted source-CAS retries")
+
+
+def inspect_native_task_lease(
+    *, registry_path: Path, runtime_root: Path, goal_id: str, todo_id: str,
+) -> dict[str, Any]:
+    """Project source facts; the typed reader owns lease interpretation."""
+    from ..coordination.local_authority import (
+        LOCAL_AUTHORITY_SOURCES, LocalCoordinationAuthorityUnavailable,
+        local_authority_is_promoted,
+    )
+    from ..effect_runtime import effect_runtime_result
+
+    for attempt in range(TASK_LEASE_AUTHORITY_SNAPSHOT_ATTEMPTS):
+        canonical = local_authority_is_promoted(runtime_root=runtime_root, goal_id=goal_id)
+        # TS alone decides whether the retained lease needs current Todo facts.
+        # Inactive legacy inspection must not parse the full work document.
+        authority = _canonical_lease_authority_facts(registry_path, goal_id) if canonical else task_lease_acquire_authority_facts(
+            registry_path=registry_path, goal_id=goal_id, todo_id=todo_id, project_todos=False,
+        )
+        request = {
+            "schema_version": "loopx_task_lease_inspect_request_v0",
+            "source": "canonical" if canonical else "legacy",
+            "phase": "effective_lease" if canonical else "lease_record",
+            "runtime_root": str(runtime_root.resolve()), "goal_id": goal_id,
+            "todo_id": todo_id, "authority": authority,
+        }
+        result = effect_runtime_result("task_lease.inspect.native", request)
+        if isinstance(result, dict) and result.get("todo_projection_required") is True:
+            if canonical or result.get("ok") is not True or result.get("action") != "inspect":
+                raise RuntimeError("native lease inspection requested an invalid source projection")
+            request["phase"] = "effective_lease"
+            request["authority"] = task_lease_acquire_authority_facts(
+                registry_path=registry_path, goal_id=goal_id, todo_id=todo_id,
+            )
+            # Re-read the lease and fence: neither the record nor its expiry is
+            # assumed unchanged while Python prepares the Todo projection.
+            result = effect_runtime_result("task_lease.inspect.native", request)
+        if not isinstance(result, dict) or result.get("schema_version") != TASK_LEASE_SCHEMA_VERSION or result.get("action") != "inspect" or not isinstance(result.get("ok"), bool):
+            raise RuntimeError("native lease inspection result shape mismatch")
+        if result.get("error_code") == "authority_source_changed" and attempt + 1 < TASK_LEASE_AUTHORITY_SNAPSHOT_ATTEMPTS:
+            continue
+        if result.get("ok") is not True:
+            code = str(result.get("error_code") or "task_lease_inspection_unavailable")
+            exception = LocalCoordinationAuthorityUnavailable if canonical and code != "corrupt_lease" else TaskLeaseError
+            raise exception(str(result.get("error") or "lease inspection unavailable"), code=code, payload=result)
+        if not isinstance(result.get("active"), bool) or (canonical and (
+            result.get("source_authority") not in LOCAL_AUTHORITY_SOURCES
+            or not isinstance(result.get("provider_revision"), str)
+            or result.get("legacy_fallback_used") is not False
+        )):
+            raise RuntimeError("native lease inspection omitted source evidence")
+        return result
+    raise RuntimeError("native lease inspection exhausted source retries")
