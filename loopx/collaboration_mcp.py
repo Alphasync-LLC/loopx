@@ -223,28 +223,16 @@ class Delegations:
             raise ValueError("delegation cannot depend on itself")
         path = self.path(operation_id)
         with exclusive_file_lock(path.with_suffix(".dispatch")):
-            if path.exists():
-                source_id = "peer:" + _hash([self.goal_id, self.agent_id, operation_id])
-                request_id = _hash([source_id, {"goal_id": self.goal_id, "agent_id": binding["agent_id"]}])
-                identity = {"binding": binding, "request_id": request_id, "operation_id": operation_id}
-                entry = _entry(self.root, self.goal_id, binding["agent_id"], request_id)
-                expected_entry = {
-                    "request_id": request_id,
-                    "goal_id": self.goal_id,
-                    "agent_id": binding["agent_id"],
-                    "source_id": source_id,
-                    "source_agent_id": self.agent_id,
-                    "parent_request_id": parent_request_id,
-                    "brief": brief,
-                }
-                if (_read(path).get("identity") != identity
-                        or any(entry.get(key) != value for key, value in expected_entry.items())):
+            exists = path.exists()
+            if not exists:
+                delegation_results.require_dependencies(self, binding, brief)
+            delivered = request(self.root, self.registry, self.goal_id, self.agent_id,
+                                binding["agent_id"], operation_id, brief, parent_request_id)
+            identity = {"binding": binding, "request_id": delivered["request_id"], "operation_id": operation_id}
+            if exists:
+                if _read(path).get("identity") != identity:
                     raise ValueError("delegation operation identity conflict")
             else:
-                delegation_results.require_dependencies(self, binding, brief)
-                delivered = request(self.root, self.registry, self.goal_id, self.agent_id,
-                                    binding["agent_id"], operation_id, brief, parent_request_id)
-                identity = {"binding": binding, "request_id": delivered["request_id"], "operation_id": operation_id}
                 _write(path, {"identity": identity, "status": "prepared", "created_at": time.time()})
                 self._spawn(operation_id)
         return self.read(operation_id)
