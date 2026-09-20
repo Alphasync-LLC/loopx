@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from ..effect_runtime import effect_runtime_result
+from . import local_authority_shadow_observation
 from .coordination_state_contract_generated import (
     COORDINATION_RUNTIME_SHADOW_BOOTSTRAP_REQUEST_SCHEMA as RUNTIME_SHADOW_BOOTSTRAP_REQUEST_SCHEMA_VERSION,
     COORDINATION_RUNTIME_SHADOW_BOOTSTRAP_RESULT_SCHEMA,
@@ -48,6 +49,48 @@ class CoordinationRuntimeShadowConfig:
     enabled: bool
     provider: str | None
     reason_code: str
+
+
+def coordination_shadow_summaries(
+    goal: Mapping[str, Any] | None,
+) -> dict[str, dict[str, object]]:
+    """Project both distinct pre-promotion shadow configurations."""
+
+    return {
+        "local_authority_shadow": local_authority_shadow_observation.local_authority_shadow_summary(
+            goal
+        ),
+        "coordination_runtime_shadow": coordination_runtime_shadow_summary(goal),
+    }
+
+
+def validate_coordination_shadow_changes(
+    local_enable_file: bool,
+    local_clear: bool,
+    runtime_enable_file: bool,
+    runtime_clear: bool,
+) -> None:
+    """Validate both default-off shadow configuration seams."""
+
+    local_authority_shadow_observation.validate_local_authority_shadow_change(
+        local_enable_file, local_clear
+    )
+    validate_coordination_runtime_shadow_change(runtime_enable_file, runtime_clear)
+
+
+def apply_coordination_shadow_changes(
+    goal: dict[str, Any],
+    local_enable_file: bool,
+    local_clear: bool,
+    runtime_enable_file: bool,
+    runtime_clear: bool,
+) -> None:
+    """Apply observation and transaction-bound shadow settings together."""
+
+    local_authority_shadow_observation.apply_local_authority_shadow_change(
+        goal, local_enable_file, local_clear
+    )
+    apply_coordination_runtime_shadow_change(goal, runtime_enable_file, runtime_clear)
 
 
 def coordination_runtime_shadow_summary(
