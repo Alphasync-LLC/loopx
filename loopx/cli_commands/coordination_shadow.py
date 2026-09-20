@@ -57,7 +57,7 @@ def register_coordination_shadow_command(
         ),
         (
             "promote",
-            "Preview or explicitly apply the reviewed whole-Goal cutover.",
+            "Preview or explicitly apply the reviewed whole-Goal coordination-authority cutover.",
         ),
         (
             "bootstrap",

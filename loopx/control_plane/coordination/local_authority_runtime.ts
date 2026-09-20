@@ -120,7 +120,8 @@ export function sourceAuthorityFor(store: AuthorityStore) {
 }
 
 /**
- * Reviewed operator path for a whole-Goal cutover. Preview is effect-free.
+ * Reviewed operator path for a whole-Goal coordination-authority cutover.
+ * Preview is effect-free.
  * Execute revalidates the exact legacy snapshot, qualifies the exact shadow
  * lineage, fences legacy writers and seeds canonical authority while holding
  * the shared maintenance/source locks.
@@ -130,6 +131,10 @@ export async function reviewLocalCoordinationAuthorityPromotion(
   dependencies: LocalAuthorityRuntimeDependencies = {},
 ): Promise<JsonObject> {
   const schema = LOCAL_COORDINATION_PROMOTION_REVIEW_RESULT_SCHEMA;
+  let writerFenceVerified = false;
+  const fenceEvidence: {current: {runtimeRoot: string; goalId: string; fence: JsonObject} | null} = {
+    current: null,
+  };
   try {
     const input = decodeRuntimeShadowRequest(
       value,
@@ -184,7 +189,7 @@ export async function reviewLocalCoordinationAuthorityPromotion(
           status: "not_ready",
           executed: false,
           reason_code: "local_authority_promotion_requires_hard_lease",
-          reason: "v0 whole-Goal promotion requires an already-qualified hard_lease Goal",
+          reason: "v0 whole-Goal coordination-authority promotion requires an already-qualified hard_lease Goal",
           qualification: publicQualification,
           legacy_writer_fenced: false,
           legacy_fallback_used: false,
@@ -213,6 +218,7 @@ export async function reviewLocalCoordinationAuthorityPromotion(
           required_event_kinds: requiredEventKinds,
           writer_fence: fence,
         };
+        fenceEvidence.current = {runtimeRoot: input.runtime_root, goalId: input.goal_id, fence};
         const existing = await canonical.loadAuthority();
         if (existing.status === "loaded") {
           const readback = await promotionReadback(canonical, request);
@@ -244,19 +250,30 @@ export async function reviewLocalCoordinationAuthorityPromotion(
           input.runtime_root,
           input.goal_id,
         );
-        if (persistedFence.status !== "missing") return {
+        const recoveringFromFence = persistedFence.status === "loaded";
+        if (persistedFence.status === "failed") return {
           schema_version: schema,
           status: "failed",
           executed: false,
-          reason_code: persistedFence.status === "loaded"
-            ? "local_authority_writer_fence_without_canonical_head"
-            : persistedFence.reason_code,
-          reason: persistedFence.status === "loaded"
-            ? "legacy writers are already fenced but canonical promotion has no matching readback"
-            : persistedFence.reason,
-          legacy_writer_fenced: persistedFence.status === "loaded",
+          reason_code: persistedFence.reason_code,
+          reason: persistedFence.reason,
+          legacy_writer_fenced: false,
           legacy_fallback_used: false,
         };
+        if (recoveringFromFence) {
+          writerFenceVerified = canonicalAuthorityBytes(persistedFence.fence).equals(
+            canonicalAuthorityBytes(fence),
+          );
+          if (!writerFenceVerified) return {
+            schema_version: schema,
+            status: "failed",
+            executed: false,
+            reason_code: "local_authority_writer_fence_conflict",
+            reason: "durable legacy writer fence belongs to a different reviewed promotion",
+            legacy_writer_fenced: true,
+            legacy_fallback_used: false,
+          };
+        }
         const plan = {
           operation_id: operationId,
           canonical_authority: canonicalAuthority,
@@ -276,25 +293,28 @@ export async function reviewLocalCoordinationAuthorityPromotion(
           promotion_ready: true,
           plan,
           qualification: publicQualification,
-          legacy_writer_fenced: false,
+          legacy_writer_fenced: writerFenceVerified,
           legacy_fallback_used: false,
         };
-        const fenceResult = await engageLegacyCoordinationWriterFenceUnderLocks(
-          input.runtime_root,
-          input.goal_id,
-          statePath,
-          fence,
-        );
-        if (fenceResult.status !== "applied" && fenceResult.status !== "replayed") return {
-          schema_version: schema,
-          status: "failed",
-          executed: false,
-          reason_code: fenceResult.reason_code ?? "local_authority_writer_fence_failed",
-          reason: fenceResult.reason ?? "legacy writer fence could not be verified",
-          qualification: publicQualification,
-          legacy_writer_fenced: false,
-          legacy_fallback_used: false,
-        };
+        if (!recoveringFromFence) {
+          const fenceResult = await engageLegacyCoordinationWriterFenceUnderLocks(
+            input.runtime_root,
+            input.goal_id,
+            statePath,
+            fence,
+          );
+          if (fenceResult.status !== "applied" && fenceResult.status !== "replayed") return {
+            schema_version: schema,
+            status: "failed",
+            executed: false,
+            reason_code: fenceResult.reason_code ?? "local_authority_writer_fence_failed",
+            reason: fenceResult.reason ?? "legacy writer fence could not be verified",
+            qualification: publicQualification,
+            legacy_writer_fenced: false,
+            legacy_fallback_used: false,
+          };
+          writerFenceVerified = true;
+        }
         const identity = promotionIdentity(request);
         const committed = await canonical.commitAuthority({
           expected_provider_revision: null,
@@ -312,7 +332,9 @@ export async function reviewLocalCoordinationAuthorityPromotion(
           schema_version: schema,
           ...promotionResult(
             request,
-            committed.status === "applied" ? "applied" : committed.status === "ambiguous" ? "recovered" : "replayed",
+            committed.status === "applied"
+              ? recoveringFromFence ? "recovered" : "applied"
+              : committed.status === "ambiguous" ? "recovered" : "replayed",
             readback,
             canonicalAuthority,
           ),
@@ -334,6 +356,22 @@ export async function reviewLocalCoordinationAuthorityPromotion(
       }),
     );
   } catch (error) {
+    if (!writerFenceVerified && fenceEvidence.current !== null) {
+      try {
+        const evidence = fenceEvidence.current;
+        const persistedFence = await loadLegacyCoordinationWriterFence(
+          evidence.runtimeRoot,
+          evidence.goalId,
+        );
+        writerFenceVerified = persistedFence.status === "loaded"
+          && canonicalAuthorityBytes(persistedFence.fence).equals(
+            canonicalAuthorityBytes(evidence.fence),
+          );
+      } catch {
+        // The result below must not claim a fence that this call could not
+        // read back exactly.
+      }
+    }
     return {
       schema_version: schema,
       status: "failed",
@@ -342,7 +380,7 @@ export async function reviewLocalCoordinationAuthorityPromotion(
         ? error.reason_code
         : "invalid_local_coordination_promotion_review_request",
       reason: error instanceof Error ? error.message : "promotion review unavailable",
-      legacy_writer_fenced: false,
+      legacy_writer_fenced: writerFenceVerified,
       legacy_fallback_used: false,
       ...localAuthorityOpenFailure(error),
     };

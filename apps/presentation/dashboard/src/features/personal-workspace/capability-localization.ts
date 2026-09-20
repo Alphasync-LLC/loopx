@@ -48,7 +48,7 @@ const capabilityCopy: Record<WorkspaceLocale, Record<string, LocalizedCopy>> = {
     },
     coordination_runtime_shadow: {
       displayName: "Coordination runtime shadow",
-      description: "Captures transaction-bound Todo and task-lease mutations for reviewed whole-Goal authority promotion.",
+      description: "Captures transaction-bound Todo and task-lease mutations for reviewed whole-Goal coordination-authority promotion.",
     },
     multi_subagent: {
       displayName: "Adaptive child capacity",
@@ -108,7 +108,7 @@ const capabilityCopy: Record<WorkspaceLocale, Record<string, LocalizedCopy>> = {
     },
     coordination_runtime_shadow: {
       displayName: "协调 Runtime 影子",
-      description: "捕获事务绑定的 Todo 与 task lease 变更，为经评审的整 Goal Authority 晋级提供证据。",
+      description: "捕获事务绑定的 Todo 与 task lease 变更，为经评审的整 Goal 协调 Authority 晋级提供证据。",
     },
     multi_subagent: {
       displayName: "自适应子 Agent 容量",

@@ -29,7 +29,7 @@ for (const [zh, expectedLabel, expectedBoundary] of [
   if (!html.includes(expectedLabel)) throw new Error(`missing state label: ${expectedLabel}`);
   if (!html.includes("Goal acceptance requires an existing canonical authority")) throw new Error("missing authority reason");
   if (!html.includes(expectedBoundary)) throw new Error(`missing boundary copy: ${expectedBoundary}`);
-  if (!html.includes(zh ? "下一步：预览整 Goal Authority 晋级" : "Next: preview whole-Goal authority promotion")) {
+  if (!html.includes(zh ? "下一步：预览整 Goal 协调 Authority 晋级" : "Next: preview whole-Goal coordination-authority promotion")) {
     throw new Error("missing reviewed promotion next action");
   }
   if (/Local launch prerequisites met|本机启动条件已满足/.test(html)) throw new Error("rendered launchable copy for unavailable authority");

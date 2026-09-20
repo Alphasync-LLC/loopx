@@ -595,7 +595,7 @@ def review_local_coordination_authority_promotion(
     execute: bool,
     runtime_invoker: RuntimeInvoker = effect_runtime_result,
 ) -> dict[str, object]:
-    """Preview or atomically apply the reviewed whole-Goal cutover."""
+    """Preview or atomically apply the reviewed whole-Goal coordination-authority cutover."""
 
     config = resolve_coordination_runtime_shadow_config(goal)
     if not config.enabled:
