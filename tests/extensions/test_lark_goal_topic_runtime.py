@@ -994,6 +994,67 @@ def test_bound_topic_reuses_one_goal_chat_session(tmp_path: Path) -> None:
     assert "只生成预览" in runtime.submit_calls[0]["message"]
 
 
+def test_remote_manager_answer_returns_the_exact_projected_proposal_ids(
+    tmp_path: Path,
+) -> None:
+    from loopx.extensions.lark.goal_topic_runtime import answer_lark_goal_topic
+
+    class Store:
+        def load_session(self, _session_id: str) -> dict[str, Any]:
+            return {
+                "session_id": "manager-session",
+                "agent_id": "codex",
+                "channel_id": "manager.external.public_fixture",
+                "status": "ready",
+            }
+
+        def events_after(
+            self, _session_id: str, _turn_id: str, _cursor: object
+        ) -> list[dict[str, Any]]:
+            return [
+                {
+                    "kind": "team_plan.projected",
+                    "payload": {
+                        "proposal_id": "proposal-" + "a" * 32,
+                        "goal_id": "goal-alpha",
+                    },
+                }
+            ]
+
+    class Runtime:
+        store = Store()
+
+        def enqueue_turn(self, **_kwargs: Any):
+            return ({"turn_id": "turn-alpha"}, True)
+
+        def wait_for_turn(self, **_kwargs: Any):
+            return {
+                "status": "completed",
+                "response": {"message": "计划已准备。"},
+            }
+
+    result = answer_lark_goal_topic(
+        route={
+            "goal_id": "goal-alpha",
+            "conversation_kind": "manager",
+            "ingress_mode": "session_queue",
+            "session_id": "manager-session",
+            "manager_channel_id": "manager.external.public_fixture",
+            "message_id": "om_manager_plan",
+            "topic_root_message_id": "om_manager_root",
+        },
+        text="请组建团队",
+        work_dir=tmp_path,
+        objective="ignored",
+        runtime_controller=Runtime(),
+    )
+
+    assert result == {
+        "response_text": "计划已准备。",
+        "proposal_ids": ["proposal-" + "a" * 32],
+    }
+
+
 def test_runtime_service_uses_one_consumer_for_reused_app_profile(
     tmp_path: Path,
 ) -> None:
@@ -1323,6 +1384,197 @@ def test_profile_stream_keeps_one_consumer_open_between_messages(
     assert result == {
         "ok": False,
         "status": "stream_not_ready",
+        "event_count": 0,
+        "replied_count": 0,
+    }
+
+
+def test_profile_stream_dispatches_only_team_plan_callbacks_for_bound_chats(
+    tmp_path: Path,
+) -> None:
+    from loopx.extensions.lark.goal_topic_runtime import stream_lark_goal_topic_profile
+
+    snapshot = {
+        "target_payload": {
+            "targets": {
+                "mew-product": {
+                    "name": "mew-product",
+                    "provider": "lark",
+                    "enabled": True,
+                    "channel": {"chat_id": "oc_public_fixture"},
+                    "identity": {
+                        "sender_profile": "mew",
+                        "bot_app_id": "cli_public_fixture",
+                        "cli_bin": "fake-lark",
+                    },
+                }
+            }
+        },
+        "binding_payloads": {
+            "goal-alpha": {
+                "bindings": {
+                    "goal-alpha": {
+                        "goal_id": "goal-alpha",
+                        "provider": "lark",
+                        "enabled": True,
+                        "target_ref": "mew-product",
+                    }
+                }
+            }
+        },
+    }
+    callback = {
+        "type": "card.action.trigger",
+        "chat_id": "oc_public_fixture",
+        "action_value": {
+            "schema_version": "loopx_team_plan_card_action_v0",
+            "proposal_id": "proposal-" + "a" * 32,
+        },
+    }
+    captured_args: list[list[str]] = []
+    handled: list[Mapping[str, Any]] = []
+    callback_seen = threading.Event()
+
+    class FinishedConsumer:
+        def __init__(self, lines: Any) -> None:
+            self.stdout = iter(lines)
+
+        def poll(self) -> int:
+            return 0
+
+        def wait(self, timeout: float | None = None) -> int:
+            return 0
+
+        def terminate(self) -> None:
+            raise AssertionError("a completed consumer must not be terminated")
+
+        def kill(self) -> None:
+            raise AssertionError("a completed consumer must not be killed")
+
+    def process_factory(args: list[str]) -> FinishedConsumer:
+        captured_args.append(list(args))
+        if "card.action.trigger" in args:
+            return FinishedConsumer((json.dumps(callback) + "\n",))
+
+        def message_lines():
+            yield "[event] ready event_key=im.message.receive_v1\n"
+            assert callback_seen.wait(2)
+            yield "[event] exited — received 0 event(s) in 1s (reason: timeout)\n"
+
+        return FinishedConsumer(message_lines())
+
+    def handle_callback(event: Mapping[str, Any]) -> dict[str, bool]:
+        handled.append(dict(event))
+        callback_seen.set()
+        return {"ok": True}
+
+    result = stream_lark_goal_topic_profile(
+        profile="mew",
+        snapshot_provider=lambda: snapshot,
+        stop=threading.Event(),
+        runtime_root=tmp_path,
+        answer=lambda _route, _text: "ok",
+        process_factory=process_factory,
+        review_callback_handler=handle_callback,
+    )
+
+    assert result["ok"] is True
+    assert len(captured_args) == 2
+    callback_args = next(args for args in captured_args if "card.action.trigger" in args)
+    assert "select(.chat_id == \"oc_public_fixture\")" in callback_args
+    assert handled == [callback]
+
+
+def test_profile_stream_restarts_when_the_review_callback_source_disconnects(
+    tmp_path: Path,
+) -> None:
+    from loopx.extensions.lark.goal_topic_runtime import stream_lark_goal_topic_profile
+
+    snapshot = {
+        "target_payload": {
+            "targets": {
+                "mew-product": {
+                    "name": "mew-product",
+                    "provider": "lark",
+                    "enabled": True,
+                    "channel": {"chat_id": "oc_public_fixture"},
+                    "identity": {
+                        "sender_profile": "mew",
+                        "bot_app_id": "cli_public_fixture",
+                        "cli_bin": "fake-lark",
+                    },
+                }
+            }
+        },
+        "binding_payloads": {
+            "goal-alpha": {
+                "bindings": {
+                    "goal-alpha": {
+                        "goal_id": "goal-alpha",
+                        "provider": "lark",
+                        "enabled": True,
+                        "target_ref": "mew-product",
+                    }
+                }
+            }
+        },
+    }
+    released = threading.Event()
+
+    class MessageLines:
+        def __iter__(self):
+            yield "[event] ready event_key=im.message.receive_v1\n"
+            assert released.wait(3)
+
+    class MessageConsumer:
+        stdout = MessageLines()
+
+        def poll(self):
+            return 0 if released.is_set() else None
+
+        def wait(self, timeout=None):
+            assert released.wait(timeout or 3)
+            return 0
+
+        def terminate(self):
+            released.set()
+
+        def kill(self):
+            released.set()
+
+    class DisconnectedCallbackConsumer:
+        stdout = iter(())
+
+        def poll(self):
+            return 0
+
+        def wait(self, timeout=None):
+            return 0
+
+        def terminate(self):
+            raise AssertionError("a completed callback consumer must not terminate")
+
+        def kill(self):
+            raise AssertionError("a completed callback consumer must not be killed")
+
+    result = stream_lark_goal_topic_profile(
+        profile="mew",
+        snapshot_provider=lambda: snapshot,
+        stop=threading.Event(),
+        runtime_root=tmp_path,
+        answer=lambda _route, _text: "ok",
+        process_factory=lambda args: (
+            DisconnectedCallbackConsumer()
+            if "card.action.trigger" in args
+            else MessageConsumer()
+        ),
+        review_callback_handler=lambda _event: {"ok": True},
+    )
+
+    assert result == {
+        "ok": False,
+        "error_code": "lark_review_callback_source_disconnected",
+        "status": "source_disconnected",
         "event_count": 0,
         "replied_count": 0,
     }
@@ -2323,3 +2575,104 @@ def test_manager_delivery_reuses_saved_answer_after_transport_restart(
     assert inspect_lark_event_inbox(
         project=kwargs["runtime_root"], config_path=Path(second["inbox_config_ref"])
     )["items"] == []
+
+
+def test_manager_retries_saved_proposal_delivery_before_source_ack(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    from loopx.extensions.lark import goal_topic_runtime as runtime
+
+    target_path, binding_path = tmp_path / "targets.json", tmp_path / "bindings.json"
+    _seed_legacy_topic(target_path, binding_path)
+    original_decide = runtime.decide_lark_topic_event
+
+    def manager_decision(**kwargs: Any) -> dict[str, Any]:
+        result = original_decide(**kwargs)
+        result["route"].update(
+            conversation_kind="manager",
+            ingress_mode="session_queue",
+            authority_mode="turn_authorized",
+            event_id=kwargs["event"]["event_id"],
+        )
+        return result
+
+    monkeypatch.setattr(runtime, "decide_lark_topic_event", manager_decision)
+    monkeypatch.setattr(
+        runtime,
+        "ensure_lark_event_inbox_received_reaction",
+        lambda **_kwargs: {"ok": True, "status": "already_received"},
+    )
+    event = {
+        "event_id": "evt_plan",
+        "message_id": "om_plan",
+        "chat_id": "oc_public_fixture",
+        "root_id": "om_topic_alpha",
+        "create_time": "2026-09-20T00:00:00Z",
+        "content": "@linkmacbot 组建团队",
+        "mentioned": True,
+        "sender_type": "user",
+        "sender_id": "ou_owner_fixture",
+    }
+    answer_calls: list[str] = []
+    proposal_id = "proposal-" + "a" * 32
+
+    def answer(_route: Mapping[str, Any], text: str) -> dict[str, Any]:
+        answer_calls.append(text)
+        return {"response_text": "计划已准备。", "proposal_ids": [proposal_id]}
+
+    delivery_calls: list[tuple[str, ...]] = []
+
+    def deliver(
+        route: Mapping[str, Any], proposal_ids: list[str]
+    ) -> dict[str, Any]:
+        assert route["source_sender_id"] == "ou_owner_fixture"
+        delivery_calls.append(tuple(proposal_ids))
+        if len(delivery_calls) == 1:
+            return {"ok": False, "status": "pending"}
+        return {
+            "schema_version": "lark_team_plan_review_delivery_v0",
+            "ok": True,
+            "status": "team_plan_review_cards_delivered",
+            "proposal_ids": proposal_ids,
+            "proposal_count": 1,
+            "audience_count": 2,
+            "readback_verified": True,
+            "external_write_count": 2,
+        }
+
+    first_state: dict[str, Any] = {}
+    kwargs = {
+        "target_payload": read_goal_channel_targets(target_path),
+        "binding_payloads": {
+            "goal-alpha": read_goal_channel_binding(binding_path)
+        },
+        "event": event,
+        "runtime_root": tmp_path / "runtime",
+        "answer": answer,
+        "reply_runner": _reply_runner(first_state),
+        "proposal_deliverer": deliver,
+    }
+
+    first = runtime.process_lark_goal_topic_event(**kwargs)
+    assert first["status"] == "proposal_delivery_pending"
+    assert first["source_acknowledged"] is False
+    assert answer_calls == [event["content"]]
+    assert delivery_calls == [(proposal_id,)]
+
+    second_state: dict[str, Any] = {}
+    working_runner = _reply_runner(second_state)
+
+    def no_duplicate_reply(args: list[str]) -> dict[str, Any]:
+        if "+messages-reply" in args:
+            raise AssertionError("verified manager text must not be sent twice")
+        return working_runner(args)
+
+    kwargs["reply_runner"] = no_duplicate_reply
+    kwargs["answer"] = lambda *_args: (_ for _ in ()).throw(
+        AssertionError("saved answer and proposal ids must be reused")
+    )
+    second = runtime.process_lark_goal_topic_event(**kwargs)
+
+    assert second["status"] == "replied_and_acknowledged"
+    assert second["saved_response_reused"] is True
+    assert delivery_calls == [(proposal_id,), (proposal_id,)]
