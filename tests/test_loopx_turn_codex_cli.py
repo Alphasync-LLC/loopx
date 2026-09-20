@@ -10,6 +10,7 @@ import pytest
 
 from loopx.control_plane.turn_driver.codex_cli import (
     CODEX_CLI_SESSION_SCHEMA_VERSION,
+    CODEX_STDIO_MCP_SERVER_SCHEMA_VERSION,
     _diagnostic_failure_category,
     _event_failure_categories,
     _event_failure_category,
@@ -445,6 +446,98 @@ def test_codex_cli_host_starts_then_resumes_opaque_session(
     persisted = session_paths[0].read_text(encoding="utf-8")
     assert "raw_trajectory" not in persisted
     assert "private_material" not in persisted
+
+
+def test_codex_cli_host_materializes_bound_mcp_tools_for_fresh_and_resume(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executable, log_path = _fake_codex(tmp_path)
+    monkeypatch.setenv("FAKE_CODEX_LOG", str(log_path))
+    runtime_root = tmp_path / "runtime"
+    project = tmp_path / "project"
+    project.mkdir()
+    server = {
+        "schema_version": CODEX_STDIO_MCP_SERVER_SCHEMA_VERSION,
+        "name": "loopx_delegation",
+        "command": [
+            sys.executable,
+            "-m",
+            "loopx.collaboration_mcp",
+            "--agent-id",
+            "reviewer",
+        ],
+    }
+
+    run_codex_cli_host(
+        _request(),
+        runtime_root=runtime_root,
+        project=project,
+        codex_bin=str(executable),
+        mcp_server=server,
+        timeout_seconds=5,
+    )
+    run_codex_cli_host(
+        _request(
+            turn_key="sha256:" + "b" * 64,
+            session_action="resume",
+        ),
+        runtime_root=runtime_root,
+        project=project,
+        codex_bin=str(executable),
+        mcp_server=server,
+        timeout_seconds=5,
+    )
+
+    for argv in map(json.loads, log_path.read_text(encoding="utf-8").splitlines()):
+        config_values = [
+            argv[index + 1]
+            for index, value in enumerate(argv)
+            if value == "-c"
+        ]
+        assert (
+            f'mcp_servers.loopx_delegation.command={json.dumps(sys.executable)}'
+            in config_values
+        )
+        assert (
+            "mcp_servers.loopx_delegation.args="
+            + json.dumps(server["command"][1:])
+            in config_values
+        )
+        assert "mcp_servers.loopx_delegation.enabled=true" in config_values
+        assert "mcp_servers.loopx_delegation.required=true" in config_values
+        assert (
+            'mcp_servers.loopx_delegation.default_tools_approval_mode="approve"'
+            in config_values
+        )
+        assert "mcp_servers.loopx_delegation.startup_timeout_sec=30" in config_values
+        assert "mcp_servers.loopx_delegation.tool_timeout_sec=60" in config_values
+
+
+def test_codex_cli_host_rejects_invalid_mcp_binding_before_launch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executable, log_path = _fake_codex(tmp_path)
+    monkeypatch.setenv("FAKE_CODEX_LOG", str(log_path))
+    project = tmp_path / "project"
+    project.mkdir()
+
+    with pytest.raises(ValueError, match="server name is invalid"):
+        run_codex_cli_host(
+            _request(),
+            runtime_root=tmp_path / "runtime",
+            project=project,
+            codex_bin=str(executable),
+            mcp_server={
+                "schema_version": CODEX_STDIO_MCP_SERVER_SCHEMA_VERSION,
+                "name": "not.a.safe.table",
+                "command": [sys.executable, "-m", "fixture"],
+            },
+            timeout_seconds=5,
+        )
+
+    assert not log_path.exists()
 
 
 def test_codex_cli_host_rejects_unknown_reasoning_effort_before_launch(

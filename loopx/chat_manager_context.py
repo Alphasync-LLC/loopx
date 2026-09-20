@@ -42,6 +42,33 @@ MANAGER_EVIDENCE_WINDOW_REASON_INVALID_EXPLICIT = "explicit_window_out_of_bounds
 # on demand through the read tool, a prompt-only segment can only receive them.
 MANAGER_REMOTE_READ_INLINE = "inline_in_prompt"
 MANAGER_REMOTE_READ_ON_DEMAND = "on_demand_tool"
+# A declared source that contributed nothing to the window is a coverage fact,
+# not a quiet "no progress" reading. Every declared source therefore carries a
+# typed health row with the same four fields the read refusals already use
+# (source id, typed reason, coverage effect, next action) so the answer can cite
+# a row instead of narrating staleness as a disclaimer. The vocabulary is a
+# closed set: a source is either read in this window, declared but not read, or
+# impossible to reach because its configured alias is missing.
+MANAGER_SOURCE_FRESHNESS_VALUES = ("current", "stale", "unknown")
+MANAGER_SOURCE_READ_FRESHNESS = "current"
+MANAGER_SOURCE_UNREAD_FRESHNESS = "stale"
+MANAGER_SOURCE_UNKNOWN_FRESHNESS = "unknown"
+MANAGER_SOURCE_NOT_READ_REASON = "declared_source_not_read_this_turn"
+MANAGER_SOURCE_NOT_READ_NEXT_ACTION = (
+    "Read this source with the manager evidence read tool, or let the next "
+    "Turn's source rotation dial it."
+)
+MANAGER_SOURCE_UNCONFIGURED_NEXT_ACTION = (
+    "Register an existing SSH alias for this host and retry."
+)
+MANAGER_LOCAL_SOURCE_NOT_READ_REASON = "local_evidence_not_read_this_turn"
+MANAGER_LOCAL_SOURCE_NOT_READ_NEXT_ACTION = (
+    "Collect this window with details enabled, or narrow the evidence window."
+)
+MANAGER_SOURCE_COVERAGE_EFFECT = (
+    "no evidence was read from this source; the answer must not present it as "
+    "no progress"
+)
 
 
 def resolve_evidence_window_days(environ=None) -> tuple[int, str, str]:
@@ -95,6 +122,65 @@ def _declared_sources(
     except (OSError, ValueError, TypeError, RuntimeError, ImportError):
         return local
     return declared or local
+
+
+def _source_health_rows(
+    sources: list[dict[str, Any]], *, read_status: str
+) -> list[dict[str, Any]]:
+    """Type what each declared source contributed to this window.
+
+    A source that was declared but read nothing is a coverage fact the answer
+    must name, never evidence that a Goal made no progress. Every row reuses the
+    declaration's own status vocabulary and adds freshness, the typed reason,
+    the coverage effect and the next action, so the packet carries the same four
+    fields the read refusals already use.
+    """
+
+    rows: list[dict[str, Any]] = []
+    for source in sources:
+        source_id = str(source.get("source_id") or "")
+        status = str(source.get("status") or "unknown")
+        read = status == "available" and read_status in {"read", "partial"}
+        if read:
+            freshness = MANAGER_SOURCE_READ_FRESHNESS
+            reason = None
+            coverage_effect = None
+            next_action = None
+        elif status == "available":
+            # Reachable but unread in this window: it cannot support a
+            # progress claim, and the answer has to say so with a row.
+            freshness = MANAGER_SOURCE_UNKNOWN_FRESHNESS
+            reason = MANAGER_LOCAL_SOURCE_NOT_READ_REASON
+            coverage_effect = MANAGER_SOURCE_COVERAGE_EFFECT
+            next_action = MANAGER_LOCAL_SOURCE_NOT_READ_NEXT_ACTION
+        elif status == "not_read":
+            freshness = MANAGER_SOURCE_UNREAD_FRESHNESS
+            reason = MANAGER_SOURCE_NOT_READ_REASON
+            coverage_effect = MANAGER_SOURCE_COVERAGE_EFFECT
+            next_action = MANAGER_SOURCE_NOT_READ_NEXT_ACTION
+        else:
+            # not_configured, and any future non-available declaration: the
+            # source cannot be read at all, which is drift the answer names.
+            freshness = MANAGER_SOURCE_UNKNOWN_FRESHNESS
+            reason = str(source.get("reason") or f"source_status_{status}")
+            coverage_effect = MANAGER_SOURCE_COVERAGE_EFFECT
+            next_action = (
+                MANAGER_SOURCE_UNCONFIGURED_NEXT_ACTION
+                if status == "not_configured"
+                else MANAGER_SOURCE_NOT_READ_NEXT_ACTION
+            )
+        rows.append(
+            {
+                "source_id": source_id,
+                "source_host": source.get("source_host"),
+                "status": status,
+                "freshness": freshness,
+                "reason": reason,
+                "coverage_effect": coverage_effect,
+                "next_action": next_action,
+            }
+        )
+    return rows
 
 
 def _bounded_receipts(history: dict[str, Any]) -> dict[str, Any]:
@@ -223,6 +309,10 @@ def _evidence_window(
         "matched_by_day": matched_by_day,
         "invalid_delivery_records": invalid,
         "sources": sources,
+        # Every declared source reports its own health, so an unread or
+        # unreachable source is a typed row rather than a staleness caveat the
+        # answer has to narrate.
+        "source_health": _source_health_rows(sources, read_status=read_status),
         "declared_unread_sources": [
             str(source.get("source_id"))
             for source in sources

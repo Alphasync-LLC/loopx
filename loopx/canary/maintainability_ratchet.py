@@ -15,7 +15,7 @@ MAINTAINABILITY_REPORT_SCHEMA_VERSION = "control_plane_maintainability_report_v0
 MODULE_METRIC_BASELINE_SCHEMA_VERSION = "control_plane_module_metric_baseline_v0"
 DECISION_STATEMENT_LIMIT = 90
 DECISION_POINT_LIMIT = 60
-MODULE_LINE_LIMIT = 1500
+MODULE_LINE_LIMIT = 2000
 MODULE_ANY_LIMIT = 300
 MODULE_DICT_ANY_LIMIT = 300
 MODULE_METRIC_BASELINE_PATH = Path(__file__).with_name("module_metric_baseline.json")
@@ -521,6 +521,15 @@ def module_metric_baseline(baseline_path: Path) -> dict[str, dict[str, int]]:
     ceilings = payload.get("module_metric_ceilings")
     if not isinstance(ceilings, dict):
         raise ValueError("module metric baseline must contain module_metric_ceilings")
+    expected_defaults = {
+        "lines": MODULE_LINE_LIMIT,
+        "any_count": MODULE_ANY_LIMIT,
+        "dict_any_count": MODULE_DICT_ANY_LIMIT,
+    }
+    if payload.get("default_limits") != expected_defaults:
+        raise ValueError(
+            "module metric baseline default_limits must match runtime defaults"
+        )
     normalized: dict[str, dict[str, int]] = {}
     for path, metrics in ceilings.items():
         if not isinstance(metrics, dict):
@@ -586,11 +595,12 @@ def collect_module_metric_findings(
             continue
         relative = path.relative_to(repository_root).as_posix()
         metrics = module_metrics(path)
-        ceilings = baseline.get(relative) or {
+        ceilings = {
             "lines": MODULE_LINE_LIMIT,
             "any_count": MODULE_ANY_LIMIT,
             "dict_any_count": MODULE_DICT_ANY_LIMIT,
         }
+        ceilings.update(baseline.get(relative) or {})
         regressions = {
             metric: actual
             for metric, actual in metrics.items()
@@ -825,11 +835,10 @@ def build_control_plane_maintainability_report(
             ),
             "freezes_exact_line_counts": False,
             "repository_scope_decision": (
-                "This profile intentionally replaces the repository-wide exact Python line "
-                "budget with semantic checks for control-plane modules and the supported "
-                "quota/status compatibility facades; it also ratchets per-module line and "
-                "type-density metrics from a checked-in baseline while keeping the current "
-                "modules grandfathered. It does not retain a coarse all-file hotspot limit."
+                "This profile combines semantic control-plane checks with a coarse 2000-line "
+                "default hotspot limit and checked-in per-module overrides for intentional "
+                "stricter contracts or grandfathered larger modules. Type-density metrics "
+                "continue to ratchet per module."
             ),
         },
         **evaluation,

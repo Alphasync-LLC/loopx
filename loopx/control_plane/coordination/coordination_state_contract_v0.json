@@ -91,6 +91,18 @@
       "schema_version", "todo_id", "role", "status", "done", "text", "archive_state"
     ]
   },
+  "todo_priority": {
+    "values": [
+      "P0",
+      "P1",
+      "P2",
+      "P3",
+      "P4"
+    ],
+    "legacy_prefix_pattern": "^\\s*\\[(P[0-4](?:[-\\s][^\\]]*)?)\\]\\s*(.+)$",
+    "legacy_label_pattern": "^(P[0-4])(?:$|[-\\s])",
+    "missing_rank": 50
+  },
   "todo_projection_metadata": {
     "fields": ["source_section", "index"],
     "required_fields": ["source_section"]
@@ -102,7 +114,9 @@
     "todo_list_result_schema": "loopx_local_coordination_todo_list_result_v0",
     "promotion_request_schema": "loopx_local_coordination_promotion_request_v0",
     "promotion_result_schema": "loopx_local_coordination_promotion_result_v0",
-    "promotion_receipt_schema": "loopx_local_coordination_promotion_receipt_v0"
+    "promotion_receipt_schema": "loopx_local_coordination_promotion_receipt_v0",
+    "promotion_review_request_schema": "loopx_local_coordination_promotion_review_request_v0",
+    "promotion_review_result_schema": "loopx_local_coordination_promotion_review_result_v0"
   },
   "runtime_shadow_protocol": {
     "commit_request_schema": "loopx_coordination_runtime_shadow_commit_v0",

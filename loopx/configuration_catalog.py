@@ -106,6 +106,11 @@ def build_goal_configuration_catalog(
         if isinstance(feature_summary.get("local_authority_shadow"), Mapping)
         else {}
     )
+    coordination_runtime_shadow = (
+        feature_summary.get("coordination_runtime_shadow")
+        if isinstance(feature_summary.get("coordination_runtime_shadow"), Mapping)
+        else {}
+    )
     graph_enable_args = ("--explore-graph-enabled",)
     harness_enable_args = (
         "--explore-harness-enabled",
@@ -167,7 +172,7 @@ def build_goal_configuration_catalog(
                 "documentation": {
                     "path": "docs/quota-allocation.md#completed-todo-review-cadence",
                     "url": (
-                        "https://github.com/huangruiteng/loopx/blob/main/"
+                        "https://github.com/loopx-project/loopx/blob/main/"
                         "docs/quota-allocation.md#completed-todo-review-cadence"
                     ),
                 },
@@ -216,7 +221,56 @@ def build_goal_configuration_catalog(
                 "documentation": {
                     "path": "docs/architecture/rfcs/shared-goal-authority-state-provider-v0.md",
                     "url": (
-                        "https://github.com/huangruiteng/loopx/blob/main/"
+                        "https://github.com/loopx-project/loopx/blob/main/"
+                        "docs/architecture/rfcs/shared-goal-authority-state-provider-v0.md"
+                    ),
+                },
+            },
+            {
+                "feature_id": "coordination_runtime_shadow",
+                "display_name": "Transaction-bound coordination shadow",
+                "availability": "experimental_opt_in",
+                "default": {"enabled": False},
+                "current": {
+                    "enabled": coordination_runtime_shadow.get("enabled") is True,
+                    "provider": coordination_runtime_shadow.get("provider"),
+                    "status": coordination_runtime_shadow.get("status", "configuration_absent"),
+                },
+                "consider_when": (
+                    "A legacy Goal is being qualified for an explicit reviewed "
+                    "cutover to canonical local authority."
+                ),
+                "effect": (
+                    "Captures transaction-bound Todo and task-lease mutations in "
+                    "the file-v0 shadow used by parity qualification."
+                ),
+                "does_not": [
+                    "promote the Goal or fence legacy writers",
+                    "start a managed worker",
+                    "make the shadow authoritative for lifecycle decisions",
+                ],
+                "commands": {
+                    "preview_enable": _configure_command(
+                        goal_id, "--coordination-runtime-shadow-file"
+                    ),
+                    "apply_enable": _configure_command(
+                        goal_id, "--coordination-runtime-shadow-file", execute=True
+                    ),
+                    "preview_disable": _configure_command(
+                        goal_id, "--clear-coordination-runtime-shadow"
+                    ),
+                    "apply_disable": _configure_command(
+                        goal_id, "--clear-coordination-runtime-shadow", execute=True
+                    ),
+                    "verify": [
+                        inspect_command,
+                        f"loopx --format json coordination-shadow inspect --goal-id {goal_id}",
+                    ],
+                },
+                "documentation": {
+                    "path": "docs/architecture/rfcs/shared-goal-authority-state-provider-v0.md",
+                    "url": (
+                        "https://github.com/loopx-project/loopx/blob/main/"
                         "docs/architecture/rfcs/shared-goal-authority-state-provider-v0.md"
                     ),
                 },
@@ -280,7 +334,7 @@ def build_goal_configuration_catalog(
                 "documentation": {
                     "path": "docs/integrations/codex-subagent-orchestration.md",
                     "url": (
-                        "https://github.com/huangruiteng/loopx/blob/main/"
+                        "https://github.com/loopx-project/loopx/blob/main/"
                         "docs/integrations/codex-subagent-orchestration.md"
                     ),
                 },
@@ -341,7 +395,7 @@ def build_goal_configuration_catalog(
                 "documentation": {
                     "path": "docs/integrations/codex-subagent-orchestration.md",
                     "url": (
-                        "https://github.com/huangruiteng/loopx/blob/main/"
+                        "https://github.com/loopx-project/loopx/blob/main/"
                         "docs/integrations/codex-subagent-orchestration.md"
                     ),
                 },
@@ -390,7 +444,7 @@ def build_goal_configuration_catalog(
                 "documentation": {
                     "path": "loopx/capabilities/explore/README.md",
                     "url": (
-                        "https://github.com/huangruiteng/loopx/blob/main/"
+                        "https://github.com/loopx-project/loopx/blob/main/"
                         "loopx/capabilities/explore/README.md"
                     ),
                 },
@@ -443,7 +497,7 @@ def build_goal_configuration_catalog(
                 "documentation": {
                     "path": "loopx/capabilities/explore/README.md",
                     "url": (
-                        "https://github.com/huangruiteng/loopx/blob/main/"
+                        "https://github.com/loopx-project/loopx/blob/main/"
                         "loopx/capabilities/explore/README.md"
                     ),
                 },
@@ -535,7 +589,7 @@ def build_goal_configuration_catalog(
                 "documentation": {
                     "path": "loopx/capabilities/change_quality/README.md",
                     "url": (
-                        "https://github.com/huangruiteng/loopx/blob/main/"
+                        "https://github.com/loopx-project/loopx/blob/main/"
                         "loopx/capabilities/change_quality/README.md"
                     ),
                 },
@@ -630,7 +684,7 @@ def build_goal_configuration_catalog(
                 "documentation": {
                     "path": "loopx/capabilities/reward_memory/README.md",
                     "url": (
-                        "https://github.com/huangruiteng/loopx/blob/main/"
+                        "https://github.com/loopx-project/loopx/blob/main/"
                         "loopx/capabilities/reward_memory/README.md"
                     ),
                 },
@@ -701,7 +755,7 @@ def build_goal_configuration_catalog(
                 "documentation": {
                     "path": "loopx/extensions/lark/docs/lark-event-inbox.md",
                     "url": (
-                        "https://github.com/huangruiteng/loopx/blob/main/"
+                        "https://github.com/loopx-project/loopx/blob/main/"
                         "loopx/extensions/lark/docs/lark-event-inbox.md"
                     ),
                 },
@@ -758,7 +812,7 @@ def build_goal_configuration_catalog(
                 "documentation": {
                     "path": "docs/integrations/lark-kanban-control-plane-adapter.md",
                     "url": (
-                        "https://github.com/huangruiteng/loopx/blob/main/"
+                        "https://github.com/loopx-project/loopx/blob/main/"
                         "docs/integrations/lark-kanban-control-plane-adapter.md"
                     ),
                 },
