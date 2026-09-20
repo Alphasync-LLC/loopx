@@ -37,6 +37,12 @@ explicit truth contract: registry presence and `supported` status are not
 readiness, and discovery itself observes neither provider execution nor
 evidence coverage.
 
+Provider execution stays with the existing method or connector owner. Core's
+`receipt` boundary validates the returned identity and provenance against the
+exact ready plan, records that execution was observed, and still does not claim
+evidence completeness, admission, or automatic promotion. Failure and empty
+evidence remain fail-open to the caller's original-source path.
+
 The receipt binds the exact request, selected provider, completion time, and a
 digest over the complete receipt. Each admitted source has a direct non-file
 reference, source family, evidence basis (`stated`,
@@ -61,8 +67,8 @@ inventory-only row for the same provider id.
 
 ## Product surfaces
 
-- CLI: `external-evidence discover|plan|admit|retire`.
-- Managed Turn: the same four effect-runtime methods.
+- CLI: `external-evidence discover|plan|receipt|admit|retire`.
+- Managed Turn: the same five effect-runtime methods.
 - Frontend/Lark: not changed in this Core slice. A companion slice should render
   the same typed plan/admission projection and readback; it must not invent a
   second registry or lifecycle.
@@ -73,6 +79,8 @@ inventory-only row for the same provider id.
 - discovery distinguishes empty, inventory-only, and ready inventories without
   claiming execution or evidence coverage;
 - method and connector providers use one protocol and receipt contract;
+- an observed provider receipt is bound to the exact plan without implying
+  evidence coverage, admission, or promotion;
 - stale request/provider identity, file provenance, and unsupported evidence
   basis fail closed;
 - admitted source refs are a subset of receipt sources;

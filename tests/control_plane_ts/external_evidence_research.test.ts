@@ -6,6 +6,7 @@ import {
   planExternalEvidenceRequest,
   projectExternalEvidenceDiscovery,
   projectExternalEvidenceRetirement,
+  recordExternalEvidenceExecution,
 } from "../../loopx/control_plane/capabilities/external_evidence.ts";
 
 const request = {
@@ -133,6 +134,37 @@ test("rejects a provider that claims ready without lifecycle readiness", () => {
       providers: [{ ...registryOnlyConnector, ready: true }],
     }),
     /cannot be ready/,
+  );
+});
+
+test("records provider execution without claiming coverage or admission", () => {
+  const currentPlan = plan();
+  const requestId = (currentPlan.request as Record<string, unknown>).request_id;
+  const result = recordExternalEvidenceExecution({
+    plan: currentPlan,
+    receipt: receipt(requestId),
+  });
+  assert.equal(result.status, "succeeded");
+  assert.match(String(result.execution_id), /^sha256:[0-9a-f]{64}$/);
+  assert.deepEqual(result.truth_contract, {
+    provider_execution_observed: true,
+    evidence_produced: true,
+    evidence_coverage_observed: false,
+    automatic_admission: false,
+    automatic_promotion: false,
+    raw_source_fallback_allowed: true,
+  });
+});
+
+test("execution receipt fails closed on stale provider identity", () => {
+  const currentPlan = plan();
+  const requestId = (currentPlan.request as Record<string, unknown>).request_id;
+  assert.throws(
+    () => recordExternalEvidenceExecution({
+      plan: currentPlan,
+      receipt: { ...receipt(requestId), provider_id: "connector:stale" },
+    }),
+    /provider_id does not match/,
   );
 });
 

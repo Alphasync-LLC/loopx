@@ -14,6 +14,8 @@ export const EXTERNAL_EVIDENCE_DISCOVERY_SCHEMA_VERSION =
   "loopx_external_evidence_discovery_v0";
 export const EXTERNAL_EVIDENCE_PLAN_SCHEMA_VERSION =
   "loopx_external_evidence_plan_v0";
+export const EXTERNAL_EVIDENCE_EXECUTION_SCHEMA_VERSION =
+  "loopx_external_evidence_execution_v0";
 export const EXTERNAL_EVIDENCE_RECEIPT_SCHEMA_VERSION =
   "loopx_external_evidence_receipt_v0";
 export const EXTERNAL_EVIDENCE_ADMISSION_SCHEMA_VERSION =
@@ -275,15 +277,14 @@ function sourceRecord(value: unknown, index: number): JsonObject {
   };
 }
 
-export function evaluateExternalEvidenceAdmission(params: JsonObject): JsonObject {
-  const plan = requireJsonObject(params.plan, "external evidence plan");
+function normalizeExecutionReceipt(plan: JsonObject, value: unknown): JsonObject {
   requireThat(
     plan.schema_version === EXTERNAL_EVIDENCE_PLAN_SCHEMA_VERSION && plan.status === "ready",
-    "external evidence admission requires a ready plan",
+    "external evidence execution requires a ready plan",
   );
   const request = requireJsonObject(plan.request, "external evidence plan request");
   const selected = requireJsonObject(plan.selected_provider, "external evidence selected provider");
-  const receipt = requireJsonObject(params.receipt, "external evidence receipt");
+  const receipt = requireJsonObject(value, "external evidence receipt");
   requireThat(
     receipt.schema_version === EXTERNAL_EVIDENCE_RECEIPT_SCHEMA_VERSION,
     "external evidence receipt schema is invalid",
@@ -301,7 +302,56 @@ export function evaluateExternalEvidenceAdmission(params: JsonObject): JsonObjec
   );
   requireThat(status !== "succeeded" || sources.length > 0, "a succeeded receipt requires evidence sources");
   requireThat(status === "succeeded" || sources.length === 0, "failed or no_evidence receipts cannot carry admitted sources");
-  const completedAt = boundedText(receipt.completed_at, "receipt.completed_at", 64);
+  return {
+    schema_version: EXTERNAL_EVIDENCE_RECEIPT_SCHEMA_VERSION,
+    request_id: request.request_id,
+    provider_id: selected.provider_id,
+    provider_kind: selected.provider_kind,
+    status,
+    sources,
+    summary: boundedText(receipt.summary, "receipt.summary", 4096),
+    limitations: receipt.limitations === undefined
+      ? []
+      : boundedStrings(receipt.limitations, "receipt.limitations", 16, 1024),
+    completed_at: boundedText(receipt.completed_at, "receipt.completed_at", 64),
+  };
+}
+
+export function recordExternalEvidenceExecution(params: JsonObject): JsonObject {
+  const plan = requireJsonObject(params.plan, "external evidence plan");
+  const receipt = normalizeExecutionReceipt(plan, params.receipt);
+  const executionIdentity = {
+    request_id: receipt.request_id,
+    provider_id: receipt.provider_id,
+    receipt_digest: digest(receipt),
+  };
+  return {
+    schema_version: EXTERNAL_EVIDENCE_EXECUTION_SCHEMA_VERSION,
+    execution_id: digest(executionIdentity),
+    request_id: receipt.request_id,
+    provider_id: receipt.provider_id,
+    provider_kind: receipt.provider_kind,
+    status: receipt.status,
+    receipt,
+    truth_contract: {
+      provider_execution_observed: true,
+      evidence_produced: receipt.status === "succeeded",
+      evidence_coverage_observed: false,
+      automatic_admission: false,
+      automatic_promotion: false,
+      raw_source_fallback_allowed: true,
+    },
+  };
+}
+
+export function evaluateExternalEvidenceAdmission(params: JsonObject): JsonObject {
+  const plan = requireJsonObject(params.plan, "external evidence plan");
+  const request = requireJsonObject(plan.request, "external evidence plan request");
+  const selected = requireJsonObject(plan.selected_provider, "external evidence selected provider");
+  const receipt = normalizeExecutionReceipt(plan, params.receipt);
+  const status = receipt.status as string;
+  const sources = receipt.sources as JsonObject[];
+  const completedAt = receipt.completed_at as string;
   const receiptDigest = digest(receipt);
   const decision = requireJsonObject(params.decision, "parent admission decision");
   const disposition = requireStringLiteral(

@@ -10,7 +10,9 @@ from ...control_plane.effect_runtime import effect_runtime_result
 from ..connector_registry.core import load_connector_registry
 
 
-PrintPayload = Callable[[dict[str, object], str, Callable[[dict[str, object]], str]], None]
+PrintPayload = Callable[
+    [dict[str, object], str, Callable[[dict[str, object]], str]], None
+]
 AddFormat = Callable[[argparse.ArgumentParser], None]
 FormatSelector = Callable[..., str]
 MAX_INPUT_BYTES = 1_000_000
@@ -114,7 +116,7 @@ def register_external_evidence_commands(
 ) -> None:
     parser = subparsers.add_parser(
         "external-evidence",
-        help="Plan, admit, and retire auditable external evidence.",
+        help="Discover, plan, receipt, admit, and retire auditable external evidence.",
     )
     actions = parser.add_subparsers(dest="external_evidence_action", required=True)
 
@@ -126,7 +128,9 @@ def register_external_evidence_commands(
     discover.add_argument("--connector-registry", nargs="?", const="")
     add_subcommand_format(discover)
 
-    plan = actions.add_parser("plan", help="Select one currently ready evidence provider.")
+    plan = actions.add_parser(
+        "plan", help="Select one currently ready evidence provider."
+    )
     plan.add_argument("--objective", required=True)
     plan.add_argument("--user-activity", required=True)
     plan.add_argument("--decision", required=True)
@@ -137,7 +141,17 @@ def register_external_evidence_commands(
     plan.add_argument("--preferred-provider-id")
     add_subcommand_format(plan)
 
-    admit = actions.add_parser("admit", help="Validate a provider receipt and parent decision.")
+    receipt = actions.add_parser(
+        "receipt",
+        help="Validate and bind an observed provider execution receipt to its exact plan.",
+    )
+    receipt.add_argument("--plan-json", required=True)
+    receipt.add_argument("--receipt-json", required=True)
+    add_subcommand_format(receipt)
+
+    admit = actions.add_parser(
+        "admit", help="Validate a provider receipt and parent decision."
+    )
     admit.add_argument("--plan-json", required=True)
     admit.add_argument("--receipt-json", required=True)
     admit.add_argument("--decision", choices=["admit", "reject"], required=True)
@@ -145,7 +159,9 @@ def register_external_evidence_commands(
     admit.add_argument("--admit-source", action="append", default=[])
     add_subcommand_format(admit)
 
-    retire = actions.add_parser("retire", help="Check downstream projection coverage before retirement.")
+    retire = actions.add_parser(
+        "retire", help="Check downstream projection coverage before retirement."
+    )
     retire.add_argument("--admission-json", required=True)
     retire.add_argument("--downstream-source", action="append", default=[])
     add_subcommand_format(retire)
@@ -199,12 +215,28 @@ def handle_external_evidence_command(
                     "preferred_provider_id": args.preferred_provider_id,
                 },
             )
+        elif args.external_evidence_action == "receipt":
+            payload = effect_runtime_result(
+                "external_evidence.receipt",
+                {
+                    "plan": _load_object(
+                        args.plan_json, label="external evidence plan"
+                    ),
+                    "receipt": _load_object(
+                        args.receipt_json, label="external evidence receipt"
+                    ),
+                },
+            )
         elif args.external_evidence_action == "admit":
             payload = effect_runtime_result(
                 "external_evidence.admit",
                 {
-                    "plan": _load_object(args.plan_json, label="external evidence plan"),
-                    "receipt": _load_object(args.receipt_json, label="external evidence receipt"),
+                    "plan": _load_object(
+                        args.plan_json, label="external evidence plan"
+                    ),
+                    "receipt": _load_object(
+                        args.receipt_json, label="external evidence receipt"
+                    ),
                     "decision": {
                         "disposition": args.decision,
                         "reason": args.reason,
@@ -224,7 +256,9 @@ def handle_external_evidence_command(
                 },
             )
         else:
-            raise ValueError("external-evidence requires discover, plan, admit, or retire")
+            raise ValueError(
+                "external-evidence requires discover, plan, receipt, admit, or retire"
+            )
     except (RuntimeError, ValueError) as exc:
         payload = {
             "ok": False,

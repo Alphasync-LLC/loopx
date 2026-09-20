@@ -203,6 +203,7 @@ import {
   planExternalEvidenceRequest,
   projectExternalEvidenceDiscovery,
   projectExternalEvidenceRetirement,
+  recordExternalEvidenceExecution,
 } from "./capabilities/external_evidence.ts";
 
 type EffectRuntimeHandler = (params: JsonObject) => unknown | Promise<unknown>;
@@ -667,6 +668,7 @@ export function createEffectRuntimeHandlers(
     ],
     ["external_evidence.discover", projectExternalEvidenceDiscovery],
     ["external_evidence.plan", planExternalEvidenceRequest],
+    ["external_evidence.receipt", recordExternalEvidenceExecution],
     ["external_evidence.admit", evaluateExternalEvidenceAdmission],
     ["external_evidence.retire", projectExternalEvidenceRetirement],
     [

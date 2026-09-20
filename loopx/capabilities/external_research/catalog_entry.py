@@ -21,7 +21,8 @@ EXTERNAL_RESEARCH_CATALOG_ENTRY: dict[str, Any] = {
     ),
     "user_value": (
         "Discover method and connector inventory, select only a currently ready provider, "
-        "and admit or reject a compact provenance receipt without copying raw provider content."
+        "bind an observed execution receipt to its exact plan, and admit or reject compact "
+        "provenance without copying raw provider content."
     ),
     "next_real_step": (
         "run `loopx external-evidence discover --connector-registry`, then provide a current "
@@ -38,6 +39,14 @@ EXTERNAL_RESEARCH_CATALOG_ENTRY: dict[str, Any] = {
             "command": "loopx external-evidence plan ... --provider-inventory-json providers.json",
             "purpose": "Bind object, user activity, decision, and evidence kinds to one ready provider.",
             "write_boundary": "read-only",
+        },
+        {
+            "command": "loopx external-evidence receipt --plan-json plan.json --receipt-json receipt.json",
+            "purpose": (
+                "Bind observed provider execution to the exact plan without claiming "
+                "coverage, admission, or promotion."
+            ),
+            "write_boundary": "read-only typed reduction; provider owner performs execution",
         },
         {
             "command": "loopx external-evidence admit --plan-json plan.json --receipt-json receipt.json ...",

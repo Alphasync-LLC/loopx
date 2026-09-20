@@ -30,6 +30,10 @@ Discovery 是只读类型化投影。它报告 method/connector 数量、ready/u
 ready provider id，并携带显式真值合同：registry presence 与 `supported` 都不等于
 readiness，discovery 本身既不证明 provider 已执行，也不证明已有证据覆盖。
 
+Provider 执行仍归既有 method 或 connector owner。Core 的 `receipt` 边界把返回身份和
+provenance 与精确 ready plan 绑定，记录“执行已观察”，但仍不宣称证据完整、已被采纳
+或可自动晋升。执行失败或空证据时，对 caller 的原始来源路径保持 fail-open。
+
 回执绑定精确请求、已选 provider、完成时间与完整回执 digest。每条被采纳来源都包含直接且非文件型引用、来源
 家族、证据基础（`stated`、`observed`、`tested` 或 `inferred`）、发现、局限、相关
 日期和内容摘要。Core 投影永不携带 provider 原始内容。
@@ -48,8 +52,8 @@ Connector registry 继续只拥有库存与遥测。`supported` 绝不映射为 
 
 ## 产品入口
 
-- CLI：`external-evidence discover|plan|admit|retire`；
-- Managed Turn：复用同四个 effect-runtime 方法；
+- CLI：`external-evidence discover|plan|receipt|admit|retire`；
+- Managed Turn：复用同五个 effect-runtime 方法；
 - Frontend/Lark：本 Core 切片不修改。后续 companion slice 只渲染同源 plan/admission
   投影与读回，不建立第二个 registry 或生命周期。
 
@@ -58,6 +62,7 @@ Connector registry 继续只拥有库存与遥测。`supported` 绝不映射为 
 - inventory-only connector 不可被选择；
 - discovery 能区分 empty、inventory-only 与 ready 库存，且不冒充执行或证据覆盖；
 - method 与 connector provider 使用同一协议与回执；
+- 已观察 provider 回执必须绑定精确 plan，且不得冒充证据覆盖、采纳或晋升；
 - 过期请求/provider 身份、文件 provenance、未知证据基础均 fail closed；
 - 被采纳 source ref 必须是回执来源的子集；
 - 全部被采纳来源完成下游覆盖前不得退休；

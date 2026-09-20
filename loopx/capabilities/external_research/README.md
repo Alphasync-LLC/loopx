@@ -25,17 +25,20 @@ The lifecycle is:
    ready;
 3. provider execution: the selected host method or connector reads external
    sources under its own adapter and permission boundary;
-4. `admit`: validate the exact request/provider identity and source-level
+4. `receipt`: validate the observed execution against the exact plan without
+   claiming evidence coverage, admission, or automatic promotion;
+5. `admit`: validate the exact request/provider identity and source-level
    provenance, bind the complete receipt digest, then record the parent agent's
    admit/reject decision;
-5. downstream projection: pass only compact findings, limitations, direct
+6. downstream projection: pass only compact findings, limitations, direct
    references, evidence basis, dates, and content digests;
-6. `retire`: retire rejected evidence immediately, or admitted evidence only
+7. `retire`: retire rejected evidence immediately, or admitted evidence only
    after every admitted source reference appears in downstream readback.
 
 生命周期为：`discover` 只读投影 method/connector 库存与当前 readiness，并明确区分
 registry presence、真实执行和证据覆盖；`plan` 绑定“对象 + 用户活动 + 决策”并选择当前
-真实 ready 的 provider；provider 在自己的权限边界内执行；`admit` 校验请求、provider、完成时间、
+真实 ready 的 provider；provider 在自己的权限边界内执行；`receipt` 把执行观察绑定精确 plan，
+但不冒充证据覆盖、采纳或自动晋升；`admit` 校验请求、provider、完成时间、
 完整 receipt digest 与逐来源 provenance，并记录父 Agent 的采纳/拒绝；下游只投影紧凑证据；被采纳的来源全部完成
 下游读回后才可 `retire`。
 
@@ -64,6 +67,11 @@ loopx external-evidence plan \
   --provider-inventory-json providers.json \
   --format json
 
+loopx external-evidence receipt \
+  --plan-json plan.json \
+  --receipt-json receipt.json \
+  --format json
+
 loopx external-evidence admit \
   --plan-json plan.json \
   --receipt-json receipt.json \
@@ -90,7 +98,8 @@ credentials, and private notes remain provider-private.
 - Python adapts the existing CLI and effect-runtime transport; it does not
   reimplement those decisions.
 - Managed Turn callers can invoke the same effect-runtime methods:
-  `external_evidence.discover`, `external_evidence.plan`, `external_evidence.admit`, and
+  `external_evidence.discover`, `external_evidence.plan`,
+  `external_evidence.receipt`, `external_evidence.admit`, and
   `external_evidence.retire`.
 - Frontend and Lark are companion slices. They should render the same plan and
   admission projection; neither gets an independent provider registry or

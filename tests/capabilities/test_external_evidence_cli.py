@@ -53,11 +53,14 @@ def test_discover_projects_connector_registry_as_inventory_only(
         provider_inventory_json=None,
         connector_registry=str(registry_path),
     )
-    assert cli.handle_external_evidence_command(
-        args,
-        output_format=lambda _args: "json",
-        print_payload=_print_payload,
-    ) == 0
+    assert (
+        cli.handle_external_evidence_command(
+            args,
+            output_format=lambda _args: "json",
+            print_payload=_print_payload,
+        )
+        == 0
+    )
     assert captured["method"] == "external_evidence.discover"
     connector = next(
         provider
@@ -76,7 +79,9 @@ def test_discover_projects_connector_registry_as_inventory_only(
     }
 
 
-def test_plan_projects_registry_as_inventory_not_readiness(tmp_path: Path, monkeypatch) -> None:
+def test_plan_projects_registry_as_inventory_not_readiness(
+    tmp_path: Path, monkeypatch
+) -> None:
     provider_path = tmp_path / "providers.json"
     provider_path.write_text(
         json.dumps(
@@ -137,29 +142,46 @@ def test_plan_projects_registry_as_inventory_not_readiness(tmp_path: Path, monke
         connector_registry=str(registry_path),
         preferred_provider_id="host:external-research",
     )
-    assert cli.handle_external_evidence_command(
-        args,
-        output_format=lambda _args: "json",
-        print_payload=_print_payload,
-    ) == 0
+    assert (
+        cli.handle_external_evidence_command(
+            args,
+            output_format=lambda _args: "json",
+            print_payload=_print_payload,
+        )
+        == 0
+    )
     assert captured["method"] == "external_evidence.plan"
     providers = captured["params"]["providers"]
-    connector = next(row for row in providers if row["provider_id"] == "connector:official-docs")
+    connector = next(
+        row for row in providers if row["provider_id"] == "connector:official-docs"
+    )
     assert connector["ready"] is False
-    assert connector["unavailable_reason"] == "connector_registry_is_inventory_not_readiness"
+    assert (
+        connector["unavailable_reason"]
+        == "connector_registry_is_inventory_not_readiness"
+    )
 
 
-def test_admit_passes_parent_decision_to_typed_owner(tmp_path: Path, monkeypatch) -> None:
+def test_admit_passes_parent_decision_to_typed_owner(
+    tmp_path: Path, monkeypatch
+) -> None:
     plan_path = tmp_path / "plan.json"
     receipt_path = tmp_path / "receipt.json"
-    plan_path.write_text(json.dumps({"schema_version": "loopx_external_evidence_plan_v0"}))
-    receipt_path.write_text(json.dumps({"schema_version": "loopx_external_evidence_receipt_v0"}))
+    plan_path.write_text(
+        json.dumps({"schema_version": "loopx_external_evidence_plan_v0"})
+    )
+    receipt_path.write_text(
+        json.dumps({"schema_version": "loopx_external_evidence_receipt_v0"})
+    )
     captured = {}
 
     def fake_runtime(method, params):
         captured["method"] = method
         captured["params"] = params
-        return {"schema_version": "loopx_external_evidence_admission_v0", "disposition": "reject"}
+        return {
+            "schema_version": "loopx_external_evidence_admission_v0",
+            "disposition": "reject",
+        }
 
     monkeypatch.setattr(cli, "effect_runtime_result", fake_runtime)
     args = argparse.Namespace(
@@ -171,13 +193,59 @@ def test_admit_passes_parent_decision_to_typed_owner(tmp_path: Path, monkeypatch
         reason="Insufficient direct evidence",
         admit_source=[],
     )
-    assert cli.handle_external_evidence_command(
-        args,
-        output_format=lambda _args: "json",
-        print_payload=_print_payload,
-    ) == 0
+    assert (
+        cli.handle_external_evidence_command(
+            args,
+            output_format=lambda _args: "json",
+            print_payload=_print_payload,
+        )
+        == 0
+    )
     assert captured["method"] == "external_evidence.admit"
     assert captured["params"]["decision"]["disposition"] == "reject"
+
+
+def test_receipt_passes_observed_execution_to_typed_owner(
+    tmp_path: Path, monkeypatch
+) -> None:
+    plan_path = tmp_path / "plan.json"
+    receipt_path = tmp_path / "receipt.json"
+    plan_path.write_text(
+        json.dumps({"schema_version": "loopx_external_evidence_plan_v0"})
+    )
+    receipt_path.write_text(
+        json.dumps({"schema_version": "loopx_external_evidence_receipt_v0"})
+    )
+    captured = {}
+
+    def fake_runtime(method, params):
+        captured["method"] = method
+        captured["params"] = params
+        return {
+            "schema_version": "loopx_external_evidence_execution_v0",
+            "status": "succeeded",
+        }
+
+    monkeypatch.setattr(cli, "effect_runtime_result", fake_runtime)
+    args = argparse.Namespace(
+        command="external-evidence",
+        external_evidence_action="receipt",
+        plan_json=str(plan_path),
+        receipt_json=str(receipt_path),
+    )
+    assert (
+        cli.handle_external_evidence_command(
+            args,
+            output_format=lambda _args: "json",
+            print_payload=_print_payload,
+        )
+        == 0
+    )
+    assert captured["method"] == "external_evidence.receipt"
+    assert (
+        captured["params"]["plan"]["schema_version"]
+        == "loopx_external_evidence_plan_v0"
+    )
 
 
 def test_source_cli_reaches_typescript_owner(tmp_path: Path) -> None:
@@ -234,7 +302,9 @@ def test_source_cli_reaches_typescript_owner(tmp_path: Path) -> None:
     assert payload["selected_provider"]["provider_id"] == "host:external-research"
 
 
-def test_source_cli_discovers_inventory_without_claiming_readiness(tmp_path: Path) -> None:
+def test_source_cli_discovers_inventory_without_claiming_readiness(
+    tmp_path: Path,
+) -> None:
     registry_path = tmp_path / "connectors.json"
     registry_path.write_text(
         json.dumps(
