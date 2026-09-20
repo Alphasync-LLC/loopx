@@ -58,3 +58,45 @@ def test_observation_rejects_mixed_edits_and_unavailable_authority(tmp_path, mon
             update_goal_todo(**arguments, **extra)
         assert read_canonical_todos_if_promoted(runtime_root=runtime, goal_id=GOAL_ID) == before
         assert state.read_bytes() == display
+
+
+@pytest.mark.parametrize("provider", ["file", "sqlite"])
+@pytest.mark.parametrize("native", [False, True])
+def test_completed_leased_monitor_reopens_then_requires_fresh_cli_execution(tmp_path, monkeypatch, provider, native):
+    from loopx.control_plane.testing.canary_harness import run_json_cli
+    from loopx.control_plane.coordination.local_authority import LocalCoordinationAuthorityUnavailable
+    isolate_sqlite_runtime(tmp_path, monkeypatch)
+    registry, runtime, state, monitor = _canonical(tmp_path, provider=provider, native=native,
+        lease={"status": "active", "idempotency_key": "original-cycle", "version": 3, "lease_epoch": 2,
+               "acquired_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z",
+               "expires_at": "2099-01-01T00:00:00Z"})
+    args = dict(registry_path=registry, runtime_root_arg=str(runtime), goal_id=GOAL_ID,
+                todo_id=monitor["todo_id"], agent_id=AGENT_ID, role="agent")
+    done = complete_goal_todo(**args, no_followup=True,
+        task_lease_idempotency_key="original-cycle", task_lease_expected_version=3)
+    assert done["changed"] is True
+    state.unlink()
+    observation = MonitorPollObservation(generated_at="2030-01-01T00:00:00Z",
+        result_hash="new-cycle", material_change=True, monitor_effect_id="reopen-cycle", cadence="1h")
+    reopened = update_goal_todo(**args, status="open", monitor_metadata=observation)
+    assert reopened["status"] == "applied"
+    assert reopened["monitor_lifecycle_transition"]["lease_retirement"] == "already_released"
+    assert reopened["monitor_lifecycle_transition"]["execution_authority_granted"] is False
+    assert reopened["projection_delivery"] == "delivered"
+    with pytest.raises(LocalCoordinationAuthorityUnavailable):
+        update_goal_todo(**args, monitor_metadata=replace(observation,
+            generated_at="2030-01-01T00:01:00Z", monitor_effect_id="stale-execution"),
+            task_lease_idempotency_key="original-cycle", task_lease_expected_version=3)
+    acquired = run_json_cli("task-lease", "acquire", "--goal-id", GOAL_ID,
+        "--todo-id", monitor["todo_id"], "--owner", AGENT_ID,
+        "--idempotency-key", "fresh-cycle", "--expected-version", "3", "--ttl-seconds", "600",
+        registry_path=registry, runtime_root=runtime)
+    lease = acquired["lease"]
+    assert lease["version"] == 4 and lease["lease_epoch"] == 3
+    replay = update_goal_todo(**args, status="open", monitor_metadata=observation)
+    assert replay["status"] == "replayed"
+    observed = update_goal_todo(**args, monitor_metadata=replace(observation,
+        generated_at="2030-01-01T00:02:00Z", monitor_effect_id="fresh-observation", result_hash="changed"),
+        task_lease_idempotency_key="fresh-cycle", task_lease_expected_version=4)
+    assert observed["status"] == "applied"
+    assert observed["monitor_poll_transition"]["material_change_generation"] == 2
