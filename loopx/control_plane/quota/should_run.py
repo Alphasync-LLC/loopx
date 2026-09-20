@@ -38,7 +38,6 @@ from ..scheduler.execution_context import (
 from ..todos.write_hint import build_todo_write_hint
 from ..work_items.interaction_contract import (
     build_interaction_contract,
-    build_protocol_action_packet,
 )
 from .effect_program import (
     ReceiptBoundMonitorPhase,
@@ -257,7 +256,6 @@ def build_quota_paused_should_run_payload(
         codex_app_automation_id=codex_app_automation_id,
         scheduler_execution_context=resolved_scheduler_context,
     )
-    payload["protocol_action_packet"] = build_protocol_action_packet(payload)
     return payload
 
 

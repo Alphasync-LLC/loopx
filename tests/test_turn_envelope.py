@@ -22,7 +22,6 @@ from loopx.control_plane.scheduler.execution_context import (
     scheduler_execution_context_for_runtime_profile,
 )
 from loopx.control_plane.work_items.interaction_contract import (
-    build_protocol_action_packet,
     protocol_action_packet_fields,
     render_protocol_action_packet_summary,
 )
@@ -47,6 +46,18 @@ HISTORICAL_V0_SUMMARY = (
     "scheduler=run_now pause_allowed=false llm=no_api "
     "agent_action=advance one product-path slice"
 )
+
+
+def _legacy_protocol_packet(source: dict[str, Any]) -> dict[str, Any]:
+    """Build legacy-only fixture input; live quota writers no longer emit it.
+
+    The independently authored HISTORICAL_V0_SUMMARY exercises compatibility
+    separately, so this adapter is not the historical correctness oracle.
+    """
+    return {
+        "schema_version": "protocol_action_packet_v0",
+        "summary": render_protocol_action_packet_summary(protocol_action_packet_fields(source)),
+    }
 
 
 def _compat_decision(packet_format: str) -> dict[str, Any]:
@@ -228,7 +239,7 @@ def _full_decision() -> dict[str, object]:
         "goal_frontier_projection": {"large_diagnostic_lane": ["y" * 4_000]},
         "plan_summary": {"large_diagnostic_lane": ["z" * 4_000]},
     }
-    source["protocol_action_packet"] = build_protocol_action_packet(source)
+    source["protocol_action_packet"] = _legacy_protocol_packet(source)
     return source
 
 
@@ -242,7 +253,7 @@ def test_turn_envelope_state_matrix_preserves_parity_and_budget(
 ) -> None:
     source = _full_decision()
     _deep_update(source, case["patch"])
-    source["protocol_action_packet"] = build_protocol_action_packet(source)
+    source["protocol_action_packet"] = _legacy_protocol_packet(source)
 
     envelope = build_turn_envelope(source)
 
@@ -796,7 +807,7 @@ def test_turn_envelope_stays_actionable_during_scheduler_reset() -> None:
     codex_app = source["scheduler_hint"]["codex_app"]
     codex_app["ack_hint"]["cli_args"] = ack_cli_args
     codex_app["failure_hint"] = {"cli_args": failure_cli_args}
-    source["protocol_action_packet"] = build_protocol_action_packet(source)
+    source["protocol_action_packet"] = _legacy_protocol_packet(source)
 
     envelope = build_turn_envelope(source)
     compact_app = envelope["scheduler"]["codex_app"]
@@ -946,7 +957,7 @@ def test_missing_packet_keeps_the_semantic_projection_and_signed_obligations() -
     assert fields["quiet_noop_allowed"] is False
     assert render_protocol_action_packet_summary(fields) == HISTORICAL_V0_SUMMARY
     with_packet = _compat_decision("historical_v0")
-    assert build_protocol_action_packet(with_packet)["summary"] == HISTORICAL_V0_SUMMARY
+    assert _legacy_protocol_packet(with_packet)["summary"] == HISTORICAL_V0_SUMMARY
     without_packet = build_turn_envelope(source)
     with_packet_envelope = build_turn_envelope(with_packet)
     # The only removed signed dimension is the capsule's packet witness.
@@ -1050,7 +1061,7 @@ def test_protocol_packet_monitor_action_derives_without_residue() -> None:
             "must_attempt_work": False,
         }
     )
-    source["protocol_action_packet"] = build_protocol_action_packet(source)
+    source["protocol_action_packet"] = _legacy_protocol_packet(source)
 
     envelope = build_turn_envelope(source)
     packet = envelope["contract_capsule"]["protocol_action_packet"]

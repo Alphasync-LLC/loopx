@@ -178,6 +178,8 @@ def test_live_quota_decision_maps_to_effect_turn(tmp_path: Path) -> None:
         capabilities=["shell"],
     )
 
+    assert "protocol_action_packet" not in packet
+    assert turn.observation.protocol_summary is None
     assert turn.observation.decision == "run"
     assert turn.observation.effective_action == "normal_run"
     assert turn.interpretation.route == "advancement_task"
@@ -267,6 +269,7 @@ def test_managed_turn_projects_prior_unsettled_heartbeat_recovery(
         },
     )
 
+    assert "protocol_action_packet" not in packet
     assert packet["runtime_root"] == str(runtime_root)
     assert packet["effective_action"] == "unsettled_host_turn_recovery"
     assert packet["unsettled_host_turn_recovery"]["prior_turn_instance_id"] == (
@@ -924,3 +927,41 @@ def test_prior_closeout_identity_conflict_fails_closed(
                 "execution_mode": "interactive",
             },
         )
+
+
+@pytest.mark.parametrize("quota_state", ["eligible", "paused", "operator_gate", "exhausted"])
+@pytest.mark.parametrize("required_reads", [False, True])
+def test_current_quota_outputs_retire_packet_without_losing_signed_actions(
+    tmp_path: Path, quota_state: str, required_reads: bool,
+) -> None:
+    from loopx.control_plane.quota.turn_envelope import (
+        build_turn_envelope, quota_action_signature_document,
+        turn_envelope_action_signature_document,
+    )
+    from loopx.control_plane.turn_driver.host_candidate import extract_turn_authority
+
+    status = quota_status_payload(
+        goal_id=GOAL_ID, status="active", quota_state=quota_state,
+        agent_todo_items=[{
+            "todo_id": "todo_packet_retirement", "index": 1,
+            "text": "[P1] Verify the bounded change", "role": "agent",
+            "status": "open", "priority": "P1", "task_class": "advancement_task",
+        }],
+        recommended_action="Verify the bounded change",
+    )
+    payload = build_live_quota_should_run_decision(
+        status, goal_id=GOAL_ID, agent_id=None, available_capabilities=["shell"],
+        include_scheduler_detail=False, codex_app_current_rrule=None,
+        registry_path=tmp_path / "registry.json", runtime_root=tmp_path / "runtime",
+        turn_start_hook_dispatch=_turn_start_dispatch(required=required_reads),
+    )
+    assert "protocol_action_packet" not in payload
+    envelope = build_turn_envelope(payload)
+    assert "protocol_action_packet" not in envelope["contract_capsule"]
+    assert quota_action_signature_document(payload) == turn_envelope_action_signature_document(envelope)
+    assert extract_turn_authority({"turn_envelope": envelope})["primary_action"]
+    if quota_state == "paused":
+        assert payload["should_run"] is False
+        assert envelope["writeback"]["spend_allowed_now"] is False
+    if required_reads:
+        assert payload["interaction_contract"]["agent_channel"]["required_reads"]

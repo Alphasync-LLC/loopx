@@ -18,7 +18,6 @@ from .settlement import (
 )
 from ..work_items.interaction_contract import (
     build_interaction_contract,
-    build_protocol_action_packet,
 )
 from ..scheduler.execution_context import (
     SchedulerExecutionContextResolution,
@@ -136,7 +135,6 @@ def _project_turn_start_required_reads(
         turn_instance_id=turn_instance_id,
         runtime_root=str(runtime_root),
     )
-    payload["protocol_action_packet"] = build_protocol_action_packet(payload)
 
 
 def _fresh_operator_inbox_observation_count(
@@ -243,7 +241,6 @@ def _apply_pending_capability_intent_precedence(
         scheduler_execution_context=scheduler_execution_context,
         turn_instance_id=turn_instance_id,
     )
-    payload["protocol_action_packet"] = build_protocol_action_packet(payload)
 
 
 def bind_scheduler_followup_cli_routes(
