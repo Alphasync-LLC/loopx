@@ -8,20 +8,26 @@ provides the slice specifications and corrections. Section 11 carries the
 proposed M3 contract change; this ledger is its evidence record.
 
 The previous tracker required deletion of a first field as proof of usefulness.
-That confuses a means with an outcome. `protocol_action_packet` still has live
-writers and compatibility consumers. Its semantic-field projection is also
-used by Envelope/signature construction. A low syntactic reader count proves
-neither that the field is redundant nor that historical readers can be removed.
-A derived compatibility projection can be retained while duplicated construction
-or independent decision authority is eliminated.
+That confuses a means with an outcome. At this baseline,
+`protocol_action_packet` still has live writers and compatibility consumers;
+[#4794](https://github.com/loopx-project/loopx/pull/4794) now implements the
+writer retirement but is not merged into this baseline. Its semantic-field
+projection remains necessary for Envelope/signature compatibility. A low
+syntactic reader count proves neither that the field is redundant nor that
+historical readers can be removed. A derived compatibility projection can be
+retained while duplicated construction or independent decision authority is
+eliminated.
 
 The proposed tracker stages are:
 
 1. Verify the shipped guard boundaries and the selected production-path
-   simplifications on an integrated tree. The decisive behaviors are a single
-   final live packet render, settled work not being reconstructed or spent again,
-   unadmitted selection not acquiring settlement capability, and inbox source
-   precedence remaining intact. Preserve legitimate workspace repair and
+   simplifications on an integrated tree. Fresh packet construction must not be
+   duplicated: when the PR-05 migration is adopted, new quota/live/paused/recovery
+   outputs carry no packet while the historical v0 reader and signature projection
+   remain; without that migration, the retained field is rendered at most once at
+   the final live stage. Settled work must not be reconstructed or spent again,
+   unadmitted selection must not acquire settlement capability, and inbox source
+   precedence must remain intact. Preserve legitimate workspace repair and
    independent capability effects. Local branch tests do not certify the
    integrated result.
 2. Close sources for the 26 registered vocabularies without pretending every
