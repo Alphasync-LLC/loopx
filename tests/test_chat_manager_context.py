@@ -275,6 +275,130 @@ def test_turn_context_reads_a_bounded_window_and_declares_sources(
     ]
 
 
+def test_source_health_rows_type_a_window_that_read_nothing():
+    declared = [{"source_id": "local", "source_host": "local", "status": "available"}]
+
+    unread = context._source_health_rows(declared, read_status="not_read")
+
+    assert unread == [
+        {
+            "source_id": "local",
+            "source_host": "local",
+            "status": "available",
+            "freshness": "unknown",
+            "reason": context.MANAGER_LOCAL_SOURCE_NOT_READ_REASON,
+            "coverage_effect": context.MANAGER_SOURCE_COVERAGE_EFFECT,
+            "next_action": context.MANAGER_LOCAL_SOURCE_NOT_READ_NEXT_ACTION,
+        }
+    ]
+    read = context._source_health_rows(declared, read_status="read")
+    assert read[0]["freshness"] == "current"
+    assert read[0]["reason"] is None
+    assert read[0]["coverage_effect"] is None
+    assert read[0]["next_action"] is None
+
+
+def test_remote_source_rows_are_typed_and_never_read_as_no_progress():
+    declared = [
+        {"source_id": "local", "source_host": "local", "status": "available"},
+        {
+            "source_id": "ssh:ark-devbox",
+            "source_host": "ark-devbox",
+            "status": "not_read",
+            "reason": None,
+            "scope": "remote_registry",
+        },
+        {
+            "source_id": "ssh:gone",
+            "source_host": "gone",
+            "status": "not_configured",
+            "reason": "ssh_alias_not_configured",
+        },
+    ]
+
+    health = {
+        row["source_id"]: row
+        for row in context._source_health_rows(declared, read_status="read")
+    }
+
+    assert health["local"]["freshness"] == "current"
+    assert health["ssh:ark-devbox"]["status"] == "not_read"
+    assert health["ssh:ark-devbox"]["freshness"] == "stale"
+    assert health["ssh:ark-devbox"]["reason"] == context.MANAGER_SOURCE_NOT_READ_REASON
+    assert health["ssh:gone"]["freshness"] == "unknown"
+    assert health["ssh:gone"]["reason"] == "ssh_alias_not_configured"
+    assert health["ssh:gone"]["next_action"] == context.MANAGER_SOURCE_UNCONFIGURED_NEXT_ACTION
+    for source_id, row in health.items():
+        assert row["freshness"] in context.MANAGER_SOURCE_FRESHNESS_VALUES
+        if row["freshness"] == "current":
+            continue
+        # The coverage effect is what stops a reader from reading a source that
+        # contributed nothing as "this Goal made no progress".
+        assert row["coverage_effect"] == context.MANAGER_SOURCE_COVERAGE_EFFECT
+        assert "must not present it as no progress" in row["coverage_effect"]
+        assert row["next_action"], source_id
+
+
+def test_turn_context_reports_health_for_every_declared_source(monkeypatch, tmp_path):
+    _write_delivery_index(
+        tmp_path,
+        "alpha",
+        [
+            {
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "goal_id": "alpha",
+                "agent_id": "worker",
+                "todo_id": "todo_1",
+                "classification": "validated_progress",
+                "delivery_outcome": "outcome_progress",
+                "recommended_action": "follow up",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        context,
+        "build_goal_portfolio",
+        lambda **_: {
+            "goals": [{"goal_id": "alpha", "activation_state": "active"}],
+            "coverage": {"discovered": 1},
+        },
+    )
+    monkeypatch.setattr(
+        context,
+        "read_manager_goal_details",
+        lambda *args, **kwargs: {"status": "read", "todos": []},
+    )
+    monkeypatch.setattr(
+        context,
+        "_declared_sources",
+        lambda *args, **kwargs: [
+            {"source_id": "local", "source_host": "local", "status": "available"},
+            {
+                "source_id": "ssh:ark-devbox",
+                "source_host": "ark-devbox",
+                "status": "not_read",
+                "reason": None,
+            },
+        ],
+    )
+
+    result = context.manager_turn_context(
+        tmp_path / "registry.json", {"channel_id": "manager"}, tmp_path
+    )
+
+    window = result["evidence_window"]
+    assert window["read_status"] == "read"
+    assert [row["source_id"] for row in window["source_health"]] == [
+        source["source_id"] for source in window["sources"]
+    ]
+    health = {row["source_id"]: row for row in window["source_health"]}
+    assert health["local"]["freshness"] == "current"
+    assert health["ssh:ark-devbox"]["freshness"] == "stale"
+    assert health["ssh:ark-devbox"]["coverage_effect"] == (
+        context.MANAGER_SOURCE_COVERAGE_EFFECT
+    )
+
+
 def test_evidence_window_is_a_selected_bounded_decision():
     # The window is an explicit operator choice, bounded, and declared with its
     # source: it never follows a discovered environment fact silently.
