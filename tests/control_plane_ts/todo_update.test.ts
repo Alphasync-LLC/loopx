@@ -24,6 +24,20 @@ test("Monitor observation is versioned before any provider access", async () => 
   assert.equal(missing.status, "failed"); assert.match(String(missing.reason), /requires its observation/);
 });
 
+test("completion validation revision is versioned before provider access", async () => {
+  const oldWire = await updateLocalCoordinationTodo({
+    schema_version: "loopx_local_coordination_todo_update_request_v2",
+    completion_validation_revision: {},
+  }, {createStore: () => {throw new Error("must not open a store");}});
+  assert.equal(oldWire.status, "failed");
+  assert.match(String(oldWire.reason), /requires request v5/);
+  const missing = await updateLocalCoordinationTodo({
+    schema_version: "loopx_local_coordination_todo_update_request_v5",
+  }, {createStore: () => {throw new Error("must not open a store");}});
+  assert.equal(missing.status, "failed");
+  assert.match(String(missing.reason), /requires its revision payload/);
+});
+
 test("planning transport is explicitly versioned before any provider access", async () => {
   const result = await updateLocalCoordinationTodo({
     schema_version: "loopx_local_coordination_todo_update_request_v0",
@@ -180,6 +194,75 @@ async function seeded(overrides: Record<string, unknown> = {}) {
     dry_run: false, now: new Date("2026-09-05T23:00:00Z")};
   return {store, request};
 }
+
+test("open Todo revises its validator with CAS, audit history, and idempotent replay", async () => {
+  const original = {
+    validation_command: null,
+    validation_command_argv: ["python", "-m", "pytest", "-q", "tests/old.py"],
+    validation_label: "focused tests",
+    validation_timeout_seconds: 20,
+  };
+  const replacement = {...original,
+    validation_command_argv: ["python", "-m", "pytest", "-q", "tests/new.py"]};
+  const {store, request} = await seeded({
+    completion_validation_required: true,
+    completion_validation_sha256: canonicalAuthoritySha256(original),
+    completion_validation_revision: 0,
+    completion_validation_revision_history: [],
+  });
+  const before = await store.loadAuthority();
+  assert.equal(before.status, "loaded");
+  if (before.status !== "loaded") return;
+  const revision = {
+    schema_version: "loopx_todo_completion_validation_revision_v0",
+    expected_declaration_sha256: canonicalAuthoritySha256(original),
+    declaration: replacement,
+  } as const;
+  const edit = {...request, patch: {}, clear_fields: [],
+    expected_provider_revision: before.provider_revision,
+    completion_validation_revision: revision};
+  const preview = await executeCoordinationTodoUpdate(store, {...edit, dry_run: true});
+  assert.equal(preview.status, "planned");
+  assert.equal((preview.completion_validation_revision as Record<string, unknown>).revision, 1);
+  assert.equal((await executeCoordinationTodoUpdate(store, edit)).status, "applied");
+  const replay = await executeCoordinationTodoUpdate(store, edit);
+  assert.equal(replay.status, "replayed");
+  const after = await store.loadAuthority();
+  assert.equal(after.status, "loaded");
+  if (after.status !== "loaded") return;
+  const updated = (after.head.todos as Record<string, unknown>[])[0]!;
+  assert.equal(updated.completion_validation_sha256, canonicalAuthoritySha256(replacement));
+  assert.equal(updated.completion_validation_revision, 1);
+  const history = updated.completion_validation_revision_history as Record<string, unknown>[];
+  assert.equal(history.length, 1);
+  assert.equal(history[0]!.previous_declaration_sha256, canonicalAuthoritySha256(original));
+  assert.equal(history[0]!.declaration_sha256, canonicalAuthoritySha256(replacement));
+  assert.equal(history[0]!.actor_agent_id, "agent-a");
+  assert.equal((await executeCoordinationTodoUpdate(store, {...edit, operation_id: "stale",
+    completion_validation_revision: {...revision,
+      declaration: {...replacement, validation_label: "different"}}})).reason_code,
+    "provider_revision_mismatch");
+});
+
+test("terminal or digest-stale Todo rejects validator revision without a receipt", async () => {
+  const declaration = {validation_command: null, validation_command_argv: ["true"],
+    validation_label: null, validation_timeout_seconds: null};
+  for (const overrides of [
+    {status: "done", done: true},
+    {completion_validation_sha256: "f".repeat(64)},
+  ]) {
+    const {store, request} = await seeded({completion_validation_required: true,
+      completion_validation_sha256: canonicalAuthoritySha256(declaration), ...overrides});
+    const edit = {...request, patch: {}, clear_fields: [], completion_validation_revision: {
+      schema_version: "loopx_todo_completion_validation_revision_v0",
+      expected_declaration_sha256: canonicalAuthoritySha256(declaration),
+      declaration: {...declaration, validation_command_argv: ["false"]},
+    }};
+    const result = await executeCoordinationTodoUpdate(store, edit);
+    assert.equal(result.status, "failed");
+    assert.equal((await store.readReceipt(request.operation_id)).status, "missing");
+  }
+});
 
 test("provider-first update commits complete record and replays by intent", async () => {
   const {store, request} = await seeded();

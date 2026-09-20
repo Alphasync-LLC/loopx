@@ -52,6 +52,7 @@ from loopx.todos import (
     complete_goal_todo,
     list_goal_todos,
     supersede_goal_todo,
+    update_goal_todo,
 )
 
 
@@ -599,6 +600,104 @@ def test_validated_create_recovers_sidecar_after_commit_before_publish_crash(
         goal_id="goal-a",
     )
     assert canonical_after is not None and len(canonical_after["todos"]) == 1
+
+
+def test_promoted_validator_revision_updates_canonical_digest_and_private_readback(
+    tmp_path: Path,
+) -> None:
+    registry_path, runtime_root, _state_file = _promoted_create_fixture(tmp_path)
+    created = add_goal_todo(
+        registry_path=registry_path,
+        goal_id="goal-a",
+        role="agent",
+        text="Keep validator current after repository moves",
+        claimed_by="agent-a",
+        agent_id="agent-a",
+        validation_command_json=json.dumps(
+            [sys.executable, "-c", "raise SystemExit(4)"]
+        ),
+        validation_label="focused validation",
+    )
+    todo_id = str(created["todo_id"])
+    before = read_canonical_todos_if_promoted(
+        runtime_root=runtime_root, goal_id="goal-a"
+    )
+    assert before is not None
+    old_digest = before["todos"][0]["completion_validation_sha256"]
+    replacement_argv = [sys.executable, "-c", "raise SystemExit(0)"]
+
+    revised = update_goal_todo(
+        registry_path=registry_path,
+        runtime_root_arg=str(runtime_root),
+        goal_id="goal-a",
+        todo_id=todo_id,
+        role="agent",
+        agent_id="agent-a",
+        update_operation_id="revise-validator-1",
+        update_expected_provider_revision=str(before["provider_revision"]),
+        validation_command_json=json.dumps(replacement_argv),
+        validation_label="focused validation",
+    )
+    assert revised["status"] == "applied"
+    canonical = read_canonical_todos_if_promoted(
+        runtime_root=runtime_root, goal_id="goal-a"
+    )
+    assert canonical is not None
+    todo = canonical["todos"][0]
+    assert todo["completion_validation_revision"] == 1
+    assert todo["completion_validation_sha256"] != old_digest
+    assert todo["completion_validation_revision_history"] == [
+        {
+            "schema_version": "loopx_todo_completion_validation_revision_receipt_v0",
+            "revision": 1,
+            "operation_id": "revise-validator-1",
+            "previous_declaration_sha256": old_digest,
+            "declaration_sha256": todo["completion_validation_sha256"],
+            "actor_agent_id": "agent-a",
+            "revised_at": todo["updated_at"],
+        }
+    ]
+    stored = read_completion_validation_declaration(
+        runtime_root=runtime_root, goal_id="goal-a", todo_id=todo_id
+    )
+    assert stored is not None
+    assert stored["validation_command_argv"] == replacement_argv
+    assert completion_validation_declaration_sha256(stored) == (
+        todo["completion_validation_sha256"]
+    )
+
+    replay = update_goal_todo(
+        registry_path=registry_path,
+        runtime_root_arg=str(runtime_root),
+        goal_id="goal-a",
+        todo_id=todo_id,
+        role="agent",
+        agent_id="agent-a",
+        update_operation_id="revise-validator-1",
+        update_expected_provider_revision=str(before["provider_revision"]),
+        validation_command_json=json.dumps(replacement_argv),
+        validation_label="focused validation",
+    )
+    assert replay["status"] == "replayed"
+    assert read_canonical_todos_if_promoted(
+        runtime_root=runtime_root, goal_id="goal-a"
+    ) == canonical
+
+    completed = complete_goal_todo(
+        registry_path=registry_path,
+        runtime_root_arg=str(runtime_root),
+        goal_id="goal-a",
+        todo_id=todo_id,
+        role="agent",
+        claimed_by="agent-a",
+        agent_id="agent-a",
+        no_followup=True,
+    )
+    assert completed["status"] == "done"
+    assert completed["validation_receipt"]["passed"] is True
+    assert completed["validation_receipt"]["validation_declaration_sha256"] == (
+        todo["completion_validation_sha256"]
+    )
 
 
 def test_promoted_native_create_recovers_markdown_after_delivery_crash(

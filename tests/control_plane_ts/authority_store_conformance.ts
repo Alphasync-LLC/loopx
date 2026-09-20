@@ -1525,6 +1525,76 @@ export function registerAuthorityStoreConformance(
         "invalid_coordination_todo_update");
       }
     });
+    test(`${providerName} conformance: validator revision is atomic and replayable (${native ? "native" : "v0"})`, async (t) => {
+      const {store, contender} = await factory(t);
+      const goalId = "goal-validator-revision";
+      const original = {
+        validation_command: null,
+        validation_command_argv: ["python3", "-m", "pytest", "-q", "tests/old.py"],
+        validation_label: "provider conformance validation",
+        validation_timeout_seconds: 5,
+      };
+      const replacement = {
+        ...original,
+        validation_command_argv: ["python3", "-m", "pytest", "-q", "tests/new.py"],
+      };
+      const projection = todoClaimProjection(goalId, native);
+      const todo = (projection.todos as Record<string, unknown>[])[0]!;
+      Object.assign(todo, {
+        claimed_by: "agent-a",
+        completion_validation_required: true,
+        completion_validation_sha256: canonicalAuthoritySha256(original),
+        completion_validation_revision: 0,
+        completion_validation_revision_history: [],
+      });
+      projection.todo_read_model = coordinationTodoReadModel(
+        projection.todos as JsonObject[],
+        (projection.todo_read_model as JsonObject).schema_version,
+      );
+      assert.equal((await store.commitAuthority({
+        expected_provider_revision: null,
+        operation_id: "init-validator-revision",
+        events: [],
+        receipts: [],
+        next_projection: projection,
+      })).status, "applied");
+      const before = await store.loadAuthority();
+      assert.equal(before.status, "loaded");
+      if (before.status !== "loaded") return;
+      const request = {
+        goal_id: goalId,
+        todo_id: "todo-claim",
+        expected_role: "agent",
+        actor_agent_id: "agent-a",
+        registered_agents: ["agent-a", "agent-b"],
+        operation_id: "revise-validator",
+        expected_provider_revision: before.provider_revision,
+        patch: {},
+        clear_fields: [],
+        completion_validation_revision: {
+          schema_version: "loopx_todo_completion_validation_revision_v0",
+          expected_declaration_sha256: canonicalAuthoritySha256(original),
+          declaration: replacement,
+        },
+        dry_run: false,
+        now: new Date("2026-09-05T05:45:00Z"),
+      } as const;
+      const appliedRevision = await executeCoordinationTodoUpdate(store, request);
+      assert.equal(appliedRevision.status, "applied", JSON.stringify(appliedRevision));
+      const replayedRevision = await executeCoordinationTodoUpdate(contender, request);
+      assert.equal(replayedRevision.status, "replayed", JSON.stringify(replayedRevision));
+      const after = await store.loadAuthority();
+      assert.equal(after.status, "loaded");
+      if (after.status !== "loaded") return;
+      const revised = (after.head.todos as Record<string, unknown>[])[0]!;
+      assert.equal(revised.completion_validation_sha256, canonicalAuthoritySha256(replacement));
+      assert.equal(revised.completion_validation_revision, 1);
+      assert.equal(
+        (revised.completion_validation_revision_history as Record<string, unknown>[])[0]!
+          .actor_agent_id,
+        "agent-a",
+      );
+    });
     test(`${providerName} conformance: provider-neutral Todo claim transaction (${native ? "native" : "v0"})`, async (t) => {
       const { store } = await factory(t);
       const goalId = "goal-claim";
