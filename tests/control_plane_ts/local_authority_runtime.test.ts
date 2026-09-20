@@ -7,7 +7,10 @@ import test from "node:test";
 
 import type { JsonObject } from "../../loopx/control_plane/effect_program.ts";
 import { FileAuthorityStore } from "../../loopx/control_plane/coordination/file_authority_store.ts";
-import type { AuthorityStoreCommit } from "../../loopx/control_plane/coordination/authority_store.ts";
+import type {
+  AuthorityStore,
+  AuthorityStoreCommit,
+} from "../../loopx/control_plane/coordination/authority_store.ts";
 import {
   AuthorityStoreProtocolError,
   canonicalAuthorityBytes,
@@ -225,6 +228,16 @@ test("local promotion fences shadow revision, digest, and writer-fence identity"
     "local_authority_writer_fence_projection_mismatch",
   );
 
+  const mismatchedProvider = await promoteLocalCoordinationAuthority({
+    ...request,
+    canonical_authority: "sqlite_v0",
+  });
+  assert.equal(mismatchedProvider.status, "failed");
+  assert.equal(
+    mismatchedProvider.reason_code,
+    "local_authority_promotion_provider_mismatch",
+  );
+
   const unqualified = await promoteLocalCoordinationAuthority({
     ...request,
     minimum_operations: 2,
@@ -329,6 +342,22 @@ test("reviewed promotion resumes the exact request after a fence-to-canonical in
   assert.equal(changed.status, "failed", JSON.stringify(changed));
   assert.equal(changed.reason_code, "local_authority_writer_fence_conflict");
   assert.equal(changed.legacy_writer_fenced, true);
+  assert.equal((await canonical.loadAuthority()).status, "missing");
+
+  const providerChangedStore: AuthorityStore = {
+    providerKind: "sqlite",
+    storeIdentity: () => canonical.storeIdentity(),
+    loadAuthority: () => canonical.loadAuthority(),
+    commitAuthority: (commit) => canonical.commitAuthority(commit),
+    readReceipt: (operationId) => canonical.readReceipt(operationId),
+    scanCommitted: (afterCursor, limit) => canonical.scanCommitted(afterCursor, limit),
+  };
+  const providerChanged = await reviewLocalCoordinationAuthorityPromotion(request, {
+    createCanonicalStore: () => providerChangedStore,
+  });
+  assert.equal(providerChanged.status, "failed", JSON.stringify(providerChanged));
+  assert.equal(providerChanged.reason_code, "local_authority_writer_fence_conflict");
+  assert.equal(providerChanged.legacy_writer_fenced, true);
   assert.equal((await canonical.loadAuthority()).status, "missing");
 
   for (const changedPolicy of [

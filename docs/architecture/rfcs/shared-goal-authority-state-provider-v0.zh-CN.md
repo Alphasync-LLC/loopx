@@ -1449,7 +1449,8 @@ loopx coordination-shadow rollback --goal-id <goal-id> \
 并要求 `--execute` 才调用 bootstrap 或 promotion。`promote` 未带 `--execute` 时零写入；
 preview 返回精确的 qualified revision、projection digest、writer-fence identity 和
 rollback identity，并返回 canonical promotion-plan digest 及资格策略。该 digest 会绑定
-Goal、operation、精确 shadow revision/projection、最小 operation 数与规范化后的必需
+Goal、operation、选定 canonical provider、精确 shadow revision/projection、最小
+operation 数与规范化后的必需
 event kind；持久 fence、event 与 receipt 都携带同一 digest，因此 fence 已落盘而 canonical
 尚未提交的中断只能由完全相同的受评审 plan 恢复。apply 会在同一段 maintenance 与 legacy source 锁生命周期内重新
 验证 source snapshot、资格化精确 shadow lineage、engage 持久 writer fence、提交

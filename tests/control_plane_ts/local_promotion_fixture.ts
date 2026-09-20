@@ -55,11 +55,13 @@ export function promotionRequest(
   root: string,
   projection: Record<string, unknown>,
   providerRevision: string,
+  canonicalAuthority = "file_v0",
 ) {
   const digest = sha256(projection);
   const plan = {
     goal_id: "goal-a",
     operation_id: "promote:goal-a:state-1",
+    canonical_authority: canonicalAuthority,
     expected_shadow_provider_revision: providerRevision,
     expected_shadow_projection_sha256: digest,
     minimum_operations: 1,

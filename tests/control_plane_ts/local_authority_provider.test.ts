@@ -347,14 +347,25 @@ for (const provider of ["file", "sqlite"] as const) {
       const canonical = await openLocalAuthorityStore(directory, "goal-a");
       const shadow = await qualifiedShadow(directory);
       const shadowStore = new FileAuthorityStore(join(directory, "authority-shadow", "file-v0"), "goal-a");
-      const request = promotionRequest(directory, shadow.projection, shadow.providerRevision);
+      const canonicalAuthority = provider === "sqlite" ? "sqlite_v0" : "file_v0";
+      const request = promotionRequest(
+        directory,
+        shadow.projection,
+        shadow.providerRevision,
+        canonicalAuthority,
+      );
       if (phase === "shadow_invalid") {
         // A valid store row can still contain an invalid domain projection.
         const projection = {...shadow.projection, goal_id: "different-goal"};
         const committed = await shadowStore.commitAuthority({operation_id: "invalid-domain",
           expected_provider_revision: shadow.providerRevision, next_projection: projection, receipts: [], events: []});
         assert.equal(committed.status, "applied"); if (committed.status !== "applied") return;
-        Object.assign(request, promotionRequest(directory, projection, committed.provider_revision));
+        Object.assign(request, promotionRequest(
+          directory,
+          projection,
+          committed.provider_revision,
+          canonicalAuthority,
+        ));
       }
       if (phase !== "fence_missing") await engageFence(request);
       const fencePath = legacyCoordinationWriterFencePath(directory, "goal-a");

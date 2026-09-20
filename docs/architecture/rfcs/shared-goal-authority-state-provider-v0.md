@@ -1815,7 +1815,8 @@ before invoking bootstrap or promotion. `promote` is effect-free without
 `--execute`; its preview returns the exact qualified revision, projection
 digest, qualification policy, canonical promotion-plan digest, writer-fence
 identity, and rollback identity. The plan digest binds the Goal, operation,
-exact shadow revision/projection, minimum operation count, and normalized
+selected canonical provider, exact shadow revision/projection, minimum operation
+count, and normalized
 required event kinds; the durable fence, event, and receipt carry the same
 digest, so only the exact reviewed plan can recover a fence-before-canonical
 interruption. Apply holds the shared
