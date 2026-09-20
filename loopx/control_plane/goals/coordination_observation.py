@@ -12,34 +12,21 @@ def coordination_authority_transition(observation: dict[str, Any]) -> dict[str, 
 
     Goal Channel consumers (including Lark) need the same explanation as the
     managed-delegation preflight: legacy state is not launchable, canonical
-    state is promoted, and a failed canonical readback needs repair.  The
-    projection deliberately never claims ``promotion_ready``; only the
-    reviewed TypeScript promotion preview can establish that stronger fact.
+    state is promoted, and a failed canonical readback needs repair.  Keep the
+    serialized transition to its irreducible state: source authority already
+    belongs to ``coordination_observation`` and the renderer derives the next
+    action.  Read-only mode and the projection truth contract deny mutation;
+    only the reviewed TypeScript promotion preview may establish readiness.
     """
 
     source = str(observation.get("source_authority") or "")
     if source in LOCAL_AUTHORITY_SOURCES:
         state = "promoted"
-        next_action = "inspect_managed_delegation"
     elif observation.get("status") != "loaded":
         state = "unavailable"
-        next_action = (
-            "repair_canonical_authority"
-            if source == "canonical_unavailable"
-            else "repair_authority_observation"
-        )
-        source = source or "unavailable"
     else:
         state = "promotion_required"
-        next_action = "preview_reviewed_goal_authority_promotion"
-        source = source or "legacy_markdown_and_task_lease"
-    return {
-        "state": state,
-        "source_authority": source,
-        "next_action": next_action,
-        "promotion_from_channel_allowed": False,
-        "promotion_ready": False,
-    }
+    return {"state": state}
 
 
 def observe_goal_coordination(*, runtime_root: Any, goal_id: str,

@@ -1884,11 +1884,12 @@ Read-only consumers now share an explicit authority-transition projection.
 Managed-delegation preflight and its packaged Dashboard view distinguish
 `promotion_required`, `unavailable`, and `promoted`, and publish a typed next
 action without starting a Turn or executor. The Goal Channel projection used
-by Lark exposes the same boundary and always reports
-`promotion_from_channel_allowed=false`; it intentionally keeps
-`promotion_ready=false` because only the reviewed TypeScript preview may prove
-readiness. This closes the explanatory path without turning Chat or Lark into
-a second promotion owner.
+by Lark exposes the same state while its existing `mode=read_only` and truth
+contract keep `projection_is_writable=false` and `write_authority=none`. Its
+renderer derives the matching next action for operators; only the reviewed
+TypeScript preview may prove readiness. This closes the explanatory path
+without turning Chat or Lark into a second promotion owner or duplicating the
+same source and authority facts in every status payload.
 
 The next Stage 2C implementation slice adds the TypeScript cutover kernel but
 does not yet change the default runtime. One pure reducer now derives the

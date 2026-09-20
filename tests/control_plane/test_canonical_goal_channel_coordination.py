@@ -24,11 +24,10 @@ def test_empty_canonical_ownership_never_revives_display_claim_or_local_lease(tm
     assert observed['coordination_observation']['source_authority'] == provider + '_v0'
     assert observed['coordination_authority'] == {
         'state': 'promoted',
-        'source_authority': provider + '_v0',
-        'next_action': 'inspect_managed_delegation',
-        'promotion_from_channel_allowed': False,
-        'promotion_ready': False,
     }
+    assert observed['mode'] == 'read_only'
+    assert observed['truth_contract']['projection_is_writable'] is False
+    assert observed['truth_contract']['write_authority'] == 'none'
     assert state.read_bytes() == before
     state.unlink()
     assert build_goal_channel_projection(goal_id=GOAL_ID, runtime_root=tmp_path)['active_leases'] == []
@@ -38,7 +37,8 @@ def test_explicit_empty_observation_is_not_unspecified():
     observed = build_goal_channel_projection(goal_id=GOAL_ID, status_item=_status_item(claimed_by='stale-agent'), active_leases=[])
     assert observed['active_leases'] == []
     assert observed['coordination_authority']['state'] == 'promotion_required'
-    assert observed['coordination_authority']['promotion_from_channel_allowed'] is False
+    assert observed['mode'] == 'read_only'
+    assert observed['truth_contract']['write_authority'] == 'none'
 
 
 @pytest.mark.parametrize('provider', ['file', 'sqlite'])

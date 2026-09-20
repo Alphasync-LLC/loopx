@@ -1509,9 +1509,11 @@ hook 当作 authority。
 只读消费者现在复用一份显式的 authority-transition 投影。managed delegation preflight
 及其打包 Dashboard 展示会区分 `promotion_required`、`unavailable` 与 `promoted`，并给出
 typed next action，但不会启动 Turn 或执行器。Lark 使用的 Goal Channel 投影遵守同一边界，
-始终声明 `promotion_from_channel_allowed=false`；它刻意保持
-`promotion_ready=false`，因为只有经评审的 TypeScript preview 才能证明 readiness。
-这补齐了解释链路，同时不会把 Chat 或 Lark 变成第二个 promotion owner。
+继续通过现有 `mode=read_only` 与 truth contract 声明
+`projection_is_writable=false`、`write_authority=none`，renderer 再为 operator 派生对应的
+next action。只有经评审的 TypeScript preview 才能证明 readiness。这补齐了解释链路，
+同时不会在每份 status payload 重复相同的来源／权限事实，也不会把 Chat 或 Lark 变成
+第二个 promotion owner。
 
 下一块 Stage 2C 实现加入了 TypeScript cutover kernel，但尚未改变默认 runtime。
 同一个纯 reducer 从一次 Todo/lease mutation 派生 projection、event 与 receipt；显式
