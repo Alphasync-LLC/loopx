@@ -972,6 +972,14 @@ with `npm ci --ignore-scripts` before running the TypeScript production scan.
 
 ## 11. Normative delivery plan
 
+**Staged acceptance proposal for #4447.** This RFC's long-range milestones are
+not all prerequisites for closing one delivery tracker. The staged proposal in
+[#4447](https://github.com/loopx-project/loopx/issues/4447), informed by
+[discussion #4738](https://github.com/loopx-project/loopx/discussions/4738), separates
+verified guard adoption, bounded production-path simplification, and source
+evidence closure. Maintainer acceptance of that scope is required before tracker
+closure; this proposal does not certify delivery or change any runtime check.
+
 | Milestone | Shipped behavior | Entry gate | Exit evidence | Rollback |
 | --- | --- | --- | --- | --- |
 | M0 | Registry with 26 vocabularies and 9 relations, computed inventory with optional export, drift smoke with fixed dispatch forms and coverage floor, two owner forks removed, RFC index entry | This RFC opened | Section 9 rows green; 20 mutation classes fail closed | Delete the smoke, `loopx/semantics/`, the generator, and its test |
@@ -979,11 +987,11 @@ with `npm ci --ignore-scripts` before running the TypeScript production scan.
 | M0.5b | `producers` and `compatibility_only` on `kernel` vocabularies; production-form scan with the two role checks (I12, I13); retirement budgets counted by identifier with all six anchors lowered in one diff (Q11); merge-order rule from Q9 written into Section 10 | M0.5a complete; Q9 decided or its interim rule accepted | Smoke green with I11 to I14 enforced; `skip` resolved; Section 9 producer rows green; `turn_route` persistence answered for Q2 | Remove producer fields and role checks; budgets return to the pre-M0.5b anchors |
 | M1 | `EffectiveAction` typed enum in one owner module; the replay observation and frontier slots split off (Q6); producers and consumers import it; registry `literal_scan` tightened to the enum | M0.5 merged; owner module chosen (Q3); slot split decided (Q6) | Smoke green; zero bare `effective_action` literals outside the owner; parity fixtures for status/should-run unchanged | Revert to literals; registry keeps the set |
 | M2 | Route-to-disposition projection, the `decide_loop_disposition` decision table, and the cross-runtime sets published through a shared contract with generated Python and TypeScript bindings, following the coordination contract generator | M1 merged; Q2 and Q7 decided | Generator `--check` and smoke green; `settlement.ts` and `transaction.py` read the generated set | Regenerate from prior contract |
-| M3 | Per-field retirement of legacy should-run fields, one field per PR, budgets lowered to zero and the field removed | Field's migration surface is emptied module by module, and the residual unresolved and dynamic-key evidence is reviewed; a zero count is not by itself the gate | Schema-reduction record per `AGENTS.md`; Appendix B entry | Restore field from the last writer |
+| M3 | Conditional per-field retirement where removing a field eliminates demonstrated duplicate authority or unnecessary consumer maintenance; a derived compatibility projection may remain | Document net benefit, target version, consumers, historical formats/signatures and rollback window; review unresolved and dynamic-key evidence before stopping writes | Approved migration, new-output and historical-read/rejection tests, actual removal of replaced code, and updated budgets for the approved surface; retaining a useful projection is not a failed migration | Restore the approved writer within the declared compatibility window |
 | M4 | Twin budget lowered with each replacement-first cutover from the migration RFC | Each cutover PR | Budget edit in the same diff | None needed; budget follows code |
 
-A ratchet without a target is a direction, not a plan. The table below is the
-state at which this RFC is complete; each row is a registry budget or a
+The table below records long-range targets, not an unconditional deletion quota
+or the acceptance checklist for #4447; each row is a registry budget or a
 vocabulary property the smoke can check. Rows marked *open* wait on a Section
 12 decision and are the reason the plan is a skeleton until those are recorded.
 
@@ -996,7 +1004,7 @@ vocabulary property the smoke can check. Rows marked *open* wait on a Section
 | Conflicting values, semantic | 2 names | `semantic-vocabulary-drift-smoke.py`: `conflicting_values_semantic` | 0 | baseline PRs |
 | Multi-value forks | 4 (1 misclassified) | `semantic-vocabulary-drift-smoke.py`: `multi_value_forks` and `multi_value_forks_semantic`. Only the count is printed today; #4614 adds `divergent_value_sets` to name the surviving forks | 0 after `scope` declares bounded-context names | M0.5 + baseline PRs |
 | Multi-value twins | 19 | `semantic-vocabulary-drift-smoke.py`: `multi_value_twins` | 0 | baseline PRs |
-| Legacy should-run fields | 6 fields, 124 py / 10 ts module mentions | `semantic-vocabulary-drift-smoke.py`: one `<field>.py` / `<field>.ts` pair per field for the token count; one `retirement_role:` line per field and runtime under `--report` for the migration surface and its five roles | 0 fields | M3, gated on emptying the B3 migration surface; the token count stays budgeted until Q11 |
+| Legacy should-run fields | 6 fields, 124 py / 10 ts module mentions | `semantic-vocabulary-drift-smoke.py`: one `<field>.py` / `<field>.ts` pair per field for the token count; one `retirement_role:` line per field and runtime under `--report` for the migration surface and its five roles | No unneeded independent authority in approved migration surfaces; retained derived/compatibility fields remain visible | M3 only when benefit and compatibility justify retirement; budgets stay enforced until a reviewed change |
 | Merge-candidate groups | 32 unreviewed | `merge_candidate_groups()` in `loopx/semantics/inventory.py`; no command prints it today, and #4630 adds the CLI line. Read the reviewable count, not the raw one -- a registered cross-runtime vocabulary owns both its Python and TypeScript symbols, so those pairs are required by I3 rather than debt | every group classified; only `same_semantics` groups merged | classification PR, then per-group PRs |
 | Control-plane py/ts twins | 43 | `semantic-vocabulary-drift-smoke.py`: `independently_maintained` | follows the TypeScript migration RFC; no target here | M4 |
 

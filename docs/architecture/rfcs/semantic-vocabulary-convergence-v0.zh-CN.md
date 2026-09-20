@@ -784,6 +784,12 @@ TypeScript effective-action 绑定与[术语表](../../reference/glossary.md)通
 
 ## 11. 规范性交付计划
 
+**#4447 阶段验收提案。** 本 RFC 的长期里程碑不全部构成单个交付 tracker
+的关闭条件。[#4447](https://github.com/loopx-project/loopx/issues/4447) 结合
+[讨论 #4738](https://github.com/loopx-project/loopx/discussions/4738) 的阶段方案，
+分别验收守卫的真实采用、有限生产路径的重复维护消除和来源证据闭合。
+关闭 tracker 前必须由维护者接受该范围；本提案不认证交付完成，也不改变运行时检查。
+
 | 里程碑 | 交付行为 | 进入门 | 退出证据 | 回滚 |
 | --- | --- | --- | --- | --- |
 | M0 | 含 26 个词表与 9 条关系的注册表、可选导出的计算清单、带固定分发形式与覆盖下限的漂移 smoke、删除两处 owner 分叉、RFC 索引条目 | 本 RFC 开启 | 第 9 节各行全绿；20 类突变失败关闭 | 删除 smoke、`loopx/semantics/`、生成器及其测试 |
@@ -791,10 +797,10 @@ TypeScript effective-action 绑定与[术语表](../../reference/glossary.md)通
 | M0.5b | `kernel` 词表的 `producers` 与 `compatibility_only`；带两条角色检查（I12、I13）的生产形式扫描；退休预算改按标识符计数并在一个 diff 里调整六个锚点（Q11）；Q9 的合并序规则写入第 10 节 | M0.5a 完成；Q9 已决或其临时规则被接受 | smoke 在 I11 到 I14 强制下全绿；`skip` 已处理；第 9 节生产者行全绿；为 Q2 回答 `turn_route` 是否持久化 | 删除生产者字段和角色检查；预算回到 M0.5b 前的锚点 |
 | M1 | 单一 owner 模块中的 `EffectiveAction` 类型化枚举；replay observation 与 frontier 槽位拆出（Q6）；生产者与消费者 import 它；注册表 `literal_scan` 收紧到枚举 | M0.5 合入；owner 模块已定（Q3）；槽位拆分已决（Q6） | smoke 绿；owner 之外零裸 `effective_action` 字面量；status/should-run 的 parity fixture 不变 | 回退为字面量；注册表保留集合 |
 | M2 | route 到 disposition 的投影、`decide_loop_disposition` 决策表与跨运行时集合通过共享契约发布，生成 Python 与 TypeScript 绑定，效仿协调契约生成器 | M1 合入；Q2 与 Q7 已决 | 生成器 `--check` 与 smoke 绿；`settlement.ts` 与 `transaction.py` 读取生成集合 | 从上一版契约重新生成 |
-| M3 | 逐字段退休旧 should-run 字段，每个 PR 一个字段，预算降到零并删除字段 | 逐模块清空该字段的迁移面，并评审残留的 unresolved 与计算式键证据；计数归零本身不构成这道门 | 按 `AGENTS.md` 的 schema 缩减记录；附录 B 条目 | 从最后一个写方恢复字段 |
+| M3 | 有条件逐字段退役：删除必须消除已证实的重复权威或不必要的消费者维护；派生兼容投影可以保留 | 说明净收益、目标版本、消费者、历史格式/签名和回滚窗口；停写前评审 unresolved 与计算式键证据 | 获准迁移、新输出及历史读取/拒绝测试、被替代代码实际删除、批准范围对应预算更新；保留有用投影不属于迁移失败 | 在声明的兼容窗口内恢复获准 writer |
 | M4 | 随迁移 RFC 的每次 replacement-first 切换调低孪生预算 | 每个切换 PR | 同 diff 中的预算修改 | 无需；预算跟随代码 |
 
-没有目标的棘轮只是方向，不是计划。下表是本 RFC 完成时的状态；每一行都是一个
+下表记录长期目标，不是无条件删除配额，也不是 #4447 的验收清单；每一行都是一个
 注册表预算或 smoke 可检查的词表属性。标为*未决*的行等待第 12 节的决策，这也
 是计划在那些决策记录之前只是骨架的原因。
 
@@ -807,7 +813,7 @@ TypeScript effective-action 绑定与[术语表](../../reference/glossary.md)通
 | 冲突值（语义） | 2 个名字 | `semantic-vocabulary-drift-smoke.py`：`conflicting_values_semantic` | 0 | 基线窄 PR |
 | 多值分叉 | 4（1 个误分类） | `semantic-vocabulary-drift-smoke.py`：`multi_value_forks` 与 `multi_value_forks_semantic`。今天只打印计数；#4614 增加 `divergent_value_sets` 以按名字列出存活的分叉 | `scope` 声明有界上下文名字后为 0 | M0.5 + 基线窄 PR |
 | 多值孪生 | 19 | `semantic-vocabulary-drift-smoke.py`：`multi_value_twins` | 0 | 基线窄 PR |
-| 旧 should-run 字段 | 6 个字段，124 py / 10 ts 模块提及 | token 计数：`semantic-vocabulary-drift-smoke.py` 每个字段一对 `<字段>.py` / `<字段>.ts`；迁移面与五种角色：`--report` 下每字段每运行时一行 `retirement_role:` | 0 个字段 | M3，以清空 B3 迁移面为门；token 计数在 Q11 决策前继续计入预算 |
+| 旧 should-run 字段 | 6 个字段，124 py / 10 ts 模块提及 | token 计数：`semantic-vocabulary-drift-smoke.py` 每个字段一对 `<字段>.py` / `<字段>.ts`；迁移面与五种角色：`--report` 下每字段每运行时一行 `retirement_role:` | 获准迁移面不再有不必要的独立权威；保留的派生/兼容字段仍可见 | M3 仅在收益与兼容性支持退役时启动；预算在经评审修改前继续执行 |
 | 合并候选组 | 32 组未评审 | `loopx/semantics/inventory.py` 的 `merge_candidate_groups()`；今天没有任何命令打印它，#4630 增加该 CLI 行。读可评审数而非原始数——注册的跨运行时词表本就同时拥有 Python 与 TypeScript 两个符号，这类配对是 I3 的要求而不是债务 | 每组已分类；只合并 `same_semantics` 的组 | 分类表 PR，随后逐组 PR |
 | 控制面 py/ts 孪生 | 43 | `semantic-vocabulary-drift-smoke.py`：`independently_maintained` | 跟随 TypeScript 迁移 RFC；本 RFC 不设目标 | M4 |
 
