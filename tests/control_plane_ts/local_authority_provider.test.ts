@@ -370,7 +370,9 @@ for (const provider of ["file", "sqlite"] as const) {
           operation_id: request.operation_id, goal_id: request.goal_id,
           source_shadow_provider_revision: request.expected_shadow_provider_revision,
           source_projection_sha256: request.expected_shadow_projection_sha256,
-          writer_fence_id: request.writer_fence.fence_id, source_version: request.writer_fence.source_version};
+          writer_fence_id: request.writer_fence.fence_id,
+          source_version: request.writer_fence.source_version,
+          promotion_plan_sha256: request.writer_fence.promotion_plan_sha256};
         const seeded = await canonical.commitAuthority({operation_id: phase === "receipt_missing" ? "other-operation" : request.operation_id,
           expected_provider_revision: null, next_projection: phase === "lineage_mismatch" ?
             {...shadow.projection, extra: "different snapshot"} : shadow.projection,

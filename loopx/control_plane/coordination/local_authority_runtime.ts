@@ -199,6 +199,14 @@ export async function reviewLocalCoordinationAuthorityPromotion(
           "qualified shadow provider revision",
         );
         const projectionSha256 = canonicalAuthoritySha256(head);
+        const promotionPlanSha256 = localCoordinationPromotionPlanSha256({
+          goal_id: input.goal_id,
+          operation_id: operationId,
+          expected_shadow_provider_revision: providerRevision,
+          expected_shadow_projection_sha256: projectionSha256,
+          minimum_operations: minimumOperations,
+          required_event_kinds: requiredEventKinds,
+        });
         const fence = canonicalAuthorityObject({
           schema_version: LEGACY_COORDINATION_WRITER_FENCE_SCHEMA,
           state: "engaged",
@@ -207,6 +215,7 @@ export async function reviewLocalCoordinationAuthorityPromotion(
           source_version: `shadow:${providerRevision}`,
           source_projection_sha256: projectionSha256,
           expected_shadow_provider_revision: providerRevision,
+          promotion_plan_sha256: promotionPlanSha256,
         }, "reviewed legacy writer fence");
         const request: LocalCoordinationPromotionRequest = {
           runtime_root: input.runtime_root,
@@ -276,9 +285,12 @@ export async function reviewLocalCoordinationAuthorityPromotion(
         }
         const plan = {
           operation_id: operationId,
+          promotion_plan_sha256: promotionPlanSha256,
           canonical_authority: canonicalAuthority,
           expected_shadow_provider_revision: providerRevision,
           expected_shadow_projection_sha256: projectionSha256,
+          minimum_operations: minimumOperations,
+          required_event_kinds: [...requiredEventKinds].sort(),
           writer_fence: fence,
           rollback_identity: {
             provider: "file_v0",
@@ -535,6 +547,42 @@ interface LocalCoordinationPromotionRequest {
   writer_fence: JsonObject;
 }
 
+export interface LocalCoordinationPromotionPlanInput {
+  goal_id: string;
+  operation_id: string;
+  expected_shadow_provider_revision: string;
+  expected_shadow_projection_sha256: string;
+  minimum_operations: number;
+  required_event_kinds: string[];
+}
+
+export function localCoordinationPromotionPlanSha256(
+  value: LocalCoordinationPromotionPlanInput,
+): string {
+  const plan = canonicalAuthorityObject({
+    schema_version: "loopx_local_coordination_promotion_plan_v0",
+    goal_id: requireAuthorityStoreId(value.goal_id, "goal id"),
+    operation_id: requireAuthorityStoreId(value.operation_id, "operation id"),
+    expected_shadow_provider_revision: requireAuthorityStoreId(
+      value.expected_shadow_provider_revision,
+      "expected shadow provider revision",
+    ),
+    expected_shadow_projection_sha256: requireAuthorityStoreId(
+      value.expected_shadow_projection_sha256,
+      "expected shadow projection sha256",
+    ),
+    minimum_operations: requiredPositiveSafeInteger(
+      value.minimum_operations,
+      "minimum_operations",
+    ),
+    required_event_kinds: requiredUniqueStrings(
+      value.required_event_kinds,
+      "required_event_kinds",
+    ).sort(),
+  }, "local coordination promotion plan");
+  return canonicalAuthoritySha256(plan);
+}
+
 function decodePromotionRequest(value: unknown): LocalCoordinationPromotionRequest {
   const input = requireJsonObject(value, "local coordination promotion request");
   if (input.schema_version !== LOCAL_COORDINATION_PROMOTION_REQUEST_SCHEMA) {
@@ -574,6 +622,7 @@ function promotionIdentity(request: LocalCoordinationPromotionRequest): JsonObje
     source_projection_sha256: request.expected_shadow_projection_sha256,
     writer_fence_id: request.writer_fence.fence_id,
     source_version: request.writer_fence.source_version,
+    promotion_plan_sha256: localCoordinationPromotionPlanSha256(request),
   }, "local coordination promotion identity");
 }
 
@@ -634,6 +683,7 @@ function promotionResult(
     source_projection_sha256: request.expected_shadow_projection_sha256,
     writer_fence_id: request.writer_fence.fence_id,
     source_version: request.writer_fence.source_version,
+    promotion_plan_sha256: localCoordinationPromotionPlanSha256(request),
     canonical_authority: canonicalAuthority,
     legacy_writer_fenced: true,
     legacy_fallback_used: false,
@@ -683,6 +733,18 @@ export async function promoteLocalCoordinationAuthority(
       status: "failed",
       reason_code: "local_authority_writer_fence_revision_mismatch",
       reason: "writer fence is not bound to the selected goal and shadow revision",
+      legacy_writer_fenced: false,
+      legacy_fallback_used: false,
+    };
+  }
+  const promotionPlanSha256 = localCoordinationPromotionPlanSha256(request);
+  if (request.writer_fence.promotion_plan_sha256 !== promotionPlanSha256) {
+    return {
+      schema_version: LOCAL_COORDINATION_PROMOTION_RESULT_SCHEMA,
+      status: "failed",
+      reason_code: "local_authority_writer_fence_plan_mismatch",
+      reason: "writer fence is not bound to the complete reviewed promotion plan",
+      promotion_plan_sha256: promotionPlanSha256,
       legacy_writer_fenced: false,
       legacy_fallback_used: false,
     };
