@@ -93,6 +93,99 @@ def test_context_scopes_before_read_and_missing_registry_is_unknown(
     assert missing["warnings"] == ["registry_unavailable"]
 
 
+def test_manager_evidence_carries_the_goal_lifecycle_readback(tmp_path, monkeypatch):
+    """Milestones and phase reach the manager, or arrive as a named gap.
+
+    The prompt rows, the read index and the paged portfolio view must describe
+    the same Goal lifecycle: the status collector's own projection, never a
+    second derivation here, and never an absent field the manager could read as
+    "this Goal has no milestones".
+    """
+
+    import loopx.goal_portfolio as portfolio
+    from loopx.capabilities.manager_context.inspection import (
+        ManagerInspection,
+        TOOL_NAME,
+        manager_index,
+    )
+
+    runtime_root = tmp_path / "runtime"
+    registry_path = tmp_path / "registry.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "goals": [
+                    {"id": g, "coordination": {"registered_agents": ["worker"]}}
+                    for g in ("alpha", "beta")
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    projection = {
+        "schema_version": "goal_artifact_lifecycle_projection_v0",
+        "lifecycle_phase": "qualifying",
+        "milestones": [
+            {"id": "outcome_progress", "reached": True, "reached_evidence_refs": ["sha256:fixture"]}
+        ],
+        "guards": [],
+        "next_transitions": [],
+    }
+
+    def read(**kwargs):
+        selected = kwargs.get("goal_id")
+        ids = [selected] if selected else ["alpha", "beta"]
+        goals = []
+        for goal_id in ids:
+            entry = {
+                "id": goal_id,
+                "latest_status_run": {
+                    "goal_id": goal_id,
+                    "generated_at": "2026-09-10T05:00:00Z",
+                },
+                "latest_runs": [],
+                "semantic_history": {"agents": []},
+            }
+            if goal_id == "alpha":
+                entry["artifact_lifecycle"] = {**projection, "goal_id": goal_id}
+            goals.append(entry)
+        return {"ok": True, "run_history": {"goals": goals}}
+
+    monkeypatch.setattr(portfolio, "collect_status", read)
+    monkeypatch.setattr(
+        portfolio,
+        "build_quota_should_run",
+        lambda *a, **k: {"ok": True, "agent_identity": {"agent_id": "worker"}},
+    )
+    result = context.manager_turn_context(
+        registry_path, {"channel_id": "manager"}, runtime_root, include_details=False
+    )
+    rows = {row["goal_id"]: row for row in result["goals"]}
+    assert rows["alpha"]["goal_lifecycle"]["lifecycle_phase"] == "qualifying"
+    assert rows["alpha"]["goal_lifecycle"]["milestones"][0]["reached"] is True
+    assert rows["beta"]["goal_lifecycle"] == {
+        "schema_version": portfolio.GOAL_LIFECYCLE_READBACK_SCHEMA_VERSION,
+        "goal_id": "beta",
+        "status": "unavailable",
+        "reason": "projection_not_derived",
+    }
+    index = {row["goal_id"]: row for row in manager_index(result)["goals"]}
+    assert index["alpha"]["lifecycle_phase"] == "qualifying"
+    assert index["beta"]["lifecycle_phase"] is None
+    page = ManagerInspection(
+        context=result,
+        registry_path=registry_path,
+        runtime_root=runtime_root,
+        owner_scope=True,
+        scope_valid=lambda: True,
+        record=lambda _: None,
+    ).read(TOOL_NAME, {"view": "portfolio"})
+    assert page["ok"] is True
+    paged = {row["goal_id"]: row["goal_lifecycle"] for row in page["rows"]}
+    assert paged["alpha"]["schema_version"] == "goal_artifact_lifecycle_projection_v0"
+    assert paged["beta"]["status"] == "unavailable"
+
+
 def _write_delivery_index(root, goal_id, rows):
     path = root / "goals" / goal_id / "runs" / "index.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -669,6 +762,81 @@ def test_manager_profile_change_rotates_healthy_upstream_without_losing_session(
     updated = store.load_session(session["session_id"])
     assert updated["manager_runtime_profile"] == "trusted_owner"
     assert updated["upstream_thread_id"] == "upstream-1"
+
+
+def test_manager_restart_uses_the_session_allocation_instead_of_new_defaults(
+    monkeypatch, tmp_path
+):
+    store = ChatSessionStore(tmp_path / "runtime" / "chat")
+    starts: list[dict[str, object]] = []
+
+    def runtime() -> ChatRuntimeController:
+        controller = ChatRuntimeController(store=store, codex_bin="codex")
+        monkeypatch.setattr(
+            controller,
+            "capabilities",
+            lambda: [
+                {
+                    "agent_id": "codex",
+                    "available": True,
+                    "adapter_kind": "codex_app_server",
+                }
+            ],
+        )
+
+        def start(**kwargs):
+            starts.append(kwargs)
+            return Adapter()
+
+        monkeypatch.setattr(controller, "_start_adapter", start)
+        return controller
+
+    allocation = {
+        "schema_version": "manager_executor_allocation_v0",
+        "selection_policy": "preferred",
+        "allocation_reason": "configured_preference",
+        "executor_endpoint": "codex",
+        "executor_endpoint_source": "machine_configuration",
+        "executor_endpoint_default_reason": "",
+        "configured_endpoint": "codex",
+        "eligible_endpoints": [],
+        "configuration_revision": "sha256:before",
+        "available": True,
+        "model": "gpt-session-model",
+        "model_source": "machine_configuration",
+        "reasoning_effort": "max",
+    }
+    first = runtime()
+    session, _ = first.open_session(
+        goal_id=MANAGER_AGENT_GOAL_ID,
+        agent_id="codex",
+        work_dir=tmp_path,
+        objective="manager",
+        mode="new",
+        channel_id="manager",
+        manager_executor_allocation=allocation,
+    )
+    assert starts[-1]["executor_model"] == {
+        "model": "gpt-session-model",
+        "reasoning_effort": "max",
+    }
+
+    restarted = runtime()
+    monkeypatch.setattr(
+        restarted,
+        "steward_executor_defaults",
+        lambda: {
+            "executor_endpoint": "codex",
+            "executor_model": "gpt-new-default",
+            "executor_reasoning_effort": "low",
+        },
+    )
+    restarted._ensure_adapter(session, work_dir=tmp_path, objective="manager")
+
+    assert starts[-1]["executor_model"] == {
+        "model": "gpt-session-model",
+        "reasoning_effort": "max",
+    }
 
 
 def test_legacy_manager_migrates_without_project_and_refreshes_each_turn(

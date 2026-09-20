@@ -2122,6 +2122,75 @@ def _prep_goal_channel_target(root: Path) -> Path:
     return target_path
 
 
+@pytest.mark.parametrize(
+    ("routing", "expected"),
+    [
+        ({}, ("addressed_only", "direct_session", "topic_reply")),
+        (
+            {"incoming_mode": "all"},
+            ("configured_chat_all", "direct_session", "topic_reply"),
+        ),
+        (
+            {
+                "incoming_mode": "all",
+                "capture_scope": " ADDRESSED_ONLY ",
+                "ingress_mode": " SESSION_QUEUE ",
+                "reply_mode": " TOPIC_REPLY ",
+            },
+            ("addressed_only", "session_queue", "topic_reply"),
+        ),
+        ({"capture_scope": "invalid"}, None),
+        ({"ingress_mode": "async-inbox"}, None),
+        ({"reply_mode": "invalid"}, None),
+    ],
+)
+def test_connection_readback_and_event_route_share_persisted_mode_rules(
+    tmp_path: Path,
+    routing: dict[str, str],
+    expected: tuple[str, str, str] | None,
+) -> None:
+    target_path = _prep_goal_channel_target(tmp_path)
+    binding_path = tmp_path / "binding.json"
+    payload = _legacy_v0_binding_payload("om_topic_alpha", "agent-alpha")
+    payload["bindings"]["goal-alpha"]["routing"] = routing
+    write_goal_channel_binding(binding_path, payload)
+    before = binding_path.read_bytes()
+    rows = list_lark_connections(
+        registry=_registry(tmp_path),
+        target_path=target_path,
+        binding_paths={"goal-alpha": binding_path},
+        runner=_runner({}),
+    )
+    decision = decide_lark_topic_event(
+        target_payload=read_goal_channel_targets(target_path),
+        binding_payloads={"goal-alpha": read_goal_channel_binding(binding_path)},
+        event={
+            "chat_id": CHAT_ID,
+            "root_id": "om_topic_alpha",
+            "message_id": "om_incoming",
+            "content": "@mew bot hello",
+        },
+    )
+    assert len(rows) == 1
+    if expected is None:
+        assert rows[0]["reply_ready"] is False
+        assert rows[0]["health_error_code"] == "invalid_routing_state"
+        assert decision == {
+            "matched": False,
+            "reason": "invalid_routing_state",
+            "route": None,
+        }
+    else:
+        assert rows[0]["reply_ready"] is True
+        assert decision["matched"] is True
+        for key, value in zip(
+            ("capture_scope", "ingress_mode", "reply_mode"), expected
+        ):
+            assert rows[0][key] == value
+            assert decision["route"][key] == value
+    assert binding_path.read_bytes() == before
+
+
 def test_reconnect_after_upgrade_reuses_legacy_topic_root_without_resend(
     tmp_path: Path,
 ) -> None:
@@ -2554,6 +2623,45 @@ def _manager_fixture(tmp_path: Path):
     )
     assert result["ok"] is True
     return kwargs, state, read_goal_channel_binding(kwargs["binding_path"])
+
+
+def test_manager_session_rebind_is_an_atomic_local_compare_and_swap(
+    tmp_path: Path,
+) -> None:
+    from loopx.extensions.lark.goal_topic_connections import (
+        rebind_lark_manager_session,
+    )
+
+    kwargs, _state, bindings = _manager_fixture(tmp_path)
+    current = binding_for_goal(bindings, "goal-alpha")
+    assert current is not None
+    connection_id = str(current["connection_id"])
+    rebound = rebind_lark_manager_session(
+        binding_path=kwargs["binding_path"],
+        goal_id="goal-alpha",
+        connection_id=connection_id,
+        expected_session_id="manager-session",
+        session_id="manager-session-dsh",
+        executor_endpoint_id="dsh",
+        executor_endpoint_source="machine_configuration",
+    )
+    assert rebound["session_id"] == "manager-session-dsh"
+    assert rebound["connector"]["session_ref"] == "manager-session-dsh"
+    assert rebound["routing"]["executor_endpoint_id"] == "dsh"
+    assert rebound["routing"]["executor_endpoint_source"] == "machine_configuration"
+
+    before = kwargs["binding_path"].read_bytes()
+    with pytest.raises(ValueError, match="changed during Session rebind"):
+        rebind_lark_manager_session(
+            binding_path=kwargs["binding_path"],
+            goal_id="goal-alpha",
+            connection_id=connection_id,
+            expected_session_id="manager-session",
+            session_id="another-session",
+            executor_endpoint_id="codex",
+            executor_endpoint_source="machine_configuration",
+        )
+    assert kwargs["binding_path"].read_bytes() == before
 
 
 def test_builtin_manager_preview_is_synchronous_without_a_worker_registration(

@@ -14,6 +14,7 @@ from .chat_manager import (
     MANAGER_AGENT_GOAL_ID, MANAGER_CONTEXT_VERSION,
     is_manager_channel, manager_agent_objective, manager_model_config,
     manager_workspace, manager_skill_text, operator_credential_pair, operator_credential_resolution,
+    manager_answer_readback,
 )
 from .chat_coordination import PROJECT_COORDINATION_GUIDANCE, PROJECT_CONTEXT_VERSION
 from .control_plane.collaboration import conversation_scope
@@ -26,6 +27,7 @@ from .capabilities.manager_context.team_plan import (
     team_plan_admission_context,
 )
 from .capabilities.steward_executor import load_effective_steward_executor_defaults
+from .capabilities.steward_executor import allocation as alloc
 from .chat_acp import ACPStdioAdapter
 from .chat_agent import CodexChatAgentError, CodexChatAgentSession, CodexChatTimeoutError, agent_endpoint_error
 from .chat_codex_goal import (
@@ -428,13 +430,11 @@ class ChatRuntimeController:
                     if manager_profile is not None
                     else None
                 ),
-                # The steward channel's executor, model and effort come from this
-                # controller's machine configuration.
                 **(
-                    manager_model_config(
+                    (executor_model or manager_model_config(
                         endpoint=agent_id,
-                        machine_defaults=self.steward_executor_defaults()
-                    )
+                        machine_defaults=self.steward_executor_defaults(),
+                    ))
                     if goal_id == MANAGER_AGENT_GOAL_ID and not execution_mode
                     else (executor_model or {})
                 ),
@@ -454,15 +454,13 @@ class ChatRuntimeController:
             # execution profile, authenticated by the operator credential.
             operator_environ = operator_credential_resolution(self)["environ"]
             profile = managed_execution_profile(operator_environ)
-            model = str(profile["model"])
-            reasoning_effort = str(profile["reasoning_effort"])
+            model, reasoning_effort = str(profile["model"]), str(profile["reasoning_effort"])
             if goal_id == MANAGER_AGENT_GOAL_ID:
-                manager_config = manager_model_config(
+                manager_config = executor_model or manager_model_config(
                     operator_environ, endpoint=agent_id,
                     machine_defaults=self.steward_executor_defaults(),
                 )
-                model = manager_config["model"]
-                reasoning_effort = manager_config["reasoning_effort"]
+                model, reasoning_effort = str(manager_config["model"]), str(manager_config["reasoning_effort"])
             return DshChatAdapter(
                 objective=self._session_objective(
                     goal_id=goal_id, objective=objective, history=None,
@@ -519,6 +517,7 @@ class ChatRuntimeController:
         mode: str,
         channel_id: str | None = None,
         agent_goal_id: str | None = None,
+        manager_executor_allocation: Mapping[str, Any] | None = None,
     ) -> tuple[dict[str, Any], bool]:
         capability = next((item for item in self.capabilities() if item["agent_id"] == agent_id), None)
         if mode not in {"resume_latest", "new"}:
@@ -574,6 +573,7 @@ class ChatRuntimeController:
                 execution_mode=selected_channel.startswith("task."),
                 project_coordination=conversation_scope({"channel_id": selected_channel, "goal_id": goal_id})["kind"] == "owner_goal",
                 manager_runtime=manager_runtime,
+                executor_model=alloc.manager_executor_model(manager_executor_allocation),
             )
             persisted = self.store.create_session(
                 goal_id=goal_id,
@@ -590,6 +590,7 @@ class ChatRuntimeController:
                 persisted = self.store.update_session(
                     persisted["session_id"],
                     manager_context_version=MANAGER_CONTEXT_VERSION,
+                    **alloc.manager_executor_session_fields(manager_executor_allocation),
                     **manager_runtime_session_fields(manager_runtime),
                 )
             elif conversation_scope(persisted)["kind"] == "owner_goal":
@@ -777,7 +778,7 @@ class ChatRuntimeController:
                 execution_mode=str(session.get("channel_id") or "").startswith("task."),
                 project_coordination=conversation_scope(session)["kind"] == "owner_goal",
                 loopx_tools=session.get("loopx_tools") is True,
-                executor_model=session.get("loopx_executor") if session.get("loopx_tools") else None,
+                executor_model=alloc.restored_executor_model(session),
                 manager_runtime=manager_runtime,
             )
             if session.get("upstream_mode") == CODEX_GOAL_CHAT_MODE:
@@ -1264,6 +1265,12 @@ class ChatRuntimeController:
                 turn_id=turn_id,
                 response=response,
                 projector=self.team_plan_projector,
+            )
+            # The owner manager channel states its answer shape in the answer
+            # itself, so the shape is recorded with the turn instead of being
+            # re-derived by every reader.
+            response = manager_answer_readback(
+                response, channel=str(session.get("channel_id") or "")
             )
             event_buffer.close()
             if consume_interrupted():

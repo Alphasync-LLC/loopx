@@ -31,6 +31,7 @@ from ..external_connector_runtime import (
     ExternalResponsePolicy,
     ExternalSourceKind,
     build_external_connector_binding,
+    normalize_external_connector_binding,
     project_external_connector_status,
 )
 from .goal_channel_contracts import (
@@ -91,6 +92,7 @@ from .goal_topic_routing import (
     IngressMode,
     ReplyMode,
     _routing_value,
+    _connection_routing_modes,
     decide_lark_topic_route_event,
 )
 from .presentation.kanban import (
@@ -114,6 +116,76 @@ class LarkGroupChatLookupError(RuntimeError):
 
     def __init__(self) -> None:
         super().__init__("Unable to list groups joined by the selected Lark App")
+
+
+@serialize_goal_binding_mutation
+def rebind_lark_manager_session(
+    *,
+    binding_path: Path,
+    goal_id: str,
+    connection_id: str,
+    expected_session_id: str,
+    session_id: str,
+    executor_endpoint_id: str,
+    executor_endpoint_source: str,
+) -> dict[str, Any]:
+    """Atomically move one durable manager route to a replacement Session.
+
+    The provider audience and Topic remain unchanged. The caller must open and
+    validate the replacement Session before this compare-and-swap changes the
+    local execution binding.
+    """
+
+    payload = read_goal_channel_binding(binding_path)
+    current = binding_for_goal(payload, goal_id, connection_id=connection_id)
+    if not current or current.get("enabled") is not True:
+        raise ValueError("manager connection is no longer durably configured")
+    routing = current.get("routing")
+    routing = dict(routing) if isinstance(routing, Mapping) else {}
+    if routing.get("conversation_kind") != "manager":
+        raise ValueError("connection is not a manager route")
+    current_session_id = str(current.get("session_id") or "")
+    if current_session_id not in {expected_session_id, session_id}:
+        raise ValueError("manager connection changed during Session rebind")
+    connector = current.get("connector")
+    if not isinstance(connector, Mapping):
+        raise ValueError("manager connection has no durable Connector binding")
+    rebound_connector = normalize_external_connector_binding(
+        {**dict(connector), "session_ref": session_id}
+    )
+    updated = {
+        **current,
+        "session_id": session_id,
+        "routing": {
+            **routing,
+            "executor_endpoint_id": executor_endpoint_id,
+            "executor_endpoint_source": executor_endpoint_source,
+        },
+        "connector": rebound_connector,
+    }
+    saved_connection_id = save_goal_connection(
+        binding_path=binding_path,
+        payload=payload,
+        goal_id=goal_id,
+        binding=updated,
+    )
+    readback = binding_for_goal(
+        read_goal_channel_binding(binding_path),
+        goal_id,
+        connection_id=saved_connection_id,
+    )
+    readback_routing = readback.get("routing") if readback else {}
+    readback_connector = readback.get("connector") if readback else {}
+    if (
+        not readback
+        or readback.get("session_id") != session_id
+        or not isinstance(readback_routing, Mapping)
+        or readback_routing.get("executor_endpoint_id") != executor_endpoint_id
+        or not isinstance(readback_connector, Mapping)
+        or readback_connector.get("session_ref") != session_id
+    ):
+        raise OSError("manager Session rebind did not verify")
+    return dict(readback)
 
 
 def _json_value(result: Mapping[str, Any]) -> Any:
@@ -964,29 +1036,7 @@ def list_lark_connections(
             )
             connector_status: dict[str, Any] | None = None
             try:
-                capture_scope = _routing_value(
-                    CaptureScope,
-                    routing.get("capture_scope")
-                    or (
-                        "configured_chat_all"
-                        if routing.get("incoming_mode") == "all"
-                        else "addressed_only"
-                    ),
-                    default=CaptureScope.ADDRESSED_ONLY.value,
-                    field="capture_scope",
-                )
-                ingress_mode = _routing_value(
-                    IngressMode,
-                    routing.get("ingress_mode"),
-                    default=IngressMode.DIRECT_SESSION.value,
-                    field="ingress_mode",
-                )
-                reply_mode = _routing_value(
-                    ReplyMode,
-                    routing.get("reply_mode"),
-                    default=ReplyMode.TOPIC_REPLY.value,
-                    field="reply_mode",
-                )
+                capture_scope, ingress_mode, reply_mode = _connection_routing_modes(routing)
                 raw_connector = binding.get("connector")
                 if raw_connector is not None:
                     if not isinstance(raw_connector, Mapping):
@@ -1145,29 +1195,7 @@ def decide_lark_topic_event(
                 else {}
             )
             try:
-                capture_scope = _routing_value(
-                    CaptureScope,
-                    routing.get("capture_scope")
-                    or (
-                        "configured_chat_all"
-                        if routing.get("incoming_mode") == "all"
-                        else "addressed_only"
-                    ),
-                    default=CaptureScope.ADDRESSED_ONLY.value,
-                    field="capture_scope",
-                )
-                ingress_mode = _routing_value(
-                    IngressMode,
-                    routing.get("ingress_mode"),
-                    default=IngressMode.DIRECT_SESSION.value,
-                    field="ingress_mode",
-                )
-                reply_mode = _routing_value(
-                    ReplyMode,
-                    routing.get("reply_mode"),
-                    default=ReplyMode.TOPIC_REPLY.value,
-                    field="reply_mode",
-                )
+                capture_scope, ingress_mode, reply_mode = _connection_routing_modes(routing)
                 connector = binding.get("connector")
                 if connector is not None:
                     if not isinstance(connector, Mapping):

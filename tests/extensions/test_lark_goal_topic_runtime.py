@@ -5,6 +5,7 @@ import json
 import subprocess
 import threading
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -283,6 +284,21 @@ def test_mention_uses_existing_inbox_reply_and_ack_path(tmp_path: Path) -> None:
     assert projection["processed_count"] == 1
 
 
+@pytest.fixture
+def manager_context_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the dated fixture within retention without disabling compaction."""
+    from loopx.extensions.lark import manager_context
+
+    class FixtureDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            instant = datetime(2026, 9, 13, 6, 1, tzinfo=UTC)
+            return instant.astimezone(tz) if tz is not None else instant.replace(tzinfo=None)
+
+    monkeypatch.setattr(manager_context, "datetime", FixtureDatetime)
+
+
+@pytest.mark.usefixtures("manager_context_clock")
 def test_manager_captures_unaddressed_context_without_granting_turn_authority(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -467,6 +483,7 @@ def test_manager_route_rejects_missing_or_unknown_authority_mode(
     assert answer_calls == []
 
 
+@pytest.mark.usefixtures("manager_context_clock")
 def test_manager_authorized_turn_quietly_recovers_history_as_context(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -836,6 +853,93 @@ def test_invalid_persisted_routing_state_never_answers_replies_or_acknowledges(
     assert not (tmp_path / "runtime" / ".loopx").exists()
 
 
+def test_profile_stream_stops_when_its_durable_route_disappears(
+    tmp_path: Path,
+) -> None:
+    from loopx.extensions.lark.goal_topic_runtime import stream_lark_goal_topic_profile
+
+    snapshot = {
+        "target_payload": {
+            "targets": {
+                "mew-product": {
+                    "name": "mew-product",
+                    "provider": "lark",
+                    "enabled": True,
+                    "channel": {"chat_id": "oc_public_fixture"},
+                    "identity": {"sender_profile": "mew", "cli_bin": "fake-lark"},
+                }
+            }
+        },
+        "binding_payloads": {
+            "goal-alpha": {
+                "bindings": {
+                    "goal-alpha": {
+                        "goal_id": "goal-alpha",
+                        "provider": "lark",
+                        "enabled": True,
+                        "target_ref": "mew-product",
+                    }
+                }
+            }
+        },
+    }
+    released = threading.Event()
+    listening = threading.Event()
+    result: dict[str, Any] = {}
+
+    class BlockingLines:
+        def __iter__(self):
+            yield "[event] ready event_key=im.message.receive_v1\n"
+            assert released.wait(5)
+
+    class BlockingConsumer:
+        stdout = BlockingLines()
+
+        def poll(self):
+            return 0 if released.is_set() else None
+
+        def wait(self, timeout=None):
+            assert released.wait(timeout or 5)
+            return 0
+
+        def terminate(self):
+            released.set()
+
+        def kill(self):
+            released.set()
+
+    stop = threading.Event()
+
+    def run() -> None:
+        result.update(
+            stream_lark_goal_topic_profile(
+                profile="mew",
+                snapshot_provider=lambda: snapshot,
+                stop=stop,
+                runtime_root=tmp_path,
+                answer=lambda _route, _text: "ok",
+                process_factory=lambda _args: BlockingConsumer(),
+                health_sink=lambda update: (
+                    listening.set() if update.get("status") == "listening" else None
+                ),
+            )
+        )
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    assert listening.wait(2)
+    snapshot["binding_payloads"] = {}
+    worker.join(4)
+    assert not worker.is_alive()
+    assert stop.is_set()
+    assert result == {
+        "ok": True,
+        "status": "configuration_removed",
+        "event_count": 0,
+        "replied_count": 0,
+    }
+
+
 def test_bound_topic_reuses_one_goal_chat_session(tmp_path: Path) -> None:
     from loopx.extensions.lark.goal_topic_runtime import answer_lark_goal_topic
 
@@ -1026,6 +1130,51 @@ def test_runtime_service_exposes_content_free_listener_health(tmp_path: Path) ->
 
     release.set()
     service.close()
+
+
+def test_runtime_service_reconciles_manager_route_before_answer(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    import loopx.extensions.lark.goal_topic_runtime as runtime
+
+    observed: list[str] = []
+    stop = threading.Event()
+    snapshot = {
+        "target_payload": {},
+        "binding_payloads": {},
+        "goal_contexts": {"goal-alpha": {"work_dir": str(tmp_path)}},
+    }
+
+    def fake_stream(**kwargs: Any) -> dict[str, Any]:
+        receipt = kwargs["answer"](
+            {
+                "goal_id": "goal-alpha",
+                "conversation_kind": "manager",
+                "session_id": "old-session",
+            },
+            "status",
+        )
+        assert receipt["response_text"] == "done"
+        stop.set()
+        return {"ok": True, "status": "stopped"}
+
+    monkeypatch.setattr(runtime, "stream_lark_goal_topic_profile", fake_stream)
+    monkeypatch.setattr(
+        runtime,
+        "answer_lark_goal_topic",
+        lambda **kwargs: observed.append(str(kwargs["route"]["session_id"])) or "done",
+    )
+    service = runtime.LarkGoalTopicRuntimeService(
+        snapshot_provider=lambda: snapshot,
+        runtime_root=tmp_path,
+        runtime_controller=object(),
+        manager_route_reconciler=lambda route: {
+            **route,
+            "session_id": "new-session",
+        },
+    )
+    service._poll_profile("mew", stop)
+    assert observed == ["new-session"]
 
 
 def test_runtime_service_records_safe_failure_code_for_listener_exception(
@@ -1936,8 +2085,22 @@ def test_manager_untyped_or_empty_answer_gets_bounded_failure_receipt(
 
 @pytest.mark.parametrize(
     "body",
-    ["完整报告" * 400, "x" * 6001, "测" * 40000, "测" * 50000, r"private\nformat"],
-    ids=["report", "long-ascii", "long-unicode", "oversize", "invalid-newlines"],
+    [
+        "完整报告" * 400,
+        "x" * 6001,
+        "测" * 40000,
+        "测" * 50000,
+        r"private\nformat",
+        r"{new_description}\n- 条目",
+    ],
+    ids=[
+        "report",
+        "long-ascii",
+        "long-unicode",
+        "oversize",
+        "repaired-newlines",
+        "unresolved-placeholder",
+    ],
 )
 @pytest.mark.parametrize("reply_ok", [True, False])
 def test_manager_report_delivery_recovers_safe_format_and_keeps_pending_body(
@@ -1987,11 +2150,28 @@ def test_manager_report_delivery_recovers_safe_format_and_keeps_pending_body(
     )
     result = runtime.process_lark_goal_topic_event(**kwargs)
     sendable = len(body.encode("utf-8")) < 150_000
-    expected = body.replace(r"\n", "\n")
+    if body == r"private\nformat":
+        # Escaped newlines are repaired before the first send, so the answer is
+        # delivered as markdown (a real bullet list) and is not reported as a
+        # degraded delivery.
+        expected = "private\nformat"
+        expected_repairs = ["escaped_newline"]
+    elif body == r"{new_description}\n- 条目":
+        # A placeholder the template never filled reaches the reader as a typed
+        # marker rather than as raw braces, and the escaped bullet list is a
+        # real list.
+        expected = "[未解析占位符: new_description]\n- 条目"
+        expected_repairs = ["escaped_newline", "unresolved_template_placeholder"]
+    else:
+        expected = body
+        expected_repairs = []
+    assert [
+        incident["code"] for incident in result.get("rich_text_repairs") or []
+    ] == expected_repairs
     if sendable:
         assert state["reply_text"] == expected
         assert result["ok"] is reply_ok
-        assert result.get("format_degraded") is (body == r"private\nformat")
+        assert result.get("format_degraded") is False
     else:
         # Longer than one deliverable message: the persisted answer is sent as a
         # bounded, ordered sequence of parts that ends with the overflow note,
