@@ -1528,7 +1528,7 @@ next-action authority and does not imply automatic active-state writeback.
 `external_evidence_observation`, and `goal_boundary` remain compatibility and
 drill-down fields under that contract, not competing sources of truth.
 `protocol_action_packet` belongs to the historical summary contract; the
-candidate PR-05 migration below proposes omitting it from new outputs.
+PR-05 migration below omits it from new outputs.
 The same payload includes `scheduler_hint.schema_version=scheduler_hint_v0`.
 This is the scheduling contract for host runtimes, not a delivery permission:
 Codex App can back off its automation cadence for long waits, while Codex CLI
@@ -1595,19 +1595,21 @@ quiet no-op case.
 Historical guard outputs carried `protocol_action_packet_v0`, a deterministic
 summary of actor, action requirements, quiet-noop allowance, and lane with
 `llm=no_api`. It conveyed no independent execution or model/API authority.
-The [candidate PR-05 migration](reference/protocols/protocol-action-packet-decision-v0.md)
-proposes omitting `protocol_action_packet` from all new quota/live/paused/recovery
+The [PR-05 migration](reference/protocols/protocol-action-packet-decision-v0.md)
+omits `protocol_action_packet` from all new quota/live/paused/recovery
 outputs, including full-decision cold reads. Current executors and status/display
 consumers should read the typed interaction, lane, and scheduler contracts above;
 packet absence must not imply permission to deliver, spend, or stay quiet.
 Historical packet, opaque-summary, residue, and signature readers remain;
 stored records are not rewritten. New source/envelope signature documents may
 omit the capsule's packet witness while preserving semantic fields: equal hashes
-with older packet-bearing outputs are not promised. The public output version
-marker and historical-support window await user/maintainer binding. Rollback to
-a 1.1.0 reader requires actual compatibility testing, and unknown external
-consumers are not presumed compatible. See the migration contract for evidence
-limits and qualification requirements.
+with older packet-bearing outputs are not promised. The release boundary is the first official release containing #4794;
+published v1.1.0 artifacts remain unchanged. Valid v0 historical formats stay
+supported for the lifetime of the v0 reader contract, without a removal date
+introduced by this migration. The named bundled consumers and v1.1.0 rollback
+baseline are qualified; external clients requiring this optional packet must
+migrate or pin the previous release. See the migration contract for exact scope
+and rollback steps.
 
 When a registry-enabled goal has `control_plane.self_repair.enabled=true`,
 `quota should-run` may return `decision=self_repair`,

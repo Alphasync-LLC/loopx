@@ -169,13 +169,14 @@ such as `execution_obligation`, `heartbeat_recommendation`,
 `work_lane_contract`, `external_evidence_observation`, and `goal_boundary`
 remain compatibility and drill-down fields. Historical `protocol_action_packet`
 summaries are read-only observations. The
-[candidate PR-05 migration](reference/protocols/protocol-action-packet-decision-v0.md)
-proposes omitting the packet from new quota/live/paused/recovery outputs while
+[PR-05 migration](reference/protocols/protocol-action-packet-decision-v0.md)
+omits the packet from new quota/live/paused/recovery outputs while
 retaining historical packet, opaque/residue, and signature reads without
 rewriting records. Current consumers use typed contracts; a missing packet
-neither relaxes an obligation nor grants authority. Public output version and
-historical-support binding remain pending user/maintainer decisions; rollback
-to a 1.1.0 reader and unknown external consumers need separate qualification.
+neither relaxes an obligation nor grants authority. The first official release containing #4794 changes new writes; historical v0
+formats remain supported for the v0 reader lifetime. The bundled reader set and
+v1.1.0 rollback scope are explicit in that migration contract; external clients
+requiring the old summary must migrate before upgrading.
 Executors should treat `interaction_contract.agent_channel.primary_action` as
 the single action entrypoint for the current turn. If it carries a
 `resolution_trace`, that trace is only a compact explanation of which projected

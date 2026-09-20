@@ -13,11 +13,10 @@ loopx quota should-run --goal-id <goal-id> --agent-id <agent-id> --turn-envelope
 
 The envelope flag selects a projection of the full decision. The original v0
 contract left the default `quota should-run` output unchanged; the
-[candidate PR-05 migration](protocol-action-packet-decision-v0.md) separately
-proposes omitting `protocol_action_packet` from new full decisions, including
-live, paused, and recovery outputs. Its public output version marker and
-historical-support window remain pending user/maintainer binding. The v0
-envelope keeps:
+[PR-05 migration](protocol-action-packet-decision-v0.md) omits
+`protocol_action_packet` from new full decisions, including live, paused and
+recovery output, from the first release containing #4794. Historical v0 reads
+remain supported for the v0 reader lifetime. The v0 envelope keeps:
 
 - the selected todo, claim, and effective action;
 - the bounded action portfolio when the agent must choose among multiple
@@ -139,7 +138,7 @@ hash and derivation status; a differing compact action retains field-level
 `residue`; an opaque summary follows `unverified_retain_summary`. These remain
 historical read paths and do not rewrite stored packets or envelopes.
 
-Under candidate PR-05, a new source without a packet produces no
+Under PR-05, a new source without a packet produces no
 `contract_capsule.protocol_action_packet` witness. The ordered semantic
 projection `protocol_action_packet_fields` and historical summary renderer
 remain; packet absence does not remove typed obligations or their signature
@@ -147,8 +146,10 @@ coverage. Source and envelope signature documents must match for that input.
 Compared with a packet-bearing source, the document may lack the capsule's
 packet witness and have a different hash. This is not a cross-version hash
 compatibility promise; existing signature checks and historical signatures
-remain intact. Compatibility with a 1.1.0 reader on rollback requires an actual
-test; unknown external readers and complete historical archives are unqualified.
+remain intact. The v1.1.0 reader/host accepts the tested new and stored v0 examples.
+The [migration contract](protocol-action-packet-decision-v0.md) defines the
+release boundary, v0 reader lifetime, consumer set and rollback steps; unknown
+external readers and complete private archives are not implicitly qualified.
 
 Large todo summaries, frontier diagnostics, readiness history, compatibility
 fields, and warning collections stay on the referenced full-decision/status

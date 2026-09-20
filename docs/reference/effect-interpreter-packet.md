@@ -152,10 +152,11 @@ For a source without `protocol_action_packet`, the quota lens exposes
 `protocol_summary=null`; typed interaction, lane, and scheduler contracts still
 supply obligations and next effects. Historical v0 and opaque summaries remain
 readable observations and cannot override those contracts. The
-[candidate PR-05 migration](protocols/protocol-action-packet-decision-v0.md)
-proposes packet-free new quota/live/paused/recovery outputs; release-version
-binding and the historical-support window remain pending. Reader fixtures do
-not establish compatibility for unknown consumers or a 1.1.0 rollback.
+[PR-05 migration](protocols/protocol-action-packet-decision-v0.md)
+defines packet-free new quota/live/paused/recovery output from the first release
+containing #4794. It names the supported bundled consumers, retained v0 format
+lifetime and tested v1.1.0 rollback baseline; unknown external clients are not
+automatically covered.
 
 `EffectTurn.observation.action_portfolio` is the canonical TypeScript-owned
 observation of this field. Python supplies only scope/capability-admitted todo
