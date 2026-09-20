@@ -9,7 +9,9 @@ existing Turn entrypoint; there is no steward-specific scheduler or task store.
 
 First register the participating Agents and bind the intended canonical Todos
 to [owner-configured acceptance](goal-acceptance-observations.md). Prepare an
-operator-owned JSON file **outside member workspaces**:
+operator-owned JSON file **outside every delegated member workspace**. A
+coordinator may keep it as an ignored file under its Goal project at
+`.loopx/config/delegations.json`:
 
 ```json
 {
@@ -50,6 +52,7 @@ delegate() {
 }
 
 delegate list
+delegate inspect --binding-id independent-review
 delegate start --binding-id independent-review --operation-id review-round-1 \
   --brief-file request.json --execute
 delegate read --operation-id review-round-1
@@ -95,8 +98,137 @@ than maintaining separate rules.
 This entrypoint does not create Agents, grant bindings or wake an idle Codex
 conversation. The existing host/LoopX continuation policy owns the next lead
 turn. The conversation remains persistent independently of whether autonomous
-LoopX mode is enabled. Current Dashboard/Lark setup is unchanged; those surfaces
-keep their existing conversation and runtime owners.
+LoopX mode is enabled. Dashboard, CLI/managed Turn and Lark keep their existing
+conversation and runtime owners; they may consume the shared bounded route
+projection described below, but they do not get another grant or scheduler.
+
+### Publish bounded route readiness to the coordinator
+
+After the ignored operator file exists, register only its Goal-relative pointer
+through the existing orchestration configuration:
+
+```bash
+loopx configure-goal --goal-id "$GOAL_ID" \
+  --subagent-execution-config .loopx/config/delegations.json
+loopx configure-goal --goal-id "$GOAL_ID" \
+  --subagent-execution-config .loopx/config/delegations.json --execute
+loopx agent-context --goal-id "$GOAL_ID" --agent-id "$AGENT_ID" \
+  --phase before_plan --format json
+```
+
+Preview before apply. The pointer accepts only a repository-relative JSON path
+under `.loopx/config/`; symlinked or missing files yield a typed blocked
+observation. The registry does not copy the file. The same requester grant
+filter used by `delegate list` considers at most six public-safe planning routes
+and byte-bounds the projected subset; `authorized_count` and `routes_truncated`
+make omissions explicit. Managed-host availability comes from the existing Turn host/profile owner;
+unprobed generic adapters are `unknown`, not optimistically ready.
+
+This planning projection is read-only. It does not start, resume, accept,
+enumerate operations or periodically poll work. A ready observation is not an
+execution receipt. Use the original binding and a stable operation id for
+dispatch, then read and validate the original artifacts. An explicit
+`agent-context --phase after_delegate_result` read may summarize current
+requester-scoped operation statuses; those counts are not parent acceptance.
+Remove only the pointer with
+`--clear-subagent-execution-config --execute`; revoke actual admission in the
+operator binding file.
+
+For compatibility, an unfinished Goal Chat run created before the Goal-owned
+pointer was available can resume with its frozen Session reference. That path
+ends with the run: a new or completed run must use the Goal configuration, and
+no legacy Session setting is copied back into the registry automatically.
+
+中文：本地授权文件可放在协调者 Goal 仓库中已忽略的
+`.loopx/config/delegations.json`，但必须位于所有被委托成员工作区之外。先用
+`configure-goal` 预览，再执行写入；注册表只保存仓库相对指针，不复制授权内容。
+`agent-context` 复用 `delegate list` 的 requester 范围，最多投影六条公开安全的
+路由状态；managed runtime 的可用性由既有 Turn host/profile owner 判断，未探测的
+通用适配器显示 `unknown`，不能乐观宣称 ready。规划投影不会枚举 operation，也不会
+启动、恢复、验收或周期轮询工作；需要时可显式读取 `after_delegate_result` 阶段的有界
+operation 状态摘要。ready 和状态计数都不是执行或父级验收回执。清除指针不会撤销
+授权；真正撤销仍须修改 operator binding 文件。
+
+### Recover work without remembered operation ids
+
+After reconnecting or losing conversation context, use the same registered
+requester and execution configuration:
+
+```bash
+delegate operations --limit 10
+# When has_more is true, copy next_cursor from that response:
+delegate operations --limit 10 --cursor "$NEXT_CURSOR"
+delegate read --operation-id "$ORIGINAL_OPERATION_ID"
+```
+
+This reads the existing requester-scoped journal, including work created from
+another conversation under that identity. Each item includes its original
+operation/request/task identity and current execution readback. Accepted items
+are independently rechecked against current canonical completion and artifacts;
+the page includes artifact references/hashes, while `read` supplies full content.
+One changed binding, corrupt record or invalid artifact yields `unavailable`
+for that item and `page_readback_complete: false`; healthy siblings remain
+visible. This is a reconciliation case, not permission to dispatch a replacement.
+Failure to read the journal itself fails the command instead of returning empty.
+
+Pages contain at most 50 items. `has_more` is independent of page readback
+completeness. Accepted-item checks rerun the existing pinned validators; use a
+smaller page when those checks are expensive. Inventory is requested on demand,
+not added to the dashboard polling loop. The cursor follows stable record addresses, not business priority;
+this is a live listing, so restart paging to discover new records inserted before
+the cursor. An empty page for one requester says nothing about other members or
+whether the Goal is complete. Only explicit `start`/`resume` can launch execution.
+
+Enabled MCP exposes the same operation as `list_delegations`. Newly tool-equipped Goal Chat
+uses `loopx_collaboration` with `action=operations`, optional `limit` and `cursor`.
+It retains its existing sender/configuration pin and pause fence. Both the lead
+and a coordinating member recover their own operations; creation ancestry grants
+no access to another requester's journal. No new settings or background polling
+are required, and disabling execution tools removes this tool with them.
+Already enrolled native Chat threads keep their original tool schema on resume;
+they are not replaced to install this new operation. Recovery guidance is part
+of the new tool description, not injected into those older threads' shared prompt.
+
+中文：原对话重连后执行 `delegate operations`，不用先记住每个 operation ID。
+主力与承担协调的成员各自找回自己的工作，再用原 ID 读取完整结果；需要恢复时
+仍显式调用 `resume --execute`。分页回读会重新核验 accepted，单条失效显示
+`unavailable`，不能当成失败重派或静默隐藏。`has_more` 表示还有下一页，
+`page_readback_complete` 只表示本页是否均成功读取；二者都不代表整个团队已完成。
+此入口不创建 Agent、不扩大授权，也不唤醒闲置的 Codex 对话。
+
+### Check a binding before new work
+
+`delegate inspect --binding-id independent-review` uses the same task,
+workspace, host, model/effort and validator arguments as an actual delegation,
+through `turn run-once` without `--execute`. It creates no request or Turn,
+does not invoke the host and spends no quota. Host arguments that enable
+execution or retarget the selected work are rejected before the subprocess.
+
+The typed result keeps three facts separate: `turn_eligible` is the current
+Turn decision for that exact Todo; `acceptance_ready` is the current pinned
+acceptance binding, not passed output validation; `executor.available` uses
+the existing host probe. `false` means unavailable, while `null` means the
+runtime has not been probed. In particular, the generic-cli path used by the
+optional Ark adapter does not acquire a remote readiness guarantee from a
+successful local dry run. `launchable` only means those local prerequisites
+were observed; it grants no execution permission and does not reserve capacity.
+Normal start still reads current admission and independently validates output.
+If the existing Turn rejects preflight, inspection reports that error rather than
+manufacturing a launchable result; no request is created.
+
+Enabled MCP exposes `inspect_execution_binding`; newly enrolled Goal Chat tools
+accept `action=inspect` with `binding_id`. Existing native thread schemas remain
+unchanged. Owners can use **Team execution** directly below the Goal conversation
+controls after configuring its existing bindings, including while paused or
+before enabling LoopX mode. Expand it to recover paged work and artifact hashes,
+or check one member's prerequisites. Reads run only on request; ordinary polling
+does not run validators or preflight. Closing the panel changes no work state.
+This local operator entrypoint does not grant a Lark audience access.
+
+中文：配置原有执行绑定后，在 Goal 对话中展开「团队执行情况」，不必让模型转述或
+跳到另一个页面。可分页查看原请求、当前验收与产物哈希，点「检查启动条件」读取
+指定任务的 Turn 决策及实际模型配置。运行时未探测时明确显示「尚未验证」，不能
+把已登记、已分配或 dry-run 成功当作正在运行。暂停时仍可检查；检查不启动成员。
 
 ## Use the same bindings through MCP
 

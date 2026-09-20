@@ -490,11 +490,14 @@ def manager_channel_binding(
     executor_kind = MANAGER_ENDPOINT_KINDS.get(endpoint, "")
     credential_env = ""
     execution_profile: str | None = None
+    output_token_budget: dict[str, Any] | None = None
     runtime_probe: dict[str, Any] | None = None
     if executor_kind == MANAGER_EXECUTOR_KIND_MANAGED:
         managed = managed_executor_binding(endpoint, environ=environ, module_probe=module_probe)
         credential_env = str(managed.get("credential_env") or "")
         execution_profile = managed.get("execution_profile")
+        if isinstance(managed.get("output_token_budget"), Mapping):
+            output_token_budget = dict(managed["output_token_budget"])
         available: bool | None = managed.get("available")
         unavailable_reason: str | None = managed.get("unavailable_reason")
         if isinstance(managed.get("runtime_probe"), Mapping):
@@ -529,6 +532,7 @@ def manager_channel_binding(
         # difference between them.
         "operator_credential_source": credential_source or "not_read",
         "execution_profile": execution_profile,
+        **({"output_token_budget": output_token_budget} if output_token_budget else {}),
         "available": available,
         "unavailable_reason": unavailable_reason,
         "runtime_probe": runtime_probe,
@@ -615,6 +619,7 @@ def manager_skill_text() -> str:
 def manager_model_config(
     environ: dict[str, str] | None = None,
     *,
+    endpoint: str | None = None,
     machine_defaults: Mapping[str, Any] | None = None,
 ) -> dict[str, str]:
     """Return the manager host arguments: model and reasoning effort.
@@ -626,7 +631,9 @@ def manager_model_config(
     the bounded Turns it drives run the effort the operator configured once.
     """
 
-    endpoint = _resolve_manager_endpoint(
+    # An already selected Session endpoint outranks the machine's endpoint
+    # default. Explicit model/effort overrides retain their existing priority.
+    endpoint = endpoint or _resolve_manager_endpoint(
         environ, machine_defaults=machine_defaults
     )[0]
     model, _source = manager_model_resolution(
