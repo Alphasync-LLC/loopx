@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import {createHash, randomUUID} from "node:crypto";
 import {writeFileSync, unlinkSync} from "node:fs";
-import {mkdtemp, mkdir, writeFile, rm} from "node:fs/promises";
+import {mkdtemp, mkdir, writeFile, readFile, readdir, rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import test from "node:test";
@@ -108,8 +108,11 @@ async function fixture(t: test.TestContext, provider: Provider, schema: "native"
 for (const provider of ["legacy", "file", "sqlite", "postgresql"] as const) {
   for (const schema of provider === "legacy" ? ["legacy"] as const : ["legacy", "native"] as const) {
     test(`${provider} ${schema} full mixed head reports effective ownership without writes`, {skip: provider === "postgresql" && !pool}, async t => {
-      const {request, store, authorityProvider, cases} = await fixture(t, provider, schema);
+      const {request, store, authorityProvider, cases, root, goal} = await fixture(t, provider, schema);
       const before = await store?.loadAuthority();
+      const directory = join(root, "goals", goal, "task-leases");
+      const legacyNames = provider === "legacy" ? (await readdir(directory)).sort() : [];
+      const legacyBytes = await Promise.all(legacyNames.map(name => readFile(join(directory, name))));
       for (const item of cases) {
         const result = await inspectTaskLease({...request, todo_id: `todo_inspect_${item.name}`}, {now: () => NOW, authorityProvider});
         assert.equal(result.ok, true, JSON.stringify(result));
@@ -122,6 +125,10 @@ for (const provider of ["legacy", "file", "sqlite", "postgresql"] as const) {
         }
       }
       assert.deepEqual(await store?.loadAuthority(), before);
+      if (provider === "legacy") {
+        assert.deepEqual((await readdir(directory)).sort(), legacyNames);
+        assert.deepEqual(await Promise.all(legacyNames.map(name => readFile(join(directory, name)))), legacyBytes);
+      }
       if (store) {
         const stale = {...request, authority: {...request.authority, handoff_mode: "invalid", todos: [],
           todo_projection_error: {code: "stale_display", message: "unused"}}};

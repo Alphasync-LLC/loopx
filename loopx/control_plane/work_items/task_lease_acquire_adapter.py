@@ -862,7 +862,7 @@ def inspect_native_task_lease(
         }
         result = effect_runtime_result("task_lease.inspect.native", request)
         if isinstance(result, dict) and result.get("todo_projection_required") is True:
-            if canonical or result.get("ok") is not True or result.get("action") != "inspect":
+            if canonical or result.get("schema_version") != TASK_LEASE_SCHEMA_VERSION or result.get("ok") is not True or result.get("action") != "inspect":
                 raise RuntimeError("native lease inspection requested an invalid source projection")
             request["phase"] = "effective_lease"
             request["authority"] = task_lease_acquire_authority_facts(
