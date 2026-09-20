@@ -1,37 +1,36 @@
 # PR-05: candidate retirement of protocol action packet writes
 
-Candidate migration contract for [PR #4794](https://github.com/huangruiteng/loopx/pull/4794),
-Refs [#4447](https://github.com/huangruiteng/loopx/issues/4447). This entry does
-not approve a release or close the tracker. The
+Refs [#4794](https://github.com/loopx-project/loopx/pull/4794),
+[#4447](https://github.com/loopx-project/loopx/issues/4447). The
 [protocol decision](../../../../reference/protocols/protocol-action-packet-decision-v0.md)
-owns the concrete migration and qualification requirements.
+owns the migration contract. Release binding and history-support scope remain
+pending; this entry neither grants migration approval nor closes the tracker.
 
-- **Gap and delivered change.** Public references still required direct packet
-  consumption and retention in every full decision. Five references now
-  distinguish that historical v0 contract from candidate packet-free new
-  quota/live/paused/recovery outputs. Current consumers use typed interaction,
-  lane, and scheduler contracts; no new capability, flag, or authority is added.
-- **Retained boundary.** Preserve historical packet readers, opaque summaries,
-  residues, `protocol_action_packet_fields`, the historical summary renderer,
-  and signature validation without rewriting old records. A new source may
-  lack the capsule's packet witness; source/envelope agreement does not promise
-  the same hash as an older packet-bearing source.
-- **Evidence limit.** PR #4794's synthetic absent/v0/opaque/residue fixtures
-  exercise named Python/TypeScript readers and authority checks. They do not
-  qualify complete historical archives, unknown external consumers, or rollback
-  to the current 1.1.0 reader. Runtime writer removal and producer/display smoke
-  updates belong to the accompanying implementation, not this documentation
-  slice; its integration must establish actual packet-free output behavior.
-- **Documentation-slice validation.** Documentation governance and 29 focused
-  Python plus five TypeScript compatibility tests pass. The existing protocol
-  decision smoke fails its old wording assertion and also needs its old section
-  ordering updated with the implementation. The 1.1.0 downgrade is untested here.
-- **Release and rollback still pending.** The user/maintainer must bind the
-  public output version marker and historical-support window before release.
-  No date or support duration is promised. Test the 1.1.0 reader against new
-  outputs and retained history before claiming downgrade compatibility;
-  reverting the producer does not prove that compatibility.
-- **Bounded follow-through.** Replace smokes that require the old “Keep” and
-  default-full-payload claims with checks of the migration boundary. Retaining
-  the existing semantic projection and historical read seam is sufficient for
-  this slice; no new compatibility framework is needed.
+- **Delivered delta.** Six live writes across four quota modules are removed,
+  together with the unused packet builder and its imports. Ordinary, paused,
+  required-read, capability-intent and host-recovery construction use existing
+  typed contracts. The default full decision now omits the legacy field, not
+  merely the compact view. No new flag, schema vocabulary or authority owner.
+- **Retained responsibility.** Historical Python Markdown and TypeScript
+  Effect/Envelope readers, ordered `protocol_action_packet_fields`, summary
+  reconstruction, opaque fallback, residue and signature rejection remain.
+  Historical records are never rewritten. The measured Python field surface
+  falls from 5 to 1; TypeScript remains 2. The same-diff anchors retain those
+  compatibility readers instead of pretending the field disappeared globally.
+- **Behavior evidence.** Eight complete baseline/candidate quota payloads match
+  after removing only the packet; canonical signature documents match after
+  removing only its capsule witness. The digest may consequently change.
+  Real CLI/reentry/Envelope/live tests pass (149). The renamed
+  `quota-without-legacy-packet-smoke.py` rejects the previous default. The obsolete
+  decision-note wording smoke is removed; runtime and compatibility regressions
+  own behavior evidence, while docs governance checks document structure.
+- **Versioned readback.** Actual v1.1.0 source (`607c11d75`) reads eight new and
+  eight packet-bearing baseline samples with unchanged signed actions and valid
+  host admission. Installed candidate wheel checks ordinary/paused output,
+  bundled TS/JSON resources, real bridge and host admission. This is bounded
+  synthetic evidence, not full historical archive or all-host qualification.
+- **Remaining decisions.** Confirm the output release, supported historical
+  formats/window, external consumer coverage and rollback commitment before
+  release. Unknown external readers are not presumed compatible. Keep review
+  status distinct from a passing test suite and reconcile overlapping
+  quota-construction PRs on the actual integrated revision.

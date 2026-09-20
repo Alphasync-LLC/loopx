@@ -53,13 +53,20 @@ spend, and scheduler behavior with the packet absent; historical records must
 remain unchanged and signature tampering must still fail closed. Reconcile
 smokes that assert packet presence or the former default-payload wording.
 
-Rollback to the current 1.1.0 reader requires an actual test against candidate
-outputs and retained historical records. Record the reader version, tested
-cases, and failures before calling rollback compatible. Until that passes, a
-reader downgrade is unqualified; reverting the producer change is the code
-rollback, not proof that the older reader accepts intervening outputs. Unknown
-external consumers that require the packet need their own migration or
-qualification and must not be assumed compatible.
+The candidate was checked against the actual v1.1.0 reader/host source at
+`607c11d75`: eight new packet-free decisions and eight packet-bearing baseline
+samples (ordinary, paused, user gate, exhausted, and settled variants) retained
+canonical source/envelope signature agreement and host admission. An installed
+candidate wheel also passed ordinary/paused output, packaged TS/resource and
+host-signature checks. This qualifies those synthetic cases only; it does not
+qualify a complete historical signed-envelope archive or every host adapter.
+
+Reverting the producer change restores the previous writer. Existing readers
+are retained and records are not rewritten. Unknown external consumers that
+require the packet need their own migration or qualification and must not be
+assumed compatible. Bind the release and supported history window before
+calling the migration complete; the tested v1.1.0 cases alone do not establish
+an unrestricted downgrade promise.
 
 ## Operating Boundary
 
