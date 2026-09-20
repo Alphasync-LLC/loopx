@@ -62,6 +62,18 @@ def test_checks_aggregate_requires_both_parallel_lanes(
     assert (result.returncode == 0) == (kernel == dashboard == "success")
 
 
+def test_minimum_node_lane_keeps_full_coverage_with_runner_headroom() -> None:
+    minimum = WORKFLOW.split("  node-minimum-compatibility:\n", 1)[1].split(
+        "  node-forward-compatibility:\n", 1,
+    )[0]
+
+    assert "timeout-minutes: 15" in minimum
+    assert "for test in tests/control_plane_ts/*.test.ts" in minimum
+    assert 'node --no-warnings --experimental-sqlite --experimental-strip-types --test "${tests[@]}"' in minimum
+    assert "--test-name-pattern" not in minimum
+    assert "shard" not in minimum
+
+
 @pytest.mark.parametrize("result", ["success", "failure", "cancelled", "skipped", ""])
 def test_stage2c_gate_requires_all_lanes(result: str) -> None:
     gate = WORKFLOW.split("  stage2c-correctness-e2e:", 1)[1].split("  windows-powershell:", 1)[0]

@@ -213,7 +213,10 @@ jobs:
     needs: changes
     if: needs.changes.outputs.core_tests == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Recent full minimum-runtime lanes need roughly 8-11 minutes including
+    # dependency install. Keep the complete conformance set and leave enough
+    # runner variance so the qualification fails on assertions, not the clock.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
