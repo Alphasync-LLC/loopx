@@ -49,7 +49,10 @@ from ..control_plane.scheduler.execution_context import (
     render_scheduler_execution_args,
 )
 from ..control_plane.todos.contract import normalize_todo_id
-from ..control_plane.work_items.action_selection_contract import apply_action_selection_recovery
+from ..control_plane.work_items.action_selection_contract import (
+    bind_action_selection_recovery_command, current_action_selection_admission,
+)
+from ..control_plane.work_items.interaction_contract import action_selection_recovery_fields
 from ..presentation.renderers.quota_event_markdown import (
     render_quota_monitor_poll_markdown,
     render_quota_slot_preview_markdown,
@@ -188,89 +191,29 @@ def _heartbeat_quota_action_selection_bindings(
     return existing, todo_id, replan_obligation_id
 
 
-def _apply_requested_quota_action_selection_preflight(
+def _requested_quota_action_selection_preflight(
     payload: dict[str, object],
     *,
     requested_todo_id: str | None,
     receipt_bound_todo_id: str | None,
     receipt_bound_replan_obligation_id: str | None,
-) -> bool:
+) -> dict[str, object] | None:
     if not requested_todo_id or (
         receipt_bound_todo_id or receipt_bound_replan_obligation_id
     ):
-        return False
-    selected_todo = payload.get("selected_todo")
-    selected_todo_id = (
-        normalize_todo_id(selected_todo.get("todo_id"))
-        if isinstance(selected_todo, Mapping)
-        else None
+        return None
+    interaction = payload.get("interaction_contract")
+    agent_channel = interaction.get("agent_channel") if isinstance(interaction, Mapping) else None
+    agent_channel = agent_channel if isinstance(agent_channel, Mapping) else {}
+    selected_todo_id, admitted = current_action_selection_admission(
+        payload, requested_todo_id=requested_todo_id,
+        agent_must_attempt=agent_channel.get("must_attempt") is True,
+        agent_delivery_refused=agent_channel.get("delivery_allowed") is False,
     )
+    if admitted:
+        return None
     qualification_value = payload.get("action_selection_qualification")
-    qualification: Mapping[str, object] = (
-        qualification_value if isinstance(qualification_value, Mapping) else {}
-    )
-    if selected_todo_id is None and str(qualification.get("state") or "") == (
-        "qualified"
-    ):
-        # An unsettled-host-turn recovery decision carries no top-level
-        # `selected_todo`: its qualification names the Todo that prior Turn
-        # has to settle, and binding the guard to that Todo is the documented
-        # closeout path rather than a conflict with the projection.
-        qualification_selected = qualification.get("selected_todo")
-        selected_todo_id = (
-            normalize_todo_id(qualification_selected.get("todo_id"))
-            if isinstance(qualification_selected, Mapping)
-            else None
-        )
-    selection_binding = (
-        selected_todo.get("selection_binding")
-        if isinstance(selected_todo, Mapping)
-        else None
-    )
-    execution_obligation_value = payload.get("execution_obligation")
-    execution_obligation: Mapping[str, object] = (
-        execution_obligation_value
-        if isinstance(execution_obligation_value, Mapping)
-        else {}
-    )
-    interaction_value = payload.get("interaction_contract")
-    interaction: Mapping[str, object] = (
-        interaction_value if isinstance(interaction_value, Mapping) else {}
-    )
-    agent_channel_value = interaction.get("agent_channel")
-    agent_channel: Mapping[str, object] = (
-        agent_channel_value if isinstance(agent_channel_value, Mapping) else {}
-    )
-    pending_selection_delivery_qualified = (
-        selection_binding == "pending_action_selection"
-        and payload.get("normal_delivery_allowed") is True
-    )
-    pending_selection_workspace_repair_qualified = (
-        selection_binding == "pending_action_selection"
-        and payload.get("workspace_repair_allowed") is True
-        and payload.get("effective_action") == EffectiveAction.AGENT_WORKSPACE_REPAIR.value
-        and execution_obligation.get("kind") == "agent_workspace_repair"
-        and execution_obligation.get("must_attempt_work") is True
-        and agent_channel.get("must_attempt") is True
-        and agent_channel.get("delivery_allowed") is False
-    )
-    exact_current_obligation_qualified = (
-        selection_binding != "pending_action_selection"
-        and execution_obligation.get("must_attempt_work") is True
-        and agent_channel.get("must_attempt") is True
-    )
-    if (
-        selected_todo_id == requested_todo_id
-        and payload.get("ok") is True
-        and payload.get("should_run") is True
-        and (
-            pending_selection_delivery_qualified
-            or pending_selection_workspace_repair_qualified
-            or exact_current_obligation_qualified
-        )
-    ):
-        return False
-
+    qualification = qualification_value if isinstance(qualification_value, Mapping) else {}
     if not isinstance(qualification_value, Mapping):
         raise QuotaActionSelectionConflictError(
             QuotaActionSelectionConflictKind.UNQUALIFIED,
@@ -298,39 +241,44 @@ def _apply_requested_quota_action_selection_preflight(
         if deferred
         else "quota_action_selection_rejected"
     )
-    payload.update(
-        {
-            "ok": False,
-            "decision": "skip",
-            "should_run": False,
-            "effective_action": EffectiveAction.QUOTA_SKIP.value,
-            "state": error_code,
-            "waiting_on": "codex",
-            "status": error_code,
-            "error_code": error_code,
-            "reason": (
-                "explicit action selection was deferred by the current "
-                f"delivery frontier: {qualification_reason}"
-                if deferred
-                else "explicit action selection is not currently eligible: "
-                f"{qualification_reason}"
-            ),
-            "recommended_action": (
-                "handle the current delivery preemption, then rerun quota "
-                "should-run with the same --turn-instance-id; omit --todo-id "
-                "first when a refreshed action portfolio is needed"
-                if deferred
-                else "the due monitor is visible as auxiliary context, not an "
-                "independently selectable action in the current advancement lane; "
-                "choose a current advancement Todo, or rerun after the monitor "
-                "becomes the hard lane"
-                if auxiliary_monitor
-                else "rerun quota should-run with the same --turn-instance-id "
-                "without --todo-id, then choose a currently eligible Todo"
-            ),
-        }
-    )
-    return True
+    return {
+        "ok": False,
+        "spend_allowed_now": False,
+        "spend_after_validation": False,
+        "decision": "skip",
+        "should_run": False,
+        "normal_delivery_allowed": False,
+        "recovery_delivery_allowed": False,
+        "self_repair_allowed": False,
+        "capability_repair_allowed": False,
+        "workspace_repair_allowed": False,
+        "actionable_by_codex": False,
+        "effective_action": EffectiveAction.QUOTA_SKIP.value,
+        "state": error_code,
+        "waiting_on": "codex",
+        "status": error_code,
+        "error_code": error_code,
+        "reason": (
+            "explicit action selection was deferred by the current "
+            f"delivery frontier: {qualification_reason}"
+            if deferred
+            else "explicit action selection is not currently eligible: "
+            f"{qualification_reason}"
+        ),
+        "recommended_action": (
+            "handle the current delivery preemption, then rerun quota "
+            "should-run with the same --turn-instance-id; omit --todo-id "
+            "first when a refreshed action portfolio is needed"
+            if deferred
+            else "the due monitor is visible as auxiliary context, not an "
+            "independently selectable action in the current advancement lane; "
+            "choose a current advancement Todo, or rerun after the monitor "
+            "becomes the hard lane"
+            if auxiliary_monitor
+            else "rerun quota should-run with the same --turn-instance-id "
+            "without --todo-id, then choose a currently eligible Todo"
+        ),
+    }
 
 
 def _reconcile_requested_quota_action_selection(
@@ -342,25 +290,22 @@ def _reconcile_requested_quota_action_selection(
     receipt_bound_todo_id: str | None,
     receipt_bound_replan_obligation_id: str | None,
 ) -> bool:
-    rejected = _apply_requested_quota_action_selection_preflight(
+    recovery = _requested_quota_action_selection_preflight(
         payload, requested_todo_id=_requested_quota_action_todo_id(args),
         receipt_bound_todo_id=receipt_bound_todo_id,
         receipt_bound_replan_obligation_id=receipt_bound_replan_obligation_id,
     )
-    if rejected:
-        apply_action_selection_recovery(
-            payload, registry_path=str(registry_path), runtime_root=str(context.runtime_root),
-            goal_id=args.goal_id, agent_id=args.agent_id,
-            turn_instance_id=context.heartbeat_turn_id,
-            available_capabilities=args.available_capabilities,
-            scheduler_args=render_scheduler_execution_args(
-                scheduler_execution_context=context.scheduler_context),
-        )
-        obligation = payload.get("execution_obligation")
-        if isinstance(obligation, dict):
-            obligation.update(must_attempt_work=False, delivery_allowed=False,
-                              reason=payload["recommended_action"])
-    return rejected
+    if recovery is None:
+        return False
+    payload.update(action_selection_recovery_fields(payload, recovery))
+    bind_action_selection_recovery_command(
+        payload, registry_path=str(registry_path), runtime_root=str(context.runtime_root),
+        goal_id=args.goal_id, agent_id=args.agent_id,
+        turn_instance_id=context.heartbeat_turn_id,
+        available_capabilities=args.available_capabilities,
+        scheduler_args=render_scheduler_execution_args(scheduler_execution_context=context.scheduler_context),
+    )
+    return True
 
 
 def _attach_uncommitted_action_selection_receipt(

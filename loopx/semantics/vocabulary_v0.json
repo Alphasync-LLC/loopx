@@ -496,7 +496,7 @@
         "unsettled_host_turn_recovery": "A host Turn is unsettled and must be recovered before anything else: the selected Todo and action portfolio are dropped, should_run is set, and normal, recovery and self-repair delivery are all refused."
       },
       "producers": [
-        "loopx/cli_commands/quota.py::_apply_requested_quota_action_selection_preflight",
+        "loopx/cli_commands/quota.py::_requested_quota_action_selection_preflight",
         "loopx/control_plane/quota/decision_summary.py::_task_orchestration_effective_action",
         "loopx/control_plane/quota/decision_summary.py::quota_effective_action",
         "loopx/control_plane/quota/decision_summary.py::resolve_quota_run_decision",

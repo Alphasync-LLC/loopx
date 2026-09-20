@@ -662,6 +662,20 @@ def _terminal_cli_actions(
     return ["no quota spend without validated transition/blocker writeback"]
 
 
+def _selection_recovery_command(
+    payload: dict[str, Any], *, available_capabilities: Any,
+    scheduler_execution_context: Mapping[str, Any] | SchedulerExecutionContextResolution | None,
+    turn_instance_id: str | None, runtime_root: str | None,
+) -> str:
+    identity = payload.get("agent_identity") if isinstance(payload.get("agent_identity"), dict) else {}
+    return selection.action_selection_recovery_command(
+        goal_id=str(payload.get("goal_id") or "<GOAL_ID>"),
+        agent_id=identity.get("agent_id"), runtime_root=runtime_root,
+        turn_instance_id=turn_instance_id, available_capabilities=available_capabilities,
+        scheduler_args=render_scheduler_execution_args(scheduler_execution_context=scheduler_execution_context),
+    )
+
+
 def interaction_next_cli_actions(
     payload: dict[str, Any],
     *,
@@ -676,6 +690,12 @@ def interaction_next_cli_actions(
     turn_instance_id: str | None = None,
     runtime_root: str | None = None,
 ) -> list[str]:
+    if unadmitted_action_selection(payload):
+        return [_selection_recovery_command(
+            payload, available_capabilities=available_capabilities,
+            scheduler_execution_context=scheduler_execution_context,
+            turn_instance_id=turn_instance_id, runtime_root=runtime_root,
+        )]
     goal_id = str(payload.get("goal_id") or "<GOAL_ID>")
     command_prefix = selection.render_cli_command_prefix(runtime_root=runtime_root)
     agent_identity = payload.get("agent_identity") if isinstance(payload.get("agent_identity"), dict) else {}
@@ -1277,6 +1297,12 @@ def _build_interaction_cli_channel(
     turn_instance_id: str | None = None,
     runtime_root: str | None = None,
 ) -> dict[str, Any]:
+    if unadmitted_action_selection(payload):
+        return selection.action_selection_recovery_cli_channel(_selection_recovery_command(
+            payload, available_capabilities=available_capabilities,
+            scheduler_execution_context=scheduler_execution_context,
+            turn_instance_id=turn_instance_id, runtime_root=runtime_root,
+        ))
     spend_after_selection = selection.delivery_spend_allowed(payload, spend_after_validation)
     settlement_plan, replan_settlement_contract = (
         _turn_scoped_cli_settlement_context(
@@ -1434,6 +1460,63 @@ def _interaction_fallback_policy_required(payload: dict[str, Any], *, mode: str)
     } or bool(payload.get("blocked_priority_fallback"))
 
 
+def _interaction_execution_flags(
+    payload: dict[str, Any], *, mode: str, user_required: bool,
+) -> tuple[bool, bool]:
+    execution_obligation = payload.get("execution_obligation") if isinstance(payload.get("execution_obligation"), dict) else {}
+    scoped_user_gate_fallback = mode == "scoped_user_gate_fallback"
+    bounded_delivery_with_user_notice = mode == "bounded_delivery_with_user_notice"
+    must_attempt = _interaction_must_attempt(
+        execution_obligation,
+        mode=mode,
+        user_required=user_required,
+        scoped_user_gate_fallback=scoped_user_gate_fallback,
+        bounded_delivery_with_user_notice=bounded_delivery_with_user_notice,
+    )
+    if mode == "automation_prompt_upgrade":
+        must_attempt = True
+    if _blocked_successor_wait_observation_required(payload):
+        must_attempt = True
+    delivery_allowed = _interaction_delivery_allowed(
+        payload,
+        execution_obligation,
+        mode=mode,
+        user_required=user_required,
+        scoped_user_gate_fallback=scoped_user_gate_fallback,
+        bounded_delivery_with_user_notice=bounded_delivery_with_user_notice,
+    )
+    return must_attempt, delivery_allowed
+
+
+def action_selection_recovery_fields(
+    payload: Mapping[str, Any], recovery: dict[str, Any],
+) -> dict[str, Any]:
+    """Complete the one preflight result in the owning projection module."""
+    obligation = payload.get("execution_obligation")
+    if isinstance(obligation, dict):
+        recovery["execution_obligation"] = {
+            **obligation, "must_attempt_work": False, "delivery_allowed": False,
+            "reason": recovery["recommended_action"],
+        }
+    recommendation = payload.get("heartbeat_recommendation")
+    if isinstance(recommendation, dict):
+        recovery["heartbeat_recommendation"] = {**recommendation, "agent_must_attempt": False}
+    return recovery
+
+
+def unadmitted_action_selection(payload: dict[str, Any]) -> bool:
+    """Use the same current-obligation facts as interaction and CLI preflight."""
+    qualification = payload.get("action_selection_qualification")
+    if not isinstance(qualification, Mapping) or qualification.get("state") not in {"deferred", "rejected"}:
+        return False
+    mode = _interaction_mode(payload)
+    user_required = False if payload.get("agent_work_mode") == "monitor_only" else user_channel_action_required(payload)
+    must_attempt, delivery_allowed = _interaction_execution_flags(payload, mode=mode, user_required=user_required)
+    return selection.action_selection_needs_recovery(
+        payload, agent_must_attempt=must_attempt, agent_delivery_refused=delivery_allowed is False,
+    )
+
+
 def build_interaction_contract(
     payload: dict[str, Any],
     *,
@@ -1457,27 +1540,7 @@ def build_interaction_contract(
     mode = _interaction_mode(payload)
     monitor_only = payload.get("agent_work_mode") == "monitor_only"
     user_required = False if monitor_only else user_channel_action_required(payload)
-    scoped_user_gate_fallback = mode == "scoped_user_gate_fallback"
-    bounded_delivery_with_user_notice = mode == "bounded_delivery_with_user_notice"
-    must_attempt = _interaction_must_attempt(
-        execution_obligation,
-        mode=mode,
-        user_required=user_required,
-        scoped_user_gate_fallback=scoped_user_gate_fallback,
-        bounded_delivery_with_user_notice=bounded_delivery_with_user_notice,
-    )
-    if mode == "automation_prompt_upgrade":
-        must_attempt = True
-    if _blocked_successor_wait_observation_required(payload):
-        must_attempt = True
-    delivery_allowed = _interaction_delivery_allowed(
-        payload,
-        execution_obligation,
-        mode=mode,
-        user_required=user_required,
-        scoped_user_gate_fallback=scoped_user_gate_fallback,
-        bounded_delivery_with_user_notice=bounded_delivery_with_user_notice,
-    )
+    must_attempt, delivery_allowed = _interaction_execution_flags(payload, mode=mode, user_required=user_required)
     quiet_noop_allowed = _interaction_quiet_noop_allowed(
         mode=mode,
         user_required=user_required,
@@ -1507,14 +1570,25 @@ def build_interaction_contract(
             "notify": "DONT_NOTIFY",
             "reason": payload.get("reason"),
         }
-    agent_channel = _build_interaction_agent_channel(
-        payload,
-        mode=mode,
-        must_attempt=must_attempt,
-        delivery_allowed=delivery_allowed,
-        quiet_noop_allowed=quiet_noop_allowed,
-        capability_reentry=capability_reentry,
-    )
+    if unadmitted_action_selection(payload):
+        agent_channel = {
+            "must_attempt": False, "delivery_allowed": False,
+            "quiet_noop_allowed": quiet_noop_allowed,
+            "primary_action": _selection_recovery_command(
+                payload, available_capabilities=available_capabilities,
+                scheduler_execution_context=scheduler_execution_context,
+                turn_instance_id=turn_instance_id, runtime_root=runtime_root,
+            ),
+        }
+    else:
+        agent_channel = _build_interaction_agent_channel(
+            payload,
+            mode=mode,
+            must_attempt=must_attempt,
+            delivery_allowed=delivery_allowed,
+            quiet_noop_allowed=quiet_noop_allowed,
+            capability_reentry=capability_reentry,
+        )
     contract: dict[str, Any] = {
         "schema_version": INTERACTION_CONTRACT_SCHEMA_VERSION,
         "mode": mode,

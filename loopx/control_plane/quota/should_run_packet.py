@@ -117,6 +117,7 @@ from ..work_items.execution_obligation import build_execution_obligation
 from ..work_items.goal_route_hint import build_goal_route_hint
 from ..work_items.interaction_contract import (
     build_interaction_contract,
+    unadmitted_action_selection,
     build_protocol_action_packet,
     finalize_user_gate_notification_cooldown,
 )
@@ -1445,7 +1446,8 @@ def _build_quota_should_run_payload(
         payload,
         replay_phase=prepared.receipt_bound_replay_phase,
     )
-    if isinstance(payload.get("autonomous_replan_obligation"), dict):
+    if (isinstance(payload.get("autonomous_replan_obligation"), dict)
+            and not unadmitted_action_selection(payload)):
         payload["replan_action_packet"] = build_replan_action_packet(
             payload["autonomous_replan_obligation"],
             goal_id=prepared.safe_goal_id,
