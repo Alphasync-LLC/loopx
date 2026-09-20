@@ -213,6 +213,30 @@ export function authorityStoreCommitFixture(
   };
 }
 
+/** Promise.all starts both commands, but does not synchronize their reads.
+ * Hold each first real read so the test actually exercises competing CAS. */
+async function withConcurrentAuthorityReads<T>(backends: readonly AuthorityStore[], run: () => Promise<T>): Promise<T> {
+  let releaseReaders: () => void = () => { throw new Error("reader barrier was not initialized"); };
+  const ready = new Promise<void>(resolve => { releaseReaders = resolve; });
+  let readers = 0;
+  const originals = backends.map(backend => {
+    const load = backend.loadAuthority.bind(backend);
+    backend.loadAuthority = async () => {
+      backend.loadAuthority = load;
+      const snapshot = await load();
+      if (++readers === backends.length) releaseReaders();
+      await ready;
+      return snapshot;
+    };
+    return load;
+  });
+  try { return await run(); }
+  finally {
+    releaseReaders();
+    backends.forEach((backend, index) => { backend.loadAuthority = originals[index]!; });
+  }
+}
+
 export function registerAuthorityStoreConformance(
   providerName: string,
   factory: AuthorityStoreConformanceFactory,
@@ -1051,11 +1075,11 @@ export function registerAuthorityStoreConformance(
       const preview = await executeCoordinationTodoCreate(store, {...request, dry_run: true});
       assert.equal(preview.status, "planned");
       assert.equal((await store.loadAuthority()).status, "loaded");
-      const [first, second] = await Promise.all([
+      const [first, second] = await withConcurrentAuthorityReads([store, contender], () => Promise.all([
         executeCoordinationTodoCreate(store, request),
         executeCoordinationTodoCreate(contender, {...request,
           operation_id: "create-todo-contender", todo: {...todo, text: "Competing create"}}),
-      ]);
+      ]));
       assert.deepEqual(
         [first.status, second.status].sort((left, right) =>
           String(left).localeCompare(String(right))
@@ -1235,33 +1259,10 @@ export function registerAuthorityStoreConformance(
         now: new Date("2026-09-05T04:30:00Z"),
       });
 
-      // Promise.all alone does not guarantee a CAS race: a late reader may
-      // correctly reject the already-claimed Todo before reaching commit.
-      // Hold the first two real reads so both transactions see the same head.
-      let releaseReaders: () => void = () => {
-        throw new Error("reader barrier was not initialized");
-      };
-      const ready = new Promise<void>((resolve) => { releaseReaders = resolve; });
-      let readers = 0;
-      const originals = [store, contender].map((backend) => {
-        const load = backend.loadAuthority.bind(backend);
-        backend.loadAuthority = async () => {
-          backend.loadAuthority = load;
-          const snapshot = await load();
-          if (++readers === 2) releaseReaders();
-          await ready;
-          return snapshot;
-        };
-        return load;
-      });
-      const results = await Promise.all([
+      const results = await withConcurrentAuthorityReads([store, contender], () => Promise.all([
         executeCoordinationTodoClaim(store, request("agent-a")),
         executeCoordinationTodoClaim(contender, request("agent-b")),
-      ]).finally(() => {
-        [store, contender].forEach((backend, index) => {
-          backend.loadAuthority = originals[index]!;
-        });
-      });
+      ]));
       assert.deepEqual(
         results.map((result) => result.status).sort(),
         ["applied", "conflict"],
