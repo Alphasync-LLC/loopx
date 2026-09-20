@@ -27,6 +27,7 @@ from loopx.semantics.inventory import (  # noqa: E402
     INVENTORY_SCHEMA_VERSION,
     SourceFile,
     build_inventory,
+    render_inventory,  # noqa: F401 - re-exported to runpy-based contract tests
     collect_string_constants,
     load_sources,
     python_facts,
