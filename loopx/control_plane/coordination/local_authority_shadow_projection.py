@@ -138,8 +138,41 @@ def lease_partition_projection(
     return {"leases": leases}
 
 
+def _stable_todos(value: object) -> object:
+    """Remove only query-clock observations from Todo authority identity."""
+
+    if not isinstance(value, list):
+        return value
+    stable_todos: list[object] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            stable_todos.append(item)
+            continue
+        todo = dict(item)
+        condition = todo.get("resume_condition")
+        if isinstance(condition, Mapping):
+            stable_condition = dict(condition)
+            stable_condition.pop("evaluated_at", None)
+            todo["resume_condition"] = stable_condition
+        stable_todos.append(todo)
+    return stable_todos
+
+
+def partition_comparison_view(projection: Mapping[str, Any]) -> dict[str, Any]:
+    """Stable partition identity shared by capture and TS continuity checks.
+
+    The complete prepared projection remains byte-verified separately. Only
+    the read-time resume evaluation clock is absent from this semantic digest.
+    """
+
+    view = dict(projection)
+    if "todos" in view:
+        view["todos"] = _stable_todos(view.get("todos"))
+    return view
+
+
 def partition_digest(projection: Mapping[str, Any]) -> str:
-    return sha256_digest(dict(projection))
+    return sha256_digest(partition_comparison_view(projection))
 
 
 def head_comparison_view(head: Mapping[str, Any]) -> dict[str, Any]:
@@ -147,7 +180,7 @@ def head_comparison_view(head: Mapping[str, Any]) -> dict[str, Any]:
 
     return {
         "handoff_mode": head.get("handoff_mode"),
-        "todos": head.get("todos"),
+        "todos": _stable_todos(head.get("todos")),
         "leases": head.get("leases"),
     }
 
@@ -170,6 +203,7 @@ __all__ = [
     "head_comparison_view",
     "head_digest",
     "lease_partition_projection",
+    "partition_comparison_view",
     "partition_digest",
     "sha256_digest",
     "text_digest",
