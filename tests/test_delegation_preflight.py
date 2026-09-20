@@ -1,6 +1,7 @@
 """A binding inspection must use the actual Turn without launching or spending."""
 
 import json
+import sys
 
 import pytest
 
@@ -98,6 +99,9 @@ def test_preflight_projects_unavailable_authority_without_turn_or_provider(
     result = runner.inspect("analysis")
     assert result["state"] == "authority_unavailable"
     assert result["authority_ready"] is False
+    assert result["authority_state"] == "unavailable"
+    assert result["authority_next_action"] == "repair_canonical_authority"
+    assert result["promotion_from_surface_allowed"] is False
     assert "canonical authority" in result["authority_reason"]
     assert not any(result["effects"].values())
     assert calls == []
@@ -193,6 +197,19 @@ def test_selected_codex_managed_agent_profile_is_projected_exactly(service):
     assert result["state"] == "runtime_unverified"
     assert not any(result["effects"].values())
     assert not (root / "host-started").exists()
+
+    binding = runner.binding("analysis", require_active=True)
+    execution = runner._execution_arguments(binding, "native-tool-inspection")
+    encoded = execution[execution.index("--codex-mcp-server-json") + 1]
+    native = json.loads(encoded)
+    assert native["schema_version"] == "codex_stdio_mcp_server_v0"
+    assert native["name"] == "loopx_delegation"
+    command = native["command"]
+    assert command[:3] == [sys.executable, "-m", "loopx.collaboration_mcp"]
+    assert command[command.index("--agent-id") + 1] == "analyst"
+    assert command[command.index("--workspace") + 1] == binding["workspace"]
+    assert command[command.index("--execution-config") + 1] == str(runner.config)
+    assert "lead" not in command
 
 
 def test_preflight_does_not_call_an_invalidated_acceptance_ready(service):

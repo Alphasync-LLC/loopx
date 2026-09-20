@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from collections.abc import Callable
 
 from ..control_plane.turn_driver.host_binding import (
@@ -225,6 +226,15 @@ def register_turn_commands(
         help=("Codex CLI sandbox (default: read-only). danger-full-access explicitly "
               "disables the inner sandbox; callers must provide their own isolation. "
               "The setting is passed explicitly for both new and resumed sessions."),
+    )
+    run_once.add_argument(
+        "--codex-mcp-server-json",
+        type=json.loads,
+        help=(
+            "Trusted codex_stdio_mcp_server_v0 JSON for one invocation-scoped "
+            "stdio MCP server. The command is passed to fresh and resumed Codex "
+            "sessions without modifying user configuration."
+        ),
     )
     run_once.add_argument(
         "--dsh-provider",

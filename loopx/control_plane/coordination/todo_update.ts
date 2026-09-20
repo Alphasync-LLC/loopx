@@ -14,6 +14,7 @@ import {
   validateCoordinationTodoReadModel,
 } from "./coordination_projection.ts";
 
+import {planMonitorCycleTransition} from "./todo_monitor_cycle.ts";
 import {todoUpdateAdmissionRejection} from "./todo_update_admission.ts";
 import { CoordinationCommandReceipt } from "./command_receipt.ts";
 
@@ -61,7 +62,9 @@ function updateReceipt(input: CoordinationTodoUpdateInput, requestSha: string) {
       if (typeof original.changed !== "boolean") throw new AuthorityStoreProtocolError("update receipt changed must be boolean");
       return {fields: {todo_id: input.todo_id, original_receipt: original,
         ...(input.monitor_observation === undefined ? {} : {
-          monitor_poll_transition: canonicalAuthorityObject(original.monitor_poll_transition, "Monitor update receipt transition")})}, changed: original.changed};
+          monitor_poll_transition: canonicalAuthorityObject(original.monitor_poll_transition, "Monitor update receipt transition")}),
+        ...(original.monitor_lifecycle_transition === undefined ? {} : {monitor_lifecycle_transition:
+          canonicalAuthorityObject(original.monitor_lifecycle_transition, "Monitor lifecycle receipt transition")})}, changed: original.changed};
     }});
 }
 
@@ -175,10 +178,17 @@ export async function executeCoordinationTodoUpdate(
   catch (error) { return failure("invalid_coordination_todo_update",
     error instanceof Error ? error.message : "invalid updated Todo"); }
   const {next, changed, clearFields} = prepared;
+  let cycle: ReturnType<typeof planMonitorCycleTransition>;
+  try {
+    cycle = planMonitorCycleTransition({goal_id: input.goal_id, before: target.todo, after: next,
+      lease: target.leases.get(input.todo_id), handoff_mode: head.head.handoff_mode, now: input.now});
+  } catch (error) {
+    return failure("invalid_coordination_projection", error instanceof Error ? error.message : "invalid retained lease");
+  }
   const commit: AuthorityStoreCommit = changed ? prepareCoordinationProjectionCommit({
     goal_id: input.goal_id, operation_id: input.operation_id,
     expected_provider_revision: head.provider_revision, projection: head.head,
-    mutations: [{kind: "todo_upsert", todo: next, clear_fields: clearFields}],
+    mutations: [{kind: "todo_upsert", todo: next, clear_fields: clearFields}, ...cycle.mutations],
   }) : {operation_id: input.operation_id,
     expected_provider_revision: head.provider_revision, next_projection: head.head,
     events: [], receipts: []};
@@ -197,10 +207,12 @@ export async function executeCoordinationTodoUpdate(
   if (input.dry_run) return {schema_version: COORDINATION_TODO_UPDATE_RESULT_SCHEMA,
     status: changed ? "planned" : "no_change", changed, todo_id: input.todo_id,
     provider_revision: head.provider_revision, cursor: head.cursor, dry_run: true,
-    ...(prepared.monitorTransition ? {monitor_poll_transition: prepared.monitorTransition} : {})};
+    ...(prepared.monitorTransition ? {monitor_poll_transition: prepared.monitorTransition} : {}),
+    ...(cycle.transition === null ? {} : {monitor_lifecycle_transition: cycle.transition})};
   commit.receipts = [{schema_version: COORDINATION_TODO_UPDATE_RECEIPT_SCHEMA,
     operation_id: input.operation_id, goal_id: input.goal_id,
     todo_id: input.todo_id, request_sha256: requestSha, changed,
-    ...(prepared.monitorTransition ? {monitor_poll_transition: prepared.monitorTransition} : {})}];
+    ...(prepared.monitorTransition ? {monitor_poll_transition: prepared.monitorTransition} : {}),
+    ...(cycle.transition === null ? {} : {monitor_lifecycle_transition: cycle.transition})}];
   return receipt.commit(store, commit);
 }
