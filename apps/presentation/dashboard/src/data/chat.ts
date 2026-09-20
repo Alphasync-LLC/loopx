@@ -114,6 +114,11 @@ export const managerChannelBindingSchema = z.object({
   executor_kind: z.string(),
   model: z.string(),
   model_source: z.string(),
+  selection_policy: z.enum(["preferred", "pinned", "flexible"]).default("preferred"),
+  allocation_reason: z.string().default(""),
+  configured_endpoint: z.string().nullable().optional(),
+  eligible_endpoints: z.array(z.string()).default([]),
+  allocation_configuration_revision: z.string().default(""),
   credential_env_var: z.string(),
   operator_credential_configured: z.boolean(),
   output_token_budget: z.object({
