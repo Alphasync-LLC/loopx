@@ -455,6 +455,92 @@ def test_failed_source_read_is_typed_and_never_claims_no_progress(tmp_path):
     assert result["rows"][0]["source_freshness"] == "stale"
 
 
+def test_failed_point_read_keeps_the_last_successful_portfolio_visible(tmp_path):
+    config, channel = _evidence_root(tmp_path)
+    remote_evidence(
+        tmp_path,
+        channel,
+        False,
+        window_days=7,
+        scope_valid=lambda: True,
+        config_path=config,
+        runner=_packet_runner([]),
+    )
+
+    def rejected(argv, **kwargs):
+        return subprocess.CompletedProcess(
+            argv,
+            255,
+            stdout="",
+            stderr="Permission denied (gssapi-with-mic).",
+        )
+
+    inspection = ManagerInspection(
+        context={"goals": []},
+        registry_path=tmp_path / "registry.json",
+        runtime_root=tmp_path,
+        owner_scope=False,
+        channel_id=channel,
+        scope_valid=lambda: True,
+        record=lambda _result: None,
+        remote_runner=rejected,
+        ssh_config_path=config,
+    )
+    result = inspection.read(
+        TOOL_NAME,
+        {"view": "portfolio", "source_id": "ssh:research-host"},
+    )
+
+    assert result["ok"] is False
+    assert result["reason_code"] == "ssh_auth_required"
+    assert "kinit" in result["reason"]
+    assert result["last_success_at"]
+    assert result["cached_window_days"] == 7
+    assert result["stale_rows_included"] is True
+    assert result["rows"] == []
+    assert [row["goal_id"] for row in result["stale_portfolio_rows"]] == [
+        "remote-goal"
+    ]
+    assert result["stale_portfolio_rows"][0]["source_freshness"] == "stale"
+    assert result["coverage_effect"] == "remote_goals_may_be_outdated_not_absent"
+    assert "do not present" in result["next_action"]
+
+
+def test_failed_point_read_does_not_reveal_cache_after_scope_revocation(tmp_path):
+    config, channel = _evidence_root(tmp_path)
+    remote_evidence(
+        tmp_path,
+        channel,
+        False,
+        window_days=7,
+        scope_valid=lambda: True,
+        config_path=config,
+        runner=_packet_runner([]),
+    )
+    checks = iter([True, True, False])
+    inspection = ManagerInspection(
+        context={"goals": []},
+        registry_path=tmp_path / "registry.json",
+        runtime_root=tmp_path,
+        owner_scope=False,
+        channel_id=channel,
+        scope_valid=lambda: next(checks),
+        record=lambda _result: None,
+        remote_runner=lambda argv, **kwargs: subprocess.CompletedProcess(
+            argv,
+            255,
+            stdout="",
+            stderr="Permission denied (gssapi-with-mic).",
+        ),
+        ssh_config_path=config,
+    )
+
+    assert inspection.read(
+        TOOL_NAME,
+        {"view": "portfolio", "source_id": "ssh:research-host"},
+    ) == {"ok": False, "error": "authorization_changed"}
+
+
 def test_one_dial_per_turn_defers_the_other_declared_source(tmp_path):
     config, channel = _evidence_root(
         tmp_path, registered=("research-host", "second-host")

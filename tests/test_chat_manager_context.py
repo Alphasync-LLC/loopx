@@ -275,6 +275,130 @@ def test_turn_context_reads_a_bounded_window_and_declares_sources(
     ]
 
 
+def test_source_health_rows_type_a_window_that_read_nothing():
+    declared = [{"source_id": "local", "source_host": "local", "status": "available"}]
+
+    unread = context._source_health_rows(declared, read_status="not_read")
+
+    assert unread == [
+        {
+            "source_id": "local",
+            "source_host": "local",
+            "status": "available",
+            "freshness": "unknown",
+            "reason": context.MANAGER_LOCAL_SOURCE_NOT_READ_REASON,
+            "coverage_effect": context.MANAGER_SOURCE_COVERAGE_EFFECT,
+            "next_action": context.MANAGER_LOCAL_SOURCE_NOT_READ_NEXT_ACTION,
+        }
+    ]
+    read = context._source_health_rows(declared, read_status="read")
+    assert read[0]["freshness"] == "current"
+    assert read[0]["reason"] is None
+    assert read[0]["coverage_effect"] is None
+    assert read[0]["next_action"] is None
+
+
+def test_remote_source_rows_are_typed_and_never_read_as_no_progress():
+    declared = [
+        {"source_id": "local", "source_host": "local", "status": "available"},
+        {
+            "source_id": "ssh:ark-devbox",
+            "source_host": "ark-devbox",
+            "status": "not_read",
+            "reason": None,
+            "scope": "remote_registry",
+        },
+        {
+            "source_id": "ssh:gone",
+            "source_host": "gone",
+            "status": "not_configured",
+            "reason": "ssh_alias_not_configured",
+        },
+    ]
+
+    health = {
+        row["source_id"]: row
+        for row in context._source_health_rows(declared, read_status="read")
+    }
+
+    assert health["local"]["freshness"] == "current"
+    assert health["ssh:ark-devbox"]["status"] == "not_read"
+    assert health["ssh:ark-devbox"]["freshness"] == "stale"
+    assert health["ssh:ark-devbox"]["reason"] == context.MANAGER_SOURCE_NOT_READ_REASON
+    assert health["ssh:gone"]["freshness"] == "unknown"
+    assert health["ssh:gone"]["reason"] == "ssh_alias_not_configured"
+    assert health["ssh:gone"]["next_action"] == context.MANAGER_SOURCE_UNCONFIGURED_NEXT_ACTION
+    for source_id, row in health.items():
+        assert row["freshness"] in context.MANAGER_SOURCE_FRESHNESS_VALUES
+        if row["freshness"] == "current":
+            continue
+        # The coverage effect is what stops a reader from reading a source that
+        # contributed nothing as "this Goal made no progress".
+        assert row["coverage_effect"] == context.MANAGER_SOURCE_COVERAGE_EFFECT
+        assert "must not present it as no progress" in row["coverage_effect"]
+        assert row["next_action"], source_id
+
+
+def test_turn_context_reports_health_for_every_declared_source(monkeypatch, tmp_path):
+    _write_delivery_index(
+        tmp_path,
+        "alpha",
+        [
+            {
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "goal_id": "alpha",
+                "agent_id": "worker",
+                "todo_id": "todo_1",
+                "classification": "validated_progress",
+                "delivery_outcome": "outcome_progress",
+                "recommended_action": "follow up",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        context,
+        "build_goal_portfolio",
+        lambda **_: {
+            "goals": [{"goal_id": "alpha", "activation_state": "active"}],
+            "coverage": {"discovered": 1},
+        },
+    )
+    monkeypatch.setattr(
+        context,
+        "read_manager_goal_details",
+        lambda *args, **kwargs: {"status": "read", "todos": []},
+    )
+    monkeypatch.setattr(
+        context,
+        "_declared_sources",
+        lambda *args, **kwargs: [
+            {"source_id": "local", "source_host": "local", "status": "available"},
+            {
+                "source_id": "ssh:ark-devbox",
+                "source_host": "ark-devbox",
+                "status": "not_read",
+                "reason": None,
+            },
+        ],
+    )
+
+    result = context.manager_turn_context(
+        tmp_path / "registry.json", {"channel_id": "manager"}, tmp_path
+    )
+
+    window = result["evidence_window"]
+    assert window["read_status"] == "read"
+    assert [row["source_id"] for row in window["source_health"]] == [
+        source["source_id"] for source in window["sources"]
+    ]
+    health = {row["source_id"]: row for row in window["source_health"]}
+    assert health["local"]["freshness"] == "current"
+    assert health["ssh:ark-devbox"]["freshness"] == "stale"
+    assert health["ssh:ark-devbox"]["coverage_effect"] == (
+        context.MANAGER_SOURCE_COVERAGE_EFFECT
+    )
+
+
 def test_evidence_window_is_a_selected_bounded_decision():
     # The window is an explicit operator choice, bounded, and declared with its
     # source: it never follows a discovered environment fact silently.
@@ -762,6 +886,81 @@ def test_manager_profile_change_rotates_healthy_upstream_without_losing_session(
     updated = store.load_session(session["session_id"])
     assert updated["manager_runtime_profile"] == "trusted_owner"
     assert updated["upstream_thread_id"] == "upstream-1"
+
+
+def test_manager_restart_uses_the_session_allocation_instead_of_new_defaults(
+    monkeypatch, tmp_path
+):
+    store = ChatSessionStore(tmp_path / "runtime" / "chat")
+    starts: list[dict[str, object]] = []
+
+    def runtime() -> ChatRuntimeController:
+        controller = ChatRuntimeController(store=store, codex_bin="codex")
+        monkeypatch.setattr(
+            controller,
+            "capabilities",
+            lambda: [
+                {
+                    "agent_id": "codex",
+                    "available": True,
+                    "adapter_kind": "codex_app_server",
+                }
+            ],
+        )
+
+        def start(**kwargs):
+            starts.append(kwargs)
+            return Adapter()
+
+        monkeypatch.setattr(controller, "_start_adapter", start)
+        return controller
+
+    allocation = {
+        "schema_version": "manager_executor_allocation_v0",
+        "selection_policy": "preferred",
+        "allocation_reason": "configured_preference",
+        "executor_endpoint": "codex",
+        "executor_endpoint_source": "machine_configuration",
+        "executor_endpoint_default_reason": "",
+        "configured_endpoint": "codex",
+        "eligible_endpoints": [],
+        "configuration_revision": "sha256:before",
+        "available": True,
+        "model": "gpt-session-model",
+        "model_source": "machine_configuration",
+        "reasoning_effort": "max",
+    }
+    first = runtime()
+    session, _ = first.open_session(
+        goal_id=MANAGER_AGENT_GOAL_ID,
+        agent_id="codex",
+        work_dir=tmp_path,
+        objective="manager",
+        mode="new",
+        channel_id="manager",
+        manager_executor_allocation=allocation,
+    )
+    assert starts[-1]["executor_model"] == {
+        "model": "gpt-session-model",
+        "reasoning_effort": "max",
+    }
+
+    restarted = runtime()
+    monkeypatch.setattr(
+        restarted,
+        "steward_executor_defaults",
+        lambda: {
+            "executor_endpoint": "codex",
+            "executor_model": "gpt-new-default",
+            "executor_reasoning_effort": "low",
+        },
+    )
+    restarted._ensure_adapter(session, work_dir=tmp_path, objective="manager")
+
+    assert starts[-1]["executor_model"] == {
+        "model": "gpt-session-model",
+        "reasoning_effort": "max",
+    }
 
 
 def test_legacy_manager_migrates_without_project_and_refreshes_each_turn(
