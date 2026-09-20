@@ -1426,12 +1426,8 @@ def _build_quota_should_run_payload(
         next_action_warning=route.next_action_warning,
         replan_obligation=prepared.replan_obligation,
     )
-    bounded_research_frontier = (
-        prepared.status_payload.get("bounded_research_frontier")
-        if isinstance(
-            prepared.status_payload.get("bounded_research_frontier"), dict
-        )
-        else None
+    bounded_research_frontier = _dict_field(
+        prepared.status_payload, "bounded_research_frontier"
     )
     _attach_truthy_fields(
         payload,

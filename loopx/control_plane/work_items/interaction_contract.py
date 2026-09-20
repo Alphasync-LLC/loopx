@@ -44,6 +44,8 @@ from . import action_selection_contract as selection
 from . import runtime_capability_reentry as capability_reentry_adapter
 from .primary_action import (
     build_primary_action_projection,
+    interaction_execution_flags,
+    interaction_quiet_noop_allowed,
     protocol_action_label as _protocol_action_label,
     protocol_action_text,
     protocol_first_candidate_action as _protocol_first_candidate_action,
@@ -1064,72 +1066,6 @@ def _blocked_priority_fallback_user_reason(payload: dict[str, Any]) -> str | Non
     return blocked_priority_fallback_owner_reason(fallback)
 
 
-def _interaction_must_attempt(
-    execution_obligation: dict[str, Any],
-    *,
-    mode: str,
-    user_required: bool,
-    scoped_user_gate_fallback: bool,
-    bounded_delivery_with_user_notice: bool,
-) -> bool:
-    if mode == "governed_capability_intent":
-        return bool(execution_obligation.get("must_attempt_work"))
-    if user_required and not (
-        scoped_user_gate_fallback or bounded_delivery_with_user_notice
-    ):
-        return False
-    return bool(execution_obligation.get("must_attempt_work"))
-
-
-def _interaction_delivery_allowed(
-    payload: dict[str, Any],
-    execution_obligation: dict[str, Any],
-    *,
-    mode: str,
-    user_required: bool,
-    scoped_user_gate_fallback: bool,
-    bounded_delivery_with_user_notice: bool,
-) -> bool:
-    if mode == "governed_capability_intent":
-        return bool(execution_obligation.get("must_attempt_work"))
-    if mode == "mapped_noop_if_unchanged":
-        return False
-    if user_required and not (
-        scoped_user_gate_fallback or bounded_delivery_with_user_notice
-    ):
-        return False
-    return bool(
-        execution_obligation.get(
-            "delivery_allowed",
-            payload.get("normal_delivery_allowed")
-            or payload.get("recovery_delivery_allowed")
-            or payload.get("self_repair_allowed")
-            or payload.get("should_run"),
-        )
-    )
-
-
-def _interaction_quiet_noop_allowed(
-    *,
-    mode: str,
-    user_required: bool,
-    must_attempt: bool,
-) -> bool:
-    if user_required or must_attempt:
-        return False
-    return _agent_scope_frontier_action(mode) is not None or mode in {
-        "monitor_quiet_skip",
-        "mapped_noop_if_unchanged",
-        "quota_throttled",
-        "blocked_wait",
-        "user_gate_cooldown_wait",
-        "terminal_no_followup",
-        "peer_coordination_blocked",
-        "agent_monitor_only",
-        "skip",
-    }
-
-
 def _interaction_spend_after_validation(mode: str) -> bool:
     return mode in {
         "bounded_delivery",
@@ -1460,34 +1396,6 @@ def _interaction_fallback_policy_required(payload: dict[str, Any], *, mode: str)
     } or bool(payload.get("blocked_priority_fallback"))
 
 
-def _interaction_execution_flags(
-    payload: dict[str, Any], *, mode: str, user_required: bool,
-) -> tuple[bool, bool]:
-    execution_obligation = payload.get("execution_obligation") if isinstance(payload.get("execution_obligation"), dict) else {}
-    scoped_user_gate_fallback = mode == "scoped_user_gate_fallback"
-    bounded_delivery_with_user_notice = mode == "bounded_delivery_with_user_notice"
-    must_attempt = _interaction_must_attempt(
-        execution_obligation,
-        mode=mode,
-        user_required=user_required,
-        scoped_user_gate_fallback=scoped_user_gate_fallback,
-        bounded_delivery_with_user_notice=bounded_delivery_with_user_notice,
-    )
-    if mode == "automation_prompt_upgrade":
-        must_attempt = True
-    if _blocked_successor_wait_observation_required(payload):
-        must_attempt = True
-    delivery_allowed = _interaction_delivery_allowed(
-        payload,
-        execution_obligation,
-        mode=mode,
-        user_required=user_required,
-        scoped_user_gate_fallback=scoped_user_gate_fallback,
-        bounded_delivery_with_user_notice=bounded_delivery_with_user_notice,
-    )
-    return must_attempt, delivery_allowed
-
-
 def action_selection_recovery_fields(
     payload: Mapping[str, Any], recovery: dict[str, Any],
 ) -> dict[str, Any]:
@@ -1511,7 +1419,10 @@ def unadmitted_action_selection(payload: dict[str, Any]) -> bool:
         return False
     mode = _interaction_mode(payload)
     user_required = False if payload.get("agent_work_mode") == "monitor_only" else user_channel_action_required(payload)
-    must_attempt, delivery_allowed = _interaction_execution_flags(payload, mode=mode, user_required=user_required)
+    must_attempt, delivery_allowed = interaction_execution_flags(
+        payload, mode=mode, user_required=user_required,
+        blocked_successor_wait_observation=_blocked_successor_wait_observation_required(payload),
+    )
     return selection.action_selection_needs_recovery(
         payload, agent_must_attempt=must_attempt, agent_delivery_refused=delivery_allowed is False,
     )
@@ -1540,8 +1451,11 @@ def build_interaction_contract(
     mode = _interaction_mode(payload)
     monitor_only = payload.get("agent_work_mode") == "monitor_only"
     user_required = False if monitor_only else user_channel_action_required(payload)
-    must_attempt, delivery_allowed = _interaction_execution_flags(payload, mode=mode, user_required=user_required)
-    quiet_noop_allowed = _interaction_quiet_noop_allowed(
+    must_attempt, delivery_allowed = interaction_execution_flags(
+        payload, mode=mode, user_required=user_required,
+        blocked_successor_wait_observation=_blocked_successor_wait_observation_required(payload),
+    )
+    quiet_noop_allowed = interaction_quiet_noop_allowed(
         mode=mode,
         user_required=user_required,
         must_attempt=must_attempt,
