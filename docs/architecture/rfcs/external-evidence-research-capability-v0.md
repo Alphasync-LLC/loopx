@@ -31,8 +31,9 @@ constraints. A provider is selectable only when current readback says all four
 of `declared`, `installed`, `enabled`, and `ready`. Provider kinds are `method`
 and `connector`; their execution remains with their existing owner.
 
-The receipt binds the exact request and selected provider. Each admitted source
-has a direct non-file reference, source family, evidence basis (`stated`,
+The receipt binds the exact request, selected provider, completion time, and a
+digest over the complete receipt. Each admitted source has a direct non-file
+reference, source family, evidence basis (`stated`,
 `observed`, `tested`, or `inferred`), finding, limitation, relevant dates, and a
 content digest. Raw provider content is never part of the Core projection.
 

@@ -23,15 +23,16 @@ The lifecycle is:
 2. provider execution: the selected host method or connector reads external
    sources under its own adapter and permission boundary;
 3. `admit`: validate the exact request/provider identity and source-level
-   provenance, then record the parent agent's admit/reject decision;
+   provenance, bind the complete receipt digest, then record the parent agent's
+   admit/reject decision;
 4. downstream projection: pass only compact findings, limitations, direct
    references, evidence basis, dates, and content digests;
 5. `retire`: retire rejected evidence immediately, or admitted evidence only
    after every admitted source reference appears in downstream readback.
 
 生命周期为：`plan` 绑定“对象 + 用户活动 + 决策”并选择当前真实 ready 的
-provider；provider 在自己的权限边界内执行；`admit` 校验请求、provider 与逐来源
-provenance，并记录父 Agent 的采纳/拒绝；下游只投影紧凑证据；被采纳的来源全部完成
+provider；provider 在自己的权限边界内执行；`admit` 校验请求、provider、完成时间、
+完整 receipt digest 与逐来源 provenance，并记录父 Agent 的采纳/拒绝；下游只投影紧凑证据；被采纳的来源全部完成
 下游读回后才可 `retire`。
 
 The connector registry is only inventory and telemetry. A connector row marked

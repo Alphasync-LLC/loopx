@@ -26,7 +26,7 @@ LoopX 已有 host 研究方法、connector 库存、provider 生命周期、mana
 `declared`、`installed`、`enabled`、`ready` 的 provider 才能被选择。provider
 分为 `method` 与 `connector`；执行仍归各自既有 owner。
 
-回执绑定精确请求与已选 provider。每条被采纳来源都包含直接且非文件型引用、来源
+回执绑定精确请求、已选 provider、完成时间与完整回执 digest。每条被采纳来源都包含直接且非文件型引用、来源
 家族、证据基础（`stated`、`observed`、`tested` 或 `inferred`）、发现、局限、相关
 日期和内容摘要。Core 投影永不携带 provider 原始内容。
 

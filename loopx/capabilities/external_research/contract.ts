@@ -264,6 +264,8 @@ export function evaluateExternalEvidenceAdmission(params: JsonObject): JsonObjec
   );
   requireThat(status !== "succeeded" || sources.length > 0, "a succeeded receipt requires evidence sources");
   requireThat(status === "succeeded" || sources.length === 0, "failed or no_evidence receipts cannot carry admitted sources");
+  const completedAt = boundedText(receipt.completed_at, "receipt.completed_at", 64);
+  const receiptDigest = digest(receipt);
   const decision = requireJsonObject(params.decision, "parent admission decision");
   const disposition = requireStringLiteral(
     decision.disposition,
@@ -288,12 +290,22 @@ export function evaluateExternalEvidenceAdmission(params: JsonObject): JsonObjec
     "reject cannot carry admitted sources",
   );
   const admitted = sources.filter((source) => admittedRefs.includes(source.source_ref as string));
+  const admissionIdentity = {
+    request_id: request.request_id,
+    provider_id: selected.provider_id,
+    receipt_digest: receiptDigest,
+    disposition,
+    admitted_source_refs: admittedRefs,
+  };
   return {
     schema_version: EXTERNAL_EVIDENCE_ADMISSION_SCHEMA_VERSION,
+    admission_id: digest(admissionIdentity),
     request_id: request.request_id,
     provider_id: selected.provider_id,
     provider_kind: selected.provider_kind,
     receipt_status: status,
+    receipt_digest: receiptDigest,
+    completed_at: completedAt,
     disposition,
     reason,
     admitted_source_refs: admittedRefs,
@@ -332,6 +344,7 @@ export function projectExternalEvidenceRetirement(params: JsonObject): JsonObjec
   const retireReady = admission.disposition === "reject" || missing.length === 0;
   return {
     schema_version: EXTERNAL_EVIDENCE_RETIREMENT_SCHEMA_VERSION,
+    admission_id: admission.admission_id,
     request_id: admission.request_id,
     status: retireReady ? "retire_ready" : "retained",
     retire_ready: retireReady,

@@ -66,6 +66,7 @@ function receipt(requestId: unknown) {
     ],
     summary: "One direct source supports the interaction claim.",
     limitations: ["No durability test was performed."],
+    completed_at: "2026-09-20T10:01:00Z",
   };
 }
 
@@ -118,6 +119,8 @@ test("admits exact source refs and exposes only compact provenance", () => {
     },
   });
   assert.equal(result.disposition, "admit");
+  assert.match(String(result.admission_id), /^sha256:[0-9a-f]{64}$/);
+  assert.match(String(result.receipt_digest), /^sha256:[0-9a-f]{64}$/);
   const projection = result.downstream_projection as Record<string, unknown>;
   assert.equal((projection.sources as unknown[]).length, 1);
   assert.equal(Object.hasOwn(projection, "raw_content"), false);
