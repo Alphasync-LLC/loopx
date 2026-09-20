@@ -1752,3 +1752,17 @@ behavior.
 Measured delivery records live in the [per-entry ledger](ledger/typescript-control-plane-migration-v0/).
 Each entry names its delivered boundary and remaining acceptance gaps; the T1–T4
 checkpoints above remain the current migration plan.
+
+### T2 Agent-addressed read checkpoint
+
+Todo list selection now composes with the existing typed summary-lanes batch.
+The Python role/status/id/Agent predicates and independent User scope rule are
+removed; legacy and promoted consumers share `todos/agent_scope.ts` with quota
+and decision scope. Explicit gate scope retains precedence over execution claim,
+while retained User claims now correctly restrict scoped list visibility.
+Full-source resume/succession stays evaluated before selection; original array
+ordinals survive filters and display limits. No extra selection runtime crossing,
+new capability/provider, or Python storage migration is introduced. Python keeps
+input normalization and rendering until their actual host consumers migrate.
+See [the read contract](../../reference/todo-work-counts.md); broader L5/D1 and
+local-default qualifications remain open.
