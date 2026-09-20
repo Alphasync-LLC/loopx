@@ -144,7 +144,7 @@ def register_external_evidence_commands(
 
     receipt = actions.add_parser(
         "receipt",
-        help="Validate and bind an observed provider execution receipt to its exact plan.",
+        help="Validate and bind a caller-presented provider receipt to its exact plan.",
     )
     receipt.add_argument("--plan-json", required=True)
     receipt.add_argument("--receipt-json", required=True)

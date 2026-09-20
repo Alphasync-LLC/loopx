@@ -564,8 +564,9 @@ function normalizeAdmission(value: unknown): JsonObject {
   );
   const projectedRefs = sources.map((source) => source.source_ref as string);
   requireThat(
+    new Set(projectedRefs).size === projectedRefs.length &&
     projectedRefs.length === admittedRefs.length &&
-      projectedRefs.every((sourceRef) => admittedRefs.includes(sourceRef)),
+      admittedRefs.every((sourceRef) => projectedRefs.includes(sourceRef)),
     "downstream projection sources do not match admitted source refs",
   );
   const normalizedAdmission = {
