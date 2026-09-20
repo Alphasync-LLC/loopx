@@ -13,10 +13,13 @@ import { FileAuthorityStore } from "../../loopx/control_plane/coordination/file_
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import { authorityStoreCommitFixture } from "./authority_store_conformance.ts";
-import * as runtime from "../../loopx/control_plane/coordination/local_authority_runtime.ts";
+import * as mutations from "../../loopx/control_plane/coordination/local_authority_runtime.ts";
+import * as reads from "../../loopx/control_plane/coordination/local_authority_read.ts";
+const runtime = {...mutations, ...reads};
 import { qualifiedShadow, promotionRequest, engageFence } from "./local_promotion_fixture.ts";
 import { loadLegacyCoordinationWriterFence, legacyCoordinationWriterFencePath } from "../../loopx/control_plane/coordination/legacy_writer_fence.ts";
-import { acknowledgeLocalCoordinationTodoArchive, archiveLocalCoordinationTodos, listLocalCoordinationTodos } from "../../loopx/control_plane/coordination/local_authority_runtime.ts";
+import {acknowledgeLocalCoordinationTodoArchive, archiveLocalCoordinationTodos} from "../../loopx/control_plane/coordination/local_authority_runtime.ts";
+import {listLocalCoordinationTodos} from "../../loopx/control_plane/coordination/local_authority_read.ts";
 
 for (const [fault, source, reason] of [
   ["database_missing", "sqlite_v0", "local_authority_provider_missing"],

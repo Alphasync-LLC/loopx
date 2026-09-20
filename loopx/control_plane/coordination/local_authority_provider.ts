@@ -48,6 +48,8 @@ export type LocalPostgreSqlAuthorityFactory = (
 ) => Promise<AuthorityStore> | AuthorityStore;
 
 export interface LocalAuthorityProviderDependencies {
+  /** Existing injected runtime store seam; production uses the configured provider. */
+  createStore?: (directory: string, goalId: string) => AuthorityStore;
   /** Service-owned hook for the medium-term PostgreSQL profile. */
   openPostgresqlStore?: LocalPostgreSqlAuthorityFactory;
 }
@@ -263,6 +265,25 @@ export async function selectLocalSqliteAuthority(root: string, goalId: string, e
       store_identity: identity.store_identity});
     return {ok: true, provider: "sqlite", changed: true, executed: true};
   });
+}
+
+/** One runtime seam owns provider construction for every local command. */
+export async function openRuntimeAuthorityStore(
+  root: string,
+  goalId: string,
+  dependencies: LocalAuthorityProviderDependencies,
+): Promise<AuthorityStore> {
+  if (dependencies.createStore !== undefined) {
+    return dependencies.createStore(join(root, "authority", "file-v0"), goalId);
+  }
+  return await openLocalAuthorityStore(root, goalId, dependencies);
+}
+
+export function requireLocalAuthorityRuntimeRoot(value: unknown): string {
+  if (typeof value !== "string" || value.trim() !== value || !isAbsolute(value)) {
+    throw new Error("runtime_root must be an absolute path");
+  }
+  return value;
 }
 
 // Narrow administrative entrypoint; business writes continue through loopx todo.

@@ -15,10 +15,8 @@ import {
   TODO_CANONICAL_READ_RECORD_SCHEMA,
 } from "../../loopx/control_plane/coordination/coordination_projection.ts";
 import { FileAuthorityStore } from "../../loopx/control_plane/coordination/file_authority_store.ts";
-import {
-  listLocalCoordinationTodos,
-  LOCAL_COORDINATION_TODO_LIST_REQUEST_SCHEMA,
-} from "../../loopx/control_plane/coordination/local_authority_runtime.ts";
+import {LOCAL_COORDINATION_TODO_LIST_REQUEST_SCHEMA} from "../../loopx/control_plane/coordination/local_authority_runtime.ts";
+import {listLocalCoordinationTodos} from "../../loopx/control_plane/coordination/local_authority_read.ts";
 import {
   TODO_DOMAIN_ITEM_SCHEMA,
   TODO_DOMAIN_READ_RECORD_SCHEMA,

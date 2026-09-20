@@ -103,70 +103,95 @@ def project_current_canonical_todos(
             raise ValueError(
                 "Todo Markdown projection requires promoted canonical authority"
             )
-        provider_revision = authority_read.get("provider_revision")
-        if not isinstance(provider_revision, str) or not provider_revision:
-            raise ValueError("canonical Todo authority omitted provider revision")
-        if (
-            expected_provider_revision is not None
-            and provider_revision != expected_provider_revision
-        ):
-            raise ValueError(
-                "Todo Markdown projection provider revision does not match the "
-                "canonical read head"
-            )
         recovered_missing = False
-        try:
-            source = _read_text_exact(state_path)
-        except FileNotFoundError:
-            recovered_missing = True
-            source = (
-                f"---\ngoal_id: {json.dumps(goal_id, ensure_ascii=False)}\n---\n\n"
-                "# Recovered Todo projection\n\n"
-                "> Regenerated from canonical Todo authority. Non-Todo sections "
-                "are not in this provider snapshot and were not recovered. "
-                "This is a Todo projection, not a complete Goal-state restore.\n\n"
-                "## Agent Todo\n"
+        changed = False
+        confirmation: dict[str, Any] | None = None
+        for attempt in range(1, 4):
+            provider_revision = authority_read.get("provider_revision")
+            if not isinstance(provider_revision, str) or not provider_revision:
+                raise ValueError("canonical Todo authority omitted provider revision")
+            if (
+                expected_provider_revision is not None
+                and provider_revision != expected_provider_revision
+            ):
+                raise ValueError(
+                    "Todo Markdown projection provider revision does not match the "
+                    "canonical read head"
+                )
+            missing_this_attempt = False
+            try:
+                source = _read_text_exact(state_path)
+            except FileNotFoundError:
+                recovered_missing = True
+                missing_this_attempt = True
+                source = (
+                    f"---\ngoal_id: {json.dumps(goal_id, ensure_ascii=False)}\n---\n\n"
+                    "# Recovered Todo projection\n\n"
+                    "> Regenerated from canonical Todo authority. Non-Todo sections "
+                    "are not in this provider snapshot and were not recovered. "
+                    "This is a Todo projection, not a complete Goal-state restore.\n\n"
+                    "## Agent Todo\n"
+                )
+            projection = render_canonical_todo_sections(
+                source,
+                authority_read["todos"],
+                provider_revision=provider_revision,
+                private_validation_declarations=load_completion_validation_declarations(
+                    runtime_root=runtime_root,
+                    goal_id=goal_id,
+                    todos=authority_read["todos"],
+                ),
             )
-        projection = render_canonical_todo_sections(
-            source,
-            authority_read["todos"],
-            provider_revision=provider_revision,
-            private_validation_declarations=load_completion_validation_declarations(
-                runtime_root=runtime_root,
-                goal_id=goal_id,
-                todos=authority_read["todos"],
-            ),
-        )
-        if execute and projection.changed:
-            # The projection is a primary-state write: it must respect the
-            # same source-ownership and shadow-management fences as every
-            # other Markdown writer, checked under the state lock it holds.
-            from ..coordination.legacy_writer_fence import (
-                require_registry_source_write_allowed,
-            )
+            if execute and projection.changed:
+                # The projection is a primary-state write: it must respect the
+                # same source-ownership and shadow-management fences as every
+                # other Markdown writer, checked under the state lock it holds.
+                from ..coordination.legacy_writer_fence import (
+                    require_registry_source_write_allowed,
+                )
 
-            require_registry_source_write_allowed(
-                registry_path=registry_path,
-                runtime_root=runtime_root,
-                goal_id=goal_id,
-                state_file=state_path,
+                require_registry_source_write_allowed(
+                    registry_path=registry_path,
+                    runtime_root=runtime_root,
+                    goal_id=goal_id,
+                    state_file=state_path,
+                )
+                if missing_this_attempt:
+                    atomic_write_state_text(state_path, projection.markdown, create_only=True)
+                else:
+                    atomic_write_state_text(state_path, projection.markdown)
+                if _read_text_exact(state_path) != projection.markdown:
+                    raise RuntimeError("Todo Markdown projection readback mismatch")
+            elif execute:
+                verify_state_text_durable(state_path, projection.markdown)
+            changed = changed or projection.changed
+            if not execute:
+                break
+            confirmed = read_canonical_todos_if_promoted(
+                runtime_root=runtime_root, goal_id=goal_id,
+                projection_readback={"provider_revision": provider_revision, "changed": changed},
             )
-            if recovered_missing:
-                atomic_write_state_text(state_path, projection.markdown, create_only=True)
-            else:
-                atomic_write_state_text(state_path, projection.markdown)
-            if _read_text_exact(state_path) != projection.markdown:
-                raise RuntimeError("Todo Markdown projection readback mismatch")
-        elif execute:
-            verify_state_text_durable(state_path, projection.markdown)
+            if not isinstance(confirmed, dict) or not isinstance(confirmed.get("projection_readback"), dict):
+                raise ValueError("canonical projection confirmation is missing")
+            confirmation = confirmed["projection_readback"]
+            if parse_projection_delivery(confirmation["status"]) != ProjectionDeliveryStatus.PENDING:
+                break
+            # A pinned command must not silently render a different revision.
+            # Unpinned recovery reuses this complete read for its next attempt.
+            if expected_provider_revision is not None or attempt == 3:
+                break
+            authority_read = confirmed
 
     return {
         "schema_version": TODO_PROJECTION_DELIVERY_SCHEMA,
-        "status": (
-            "delivered" if execute and projection.changed else
-            "current" if execute else
-            "planned"
-        ),
+        "status": confirmation["status"] if confirmation is not None else "planned",
+        **({"observed_provider_revision": confirmation["observed_provider_revision"]}
+           if confirmation is not None else {}),
+        "delivery_attempts": attempt,
+        **({"reason_code": "todo_projection_revision_advanced", "retryable": True,
+            "retry_business_mutation": False,
+            "recommended_action": "Read the current provider revision with todo list, then retry todo project-markdown for that revision."}
+           if confirmation is not None and confirmation["status"] == "pending" else {}),
         "source": "committed_authority_journal",
         "goal_id": goal_id,
         "state_file": str(state_path),
@@ -174,7 +199,7 @@ def project_current_canonical_todos(
         "source_authority": authority_read.get("source_authority"),
         "provider_revision": projection.provider_revision,
         "todo_count": projection.todo_count,
-        "changed": projection.changed,
+        "changed": changed,
         "executed": execute,
         "source_sha256": projection.source_sha256,
         "rendered_sha256": projection.rendered_sha256,

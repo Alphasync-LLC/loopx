@@ -36,13 +36,12 @@ import {
   LOCAL_COORDINATION_TODO_LIST_REQUEST_SCHEMA,
   LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_REQUEST_SCHEMA,
   archiveLocalCoordinationTodos,
-  listLocalCoordinationTodos,
   claimLocalCoordinationTodo,
   promoteLocalCoordinationAuthority,
   reviewLocalCoordinationAuthorityPromotion,
-  readLocalCoordinationTodo,
   terminalLifecycleLocalCoordinationTodo,
 } from "../../loopx/control_plane/coordination/local_authority_runtime.ts";
+import {listLocalCoordinationTodos, readLocalCoordinationTodo} from "../../loopx/control_plane/coordination/local_authority_read.ts";
 import {
   COORDINATION_TODO_CLAIM_RESULT_SCHEMA,
   evaluateCoordinationTodoClaimDecision,
