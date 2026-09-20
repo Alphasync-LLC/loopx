@@ -29,6 +29,15 @@ test("another exact User blocker prevents resume, unrelated work does not", () =
   assert.equal(planUserCompletion(gate, [target, gate, {...remaining, status: "done", done: true}], "approve").unblock_resume?.state, "resumed");
 });
 
+test("an admitted deferred User gate still carries its explicit decision effects", () => {
+  const deferred = {...gate, status: "deferred", done: true, resume_when: "owner_decision_ready"};
+  const plan = planUserCompletion(deferred, [target, deferred], "approve");
+  assert.equal(plan.updates.status, "open");
+  assert.deepEqual(plan.updates.required_decision_scopes, []);
+  assert.equal(plan.unblock_resume?.state, "resumed");
+  assert.equal(plan.decision_scope_resolution?.state, "resolved");
+});
+
 for (const outcome of ["approve", "reject", "cancel"] as const) {
   test(`${outcome} cannot revive terminal, deferred or archived work`, () => {
     for (const change of [{status: "done", done: true}, {status: "deferred", done: true}, {archive_state: "archive"}]) {

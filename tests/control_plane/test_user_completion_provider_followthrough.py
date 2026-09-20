@@ -11,12 +11,15 @@ from test_todo_decision_scope_lifecycle import (
     AGENT_ID, GOAL_ID, PUBLISH_SCOPE, _add_target_and_gate, _write_fixture,
 )
 from loopx.control_plane.coordination.runtime_shadow import build_todo_runtime_shadow_projection
-from loopx.todos import complete_goal_todo, list_goal_todos
+from loopx.todos import complete_goal_todo, list_goal_todos, update_goal_todo
 
 
 @pytest.mark.parametrize("provider", ["legacy", "file", "sqlite"])
 @pytest.mark.parametrize("outcome", ["approve", "reject", "cancel"])
-def test_public_completion_commits_linked_decision(tmp_path: Path, monkeypatch, provider, outcome):
+@pytest.mark.parametrize("source_status", ["open", "deferred"])
+def test_public_completion_commits_linked_decision(
+    tmp_path: Path, monkeypatch, provider, outcome, source_status,
+):
     isolate_sqlite_runtime(tmp_path, monkeypatch)
     _, state, registry = _write_fixture(tmp_path)
     config = json.loads(registry.read_text())
@@ -25,6 +28,11 @@ def test_public_completion_commits_linked_decision(tmp_path: Path, monkeypatch, 
     target, gate = _add_target_and_gate(
         registry, required_scopes=[PUBLISH_SCOPE], target_status="blocked",
     )
+    if source_status == "deferred":
+        update_goal_todo(
+            registry_path=registry, goal_id=GOAL_ID, todo_id=gate["todo_id"],
+            status="deferred", resume_when="capacity_available:owner_review", agent_id=AGENT_ID,
+        )
     if provider != "legacy":
         source = list_goal_todos(registry_path=registry, goal_id=GOAL_ID)["todos"]
         projection = build_todo_runtime_shadow_projection(

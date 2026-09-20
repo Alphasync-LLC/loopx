@@ -18,14 +18,24 @@ export interface UserCompletionPlan extends JsonObject {
   readonly unblock_resume: ResumeReceipt | null;
   readonly decision_scope_resolution: JsonObject | null;
 }
-const inactive = (todo: JsonObject): boolean => todo.archive_state === "archive" ||
+const inactiveTarget = (todo: JsonObject): boolean => todo.archive_state === "archive" ||
   todo.done === true || !["open", "blocked"].includes(String(todo.status || "open"));
+
+// Terminal admission owns whether the source may complete. In particular, a
+// deferred User gate is still a legal explicit completion source even though
+// it is intentionally ineligible to resume as a dependent target.
+const unavailableSource = (todo: JsonObject): boolean => {
+  const status = String(todo.status || "open");
+  return todo.archive_state === "archive" || status === "done" ||
+    (todo.done === true && status !== "deferred") ||
+    !["open", "blocked", "deferred"].includes(status);
+};
 
 export function planUserCompletion(
   source: JsonObject, todos: readonly JsonObject[], outcome: DecisionOutcome | null,
 ): UserCompletionPlan {
   const empty: UserCompletionPlan = {updates: {}, unblock_resume: null, decision_scope_resolution: null};
-  if (source.role !== "user" || inactive(source) || typeof source.unblocks_todo_id !== "string") return empty;
+  if (source.role !== "user" || unavailableSource(source) || typeof source.unblocks_todo_id !== "string") return empty;
   const gate = source.task_class === "user_gate";
   if (!(gate ? outcome !== null : source.task_class === "user_action")) return empty;
   const id = source.unblocks_todo_id;
@@ -36,7 +46,7 @@ export function planUserCompletion(
   if (!target) return {...empty, unblock_resume: {...base,
     state: gate && outcome !== "approve" ? "target_or_decision_scope_not_found" : "target_not_found"}};
   // A late decision must not revive completed, archived, or deferred work.
-  if (inactive(target)) return {...empty, unblock_resume: {...base, state: "target_not_active", status: target.status}};
+  if (inactiveTarget(target)) return {...empty, unblock_resume: {...base, state: "target_not_active", status: target.status}};
   const status = String(target.status || "open");
   const requirements = normalizeTodoRequiredDecisionScopes(target.required_decision_scopes) ?? [];
   const rawOutcomes = target.decision_scope_outcomes ?? [];
@@ -76,7 +86,7 @@ export function planUserCompletion(
   if (status !== "blocked") return result("target_not_blocked");
   if (target.task_class === "blocker") return result("explicit_blocker_repair_required");
   const blockers = todos.filter(row => row.role === "user" && row.todo_id !== source.todo_id &&
-    row.unblocks_todo_id === id && !inactive(row)).map(row => String(row.todo_id));
+    row.unblocks_todo_id === id && !inactiveTarget(row)).map(row => String(row.todo_id));
   if (blockers.length) return result("other_user_blockers_active", {remaining_user_blocker_todo_ids: [...new Set(blockers)].sort()});
   // Finishing one gate is not evidence that every independent requirement passed.
   if (remaining.length || remainingOutcomes.some(item => item.outcome === "reject" || item.outcome === "cancel")) return result("decision_requirements_remaining");
