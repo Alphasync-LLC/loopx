@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from ...control_plane.turn_driver.execution_profile import REASONING_EFFORTS
+from ...reasoning_effort import REASONING_EFFORTS
 from .machine_defaults import (
     FLEXIBLE_SELECTION_POLICY,
     STEWARD_SELECTION_POLICIES,

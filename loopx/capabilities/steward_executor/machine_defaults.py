@@ -27,6 +27,7 @@ import importlib
 from pathlib import Path
 from typing import Any
 
+from ...reasoning_effort import REASONING_EFFORTS
 from ..machine_configuration.contract import (
     MACHINE_CONFIGURATION_SCHEMA,
     MachineConfigurationNamespace,
@@ -69,8 +70,7 @@ def steward_executor_endpoints() -> frozenset[str]:
 def steward_reasoning_efforts() -> tuple[str, ...]:
     """Return the reasoning-effort vocabulary a selected executor accepts."""
 
-    manager = importlib.import_module("loopx.chat_manager")
-    return tuple(manager.MANAGER_REASONING_EFFORTS)
+    return REASONING_EFFORTS
 
 
 def _optional_text(value: Any, *, field: str) -> str | None:
