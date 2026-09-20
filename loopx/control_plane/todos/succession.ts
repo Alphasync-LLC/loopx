@@ -76,12 +76,17 @@ export function indexInferredSuccessors(rows: readonly Pick<Row, "id" | "advance
 /** Index inferred edges once; both completion and handoff use the same resolver. */
 export function evaluateTodoSuccession(values: readonly unknown[]): JsonObject[] {
   const rows = values.map(decode), byId = new Map<string, Row>();
+  const generations = new Set<string>();
   for (const row of rows) {
     if (!row.id) continue;
-    if (byId.has(row.id)) throw new EffectRuntimeRequestError(`duplicate succession identity: ${row.id}`);
-    byId.set(row.id, row);
+    const generation = `${row.id}:${row.active ? "active" : "archive"}`;
+    if (generations.has(generation)) throw new EffectRuntimeRequestError(`duplicate succession identity: ${row.id}`);
+    generations.add(generation);
+    // Legacy archive/recreate retains an older record with the same logical id.
+    // Only the current active record contributes edges for that identity.
+    if (row.active || !byId.has(row.id)) byId.set(row.id, row);
   }
-  const inferred = indexInferredSuccessors(rows);
+  const inferred = indexInferredSuccessors([...byId.values()]);
   return rows.map(row => {
     const declared = [...new Set([...row.successors, ...(row.supersededBy ? [row.supersededBy] : [])])];
     // A retained archived target is still evidence. A missing/self target is not.

@@ -190,7 +190,7 @@ def evaluate_succession(items: list[dict[str, Any]], lineage: list[dict[str, Any
     if not items:
         return
     # Replace one matching source row, not every occurrence of its identity.
-    # Duplicate archive/role identities must remain visible to the TS validator.
+    # Retained generations and conflicting authorities stay visible to TS.
     selected = {(normalize_todo_id(item.get("todo_id")), item.get("role"), item.get("archive_state") or "active")
         for item in items}
     source = []

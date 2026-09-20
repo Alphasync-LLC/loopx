@@ -87,10 +87,12 @@ def test_explicit_route_flag_is_not_overridden_by_legacy_prose_hint():
     assert result["gate_state"] == "blocking"
 
 
-def test_duplicate_archive_identity_cannot_be_hidden_by_active_row_overlay():
+def test_archived_identity_can_be_recreated_but_duplicate_active_authority_rejects():
     source = work("todo_source", no_followup=True)
+    result = summary([source], resume_source_items=[source, {**source, "archive_state": "archive"}])
+    assert result["terminal_closure_proof"]["all_todos_done"] is True
     with pytest.raises(Exception, match="duplicate succession identity"):
-        summary([source], resume_source_items=[source, {**source, "archive_state": "archive"}])
+        summary([source], resume_source_items=[source, dict(source)])
 
 
 def test_public_summary_drops_internal_evaluation_without_mutating_source():
@@ -101,3 +103,12 @@ def test_public_summary_drops_internal_evaluation_without_mutating_source():
     assert "succession_evaluation" not in public["items"][0]
     assert "succession_evaluation" in source["items"][0]
     assert public["terminal_closure_proof"] == source["terminal_closure_proof"]
+
+
+def test_public_parser_rows_do_not_carry_internal_evaluations():
+    from loopx.control_plane.todos.active_state_todo_parser import parse_active_state_todos
+
+    state = "## Agent Todo\n\n- [ ] Work\n  <!-- loopx:todo todo_id=todo_source status=open -->\n"
+    fields = parse_active_state_todos(state, item_limit=None)
+    assert fields["agent_todos"]["items"]
+    assert all("succession_evaluation" not in row for row in fields["agent_todos"]["items"])

@@ -79,3 +79,19 @@ test("a cached result cannot contradict its matched item facts", () => {
       rows: [source], evaluations: [{...evaluation, ...mutation}]}), /succession evaluation|successor identity/);
   }
 });
+
+
+test("active identity replaces archived edges regardless of source order", () => {
+  const source = row("todo_source");
+  const archived = row("todo_reused", {active: false, resumes: "todo_source"});
+  const active = row("todo_reused", {status: "open"});
+  for (const generations of [[archived, active], [active, archived]]) {
+    const result = evaluateTodoSuccession([source, ...generations]);
+    assert.equal(result[0].successor_gap, true);
+    assert.deepEqual(result[0].successor_todo_ids, []);
+    const explicit = evaluateTodoSuccession([{...source, successors: ["todo_reused"]}, ...generations]);
+    assert.deepEqual(explicit[0].successor_todo_ids, ["todo_reused"]);
+  }
+  assert.throws(() => evaluateTodoSuccession([active, active]), /duplicate succession identity/);
+  assert.throws(() => evaluateTodoSuccession([archived, archived, active]), /duplicate succession identity/);
+});

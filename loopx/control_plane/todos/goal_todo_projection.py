@@ -270,6 +270,7 @@ def goal_todo_summaries(
     )
     markdown_fields = parse_active_state_todos(
         state_text,
+        _include_succession_evaluations=True,
         goal=goal,
         state_path=state_path,
         item_limit=None,

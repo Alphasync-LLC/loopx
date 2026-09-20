@@ -55,8 +55,14 @@ digest prevents reuse after relevant item edits; it is a consistency check,
 not authentication. Fresh parsing/canonical reads always recompute it rather
 than trusting stored evaluations. Shadow capture discards this derived field;
 canonical records and durable source digests do not gain a second authority.
-Public list/status responses omit the internal evaluation after selection,
+Public parser rows and list/status responses omit the internal evaluation after selection,
 retaining the decision fields without expanding the hot-path payload.
+
+Legacy archive/recreate can retain one archived and one active record with the
+same logical Todo ID. The active record owns that ID's inferred edges regardless
+of source order; archived metadata cannot supply stale edges for the replacement.
+Two active or two archived records with the same ID remain ambiguous and reject.
+This read precedence does not relax canonical capture's unique-identity contract.
 
 A status/ID/Agent-filtered list describes that selection but emits no Goal-source
 or terminal-closure proof. A display limit alone does not change the source:
