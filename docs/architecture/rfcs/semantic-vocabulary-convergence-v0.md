@@ -972,14 +972,6 @@ with `npm ci --ignore-scripts` before running the TypeScript production scan.
 
 ## 11. Normative delivery plan
 
-**Staged acceptance proposal for #4447.** This RFC's long-range milestones are
-not all prerequisites for closing one delivery tracker. The staged proposal in
-[#4447](https://github.com/loopx-project/loopx/issues/4447), informed by
-[discussion #4738](https://github.com/loopx-project/loopx/discussions/4738), separates
-verified guard adoption, bounded production-path simplification, and source
-evidence closure. Maintainer acceptance of that scope is required before tracker
-closure; this proposal does not certify delivery or change any runtime check.
-
 | Milestone | Shipped behavior | Entry gate | Exit evidence | Rollback |
 | --- | --- | --- | --- | --- |
 | M0 | Registry with 26 vocabularies and 9 relations, computed inventory with optional export, drift smoke with fixed dispatch forms and coverage floor, two owner forks removed, RFC index entry | This RFC opened | Section 9 rows green; 20 mutation classes fail closed | Delete the smoke, `loopx/semantics/`, the generator, and its test |
@@ -989,6 +981,14 @@ closure; this proposal does not certify delivery or change any runtime check.
 | M2 | Route-to-disposition projection, the `decide_loop_disposition` decision table, and the cross-runtime sets published through a shared contract with generated Python and TypeScript bindings, following the coordination contract generator | M1 merged; Q2 and Q7 decided | Generator `--check` and smoke green; `settlement.ts` and `transaction.py` read the generated set | Regenerate from prior contract |
 | M3 | Conditional per-field retirement where removing a field eliminates demonstrated duplicate authority or unnecessary consumer maintenance; a derived compatibility projection may remain | Document net benefit, target version, consumers, historical formats/signatures and rollback window; review unresolved and dynamic-key evidence before stopping writes | Approved migration, new-output and historical-read/rejection tests, actual removal of replaced code, and updated budgets for the approved surface; retaining a useful projection is not a failed migration | Restore the approved writer within the declared compatibility window |
 | M4 | Twin budget lowered with each replacement-first cutover from the migration RFC | Each cutover PR | Budget edit in the same diff | None needed; budget follows code |
+
+**Staged acceptance proposal for #4447.** This RFC's long-range milestones are
+not all prerequisites for closing one delivery tracker. The staged proposal in
+[#4447](https://github.com/loopx-project/loopx/issues/4447), informed by
+[discussion #4738](https://github.com/loopx-project/loopx/discussions/4738), separates
+verified guard adoption, bounded production-path simplification, and source
+evidence closure. Maintainer acceptance of that scope is required before tracker
+closure; this proposal does not certify delivery or change any runtime check.
 
 The table below records long-range targets, not an unconditional deletion quota
 or the acceptance checklist for #4447; each row is a registry budget or a

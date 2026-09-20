@@ -784,12 +784,6 @@ TypeScript effective-action 绑定与[术语表](../../reference/glossary.md)通
 
 ## 11. 规范性交付计划
 
-**#4447 阶段验收提案。** 本 RFC 的长期里程碑不全部构成单个交付 tracker
-的关闭条件。[#4447](https://github.com/loopx-project/loopx/issues/4447) 结合
-[讨论 #4738](https://github.com/loopx-project/loopx/discussions/4738) 的阶段方案，
-分别验收守卫的真实采用、有限生产路径的重复维护消除和来源证据闭合。
-关闭 tracker 前必须由维护者接受该范围；本提案不认证交付完成，也不改变运行时检查。
-
 | 里程碑 | 交付行为 | 进入门 | 退出证据 | 回滚 |
 | --- | --- | --- | --- | --- |
 | M0 | 含 26 个词表与 9 条关系的注册表、可选导出的计算清单、带固定分发形式与覆盖下限的漂移 smoke、删除两处 owner 分叉、RFC 索引条目 | 本 RFC 开启 | 第 9 节各行全绿；20 类突变失败关闭 | 删除 smoke、`loopx/semantics/`、生成器及其测试 |
@@ -799,6 +793,12 @@ TypeScript effective-action 绑定与[术语表](../../reference/glossary.md)通
 | M2 | route 到 disposition 的投影、`decide_loop_disposition` 决策表与跨运行时集合通过共享契约发布，生成 Python 与 TypeScript 绑定，效仿协调契约生成器 | M1 合入；Q2 与 Q7 已决 | 生成器 `--check` 与 smoke 绿；`settlement.ts` 与 `transaction.py` 读取生成集合 | 从上一版契约重新生成 |
 | M3 | 有条件逐字段退役：删除必须消除已证实的重复权威或不必要的消费者维护；派生兼容投影可以保留 | 说明净收益、目标版本、消费者、历史格式/签名和回滚窗口；停写前评审 unresolved 与计算式键证据 | 获准迁移、新输出及历史读取/拒绝测试、被替代代码实际删除、批准范围对应预算更新；保留有用投影不属于迁移失败 | 在声明的兼容窗口内恢复获准 writer |
 | M4 | 随迁移 RFC 的每次 replacement-first 切换调低孪生预算 | 每个切换 PR | 同 diff 中的预算修改 | 无需；预算跟随代码 |
+
+**#4447 阶段验收提案。** 本 RFC 的长期里程碑不全部构成单个交付 tracker
+的关闭条件。[#4447](https://github.com/loopx-project/loopx/issues/4447) 结合
+[讨论 #4738](https://github.com/loopx-project/loopx/discussions/4738) 的阶段方案，
+分别验收守卫的真实采用、有限生产路径的重复维护消除和来源证据闭合。
+关闭 tracker 前必须由维护者接受该范围；本提案不认证交付完成，也不改变运行时检查。
 
 下表记录长期目标，不是无条件删除配额，也不是 #4447 的验收清单；每一行都是一个
 注册表预算或 smoke 可检查的词表属性。标为*未决*的行等待第 12 节的决策，这也
