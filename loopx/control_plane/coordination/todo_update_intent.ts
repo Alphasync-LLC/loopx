@@ -1,5 +1,7 @@
 /** Canonical edit decoding and materialization shared by ordinary updates and
  * User completion. Admission, validation effects and commits stay with callers. */
+import {decodeTaskLeaseProof} from "./task_lease_proof.ts";
+import {planTodoPriority} from "../todos/priority.ts";
 import type {JsonObject} from "../effect_program.ts";
 import {AuthorityStoreProtocolError, canonicalAuthorityObject, canonicalAuthorityBytes,
   requireAuthorityStoreId} from "./authority_store_codec.ts";
@@ -82,6 +84,10 @@ export function normalizeTodoUpdateInput(raw: CoordinationTodoUpdateInput): Coor
     requireAuthorityStoreId(field, `clear_fields[${index}]`));
   const observation = raw.monitor_observation === undefined ? undefined : decodeMonitorPollObservation(raw.monitor_observation);
   if (observation !== undefined) {
+    // Both public observation transports use the same proof decoder. A partial
+    // proof must never be collapsed to absence during admission.
+    decodeTaskLeaseProof(key === null && version === null ? null :
+      {idempotency_key: key, expected_version: version});
     if (completion !== undefined || Object.keys(patch).length || clearFields.length ||
         Object.keys(planningIntent).some(key => !["status", "reason", "no_followup"].includes(key)) ||
         (planningIntent.status != null && planningIntent.status !== "open") ||
@@ -153,6 +159,15 @@ export function prepareUpdatedTodo(
       else next[field] = value;
     }
     next.done = next.status === "done" || next.status === "deferred";
+  }
+  // Derive text/title/priority together from the original record and caller intent.
+  // This runs within the same admitted head/CAS and never rewrites receipt intent.
+  const priorityUpdate = planTodoPriority(todo, {
+    ...input.planning_intent, ...(Object.hasOwn(input.patch, "text") ? {text: input.patch.text} : {}),
+  });
+  Object.assign(next, priorityUpdate);
+  if (priorityUpdate.priority === null) {
+    delete next.priority; delete next.title; clearFields.add("priority"); clearFields.add("title");
   }
   if (kind === "user_completion" && (todo.status !== "done" || Object.hasOwn(input.planning_intent ?? {}, "task_class"))) {
     planTodoAuthoringScope({schema_version: TODO_AUTHORING_SCOPE_REQUEST_SCHEMA, command: "class", role: "user", todo: next,

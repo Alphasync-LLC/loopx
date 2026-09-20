@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
+import socket
 import tempfile
 import time
 import importlib
@@ -147,6 +148,11 @@ def _identity(
 ) -> dict[str, object]:
     return {
         "pid": os.getpid(),
+        # A pid is only meaningful on the machine that wrote this record. Two
+        # hosts sharing one runtime root can both read the holder, so the record
+        # names its own machine and a reader never has to guess which host a pid
+        # belongs to. The name is a sanitized label, not a path or a secret.
+        "host": _safe_label(socket.gethostname(), fallback="unknown"),
         "agent_id": _safe_label(
             agent_id or os.environ.get("LOOPX_AGENT_ID"),
             fallback="unknown",
@@ -250,6 +256,7 @@ def _read_holder_record(lock_path: Path) -> dict[str, object]:
         "schema_version",
         "lock_id",
         "policy",
+        "host",
         "pid",
         "agent_id",
         "operation",
@@ -263,10 +270,13 @@ def _operator_action(holder: dict[str, object], *, retry_mode: str) -> dict[str,
     return {
         "required": True,
         "action": "inspect_lock_holder",
+        # The pid is only meaningful on this host: naming it stops an operator
+        # from hunting for a process id that cannot exist on another machine.
+        "holder_host": holder.get("host"),
         "holder_pid": holder.get("pid"),
         "retry_mode": retry_mode,
         "steps": [
-            "Inspect the recorded holder PID and operation.",
+            "Inspect the recorded holder host, PID and operation on that host.",
             "Confirm the process is stalled before terminating it.",
             "Retry according to retry_mode after the holder exits.",
             "Do not delete the lock file; the kernel lock is authoritative.",

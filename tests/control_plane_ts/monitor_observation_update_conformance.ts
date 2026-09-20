@@ -1,4 +1,5 @@
 /** The same observation/reactivation contract on every real provider. */
+import {registerMonitorCycleConformance} from "./monitor_cycle_conformance.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import type {JsonObject} from "../../loopx/control_plane/effect_program.ts";
@@ -25,6 +26,7 @@ async function seed(store: AuthorityStore, projection: JsonObject) {
 }
 
 export function registerMonitorObservationUpdateConformance(provider: string, factory: AuthorityStoreConformanceFactory) {
+  registerMonitorCycleConformance(provider, factory);
   for (const schema of ["legacy", "native"] as const) {
     test(`${provider}: Monitor observation update ${schema} reactivates a new cycle and preserves historical replay`, async t => {
       const {store, contender} = await factory(t);
@@ -153,7 +155,7 @@ export function registerMonitorObservationUpdateConformance(provider: string, fa
       const rejected = await executeCoordinationTodoUpdate(store, {...input, operation_id: "cannot-resume-execution",
         planning_intent: {status: "open"}, monitor_observation: {...input.monitor_observation,
           generated_at: "2026-09-01T02:00:00Z", monitor_effect_id: "next-cycle"}});
-      assert.equal(rejected.reason_code, "monitor_reactivation_lease_transition_required");
+      assert.equal(rejected.reason_code, "monitor_reactivation_execution_proof_not_allowed");
       assert.deepEqual(await store.loadAuthority(), retired);
     }
   });

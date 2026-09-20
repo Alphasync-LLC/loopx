@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -31,6 +32,7 @@ from .transaction import LOOPX_TURN_RESULT_SCHEMA_VERSION, TRANSACTION_PHASES
 
 
 CODEX_CLI_SESSION_SCHEMA_VERSION = "loopx_codex_cli_session_v1"
+CODEX_STDIO_MCP_SERVER_SCHEMA_VERSION = "codex_stdio_mcp_server_v0"
 CODEX_CLI_RESULT_KINDS = (
     "validated_progress",
     "repair_required",
@@ -103,10 +105,72 @@ _FAILURE_CATEGORY_PRIORITY = {
     "provider_capacity": 3,
     "provider_overloaded": 3,
 }
+_MCP_SERVER_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
+_MCP_COMMAND_MAX_ITEMS = 64
+_MCP_COMMAND_MAX_BYTES = 16_000
 
 
 def _mapping(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
+
+
+def normalize_codex_stdio_mcp_server(
+    value: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Validate one invocation-scoped stdio MCP server without persisting it.
+
+    The command is trusted host configuration. It is never included in the
+    model prompt or the durable Codex session binding; Codex receives it as
+    per-invocation config for both a fresh session and its resume.
+    """
+
+    if value is None:
+        return None
+    server = dict(value)
+    if server.get("schema_version") != CODEX_STDIO_MCP_SERVER_SCHEMA_VERSION:
+        raise ValueError("unsupported Codex stdio MCP server configuration")
+    if set(server) != {"schema_version", "name", "command"}:
+        raise ValueError("Codex stdio MCP server has unsupported fields")
+    name = server.get("name")
+    if not isinstance(name, str) or _MCP_SERVER_NAME.fullmatch(name) is None:
+        raise ValueError("Codex stdio MCP server name is invalid")
+    command = server.get("command")
+    if (
+        not isinstance(command, list)
+        or not 1 <= len(command) <= _MCP_COMMAND_MAX_ITEMS
+        or any(
+            not isinstance(item, str) or not item or len(item) > 4096
+            for item in command
+        )
+        or len(json.dumps(command, ensure_ascii=False).encode("utf-8"))
+        > _MCP_COMMAND_MAX_BYTES
+    ):
+        raise ValueError("Codex stdio MCP server command is invalid")
+    return {
+        "schema_version": CODEX_STDIO_MCP_SERVER_SCHEMA_VERSION,
+        "name": name,
+        "command": list(command),
+    }
+
+
+def _codex_mcp_config_arguments(
+    value: Mapping[str, Any] | None,
+) -> list[str]:
+    server = normalize_codex_stdio_mcp_server(value)
+    if server is None:
+        return []
+    name = server["name"]
+    command = server["command"]
+    pairs = [
+        f"mcp_servers.{name}.command={json.dumps(command[0])}",
+        f"mcp_servers.{name}.args={json.dumps(command[1:])}",
+        f"mcp_servers.{name}.enabled=true",
+        f"mcp_servers.{name}.required=true",
+        f'mcp_servers.{name}.default_tools_approval_mode="approve"',
+        f"mcp_servers.{name}.startup_timeout_sec=30",
+        f"mcp_servers.{name}.tool_timeout_sec=60",
+    ]
+    return [item for pair in pairs for item in ("-c", pair)]
 
 
 def _lineage(request: Mapping[str, Any]) -> dict[str, str]:
@@ -668,6 +732,7 @@ def _codex_command(
     model: str | None,
     reasoning_effort: str | None,
     session_id: str | None,
+    mcp_server: Mapping[str, Any] | None,
 ) -> list[str]:
     if session_id:
         command = [
@@ -709,6 +774,7 @@ def _codex_command(
                 f"model_reasoning_effort={json.dumps(reasoning_effort)}",
             ]
         )
+    command.extend(_codex_mcp_config_arguments(mcp_server))
     if session_id:
         command.append(session_id)
     command.append("-")
@@ -724,6 +790,7 @@ def run_codex_cli_host(
     sandbox: str = "read-only",
     model: str | None = None,
     reasoning_effort: str | None = None,
+    mcp_server: Mapping[str, Any] | None = None,
     timeout_seconds: float = 115.0,
 ) -> dict[str, Any]:
     if request.get("schema_version") != LOOPX_TURN_HOST_REQUEST_SCHEMA_VERSION:
@@ -732,6 +799,7 @@ def run_codex_cli_host(
         raise ValueError(f"Codex CLI sandbox must be one of {CODEX_CLI_SANDBOXES}")
     if reasoning_effort is not None:
         reasoning_effort = require_supported_reasoning_effort(reasoning_effort)
+    mcp_server = normalize_codex_stdio_mcp_server(mcp_server)
     resolved = shutil.which(codex_bin) if os.path.sep not in codex_bin else codex_bin
     if not resolved or not Path(resolved).exists():
         raise ValueError("Codex CLI executable is unavailable")
@@ -774,6 +842,7 @@ def run_codex_cli_host(
             model=model,
             reasoning_effort=reasoning_effort,
             session_id=session_id,
+            mcp_server=mcp_server,
         )
         proc = subprocess.Popen(
             command,
