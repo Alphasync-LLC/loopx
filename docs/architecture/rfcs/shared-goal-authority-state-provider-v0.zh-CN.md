@@ -1448,7 +1448,10 @@ loopx coordination-shadow rollback --goal-id <goal-id> \
 它从当前 canonical Todo 与 task-lease view 派生紧凑 projection，只报告计数与摘要，
 并要求 `--execute` 才调用 bootstrap 或 promotion。`promote` 未带 `--execute` 时零写入；
 preview 返回精确的 qualified revision、projection digest、writer-fence identity 和
-rollback identity。apply 会在同一段 maintenance 与 legacy source 锁生命周期内重新
+rollback identity，并返回 canonical promotion-plan digest 及资格策略。该 digest 会绑定
+Goal、operation、精确 shadow revision/projection、最小 operation 数与规范化后的必需
+event kind；持久 fence、event 与 receipt 都携带同一 digest，因此 fence 已落盘而 canonical
+尚未提交的中断只能由完全相同的受评审 plan 恢复。apply 会在同一段 maintenance 与 legacy source 锁生命周期内重新
 验证 source snapshot、资格化精确 shadow lineage、engage 持久 writer fence、提交
 canonical head，并读回 promotion receipt。v0 会拒绝尚未资格化为 `hard_lease` 的 Goal，
 且绝不会把 handoff mode 变化藏在 promotion 副作用中。写入成功后会立即通过 typed parity inspection
