@@ -33,8 +33,10 @@ TURN_LANE_OPERATION = "loopx_turn_lane"
 TURN_LANE_DIR_NAME = ".lanes"
 TURN_LANE_UNATTRIBUTED_AGENT = "unattributed"
 # Public-safe holder fields only: the lock record also carries a lock id, a
-# policy name, and the private lock path, which never leave this process.
-TURN_LANE_HOLDER_TEXT_FIELDS = ("agent_id", "operation", "acquired_at")
+# policy name, and the private lock path, which never leave this process. The
+# host is projected because two hosts can share one runtime root: a refusal on
+# the second host must not print a pid that cannot exist there.
+TURN_LANE_HOLDER_TEXT_FIELDS = ("agent_id", "operation", "acquired_at", "host")
 # A refusal taken here stops before the journal, the host, and quota, so the
 # payload reports the same effect shape an executing Turn does -- all false.
 TURN_LANE_NO_EFFECTS: dict[str, bool] = {
@@ -104,9 +106,11 @@ def turn_lane_singleflight(
 def turn_lane_holder_readback(target: Path) -> dict[str, Any]:
     """Return the public-safe identity of the Turn holding one lane, else ``{}``.
 
-    Only names, a timestamp, and a process id are projected: the holder record's
-    private lock path and lock id stay out, so a refusal can say who is running
-    without publishing where this machine keeps its runtime state.
+    Only names, a timestamp, a machine name and a process id are projected: the
+    holder record's private lock path and lock id stay out, so a refusal can say
+    who is running where without publishing where a machine keeps its runtime
+    state. The machine name is what makes the projected pid actionable when two
+    hosts share one runtime root.
     """
 
     try:
