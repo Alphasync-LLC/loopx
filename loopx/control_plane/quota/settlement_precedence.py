@@ -6,7 +6,7 @@ from typing import Any
 
 
 HEARTBEAT_SETTLED_REPLAY_REASON = (
-    "the receipt-bound Todo completion and required settlement receipts "
+    "the receipt-bound work binding and required settlement receipts "
     "are complete for this heartbeat turn; defer successor selection to a new turn"
 )
 

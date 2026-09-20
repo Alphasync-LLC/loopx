@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from loopx.control_plane.quota import live_decision
+from loopx.control_plane.quota.effect_program import ReceiptBoundReplayPhase
 from loopx.control_plane.effect_program import (
-    ReceiptBoundReplayPhase,
     interpret_quota_should_run_packet,
 )
 from loopx.control_plane.capability_hooks import (
@@ -280,39 +282,66 @@ def test_managed_turn_projects_prior_unsettled_heartbeat_recovery(
 
 
 def test_settled_turn_defers_prior_turn_recovery_to_a_fresh_turn(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from types import SimpleNamespace
-    from loopx.control_plane.quota import live_decision
+    runtime_root = tmp_path / "runtime"
+    registry_path = tmp_path / "registry.json"
+    registry_path.write_text(json.dumps({"goals": []}), encoding="utf-8")
 
     monkeypatch.setattr(
         live_decision,
         "read_heartbeat_settlement",
         lambda *_args, **_kwargs: SimpleNamespace(
-            replay_phase=ReceiptBoundReplayPhase.SETTLED,
             monitor_phase=None,
+            replay_phase=ReceiptBoundReplayPhase.SETTLED,
         ),
     )
 
-    def forbidden_recovery(*_args, **_kwargs):
-        pytest.fail("settled current Turn entered prior-Turn recovery")
+    def fail_if_recovery_runs(*_args: object, **_kwargs: object) -> bool:
+        pytest.fail("a settled host Turn must not inspect prior-Turn recovery")
 
     monkeypatch.setattr(
         live_decision,
         "apply_unsettled_host_turn_recovery_if_required",
-        forbidden_recovery,
+        fail_if_recovery_runs,
     )
-    payload = build_live_quota_should_run_decision(
-        _ordinary_status_payload(),
+    todo_text = "[P1] Keep advancing the selected task."
+    status = quota_status_payload(
         goal_id=GOAL_ID,
-        agent_id=None,
+        status="active",
+        agent_todo_items=[
+            {
+                "todo_id": "todo_ordinary_work",
+                "index": 1,
+                "text": todo_text,
+                "role": "agent",
+                "status": "open",
+                "priority": "P1",
+                "task_class": "advancement_task",
+            }
+        ],
+        recommended_action=todo_text,
+        next_action=todo_text,
+        coordination={
+            "registered_agents": ["codex-fixture"],
+            "agent_model": "peer_v1",
+        },
+        claim_scope_agent_id="codex-fixture",
+    )
+
+    packet = build_live_quota_should_run_decision(
+        status,
+        goal_id=GOAL_ID,
+        agent_id="codex-fixture",
         available_capabilities=["shell"],
         include_scheduler_detail=False,
         codex_app_current_rrule=None,
-        registry_path=tmp_path / "registry.json",
-        runtime_root=tmp_path / "runtime",
+        registry_path=registry_path,
+        runtime_root=runtime_root,
         route_source="loopx_turn_plan",
-        turn_instance_id="managed-current-turn",
+        receipt_bound_todo_id="todo_ordinary_work",
+        turn_instance_id="managed-settled-turn",
         scheduler_execution_context={
             "host_surface": "generic_cli",
             "scheduler_owner": "agent_cli_loop",
@@ -320,10 +349,11 @@ def test_settled_turn_defers_prior_turn_recovery_to_a_fresh_turn(
         },
     )
 
-    assert payload["effective_action"] == "heartbeat_settled_skip"
-    assert payload["should_run"] is False
-    assert payload["execution_obligation"]["must_attempt_work"] is False
-    assert payload.get("unsettled_host_turn_recovery") is None
+    assert packet["decision"] == "skip"
+    assert packet["effective_action"] == "heartbeat_settled_skip"
+    assert packet["should_run"] is False
+    assert packet.get("selected_todo") is None
+    assert packet.get("unsettled_host_turn_recovery") is None
 
 
 def test_managed_turn_accepts_exact_material_monitor_poll_closeout(
