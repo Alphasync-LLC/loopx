@@ -209,8 +209,8 @@ def _apply_requested_quota_action_selection_preflight(
     requested_todo_id: str | None,
     receipt_bound_todo_id: str | None,
     receipt_bound_replan_obligation_id: str | None,
-    receipt_pending_action_todo_id: str | None,
-    receipt_identity_upgraded: bool,
+    receipt_pending_action_todo_id: str | None = None,
+    receipt_identity_upgraded: bool = False,
 ) -> bool:
     if not requested_todo_id:
         return False
