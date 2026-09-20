@@ -1,0 +1,92 @@
+# External Evidence Research / 外部证据研究
+
+`external-evidence-research` is LoopX's provider-neutral contract for turning a
+decision-bound research question into compact, auditable evidence. It unifies
+two provider classes without pretending they are the same implementation:
+
+- a host method such as the `external-research` skill; and
+- a connector provider such as an official-document search integration.
+
+`external-evidence-research` 是 LoopX 面向决策的通用外部证据合同。它统一两类
+provider 的调用与回执语义，但不把两者伪装成同一种实现：
+
+- host 提供的研究方法，例如 `external-research` skill；
+- connector provider，例如官方文档搜索连接器。
+
+## Contract / 合同
+
+The lifecycle is:
+
+1. `plan`: bind **object + user activity + decision** and required evidence
+   kinds to one provider that is currently declared, installed, enabled, and
+   ready;
+2. provider execution: the selected host method or connector reads external
+   sources under its own adapter and permission boundary;
+3. `admit`: validate the exact request/provider identity and source-level
+   provenance, then record the parent agent's admit/reject decision;
+4. downstream projection: pass only compact findings, limitations, direct
+   references, evidence basis, dates, and content digests;
+5. `retire`: retire rejected evidence immediately, or admitted evidence only
+   after every admitted source reference appears in downstream readback.
+
+生命周期为：`plan` 绑定“对象 + 用户活动 + 决策”并选择当前真实 ready 的
+provider；provider 在自己的权限边界内执行；`admit` 校验请求、provider 与逐来源
+provenance，并记录父 Agent 的采纳/拒绝；下游只投影紧凑证据；被采纳的来源全部完成
+下游读回后才可 `retire`。
+
+The connector registry is only inventory and telemetry. A connector row marked
+`supported` is projected as `ready=false` until a current provider lifecycle
+readback proves installation, enablement, and readiness. Registration never
+counts as execution or evidence coverage.
+
+Connector registry 仅拥有库存与遥测。即使 connector 标为 `supported`，在当前
+provider 生命周期读回证明 installed/enabled/ready 之前仍投影为 `ready=false`。
+注册不等于调用，更不等于证据覆盖。
+
+## CLI / 命令行
+
+```bash
+loopx external-evidence plan \
+  --objective "Compare current behavior" \
+  --user-activity "Choose an implementation" \
+  --decision "Whether to adopt it" \
+  --evidence-kind current_behavior \
+  --evidence-kind counterexample \
+  --provider-inventory-json providers.json \
+  --format json
+
+loopx external-evidence admit \
+  --plan-json plan.json \
+  --receipt-json receipt.json \
+  --decision admit \
+  --reason "Direct source answers the decision" \
+  --admit-source https://example.com/original \
+  --format json
+
+loopx external-evidence retire \
+  --admission-json admission.json \
+  --downstream-source https://example.com/original \
+  --format json
+```
+
+Provider inventory is an observation, not authority. A ready provider row uses
+protocol `external_evidence_research_v0` and carries explicit `declared`,
+`installed`, `enabled`, and `ready` booleans. Raw pages, transcripts, cookies,
+credentials, and private notes remain provider-private.
+
+## Ownership and product surfaces / 归属与产品入口
+
+- The TypeScript contract owns request identity, provider admission, provenance
+  validation, parent admission, compact projection, and retirement readiness.
+- Python adapts the existing CLI and effect-runtime transport; it does not
+  reimplement those decisions.
+- Managed Turn callers can invoke the same effect-runtime methods:
+  `external_evidence.plan`, `external_evidence.admit`, and
+  `external_evidence.retire`.
+- Frontend and Lark are companion slices. They should render the same plan and
+  admission projection; neither gets an independent provider registry or
+  evidence state machine.
+
+TypeScript 是请求身份、provider 准入、provenance 校验、父 Agent 采纳、紧凑投影与
+退休条件的唯一语义 owner。Python 仅适配 CLI 与 effect-runtime transport。Managed
+Turn 复用同一方法；frontend/Lark 后续只渲染同源投影，不新建 registry 或状态机。
