@@ -43,8 +43,8 @@ EXTERNAL_RESEARCH_CATALOG_ENTRY: dict[str, Any] = {
         {
             "command": "loopx external-evidence receipt --plan-json plan.json --receipt-json receipt.json",
             "purpose": (
-                "Bind observed provider execution to the exact plan without claiming "
-                "coverage, admission, or promotion."
+                "Bind a caller-presented provider receipt to the exact plan without claiming "
+                "provider execution, coverage, admission, or promotion."
             ),
             "write_boundary": "read-only typed reduction; provider owner performs execution",
         },
@@ -59,7 +59,13 @@ EXTERNAL_RESEARCH_CATALOG_ENTRY: dict[str, Any] = {
             "write_boundary": "read-only",
         },
     ],
-    "implemented_protocols": ["external_evidence_research_v0"],
+    "implemented_protocols": [
+        {
+            "schema_version": "external_evidence_research_v0",
+            "module": "loopx.control_plane.capabilities.external_evidence",
+            "doc": "loopx/capabilities/external_research/README.md",
+        }
+    ],
     "smokes": [
         "node --no-warnings --experimental-strip-types --test tests/control_plane_ts/external_evidence_research.test.ts",
         "python -m pytest tests/capabilities/test_external_evidence_cli.py -q",
