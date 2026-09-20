@@ -1,3 +1,4 @@
+import {monitorMutationRejection} from "./todo_monitor_cycle.ts";
 import {AUTHORITY_SOURCE_CHANGED, uncheckedAuthoritySource, type AuthoritySourceCheck} from "./authority_source.ts";
 /** One canonical transaction for an observation and its independent successors.
  * Network polling, quota settlement and display delivery are separate effects. */
@@ -13,9 +14,7 @@ import {planMonitorSuccessor, selectMonitorTodo, MONITOR_SUCCESSOR_REQUEST_SCHEM
 import {optionalNonEmptyString, requireBoolean} from "../runtime_decode.ts";
 import {planTodoAuthoringScope, TODO_AUTHORING_SCOPE_REQUEST_SCHEMA} from "../todos/authoring_scope.ts";
 import {CoordinationCommandReceipt} from "./command_receipt.ts";
-import {decodeTaskLeaseProof, evaluateCanonicalTaskLeaseProof, type TaskLeaseProof} from "./task_lease_proof.ts";
-import {HANDOFF_MODES} from "./handoff_mode_policy.ts";
-import {requireStringLiteral} from "../runtime_decode.ts";
+import {decodeTaskLeaseProof, type TaskLeaseProof} from "./task_lease_proof.ts";
 
 export const COORDINATION_MONITOR_POLL_REQUEST_SCHEMA = "loopx_coordination_monitor_poll_request_v0";
 export const COORDINATION_LEASED_MONITOR_POLL_REQUEST_SCHEMA = "loopx_coordination_monitor_poll_request_v1";
@@ -87,23 +86,10 @@ function planWriteback(input: NormalizedMonitorPollInput, head: JsonObject) {
   const monitor = selectMonitorTodo([...indexed.todos.values()],
     optionalNonEmptyString(observation.todo_id, "todo_id"), optionalNonEmptyString(observation.target_key, "target_key"));
   const actor = input.actor_agent_id;
-  // Observation is claim-neutral, not lease acquisition or execution. Never
-  // infer a delegated actor or turn an existing execution lease into permission.
-  if (!actor || !input.registered_agents.includes(actor)) throw new Error("Monitor observation requires a registered actor");
-  if (Array.isArray(monitor.excluded_agents) && monitor.excluded_agents.includes(actor)) throw new Error("Monitor actor is excluded");
-  if (monitor.bound_agent && monitor.bound_agent !== actor) throw new Error("Monitor bound agent mismatch");
-  if (monitor.claimed_by && monitor.claimed_by !== actor) throw new Error("Monitor claim owner mismatch");
-  const lease = indexed.leases.get(String(monitor.todo_id));
-  const mode = requireStringLiteral(head.handoff_mode ?? "legacy", HANDOFF_MODES, "canonical handoff_mode");
-  if (lease !== undefined || mode === "hard_lease" || input.lease_proof != null) {
-    if (mode === "soft_claim") throw new Error("soft_claim forbids lease-backed Monitor observation");
-    const fence = evaluateCanonicalTaskLeaseProof({todo: monitor, lease, handoff_mode: mode,
-      actor_agent_id: actor, registered_agents: input.registered_agents,
-      lease_idempotency_key: input.lease_proof?.idempotency_key ?? null,
-      lease_expected_version: input.lease_proof?.expected_version ?? null, now: input.now});
-    if (fence.outcome !== "apply") throw new Error(`Monitor requires current lease proof: ${fence.code}`);
-    if (lease !== undefined && monitor.claimed_by !== actor) throw new Error("Leased Monitor observation requires the current claim owner");
-  }
+  const rejected = monitorMutationRejection({goal_id: input.goal_id, todo: monitor, lease: indexed.leases.get(String(monitor.todo_id)),
+    handoff_mode: head.handoff_mode, actor_agent_id: actor, registered_agents: input.registered_agents,
+    operation: "observe", proof: input.lease_proof, now: input.now});
+  if (rejected !== null) throw new Error(rejected.reason);
   const successorPlan = planMonitorSuccessor({schema_version: MONITOR_SUCCESSOR_REQUEST_SCHEMA,
     todo_id: monitor.todo_id, result_hash: observation.result_hash, source_task_repository: monitor.task_repository ?? null,
     intent: {...input.intent, material_change: observation.material_change}});

@@ -1,5 +1,6 @@
 /** Canonical edit decoding and materialization shared by ordinary updates and
  * User completion. Admission, validation effects and commits stay with callers. */
+import {decodeTaskLeaseProof} from "./task_lease_proof.ts";
 import {planTodoPriority} from "../todos/priority.ts";
 import type {JsonObject} from "../effect_program.ts";
 import {AuthorityStoreProtocolError, canonicalAuthorityObject, canonicalAuthorityBytes,
@@ -83,6 +84,10 @@ export function normalizeTodoUpdateInput(raw: CoordinationTodoUpdateInput): Coor
     requireAuthorityStoreId(field, `clear_fields[${index}]`));
   const observation = raw.monitor_observation === undefined ? undefined : decodeMonitorPollObservation(raw.monitor_observation);
   if (observation !== undefined) {
+    // Both public observation transports use the same proof decoder. A partial
+    // proof must never be collapsed to absence during admission.
+    decodeTaskLeaseProof(key === null && version === null ? null :
+      {idempotency_key: key, expected_version: version});
     if (completion !== undefined || Object.keys(patch).length || clearFields.length ||
         Object.keys(planningIntent).some(key => !["status", "reason", "no_followup"].includes(key)) ||
         (planningIntent.status != null && planningIntent.status !== "open") ||

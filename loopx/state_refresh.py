@@ -16,6 +16,9 @@ from .control_plane.work_items.delivery_batch_scale import (
 from .control_plane.work_items.delivery_outcome import (
     ACCOUNTABLE_DELIVERY_OUTCOMES,
     DELIVERY_OUTCOME_CHOICES as DELIVERY_OUTCOME_CHOICES,
+    TURN_SCOPED_SETTLEMENT_GAP_FALLBACK,
+    TURN_SCOPED_SETTLEMENT_REQUIREMENT,
+    explain_turn_scoped_settlement_gap,
     qualifies_turn_scoped_settlement,
     require_delivery_outcome,
 )
@@ -848,10 +851,23 @@ def refresh_state_run(
         work_item_id=todo_id,
         replan_obligation_id=normalized_replan_obligation_id,
     )
+    # A refusal has to name the typed input the writer still owes; the diagnosis
+    # is computed once and reused by both settlement guards below.
+    turn_scoped_settlement_gap = (
+        TURN_SCOPED_SETTLEMENT_GAP_FALLBACK
+        if turn_scoped_settlement_qualified
+        else explain_turn_scoped_settlement_gap(
+            normalized_delivery_outcome,
+            normalized_progress_observation,
+            work_item_id=todo_id,
+            replan_obligation_id=normalized_replan_obligation_id,
+        )
+        or TURN_SCOPED_SETTLEMENT_GAP_FALLBACK
+    )
     if delivery_workspace_path is not None and not turn_scoped_settlement_qualified:
         raise ValueError(
             "--delivery-workspace-path requires a progress outcome or a typed "
-            "blocked outcome_gap settlement"
+            "blocked outcome_gap settlement: " + turn_scoped_settlement_gap
         )
     registry = load_registry(registry_path)
     runtime_root = resolve_runtime_root(registry, runtime_root_override, registry_path=registry_path)
@@ -870,8 +886,7 @@ def refresh_state_run(
         if todo_id or normalized_replan_obligation_id or turn_instance_id:
             if not turn_scoped_settlement_qualified:
                 raise ValueError(
-                    "turn-scoped refresh-state requires a progress outcome or a typed "
-                    "blocked outcome_gap settlement"
+                    TURN_SCOPED_SETTLEMENT_REQUIREMENT + ": " + turn_scoped_settlement_gap
                 )
             settlement_readback = read_heartbeat_settlement(
                 runtime_root,

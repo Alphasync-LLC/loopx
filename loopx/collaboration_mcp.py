@@ -424,11 +424,36 @@ class Delegations:
                      "--registry", str(self.registry), "--goal-id", self.goal_id,
                      "--agent-id", self.agent_id, "--execution-config", str(self.config),
                      "--workspace", binding["workspace"], "--operation-id", operation_id]
+        native_tools: list[str] = []
+        if turn_host_arg_option(binding["host_args"], "--host") == "codex-cli":
+            mcp_server = {
+                "schema_version": "codex_stdio_mcp_server_v0",
+                "name": "loopx_delegation",
+                "command": [
+                    sys.executable,
+                    "-m",
+                    "loopx.collaboration_mcp",
+                    "--runtime-root",
+                    str(self.root),
+                    "--registry",
+                    str(self.registry),
+                    "--goal-id",
+                    self.goal_id,
+                    "--agent-id",
+                    binding["agent_id"],
+                    "--workspace",
+                    binding["workspace"],
+                    "--execution-config",
+                    str(self.config),
+                ],
+            }
+            native_tools = ["--codex-mcp-server-json", json.dumps(mcp_server)]
         return ["--execution-mode", "isolated-headless", "--project", binding["workspace"],
                      "--scan-root", binding["workspace"], "--no-global-sync",
                      "--timeout-seconds", str(binding["timeout_seconds"]),
                      "--validation-command-json", json.dumps(validator),
-                     "--validation-failure-kind", "repair_required", *binding["host_args"]]
+                     "--validation-failure-kind", "repair_required", *native_tools,
+                     *binding["host_args"]]
 
     def _execute(self, path: Path, row: dict, binding: dict) -> None:
         request_id = row["identity"]["request_id"]
