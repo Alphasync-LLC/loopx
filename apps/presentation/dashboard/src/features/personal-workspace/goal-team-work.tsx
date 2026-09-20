@@ -2,6 +2,7 @@ import {useEffect, useRef, useState} from "react";
 import {fetchLoopXTeamWork, inspectLoopXMember, delegationStateLabel, type LoopXModeSnapshot, type DelegationInventory, type DelegationPreflight} from "../../data/chat";
 
 import {GoalTeamEvidence} from "./goal-team-evidence";
+import {DelegationPreflightStatus} from "./delegation-preflight-status";
 
 type Member = {id: string; agent_id: string; todo_id: string};
 
@@ -43,11 +44,6 @@ export function GoalTeamWork({sessionId, members, zh, canMessage, ingress}: {ses
       if (current === generation.current) setError(failure instanceof Error ? failure.message : String(failure));
     } finally {if (current === generation.current) setBusy(false);}
   }
-  const labels: Record<DelegationPreflight["state"], string> = zh ? {
-    turn_blocked: "当前任务未获准执行", acceptance_unavailable: "缺少有效验收绑定",
-    runtime_unavailable: "运行时不可用", runtime_unverified: "运行时可用性尚未验证", launchable: "本机启动条件已满足",
-  } : {turn_blocked: "Task admission blocked", acceptance_unavailable: "Acceptance binding unavailable",
-    runtime_unavailable: "Runtime unavailable", runtime_unverified: "Runtime availability unverified", launchable: "Local launch prerequisites met"};
   if (selected) return <div className="goal-team-work">
     <button ref={backButton} type="button" onClick={() => setSelected(null)}>{zh ? "返回执行列表" : "Back to executions"}</button>
     <GoalTeamEvidence key={`${sessionId}:${selected}`} sessionId={sessionId} operationId={selected} zh={zh} canMessage={canMessage} ingress={ingress} onInspect={setSelected}/>
@@ -59,11 +55,8 @@ export function GoalTeamWork({sessionId, members, zh, canMessage, ingress}: {ses
       <ul className="goal-team-bindings">{members.map(member => <li key={member.id}>
         <div><strong>{member.agent_id}</strong>
           <button type="button" disabled={busy} onClick={() => void inspect(member.id)}>{zh ? "检查启动条件" : "Check prerequisites"}</button></div>
-        <details><summary>{zh ? "任务与执行配置" : "Task and execution details"}</summary><code>{member.todo_id}</code>{checks[member.id]?.executor.profile ? <code>{checks[member.id].executor.profile}</code> : null}</details>
-        {checks[member.id] ? <p role="status">{labels[checks[member.id].state] ?? (zh ? "状态未知" : "Unknown")}
-          {" · "}{checks[member.id].executor.host}{checks[member.id].executor.reason ? ` · ${checks[member.id].executor.reason}` : ""}
-
-          {" · "}{zh ? "不代表正在执行" : "Does not mean executing"}</p> : null}
+        <details><summary>{zh ? "任务与执行配置" : "Task and execution details"}</summary><code>{member.todo_id}</code>{checks[member.id]?.executor?.profile ? <code>{checks[member.id]?.executor?.profile}</code> : null}</details>
+        {checks[member.id] ? <DelegationPreflightStatus check={checks[member.id]} zh={zh}/> : null}
       </li>)}</ul>
       <div className="goal-team-work-actions"><strong>{zh ? "此协调身份的持久工作" : "Durable work for this coordinator"}</strong>
         <button type="button" disabled={busy} onClick={() => {setChecks({}); void read();}}>{zh ? "重新核验" : "Refresh"}</button>
