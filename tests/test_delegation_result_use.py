@@ -3,6 +3,7 @@ import asyncio
 import json
 import subprocess
 import sys
+import time
 
 import pytest
 from mcp import ClientSession, StdioServerParameters
@@ -12,6 +13,55 @@ from loopx.collaboration_mcp import Delegations
 from test_local_delegation import brief, service as delegation_service, wait
 
 service = delegation_service
+
+
+def test_version_bound_retry_reads_existing_operation_after_input_changes(service):
+    root, runner = service
+    config = json.loads(runner.config.read_text())
+    consumer = {**config["bindings"][0], "id": "synthesis", "agent_id": "reviewer",
+                "todo_id": "todo_reviewer-corrected", "workspace": str(root / "reviewer/corrected")}
+    config["bindings"].append(consumer)
+    runner.config.write_text(json.dumps(config))
+
+    runner.start("analysis", "analysis-1", brief())
+    source = wait(runner)
+    artifact = source["artifacts"][0]
+    consumer_input = root / "reviewer/corrected/accepted-input.json"
+    consumer_input.write_text(artifact["text"])
+    dependency = {"ref": "accepted-input.json", "description": "Accepted analysis for synthesis",
+                  "sha256": artifact["sha256"], "delegation": {
+                      "operation_id": "analysis-1", "ref": artifact["ref"], "relation": "uses"}}
+    request = {**brief(), "inputs": [dependency]}
+
+    (root / "hold").touch()
+    first = runner.start("synthesis", "synthesis-1", request)
+    deadline = time.monotonic() + 45
+    while not (root / "host-started").exists() and time.monotonic() < deadline:
+        time.sleep(0.1)
+    assert (root / "host-started").exists(), runner.read("synthesis-1")
+
+    consumer_input.write_text("{}")
+    replay = runner.start("synthesis", "synthesis-1", request)
+    assert replay["request_id"] == first["request_id"]
+    assert replay["dependencies"] == [{**dependency["delegation"], "sha256": artifact["sha256"],
+                                        "input_ref": dependency["ref"], "state": "unavailable"}]
+    assert (root / "reviewer/corrected/host-invocations").read_text() == "1"
+    with pytest.raises(ValueError, match="operation identity conflict"):
+        runner.start("synthesis", "synthesis-1", {**request, "purpose": "Changed instruction"})
+    with pytest.raises(ValueError, match="input version unavailable"):
+        runner.start("synthesis", "synthesis-2", request)
+    assert not runner.path("synthesis-2").exists()
+
+    (root / "release").touch()
+    deadline = time.monotonic() + 100
+    while time.monotonic() < deadline:
+        final = runner.read("synthesis-1")
+        if not final["worker_active"] and final.get("error"):
+            break
+        time.sleep(0.25)
+    assert "input version unavailable" in final.get("error", ""), final
+    assert final["status"] == "turn_returned"
+    assert (root / "reviewer/corrected/host-invocations").read_text() == "1"
 
 
 def test_result_use_requires_exact_accepted_input_and_survives_reconnect(service):
