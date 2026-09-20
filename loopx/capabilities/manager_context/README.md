@@ -182,6 +182,10 @@ the registered sources for it (`inline_in_prompt`) and adds a
   `source_freshness: "stale"` with `remote_source_rows_are_stale` in
   `limitations`, so stale remote state is never presented as current progress and
   a failure is never read as no progress;
+- the interactive point-read path applies the same rule to a failed portfolio
+  read: `last_success_at`, the cached window and `stale_portfolio_rows` remain
+  visible beside the typed failure, while `rows` stays empty so stale evidence
+  cannot be mistaken for the requested current page;
 - cache entries are keyed by host, window and the exact grant scope, so a changed
   grant or window re-reads instead of answering from a narrower cached read.
 - the declaration and the read use the same SSH configuration, so one packet
