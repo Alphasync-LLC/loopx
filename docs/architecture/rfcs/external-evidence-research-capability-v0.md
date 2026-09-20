@@ -39,15 +39,17 @@ evidence coverage.
 
 Provider execution stays with the existing method or connector owner. Core's
 `receipt` boundary validates the returned identity and provenance against the
-exact ready plan, records that execution was observed, and still does not claim
-evidence completeness, admission, or automatic promotion. Failure and empty
-evidence remain fail-open to the caller's original-source path.
+exact ready plan and records that a caller-presented receipt was observed. It
+does not attest that provider execution occurred, or claim evidence
+completeness, admission, or automatic promotion. Failure and empty evidence
+remain fail-open to the caller's original-source path.
 
 The plan carries a content-addressed `plan_id` over its normalized request,
 provider candidates, selected ready provider, and execution envelope. The
 provider receipt must echo that `plan_id`; Core reconstructs the canonical plan
-and verifies the digest before it can report observed execution or admission.
-The digest detects semantic plan mutation but grants no provider authority.
+and verifies the digest before it can report the receipt observation or
+admission. The digest detects semantic plan mutation but grants no provider
+authority and is not a provider attestation.
 
 The receipt binds that exact plan, completion time, and a digest over the
 complete receipt. Each admitted source has a direct non-file
@@ -57,7 +59,9 @@ content digest. Raw provider content is never part of the Core projection.
 
 The parent agent explicitly admits or rejects evidence. Rejection can retire;
 admission remains retained until downstream readback covers every admitted
-source reference.
+source reference. The admission id content-addresses the complete normalized
+admission and downstream projection; retirement reconstructs and verifies that
+identity before evaluating coverage.
 
 ## Ownership and TypeScript migration
 
@@ -86,12 +90,14 @@ inventory-only row for the same provider id.
   claiming execution or evidence coverage;
 - method and connector providers use one protocol and receipt contract;
 - an observed provider receipt is bound to the exact plan without implying
-  evidence coverage, admission, or promotion;
+  authenticated execution, evidence coverage, admission, or promotion;
 - mutation of the request objective, decision, constraints, provider readiness,
   or execution envelope fails canonical `plan_id` verification;
 - stale request/provider identity, file provenance, and unsupported evidence
   basis fail closed;
 - admitted source refs are a subset of receipt sources;
+- retirement rejects mutated disposition, source, or downstream projection
+  fields whose complete admission identity no longer matches;
 - retirement waits for downstream coverage of every admitted source;
 - CLI and effect-runtime TypeScript tests pass from the source checkout.
 

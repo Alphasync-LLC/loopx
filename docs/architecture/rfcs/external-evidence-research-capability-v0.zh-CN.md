@@ -31,20 +31,22 @@ ready provider id，并携带显式真值合同：registry presence 与 `support
 readiness，discovery 本身既不证明 provider 已执行，也不证明已有证据覆盖。
 
 Provider 执行仍归既有 method 或 connector owner。Core 的 `receipt` 边界把返回身份和
-provenance 与精确 ready plan 绑定，记录“执行已观察”，但仍不宣称证据完整、已被采纳
-或可自动晋升。执行失败或空证据时，对 caller 的原始来源路径保持 fail-open。
+provenance 与精确 ready plan 绑定，只记录“已观察到 caller 提交的 receipt”，并不证明
+provider 真实执行，也不宣称证据完整、已被采纳或可自动晋升。执行失败或空证据时，
+对 caller 的原始来源路径保持 fail-open。
 
 plan 通过内容寻址的 `plan_id` 绑定规范化请求、provider candidates、已选 ready
 provider 与 execution envelope。provider 回执必须回传该 `plan_id`；Core 只有重建
-canonical plan 并验证 digest 后，才能报告“执行已观察”或进入准入。该 digest 能检测
-plan 语义被改写，但不授予任何 provider 权限。
+canonical plan 并验证 digest 后，才能报告 receipt observation 或进入准入。该 digest
+能检测 plan 语义被改写，但不授予任何 provider 权限，也不构成 provider attestation。
 
 回执绑定该精确 plan、完成时间与完整回执 digest。每条被采纳来源都包含直接且非文件型引用、来源
 家族、证据基础（`stated`、`observed`、`tested` 或 `inferred`）、发现、局限、相关
 日期和内容摘要。Core 投影永不携带 provider 原始内容。
 
 父 Agent 必须显式采纳或拒绝。拒绝后可以退休；采纳后必须等下游读回覆盖全部被采纳
-source ref，才能退休。
+source ref，才能退休。admission id 对完整规范化 admission 与下游投影做内容寻址；
+retirement 必须重建并验证该身份后，才可判断覆盖。
 
 ## 所有权与 TypeScript 迁移
 
@@ -67,11 +69,13 @@ Connector registry 继续只拥有库存与遥测。`supported` 绝不映射为 
 - inventory-only connector 不可被选择；
 - discovery 能区分 empty、inventory-only 与 ready 库存，且不冒充执行或证据覆盖；
 - method 与 connector provider 使用同一协议与回执；
-- 已观察 provider 回执必须绑定精确 plan，且不得冒充证据覆盖、采纳或晋升；
+- 已观察 provider 回执必须绑定精确 plan，且不得冒充经认证的执行、证据覆盖、采纳或晋升；
 - 请求目标、决策、约束、provider readiness 或 execution envelope 被改写时，
   canonical `plan_id` 验证必须 fail closed；
 - 过期请求/provider 身份、文件 provenance、未知证据基础均 fail closed；
 - 被采纳 source ref 必须是回执来源的子集；
+- disposition、来源或下游投影被改写而与完整 admission identity 不一致时，retirement
+  必须 fail closed；
 - 全部被采纳来源完成下游覆盖前不得退休；
 - CLI 与 effect-runtime TypeScript 测试在源码 checkout 中通过。
 
