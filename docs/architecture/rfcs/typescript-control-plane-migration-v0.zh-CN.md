@@ -627,7 +627,11 @@ evidence/handoff 的脱敏展示。明确的语义修正：successor 谱系不�
 
 Lease inspect 在 promotion 后从同一 canonical revision 读取 Todo、lease 与
 handoff mode；canonical 无租约不复活本地旧文件，provider 失败不回退 Markdown。
-结果携带 provider revision，读取不修复展示、不修改租约；未 promotion 的来源契约保留。
+结果携带 provider revision，读取不修复展示、不修改租约。两条路径现由
+`task_lease_inspection.ts` 统一时间与资格解释，Python 仅投递绑定来源的注册／legacy
+事实和响应；诊断字段复用 TS 拒绝规则。归档 Todo 不产生有效租约，active 到期时间
+损坏明确报错，来源变化有界重试。未晋升存储保持原状，错误语义变更见
+[检查合同](../../reference/canonical-lease-renew.md#what-inspection-proves)。
 `task_lease_eligibility.ts` 同时替代 Python authority core 和三处 TS owner 资格判断，
 供 acquire、lifecycle 与终态 fence 复用。当前租约是否有效由 acquire 内部根据同一输入
 的 owner/claim/exclusion/注册事实推导，不再由旧 `effective` 派生提示覆盖。

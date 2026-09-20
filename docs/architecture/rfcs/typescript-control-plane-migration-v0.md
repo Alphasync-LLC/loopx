@@ -825,8 +825,13 @@ boundary, not all graph source delivery or the remaining T1–T4 work.
 Lease inspection now consumes one canonical Todo/lease/handoff-mode revision
 after promotion; an absent canonical lease does not revive a local lease file,
 and provider failure cannot fall back to Markdown. The read reports its provider
-revision without repairing display or changing the lease. Unpromoted inspection
-retains its legacy source contract. The shared `task_lease_eligibility.ts` owner
+revision without repairing display or changing the lease. Both routes now use
+`task_lease_inspection.ts` for time and eligibility interpretation; Python only
+projects source-bound registration/legacy facts and transports the response.
+Diagnostics reuse the TS rejection owner, including archived-Todo eligibility,
+strict active expiry and bounded source-change retry. Unpromoted storage stays
+unchanged; malformed active expiry intentionally becomes a visible error. See
+[inspection semantics](../../reference/canonical-lease-renew.md#what-inspection-proves). The shared `task_lease_eligibility.ts` owner
 also replaces the Python authority-core and three TS owner-eligibility copies
 used by acquire, lifecycle and terminal fencing. Current-lease effectiveness is
 derived inside acquire from the supplied owner/claim/exclusion/registration facts,
