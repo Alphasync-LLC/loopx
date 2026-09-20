@@ -18,6 +18,7 @@ from .experiment import (
     resolve_reward_memory_experiment,
     resolve_reward_memory_surface_config,
 )
+from .experience_quality import normalize_procedural_experience
 from .runtime_hooks import run_reward_memory_automatic_ingest_hook
 from .scoped_feedback import (
     SCOPED_FEEDBACK_ADAPTER,
@@ -26,7 +27,8 @@ from .scoped_feedback import (
 )
 
 
-TURN_REWARD_MEMORY_REFLECTION_SCHEMA_VERSION = "turn_reward_memory_reflection_v0"
+TURN_REWARD_MEMORY_REFLECTION_SCHEMA_VERSION = "turn_reward_memory_reflection_v1"
+LEGACY_TURN_REWARD_MEMORY_REFLECTION_SCHEMA_VERSION = "turn_reward_memory_reflection_v0"
 TURN_REWARD_MEMORY_INGEST_SCHEMA_VERSION = "turn_reward_memory_ingest_v0"
 TURN_REWARD_MEMORY_RECONCILIATION_SCHEMA_VERSION = (
     "turn_reward_memory_reconciliation_v0"
@@ -37,6 +39,7 @@ _PENDING_PROVIDER_STATUSES = {
     "committed_pending",
     "provider_unavailable",
     "readback_unverified",
+    "recall_unverified",
 }
 _OUTCOME_SOURCE_KINDS = {
     "research": "research_review",
@@ -44,7 +47,7 @@ _OUTCOME_SOURCE_KINDS = {
     "real": "real_outcome_review",
     "engineering": "engineering_review",
 }
-_REFLECTION_FIELDS = {
+_LEGACY_REFLECTION_FIELDS = {
     "schema_version",
     "status",
     "surface_id",
@@ -54,6 +57,7 @@ _REFLECTION_FIELDS = {
     "confidence",
     "evidence_refs",
 }
+_REFLECTION_FIELDS = _LEGACY_REFLECTION_FIELDS | {"experience"}
 
 
 def _base(
@@ -129,8 +133,7 @@ def _load_sidecar(path: Path) -> dict[str, Any] | None:
         raise ValueError("reward memory outcome sidecar is unreadable") from exc
     if (
         not isinstance(payload, dict)
-        or payload.get("schema_version")
-        != TURN_REWARD_MEMORY_SIDECAR_SCHEMA_VERSION
+        or payload.get("schema_version") != TURN_REWARD_MEMORY_SIDECAR_SCHEMA_VERSION
     ):
         raise ValueError("reward memory outcome sidecar is invalid")
     return payload
@@ -177,19 +180,33 @@ def _reflection(value: object) -> dict[str, Any] | None:
         raw = json.loads(text)
     except json.JSONDecodeError as exc:
         raise ValueError("reward memory reflection must be JSON") from exc
-    if not isinstance(raw, dict) or set(raw) - _REFLECTION_FIELDS:
+    if not isinstance(raw, dict):
+        raise ValueError("reward memory reflection must decode to an object")
+    schema_version = raw.get("schema_version")
+    allowed_fields = (
+        _LEGACY_REFLECTION_FIELDS
+        if schema_version == LEGACY_TURN_REWARD_MEMORY_REFLECTION_SCHEMA_VERSION
+        else _REFLECTION_FIELDS
+    )
+    if set(raw) - allowed_fields:
         raise ValueError("reward memory reflection contains unsupported fields")
-    if raw.get("schema_version") != TURN_REWARD_MEMORY_REFLECTION_SCHEMA_VERSION:
+    if schema_version not in {
+        LEGACY_TURN_REWARD_MEMORY_REFLECTION_SCHEMA_VERSION,
+        TURN_REWARD_MEMORY_REFLECTION_SCHEMA_VERSION,
+    }:
         raise ValueError("reward memory reflection schema is unsupported")
     status = str(raw.get("status") or "")
     if status == "no_evidence":
         return {"schema_version": raw["schema_version"], "status": status}
     if status != "eligible":
         raise ValueError("reward memory reflection status is unsupported")
+    if schema_version == LEGACY_TURN_REWARD_MEMORY_REFLECTION_SCHEMA_VERSION:
+        return {
+            "schema_version": schema_version,
+            "status": "legacy_no_write",
+        }
     surface_id = public_safe_compact_text(raw.get("surface_id"), limit=160)
-    content_summary = public_safe_compact_text(
-        raw.get("content_summary"), limit=500
-    )
+    content_summary = public_safe_compact_text(raw.get("content_summary"), limit=500)
     reasoning_summary = public_safe_compact_text(
         raw.get("reasoning_summary"), limit=500
     )
@@ -214,6 +231,11 @@ def _reflection(value: object) -> dict[str, Any] | None:
         compact_refs.append(ref)
     if len(set(compact_refs)) != len(compact_refs):
         raise ValueError("reward memory evidence refs must be unique")
+    experience = normalize_procedural_experience(raw.get("experience"))
+    if experience["evidence_refs"] != compact_refs:
+        raise ValueError(
+            "experience.evidence_refs must match the validated reflection evidence_refs"
+        )
     return {
         "schema_version": raw["schema_version"],
         "status": status,
@@ -223,6 +245,7 @@ def _reflection(value: object) -> dict[str, Any] | None:
         "reasoning_summary": reasoning_summary,
         "confidence": confidence,
         "evidence_refs": compact_refs,
+        "experience": experience,
     }
 
 
@@ -273,8 +296,7 @@ def _validated_reflection_evidence(
     if not isinstance(validation, Mapping):
         return None
     if (
-        validation.get("schema_version")
-        != "reward_memory_reflection_validation_v0"
+        validation.get("schema_version") != "reward_memory_reflection_validation_v0"
         or validation.get("status") != "validated"
         or validation.get("reflection_digest") != _reflection_digest(reflection_json)
         or validation.get("evidence_refs") != reflection.get("evidence_refs")
@@ -294,7 +316,7 @@ def _event_scope(
     *,
     surface_id: str,
     agent_id: str,
-) -> tuple[dict[str, Any], str]:
+) -> tuple[dict[str, Any], Mapping[str, Any]]:
     route = resolve_reward_memory_surface_config(
         config,
         surface_id,
@@ -311,7 +333,7 @@ def _event_scope(
         "user_ref": scope.get("user_ref"),
         "peer_ref": peer_ref,
         "session_ref": scope.get("session_ref"),
-    }, str(route["standing_policy"]["policy_id"])
+    }, route
 
 
 def run_configured_turn_outcome_ingest(
@@ -347,19 +369,28 @@ def run_configured_turn_outcome_ingest(
             reason_code="automatic_ingest_explicitly_disabled",
         )
     reflection = _reflection(host_result.get("reward_memory_reflection_json"))
-    if reflection is None or reflection["status"] == "no_evidence":
+    if reflection is None or reflection["status"] in {
+        "no_evidence",
+        "legacy_no_write",
+    }:
+        legacy = reflection is not None and reflection["status"] == "legacy_no_write"
         return _base(
             goal_id=goal_id,
             agent_id=agent_id,
             status="no_eligible_evidence",
-            reason_code="validated_turn_declared_no_reward_evidence",
+            reason_code=(
+                "legacy_reflection_requires_transferable_experience"
+                if legacy
+                else "validated_turn_declared_no_reward_evidence"
+            ),
         ) | {"automatic_ingest": True}
     surface_id = str(reflection["surface_id"])
-    scope, policy_id = _event_scope(
+    scope, route = _event_scope(
         config,
         surface_id=surface_id,
         agent_id=agent_id,
     )
+    policy_id = str(route["standing_policy"]["policy_id"])
     evidence_digest = hashlib.sha256(
         json.dumps(
             reflection["evidence_refs"],
@@ -380,8 +411,9 @@ def run_configured_turn_outcome_ingest(
         **scope,
         "surface_id": surface_id,
         "revision_ref": turn_key,
-        "target_class": "soft_preference",
+        "target_class": str(route["corpus"]["class_id"]),
         "content_summary": reflection["content_summary"],
+        "experience": reflection["experience"],
         "source": {
             "source_kind": _OUTCOME_SOURCE_KINDS[reflection["outcome_kind"]],
             "source_ref": source_ref,
@@ -486,9 +518,7 @@ def run_configured_turn_outcome_ingest(
         else (previous or {}).get("settlement_validation")
     )
     settlement_validation = (
-        settlement_validation
-        if isinstance(settlement_validation, Mapping)
-        else {}
+        settlement_validation if isinstance(settlement_validation, Mapping) else {}
     )
     attempt_count = int((previous or {}).get("attempt_count") or 0) + 1
     pending_sidecar = {
@@ -536,6 +566,10 @@ def run_configured_turn_outcome_ingest(
     guard = receipt.get("guard")
     guard = guard if isinstance(guard, Mapping) else {}
     guard_reason_codes = guard.get("reason_codes")
+    destination_recall = receipt.get("destination_recall")
+    destination_recall = (
+        destination_recall if isinstance(destination_recall, Mapping) else {}
+    )
     public_receipt = _base(
         goal_id=goal_id,
         agent_id=agent_id,
@@ -552,11 +586,16 @@ def run_configured_turn_outcome_ingest(
         "surface_id": surface_id,
         "source_event_id": source_event_id,
         "provider_sync_count": int(telemetry.get("provider_sync_count") or 0),
-        "exact_readback_verified": bool(
-            telemetry.get("exact_readback_verified")
-        ),
+        "exact_readback_verified": bool(telemetry.get("exact_readback_verified")),
         "deduplicated": bool(telemetry.get("deduplicated")),
         "external_writes_performed": bool(result.get("external_writes_performed")),
+        "experience_quality": dict(receipt.get("experience_quality") or {}),
+        "destination_recall": {
+            "required": bool(destination_recall.get("required")),
+            "verified": bool(destination_recall.get("verified")),
+            "query_kind": destination_recall.get("query_kind"),
+            "experience_digest": destination_recall.get("experience_digest"),
+        },
     }
     reconciliation_state = (
         "completed"
@@ -665,9 +704,7 @@ def reconcile_pending_turn_outcome_ingests(
                 "task_validation": {
                     "ok": True,
                     "validator_kind": str(
-                        (value.get("reflection_validation") or {}).get(
-                            "validator_kind"
-                        )
+                        (value.get("reflection_validation") or {}).get("validator_kind")
                         or "reconciliation"
                     ),
                     "reward_memory_reflection_validation": dict(
@@ -675,12 +712,10 @@ def reconcile_pending_turn_outcome_ingests(
                     ),
                 },
                 "writeback": dict(
-                    (value.get("settlement_validation") or {}).get("writeback")
-                    or {}
+                    (value.get("settlement_validation") or {}).get("writeback") or {}
                 ),
                 "quota_spend": dict(
-                    (value.get("settlement_validation") or {}).get("quota_spend")
-                    or {}
+                    (value.get("settlement_validation") or {}).get("quota_spend") or {}
                 ),
             },
             provider=provider,
@@ -691,8 +726,7 @@ def reconcile_pending_turn_outcome_ingests(
         "pending_count": len(pending),
         "attempted_count": len(receipts),
         "completed_count": sum(
-            receipt.get("reconciliation_state") == "completed"
-            for receipt in receipts
+            receipt.get("reconciliation_state") == "completed" for receipt in receipts
         ),
         "provider_sync_count": sum(
             int(receipt.get("provider_sync_count") or 0) for receipt in receipts
