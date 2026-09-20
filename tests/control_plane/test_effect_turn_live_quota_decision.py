@@ -965,3 +965,53 @@ def test_current_quota_outputs_retire_packet_without_losing_signed_actions(
         assert envelope["writeback"]["spend_allowed_now"] is False
     if required_reads:
         assert payload["interaction_contract"]["agent_channel"]["required_reads"]
+
+
+def test_packet_retirement_preserves_reads_and_independent_capability_command(tmp_path: Path) -> None:
+    from loopx.control_plane.capability_hooks import (
+        InteractionProjectionHookRegistration,
+        INTERACTION_PROJECTION_HOOK_RESULT_SCHEMA_VERSION,
+    )
+    from loopx.control_plane.quota.turn_envelope import build_turn_envelope
+    from loopx.control_plane.turn_driver.host_candidate import extract_turn_authority
+
+    command = f"loopx periodic-report consume-pending --goal-id {GOAL_ID} --agent-id fixture-agent --execute"
+    hook = InteractionProjectionHookRegistration(
+        hook_id="periodic_report.pending_intent", capability_id="periodic-report",
+        projection_slots=("pending_capability_intent",),
+        requested_read_scope=("post_writeback_intent_journal",),
+        producer=lambda: {
+            "schema_version": INTERACTION_PROJECTION_HOOK_RESULT_SCHEMA_VERSION,
+            "hook_id": "periodic_report.pending_intent", "capability_id": "periodic-report",
+            "phase": "interaction_projection", "status": "candidate",
+            "projection_slot": "pending_capability_intent",
+            "payload": {
+                "schema_version": "pending_capability_intent_projection_v0",
+                "capability_id": "periodic-report", "intent_kind": "periodic_report.trigger_evaluation",
+                "idempotency_key": "periodic-report:fixture", "intent_digest": "sha256:" + "a" * 64,
+                "goal_id": GOAL_ID, "agent_id": "fixture-agent", "state": "pending",
+                "action_kind": "consume_periodic_report_intent", "action_summary": "Generate the exact report.",
+                "command": command, "generation_authorized": True,
+                "external_delivery_authorized": True, "agent_read_required": True,
+            },
+        },
+    )
+    payload = build_live_quota_should_run_decision(
+        _ordinary_status_payload(), goal_id=GOAL_ID, agent_id=None,
+        available_capabilities=["shell"], include_scheduler_detail=False,
+        codex_app_current_rrule=None, registry_path=tmp_path / "registry.json",
+        runtime_root=tmp_path / "runtime", interaction_projection_hooks=[hook],
+        turn_start_hook_dispatch=_turn_start_dispatch(),
+    )
+    assert "protocol_action_packet" not in payload
+    assert payload["effective_action"] == "governed_capability_intent"
+    assert payload["normal_delivery_allowed"] is False
+    contract = payload["interaction_contract"]
+    assert contract["cli_channel"]["next_cli_actions"] == [command]
+    assert contract["agent_channel"]["required_reads"]
+    envelope = build_turn_envelope(payload)
+    assert "protocol_action_packet" not in envelope["contract_capsule"]
+    authority = extract_turn_authority({"turn_envelope": envelope})
+    assert authority["primary_action"] == "Generate the exact report."
+    assert envelope["writeback"]["next_cli_actions"] == [command]
+    assert authority["required_reads"]
