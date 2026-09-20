@@ -119,6 +119,7 @@ import {
 import {
   projectQuotaActionPortfolio,
   qualifyActionSelection,
+  reconcileRetainedActionSelection,
 } from "./work_items/action_portfolio.ts";
 import { projectQuotaPlanningHorizon } from "./work_items/planning_horizon.ts";
 import { projectTaskGraphTopology } from "./work_items/task_graph.ts";
@@ -459,6 +460,10 @@ export function createEffectRuntimeHandlers(
     ["turn.delivery_route.evaluate", evaluateDeliveryRoute],
     ["work_item.action_portfolio.project", projectQuotaActionPortfolio],
     ["work_item.action_selection.qualify", qualifyActionSelection],
+    [
+      "work_item.action_selection.reconcile_retained",
+      reconcileRetainedActionSelection,
+    ],
     ["work_item.planning_horizon.project", projectQuotaPlanningHorizon],
     ["work_item.task_graph.topology", projectTaskGraphTopology],
     ["work_item.planning_inventory.project", projectTodoPlanningInventory],
@@ -697,6 +702,8 @@ export function createEffectRuntimeHandlers(
             "binding_kind",
             "binding_kind has an unsupported settlement binding kind",
           ),
+        writeback_completes_binding:
+          params.writeback_completes_binding === true,
         completion_receipt_present: params.completion_receipt_present === true,
         durable_writeback_present: params.durable_writeback_present === true,
         quota_spend_present: params.quota_spend_present === true,
