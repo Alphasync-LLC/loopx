@@ -74,6 +74,32 @@ workspace、Codex Session 与持久 delegation operation。`delegation inspect` 
 规划投影会读回例如 `gpt-5.6-sol@xhigh`，start/resume 也把同一配置送入原 Session。
 这不扩大 requester grant，也不把 profile 冒充验收或结果返回回执。
 
+For a Codex binding, the delegation host also supplies one invocation-scoped
+`loopx_delegation` stdio MCP server to every fresh or resumed worker Session.
+Its command pins the selected worker `agent_id`, workspace, Goal, registry,
+runtime and operator execution configuration before Codex starts. The model
+cannot select or rewrite those values. Codex receives the server through
+per-invocation configuration, so LoopX does not modify the user's global Codex
+MCP settings and a resumed worker keeps the same binding. The server is required
+for this managed worker route and its already identity-scoped tools are approved
+inside that route; failure to start the server rejects the Turn instead of
+silently continuing without tools. The native tools are
+the collaboration and authorized delegation operations from that bound server;
+they do not add shell, Todo or external-action authority.
+
+The shell commands below remain the compatibility path for an already running
+Agent Session, a host without MCP support, or an operator who deliberately uses
+shell-only coordination. Both surfaces call the same `Delegations` service and
+preserve the same binding, operation and acceptance rules; the shell path is
+not a second control-plane implementation.
+
+中文：Codex binding 会为每个新建或续接的 worker Session 注入一次调用范围内的
+`loopx_delegation` stdio MCP server。启动前，host 已固定 worker `agent_id`、
+workspace、Goal、registry、runtime 与 operator execution configuration；模型不能
+选择或改写这些值。该配置不会修改用户的全局 Codex MCP 设置，也不会授予 shell、
+Todo 或外部动作权限。下方 shell 命令继续作为既有 Session、无 MCP host 或显式
+shell-only 协调的兼容入口；两种入口复用同一个 `Delegations` 服务和同一套验收规则。
+
 ## Use an existing Agent conversation through its shell
 
 An attached Codex or other shell-capable Agent can use the same execution

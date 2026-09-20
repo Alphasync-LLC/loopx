@@ -995,6 +995,7 @@ def handle_turn_command(
                         sandbox=args.codex_sandbox,
                         model=args.codex_model,
                         reasoning_effort=args.codex_reasoning_effort,
+                        mcp_server=args.codex_mcp_server_json,
                         timeout_seconds=max(1.0, args.timeout_seconds - 5.0),
                     )
 
