@@ -1124,6 +1124,10 @@ def test_retained_selection_reentry_stays_packet_free_and_signed(
     assert payload["should_run"] is False
     assert "selected_todo" not in payload
     assert "protocol_action_packet" not in payload
+    interaction = payload["interaction_contract"]
+    assert interaction["mode"] == "skip"
+    assert interaction["agent_channel"]["must_attempt"] is False
+    assert interaction["agent_channel"]["delivery_allowed"] is False
 
     envelope = build_turn_envelope(payload)
     assert "protocol_action_packet" not in envelope["contract_capsule"]
@@ -1131,6 +1135,9 @@ def test_retained_selection_reentry_stays_packet_free_and_signed(
         turn_envelope_action_signature_document(envelope)
     )
     authority = extract_turn_authority({"turn_envelope": envelope})
-    assert authority["primary_action"] == payload["interaction_contract"][
-        "agent_channel"
-    ]["primary_action"]
+    assert authority["primary_action"] == interaction["agent_channel"][
+        "primary_action"
+    ]
+    assert authority["write_scope"] == []
+    assert envelope["writeback"]["spend_allowed_now"] is False
+    assert envelope["writeback"]["spend_after_validation"] is False
