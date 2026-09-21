@@ -39,6 +39,7 @@ from ..quota.goal_boundary import (
     quota_execution_profile_summary as _quota_execution_profile_summary,
 )
 from ..quota.heartbeat_recommendation import (
+    build_action_selection_recovery_recommendation,
     build_heartbeat_recommendation,
     refine_heartbeat_recommendation,
 )
@@ -102,9 +103,13 @@ from ..work_items.action_portfolio import (
     qualify_action_selection_from_inventory,
 )
 from ..work_items.execution_obligation import build_execution_obligation
+from ..work_items.action_selection_contract import (
+    apply_action_selection_recovery_projection,
+)
 from ..work_items.goal_route_hint import build_goal_route_hint
 from ..work_items.interaction_contract import (
     build_interaction_contract,
+    unadmitted_action_selection,
     build_protocol_action_packet,
     finalize_user_gate_notification_cooldown,
 )
@@ -366,6 +371,40 @@ def _apply_agent_monitor_only_precedence(
     clear_quota_action_projections(payload)
 
 
+def _apply_unadmitted_action_selection_precedence(
+    payload: dict[str, Any],
+    *,
+    replay_phase: ReceiptBoundReplayPhase | None,
+) -> None:
+    """Finalize one closed selection recovery before shared projections."""
+
+    if replay_phase is ReceiptBoundReplayPhase.SETTLED or not (
+        unadmitted_action_selection(payload)
+    ):
+        return
+    for field in (
+        "agent_lane_next_action",
+        "agent_scope_frontier",
+        "autonomous_replan_obligation",
+        "execution_profile",
+        "goal_route_hint",
+        "handoff_readiness",
+        "replan_action_packet",
+        "scoped_user_gate_fallback",
+        "selected_todo",
+        "task_orchestration_contract",
+        "todo_id",
+        "todo_write_hint",
+        "work_lane_contract",
+        "workspace_guard",
+    ):
+        payload.pop(field, None)
+    apply_action_selection_recovery_projection(payload)
+    payload["heartbeat_recommendation"] = (
+        build_action_selection_recovery_recommendation(
+            reason=str(payload.get("reason") or "")
+        )
+    )
 def _delivery_preemptions_for_route(
     prepared: _QuotaDecisionPreparation,
     *,
@@ -1310,12 +1349,8 @@ def _build_active_quota_payload(
         next_action_warning=route.next_action_warning,
         replan_obligation=prepared.replan_obligation,
     )
-    bounded_research_frontier = (
-        prepared.status_payload.get("bounded_research_frontier")
-        if isinstance(
-            prepared.status_payload.get("bounded_research_frontier"), dict
-        )
-        else None
+    bounded_research_frontier = _dict_field(
+        prepared.status_payload, "bounded_research_frontier"
     )
     _attach_truthy_fields(
         payload,
@@ -1326,7 +1361,13 @@ def _build_active_quota_payload(
         monitor_only=prepared.agent_monitor_only,
         inbox_priority_due=prepared.inbox_priority_due,
     )
-    if isinstance(payload.get("autonomous_replan_obligation"), dict):
+    _apply_unadmitted_action_selection_precedence(
+        payload,
+        replay_phase=prepared.receipt_bound_replay_phase,
+    )
+    if isinstance(
+        payload.get("autonomous_replan_obligation"), dict
+    ) and not unadmitted_action_selection(payload):
         payload["replan_action_packet"] = build_replan_action_packet(
             payload["autonomous_replan_obligation"],
             goal_id=prepared.safe_goal_id,
