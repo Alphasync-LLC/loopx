@@ -17,6 +17,7 @@ from .boundary_authority import (
 )
 from .capabilities.pr_review_queue import goal_configuration as pr_review_config
 from .capabilities.change_quality import goal_configuration as change_quality_config
+from .capabilities.progress_review import goal_configuration as progress_review_config
 from .capabilities.change_quality.policy import change_quality_goal_policy_summary
 from .capabilities.machine_configuration.builtins import (
     builtin_machine_inheritable_goal_overrides,
@@ -255,6 +256,7 @@ def _settings_summary(goal: dict[str, Any]) -> dict[str, Any]:
         "reward_memory": reward_memory_goal_configuration_summary(goal),
         "pull_request_review": pr_review_config.configuration_summary(goal),
         "change_quality_qualification": change_quality_goal_policy_summary(goal),
+        "progress_review": progress_review_config.configuration_summary(goal),
         "explore_graph": compact_explore_graph_policy(goal.get("explore_graph")),
         "orchestration": orchestration,
         "waiting_on": goal.get("waiting_on"),
@@ -440,6 +442,10 @@ def configure_goal(
     change_quality_safe_fix: bool | None = None,
     change_quality_strict_receipt: bool | None = None,
     clear_change_quality_configuration: bool = False,
+    progress_review_mode: str | None = None,
+    progress_review_signal: str | None = None,
+    progress_review_drift_threshold: int | None = None,
+    clear_progress_review_configuration: bool = False,
     multi_subagent_feature: str | None = None,
     orchestration_mode: str | None = None,
     spawn_allowed: bool | None = None,
@@ -690,6 +696,12 @@ def configure_goal(
         change_quality_strict_receipt,
         clear=clear_change_quality_configuration,
     )
+    progress_review_change = progress_review_config.normalize_change(
+        progress_review_mode,
+        progress_review_signal,
+        progress_review_drift_threshold,
+        clear=clear_progress_review_configuration,
+    )
     payload = read_json(registry_path)
     goals = registry_goals(payload)
     goal = next((item for item in goals if str(item.get("id")) == goal_id), None)
@@ -856,6 +868,7 @@ def configure_goal(
     periodic_report_config.apply_change(goal, periodic_report_change)
     pr_review_config.apply_change(goal, pull_request_review_configuration, clear=clear_pull_request_review_configuration)
     change_quality_config.apply_change(goal, change_quality_change)
+    progress_review_config.apply_change(goal, progress_review_change)
     if (
         issue_fix_reviewer_notification_config is not None
         or clear_issue_fix_reviewer_notification_config
@@ -1258,6 +1271,7 @@ def configure_goal(
         "reward_memory": reward_memory_goal_configuration_summary(goal),
         "pull_request_review": pr_review_config.configuration_summary(goal),
         "change_quality_qualification": change_quality_goal_policy_summary(goal),
+        "progress_review": progress_review_config.configuration_summary(goal),
         "default": "off",
         "configuration_entry": "multi_subagent_feature",
     }
