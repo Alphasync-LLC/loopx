@@ -883,6 +883,7 @@ def refresh_state_run(
         settlement_readback = None
         refresh_recovery = None
         prior_writeback_run = None
+        checkpoint_supplement = False
         if todo_id or normalized_replan_obligation_id or turn_instance_id:
             if not turn_scoped_settlement_qualified:
                 raise ValueError(
@@ -929,6 +930,9 @@ def refresh_state_run(
             if not refresh_recovery:
                 raise RuntimeError("settlement readback omitted refresh recovery admission")
             prior_writeback_run = settlement_readback.writeback_run
+            checkpoint_supplement = bool(
+                refresh_recovery["decision"] == "supplement_checkpoint"
+            )
             recovery_payload = refresh_recovery_payload(
                 settlement_readback, registry_path=registry_path, runtime_root=runtime_root,
                 goal_id=safe_goal_id, dry_run=dry_run,
@@ -1122,7 +1126,16 @@ def refresh_state_run(
         effective_autonomous_replan_recorded = (
             replan_qualification.autonomous_replan_recorded
         )
-        if normalized_delivery_outcome in ACCOUNTABLE_DELIVERY_OUTCOMES:
+        # read_heartbeat_settlement admits checkpoint_supplement only for a
+        # checkpoint-only retry of an already committed writeback with the
+        # exact Goal/Agent/Todo/Turn and delivery identity. It rejects replayed
+        # mutations and conflicting vision decisions before this fence. The
+        # supplement repairs only the missing vision decision, so terminal
+        # validation remains attached to the original Todo completion.
+        if (
+            normalized_delivery_outcome in ACCOUNTABLE_DELIVERY_OUTCOMES
+            and not checkpoint_supplement
+        ):
             require_accountable_completion_validation(
                 state_text,
                 todo_fields=todo_fields,
@@ -1145,9 +1158,6 @@ def refresh_state_run(
             todo_id=(settlement_identity.todo_id if settlement_identity else None),
             completion_todo_id=completion_todo_id,
             autonomous_replan_recorded=effective_autonomous_replan_recorded,
-        )
-        checkpoint_supplement = bool(
-            refresh_recovery and refresh_recovery["decision"] == "supplement_checkpoint"
         )
         if checkpoint_supplement and not vision_checkpoint.get("satisfied"):
             raise ValueError(

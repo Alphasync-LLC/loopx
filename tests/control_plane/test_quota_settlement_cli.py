@@ -747,7 +747,7 @@ def test_codex_app_refresh_stages_validated_memory_and_spend_finalizes_hook(
     )
     reflection = json.dumps(
         {
-            "schema_version": "turn_reward_memory_reflection_v0",
+            "schema_version": "turn_reward_memory_reflection_v1",
             "status": "eligible",
             "surface_id": "agent_workflow.turn_admission",
             "outcome_kind": "engineering",
@@ -755,6 +755,28 @@ def test_codex_app_refresh_stages_validated_memory_and_spend_finalizes_hook(
             "reasoning_summary": "The declared validator covered the bound outcome.",
             "confidence": "high",
             "evidence_refs": ["artifact:app-settlement", "receipt:validator"],
+            "experience": {
+                "schema_version": "procedural_experience_contract_v0",
+                "applicability": ["Retrying a settled managed Turn outcome"],
+                "observed_outcome": (
+                    "The exact settlement identity preserved idempotent retry behavior."
+                ),
+                "attribution": (
+                    "The declared validator covered the outcome bound to that identity."
+                ),
+                "future_behavior": {
+                    "trigger": "A settled outcome requires retry or reconciliation.",
+                    "action": "Reuse the exact settlement identity on every retry.",
+                    "validation": "Verify the identity against the settlement receipt.",
+                    "stop_condition": (
+                        "Stop when the receipt is missing or the identity has drifted."
+                    ),
+                },
+                "limitations": [
+                    "The identity rule does not validate the business outcome itself."
+                ],
+                "evidence_refs": ["artifact:app-settlement", "receipt:validator"],
+            },
         },
         separators=(",", ":"),
     )
