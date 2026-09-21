@@ -2302,6 +2302,14 @@ commit receipt。各 provider 的 CAS/replay 边界、legacy 源顺序兼容、�
 活动 lane。三臂演练用真实 provider 检查此闭合；派生 readiness 不充当证据。通用历史
 导入、剩余 D3 资格化与显式 cutover 批准仍是后续工作。
 
+Runtime-shadow parity 与 source-partition continuity 的语义 digest 都只排除
+`resume_condition.evaluated_at`。该字段是查询时钟 observation；再次读取未变化的
+持久来源不应凭空制造 drift，也不应破坏后续 writer 的连续性证明。已求值的决策和
+其余 resume 事实仍全部参与比较：readiness、reason、generation、target 或任何其他
+Todo／lease 字段变化时，仍须先被 capture，否则 parity 或 continuity 必须失败。
+Prepared outbox 字节和传入 projection 仍做完整校验；完整记录（包括 observation 时间）
+也仍保留给 reader 和候选快照。
+
 Quota scope/claim 选择与 resume planning 现共用一个 TS 只读边界，消费既有
 legacy/canonical summary，不分叉 provider 专用规则。User gate 作用域与 Agent
 执行归属分开解释，active-next-action 也遵守此区分；有意语义变化与删除的 Python

@@ -2910,6 +2910,16 @@ re-enter active lanes. The three-arm rehearsal checks this closure against real
 providers; derived readiness is not evidence. General historical import and the
 remaining D3 qualification/explicit cutover approval are still separate work.
 
+Runtime-shadow parity and source-partition continuity exclude only
+`resume_condition.evaluated_at` from their semantic digests. That field is a
+query-clock observation, so another read of unchanged durable source must not
+manufacture drift or break a later writer's continuity proof. The evaluated
+decision and all other resume facts remain compared; a change to readiness,
+reason, generation, target, or any other Todo/lease field still fails parity or
+continuity until captured. Prepared outbox bytes and supplied projections remain
+fully verified, and the complete record, including the observation timestamp,
+remains available to readers and in the candidate snapshot.
+
 Quota scope/claim selection and resume planning now share one typed read boundary.
 It consumes existing legacy/canonical summaries without a provider-specific rule
 fork. User gate scope is distinct from Agent execution ownership, including in
