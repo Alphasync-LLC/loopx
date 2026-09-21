@@ -1487,22 +1487,6 @@ def _interaction_fallback_policy_required(payload: dict[str, Any], *, mode: str)
     } or bool(payload.get("blocked_priority_fallback"))
 
 
-def action_selection_recovery_fields(
-    payload: Mapping[str, Any], recovery: dict[str, Any],
-) -> dict[str, Any]:
-    """Complete the one preflight result in the owning projection module."""
-    obligation = payload.get("execution_obligation")
-    if isinstance(obligation, dict):
-        recovery["execution_obligation"] = {
-            **obligation, "must_attempt_work": False, "delivery_allowed": False,
-            "reason": recovery["recommended_action"],
-        }
-    recommendation = payload.get("heartbeat_recommendation")
-    if isinstance(recommendation, dict):
-        recovery["heartbeat_recommendation"] = {**recommendation, "agent_must_attempt": False}
-    return recovery
-
-
 def unadmitted_action_selection(payload: dict[str, Any]) -> bool:
     """Use the same current-obligation facts as interaction and CLI preflight."""
     qualification = payload.get("action_selection_qualification")

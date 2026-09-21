@@ -55,10 +55,8 @@ from ..control_plane.scheduler.execution_context import (
 from ..control_plane.todos.contract import normalize_todo_id
 from ..control_plane.work_items.action_selection_contract import (
     bind_action_selection_recovery_command,
+    build_action_selection_recovery_fields,
     current_action_selection_admission,
-)
-from ..control_plane.work_items.interaction_contract import (
-    action_selection_recovery_fields,
 )
 from ..presentation.renderers.quota_event_markdown import (
     render_quota_monitor_poll_markdown,
@@ -275,57 +273,7 @@ def _requested_quota_action_selection_preflight(
             selected_todo_id=selected_todo_id,
             qualification_state=qualification_state,
         )
-    qualification_reason = str(
-        qualification.get("reason") or "candidate_not_currently_eligible"
-    )
-    deferred = qualification_state == "deferred"
-    auxiliary_monitor = (
-        qualification_reason
-        == "auxiliary_monitor_not_selectable_in_advancement_lane"
-    )
-    error_code = (
-        "quota_action_selection_deferred"
-        if deferred
-        else "quota_action_selection_rejected"
-    )
-    return {
-        "ok": False,
-        "spend_allowed_now": False,
-        "spend_after_validation": False,
-        "decision": "skip",
-        "should_run": False,
-        "normal_delivery_allowed": False,
-        "recovery_delivery_allowed": False,
-        "self_repair_allowed": False,
-        "capability_repair_allowed": False,
-        "workspace_repair_allowed": False,
-        "actionable_by_codex": False,
-        "effective_action": EffectiveAction.QUOTA_SKIP.value,
-        "state": error_code,
-        "waiting_on": "codex",
-        "status": error_code,
-        "error_code": error_code,
-        "reason": (
-            "explicit action selection was deferred by the current "
-            f"delivery frontier: {qualification_reason}"
-            if deferred
-            else "explicit action selection is not currently eligible: "
-            f"{qualification_reason}"
-        ),
-        "recommended_action": (
-            "handle the current delivery preemption, then rerun quota "
-            "should-run with the same --turn-instance-id; omit --todo-id "
-            "first when a refreshed action portfolio is needed"
-            if deferred
-            else "the due monitor is visible as auxiliary context, not an "
-            "independently selectable action in the current advancement lane; "
-            "choose a current advancement Todo, or rerun after the monitor "
-            "becomes the hard lane"
-            if auxiliary_monitor
-            else "rerun quota should-run with the same --turn-instance-id "
-            "without --todo-id, then choose a currently eligible Todo"
-        ),
-    }
+    return build_action_selection_recovery_fields(payload)
 
 
 def _reconcile_requested_quota_action_selection(
@@ -348,7 +296,7 @@ def _reconcile_requested_quota_action_selection(
     )
     if recovery is None:
         return False
-    payload.update(action_selection_recovery_fields(payload, recovery))
+    payload.update(recovery)
     bind_action_selection_recovery_command(
         payload,
         registry_path=str(registry_path),

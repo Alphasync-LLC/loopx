@@ -35,6 +35,46 @@ TURN_ID = "turn-settlement-cli-1"
 SELECTED_REPLAN_TODO_ID = "todo_chain_000000000000"
 
 
+def _assert_action_selection_recovery_projections(payload: dict[str, Any]) -> None:
+    from loopx.control_plane.quota.turn_envelope import build_turn_envelope
+    from loopx.control_plane.turn_driver.host_candidate import extract_turn_authority
+
+    interaction = payload["interaction_contract"]
+    assert interaction["mode"] == "skip"
+    assert interaction["agent_channel"]["must_attempt"] is False
+    assert interaction["agent_channel"]["delivery_allowed"] is False
+    assert interaction["cli_channel"]["spend_allowed_now"] is False
+    assert interaction["cli_channel"]["spend_after_validation"] is False
+    assert payload["execution_obligation"]["kind"] == "quota_skip"
+    assert payload["execution_obligation"]["must_attempt_work"] is False
+    assert payload["automation_liveness"]["automation_action"] == "keep_active"
+    assert payload["scheduler_hint"]["action"] == "backoff_until_state_change"
+    protocol_summary = payload["protocol_action_packet"]["summary"]
+    assert "agent_action_required=false" in protocol_summary
+    assert "agent_action_required=true" not in protocol_summary
+    assert "execute_bounded_work" not in protocol_summary
+    for field in (
+        "autonomous_replan_obligation",
+        "replan_action_packet",
+        "selected_todo",
+        "work_lane_contract",
+    ):
+        assert field not in payload
+
+    envelope = build_turn_envelope(payload)
+    assert envelope["contract_capsule"]["interaction_contract"]["mode"] == "skip"
+    assert envelope["contract_capsule"]["execution_obligation"][
+        "must_attempt_work"
+    ] is False
+    assert envelope["writeback"]["spend_allowed_now"] is False
+    assert envelope["writeback"]["spend_after_validation"] is False
+    authority = extract_turn_authority({"turn_envelope": envelope})
+    assert authority["primary_action"] == interaction["agent_channel"][
+        "primary_action"
+    ]
+    assert authority["write_scope"] == []
+
+
 def _write_fixture(
     root: Path,
     *,
@@ -3027,6 +3067,7 @@ def test_agent_selection_rejects_unprojected_todo(tmp_path: Path) -> None:
         "requested_todo_id": "todo_not_projected",
         "reason": "candidate_not_currently_eligible",
     }
+    _assert_action_selection_recovery_projections(invalid)
     assert invalid["heartbeat_receipt"]["status"] == "replayed"
     assert invalid["rollout_event"]["appended"] is False
     assert _heartbeat_receipt_count(runtime, turn_instance_id) == 1
@@ -3107,6 +3148,7 @@ def test_first_call_rejected_selection_does_not_commit_a_false_receipt(
 
     assert rejected_rc == 1, rejected
     assert rejected["error_code"] == "quota_action_selection_rejected"
+    _assert_action_selection_recovery_projections(rejected)
     assert rejected["heartbeat_receipt"] == {
         "schema_version": "heartbeat_quota_receipt_v0",
         "turn_instance_id": turn_instance_id,
@@ -3525,6 +3567,7 @@ def test_pending_action_selection_reports_autonomous_replan_preemption(
         "reason": "autonomous_replan",
         "delivery_preemptions": ["autonomous_replan", "delivery_not_allowed"],
     }
+    _assert_action_selection_recovery_projections(selected)
     assert selected["heartbeat_receipt"]["status"] == "selection_retained"
     assert selected["heartbeat_receipt"]["pending_action_selection"]["todo_id"] == (
         ALTERNATIVE_TODO_ID

@@ -257,6 +257,101 @@ def action_selection_needs_recovery(
     return True
 
 
+def action_selection_recovery_fields(
+    recovery: dict[str, Any],
+) -> dict[str, Any]:
+    """Complete the one preflight result in the owning projection module."""
+    recovery["execution_obligation"] = {
+        "must_attempt_work": False,
+        "kind": EffectiveAction.QUOTA_SKIP.value,
+        "delivery_allowed": False,
+        "notify_is_execution_gate": False,
+        "reason": recovery["recommended_action"],
+        "spend_policy": "no quota spend until an eligible Todo is selected",
+    }
+    return recovery
+
+
+def build_action_selection_recovery_fields(
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Construct the closed root facts for one typed selection refusal."""
+
+    qualification = payload.get("action_selection_qualification")
+    if not isinstance(qualification, Mapping):
+        raise RuntimeError("selection recovery requires a typed qualification")
+    qualification_state = str(qualification.get("state") or "")
+    if qualification_state not in {"deferred", "rejected"}:
+        raise RuntimeError("selection recovery requires a deferred or rejected state")
+    qualification_reason = str(
+        qualification.get("reason") or "candidate_not_currently_eligible"
+    )
+    deferred = qualification_state == "deferred"
+    auxiliary_monitor = (
+        qualification_reason
+        == "auxiliary_monitor_not_selectable_in_advancement_lane"
+    )
+    error_code = (
+        "quota_action_selection_deferred"
+        if deferred
+        else "quota_action_selection_rejected"
+    )
+    recovery = {
+        "ok": False,
+        "spend_allowed_now": False,
+        "spend_after_validation": False,
+        "decision": "skip",
+        "should_run": False,
+        "normal_delivery_allowed": False,
+        "recovery_delivery_allowed": False,
+        "self_repair_allowed": False,
+        "capability_repair_allowed": False,
+        "workspace_repair_allowed": False,
+        "actionable_by_codex": False,
+        "effective_action": EffectiveAction.QUOTA_SKIP.value,
+        "state": error_code,
+        "waiting_on": "codex",
+        "status": error_code,
+        "error_code": error_code,
+        "reason": (
+            "explicit action selection was deferred by the current "
+            f"delivery frontier: {qualification_reason}"
+            if deferred
+            else "explicit action selection is not currently eligible: "
+            f"{qualification_reason}"
+        ),
+        "recommended_action": (
+            "handle the current delivery preemption, then rerun quota "
+            "should-run with the same --turn-instance-id; omit --todo-id "
+            "first when a refreshed action portfolio is needed"
+            if deferred
+            else "the due monitor is visible as auxiliary context, not an "
+            "independently selectable action in the current advancement lane; "
+            "choose a current advancement Todo, or rerun after the monitor "
+            "becomes the hard lane"
+            if auxiliary_monitor
+            else "rerun quota should-run with the same --turn-instance-id "
+            "without --todo-id, then choose a currently eligible Todo"
+        ),
+    }
+    return action_selection_recovery_fields(recovery)
+
+
+def apply_action_selection_recovery_projection(payload: dict[str, Any]) -> bool:
+    """Replace an unadmitted action with its closed pre-finalization facts."""
+
+    qualification = payload.get("action_selection_qualification")
+    if not isinstance(qualification, Mapping) or qualification.get("state") not in {
+        "deferred",
+        "rejected",
+    }:
+        return False
+    if qualification.get("recovery_action") != "reenter_guard_without_selection":
+        raise RuntimeError("rejected action selection omitted its typed recovery action")
+    payload.update(build_action_selection_recovery_fields(payload))
+    return True
+
+
 def action_selection_recovery_command(
     *, registry_path: str | None = None, runtime_root: str | None = None,
     goal_id: str, agent_id: str | None, turn_instance_id: str | None,

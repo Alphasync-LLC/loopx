@@ -39,6 +39,7 @@ from ..quota.goal_boundary import (
     quota_execution_profile_summary as _quota_execution_profile_summary,
 )
 from ..quota.heartbeat_recommendation import (
+    build_action_selection_recovery_recommendation,
     build_heartbeat_recommendation,
     refine_heartbeat_recommendation,
 )
@@ -114,6 +115,9 @@ from ..work_items.action_portfolio import (
     qualify_action_selection_from_inventory,
 )
 from ..work_items.execution_obligation import build_execution_obligation
+from ..work_items.action_selection_contract import (
+    apply_action_selection_recovery_projection,
+)
 from ..work_items.goal_route_hint import build_goal_route_hint
 from ..work_items.interaction_contract import (
     build_interaction_contract,
@@ -1442,6 +1446,29 @@ def _build_quota_should_run_payload(
         payload,
         replay_phase=prepared.receipt_bound_replay_phase,
     )
+    if unadmitted_action_selection(payload):
+        for field in (
+            "agent_lane_next_action",
+            "agent_scope_frontier",
+            "autonomous_replan_obligation",
+            "execution_profile",
+            "goal_route_hint",
+            "handoff_readiness",
+            "replan_action_packet",
+            "selected_todo",
+            "task_orchestration_contract",
+            "todo_id",
+            "todo_write_hint",
+            "work_lane_contract",
+            "workspace_guard",
+        ):
+            payload.pop(field, None)
+        apply_action_selection_recovery_projection(payload)
+        payload["heartbeat_recommendation"] = (
+            build_action_selection_recovery_recommendation(
+                reason=str(payload.get("reason") or "")
+            )
+        )
     if (isinstance(payload.get("autonomous_replan_obligation"), dict)
             and not unadmitted_action_selection(payload)):
         payload["replan_action_packet"] = build_replan_action_packet(

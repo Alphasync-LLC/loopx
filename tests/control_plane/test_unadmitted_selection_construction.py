@@ -75,6 +75,8 @@ def test_preflight_returns_one_result_without_mutating_source(state):
     assert source == before
     assert result["error_code"] == f"quota_action_selection_{state}"
     assert result["should_run"] is False
+    assert result["execution_obligation"]["kind"] == "quota_skip"
+    assert result["execution_obligation"]["must_attempt_work"] is False
     for flag in ("normal_delivery_allowed", "recovery_delivery_allowed", "self_repair_allowed",
                  "capability_repair_allowed", "workspace_repair_allowed", "actionable_by_codex"):
         assert result[flag] is False
