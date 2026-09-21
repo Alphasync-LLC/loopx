@@ -280,7 +280,7 @@ Quota 结果会被压缩成一个面向 Host/Agent 的 packet。关键字段通�
 
 ### 第 3 步：构造 Turn Plan
 
-- 文件：[driver.py](../../loopx/control_plane/turn_driver/driver.py#L429-L590)
+- 文件：[driver.py](../../loopx/control_plane/turn_driver/driver.py#L429-L561)
 - 关键函数：`build_loopx_turn_plan`
 
 Turn Driver 把 quota packet 转成 Host 可以执行的计划，主要绑定：
@@ -382,7 +382,7 @@ next_effect    = Host 下一步应该执行什么
 - 关键接口：`CoordinationTodoClaimInput`
 - 文件：[todo_claim.ts](../../loopx/control_plane/coordination/todo_claim.ts#L144-L200)
 - 关键规则：Agent 必须已注册、actor 与 claimed_by 要匹配、多 Agent 场景必须提供 actor。
-- 文件：[authority_store.ts](../../loopx/control_plane/coordination/authority_store.ts#L1-L190)
+- 文件：[authority_store.ts](../../loopx/control_plane/coordination/authority_store.ts#L1-L187)
 - 关键接口：`AuthorityStore`
 
 Claim 解决“谁在处理这张卡”；Lease 解决“谁在某个时间窗口内拥有执行占用”；Lifecycle authority 解决“谁能完成、转交或 supersede 这张卡”。
@@ -590,7 +590,7 @@ LoopX 的复杂度主要来自“谁拥有事实、谁有权改变事实、一�
 | Goal Bootstrap | [bootstrap.py](../../loopx/bootstrap.py#L116-L190) · [bootstrap.py](../../loopx/bootstrap.py#L197-L245) |
 | Quota should-run | [should_run.py](../../loopx/control_plane/quota/should_run.py#L149-L263) · [should_run.py](../../loopx/control_plane/quota/should_run.py#L264-L380) |
 | Quota packet | [should_run_packet.py](../../loopx/control_plane/quota/should_run_packet.py#L708-L850) |
-| Turn plan | [driver.py](../../loopx/control_plane/turn_driver/driver.py#L429-L590) |
+| Turn plan | [driver.py](../../loopx/control_plane/turn_driver/driver.py#L429-L561) |
 | Host request/result | [executor.py](../../loopx/control_plane/turn_driver/executor.py#L120-L330) |
 | Turn execution | [executor.py](../../loopx/control_plane/turn_driver/executor.py#L1203-L1360) |
 | Settlement algebra | [effect_program.ts](../../loopx/control_plane/effect_program.ts#L93-L208) · [effect_program.ts](../../loopx/control_plane/effect_program.ts#L831-L905) |
