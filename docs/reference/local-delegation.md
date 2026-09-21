@@ -472,3 +472,13 @@ cleanup command never grants task completion.
 
 For the mixed and nested research journey, see the
 [synthetic research team](../../examples/managed-research-team/README.md).
+
+### Machine credentials and Goal grants
+
+Delegation readiness and the dispatched Turn resolve the same canonical machine
+[operator credential](operator-model-credential.md). Changing a Goal runtime
+directory does not require another key or authorize another requester. Keep
+member counts, model choices, workspaces and requester grants in the Goal's
+execution configuration; reuse machine authentication without copying another
+Goal's assignments. A configured credential does not prove the selected SDK,
+model, remote environment or task acceptance is ready.
