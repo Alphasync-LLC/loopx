@@ -5,7 +5,7 @@
 - **作者 / Owner：** LoopX capability 与 control-plane 维护者
 - **创建时间：** 2026-09-21
 - **最近一次规范修订：** 2026-09-21
-- **实现基线：** `1c67753d82c73e3c19eabbb30ee39f41bc7eeaa2`
+- **实现基线：** `65afc4872db67d36f74625a9e53ae63da2bc619c`
 - **相关契约：** [总路线图](loopx-overall-roadmap-v0.zh-CN.md)、
   [研究探索](research-exploration-control-plane-v0.zh-CN.md)、
   [Agent Loop Effect](agent-loop-effect-interpreter-v0.zh-CN.md)、

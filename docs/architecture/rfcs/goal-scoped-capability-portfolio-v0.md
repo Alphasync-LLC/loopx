@@ -5,7 +5,7 @@
 - **Authors / owners:** LoopX capability and control-plane maintainers
 - **Created:** 2026-09-21
 - **Last normative revision:** 2026-09-21
-- **Implementation baseline:** `1c67753d82c73e3c19eabbb30ee39f41bc7eeaa2`
+- **Implementation baseline:** `65afc4872db67d36f74625a9e53ae63da2bc619c`
 - **Related contracts:** [overall roadmap](loopx-overall-roadmap-v0.md),
   [research exploration](research-exploration-control-plane-v0.md),
   [agent loop effects](agent-loop-effect-interpreter-v0.md),
