@@ -18,6 +18,7 @@ from ..quota.settlement import (
 from ..quota.spend_sources import (
     build_quota_spend_action,
     host_goal_turn_reentry_action,
+    quota_spend_source_for_execution_context,
 )
 from ..scheduler.execution_context import (
     APP_HEARTBEAT_SETTLEMENT_RUNTIME_PROFILES,
@@ -1355,6 +1356,7 @@ def _build_interaction_cli_channel(
     selection.apply_action_selection_cli_gate(channel, payload)
     if settlement_plan is not None and spend_after_selection:
         channel["settlement_plan"] = settlement_plan
+        channel["quota_spend_source"] = quota_spend_source_for_execution_context(scheduler_execution_context)
     if settlement_plan is not None and replan_settlement_contract is not None:
         channel["replan_settlement_contract"] = replan_settlement_contract
     if capability_reentry is not None:
