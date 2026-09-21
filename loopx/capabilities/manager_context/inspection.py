@@ -63,6 +63,71 @@ CONTEXT_READ_TOOL = {**deepcopy(READ_TOOL), "name": CONTEXT_TOOL_NAME,
     "Paginate with next_offset. No cross-Goal access, shell, writes or execution authority."}
 
 
+# The published tool schema is the contract the caller sees, so the reader takes
+# its allowlist and ranges from there instead of restating them in prose that can
+# drift from what a caller was offered.
+_READ_PROPERTIES = READ_TOOL["inputSchema"]["properties"]
+READ_ARGUMENT_NAMES = tuple(_READ_PROPERTIES)
+READ_VIEWS = tuple(_READ_PROPERTIES["view"]["enum"])
+READ_LIMIT_RANGE = (
+    _READ_PROPERTIES["limit"]["minimum"],
+    _READ_PROPERTIES["limit"]["maximum"],
+)
+READ_DAYS_RANGE = (
+    _READ_PROPERTIES["days"]["minimum"],
+    _READ_PROPERTIES["days"]["maximum"],
+)
+
+
+def rejected_read_arguments(arguments: dict[str, Any]) -> list[str]:
+    """Name every argument that keeps a manager read from running.
+
+    The caller is a model that can repair its own tool call, but only when the
+    refusal says which argument is wrong and what the tool accepts. Each entry
+    is ``<argument>:<what it must be>`` so the correction is mechanical instead
+    of a guess against a bare ``invalid_arguments``.
+    """
+
+    rejected = [
+        f"unknown_argument:{name}"
+        for name in sorted(set(arguments) - set(READ_ARGUMENT_NAMES))
+    ]
+    view = arguments.get("view")
+    if view not in READ_VIEWS:
+        rejected.append("view:must_be_one_of_" + ",".join(READ_VIEWS))
+    if "request_id" in arguments and view != "handoffs":
+        rejected.append("request_id:only_for_view_handoffs")
+    if "include_stopped" in arguments:
+        if view != "portfolio":
+            rejected.append("include_stopped:only_for_view_portfolio")
+        elif type(arguments["include_stopped"]) is not bool:
+            rejected.append("include_stopped:must_be_a_boolean")
+    offset = arguments.get("offset", 0)
+    if type(offset) is not int or offset < 0:
+        rejected.append("offset:must_be_an_integer_at_least_0")
+    limit = arguments.get("limit", 8)
+    if type(limit) is not int or not READ_LIMIT_RANGE[0] <= limit <= READ_LIMIT_RANGE[1]:
+        rejected.append(
+            "limit:must_be_an_integer_between_"
+            f"{READ_LIMIT_RANGE[0]}_and_{READ_LIMIT_RANGE[1]}"
+        )
+    goal_id = arguments.get("goal_id")
+    if goal_id is not None and not isinstance(goal_id, str):
+        rejected.append("goal_id:must_be_a_string")
+    if "days" in arguments:
+        days = arguments["days"]
+        if view != "deliveries":
+            rejected.append("days:only_for_view_deliveries")
+        elif type(days) is not int or not READ_DAYS_RANGE[0] <= days <= READ_DAYS_RANGE[1]:
+            rejected.append(
+                "days:must_be_an_integer_between_"
+                f"{READ_DAYS_RANGE[0]}_and_{READ_DAYS_RANGE[1]}"
+            )
+    if not isinstance(arguments.get("source_id", "local"), str):
+        rejected.append("source_id:must_be_a_string")
+    return rejected
+
+
 def manager_index(context: dict[str, Any]) -> dict[str, Any]:
     """A small directory, never a second mutable progress store."""
     read_tool = CONTEXT_TOOL_NAME if context.get("scope") == "owner_goal" else TOOL_NAME
@@ -143,34 +208,22 @@ class ManagerInspection:
     def read(self, tool: str, arguments: Any) -> dict[str, Any]:
         if tool not in {TOOL_NAME, CONTEXT_TOOL_NAME} or not isinstance(arguments, dict):
             return {"ok": False, "error": "unsupported_read_tool"}
-        if set(arguments) - {
-            "view",
-            "goal_id",
-            "offset",
-            "limit",
-            "include_stopped",
-            "request_id",
-            "source_id",
-            "days",
-        }:
-            return {"ok": False, "error": "invalid_arguments"}
+        rejected = rejected_read_arguments(arguments)
+        if rejected:
+            return {
+                "ok": False,
+                "error": "invalid_arguments",
+                "rejected_arguments": rejected,
+                "allowed_arguments": list(READ_ARGUMENT_NAMES),
+                "allowed_views": list(READ_VIEWS),
+                "detail": (
+                    f"resend {tool} with only the allowed arguments; each rejected "
+                    "entry names the argument and what it must be"
+                ),
+            }
         view, goal_id = arguments.get("view"), arguments.get("goal_id")
         offset, limit = arguments.get("offset", 0), arguments.get("limit", 8)
         include_stopped = arguments.get("include_stopped", False)
-        if (
-            view not in {"sources", "portfolio", "todos", "deliveries", "handoffs"}
-            or ("request_id" in arguments and view != "handoffs")
-            or type(include_stopped) is not bool
-            or ("include_stopped" in arguments and view != "portfolio")
-            or type(offset) is not int
-            or offset < 0
-            or type(limit) is not int
-            or not 1 <= limit <= 12
-            or (goal_id is not None and not isinstance(goal_id, str))
-            or ("days" in arguments and (view != "deliveries" or type(arguments["days"]) is not int or not 1 <= arguments["days"] <= 90))
-            or not isinstance(arguments.get("source_id", "local"), str)
-        ):
-            return {"ok": False, "error": "invalid_arguments"}
         if not self.scope_valid():
             return {"ok": False, "error": "authorization_changed"}
         source_id = arguments.get("source_id", "local")
