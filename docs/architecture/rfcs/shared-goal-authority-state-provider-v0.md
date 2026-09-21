@@ -1805,6 +1805,14 @@ loopx coordination-shadow promote --goal-id <goal-id> \
 loopx coordination-shadow promote --goal-id <goal-id> \
   --minimum-operations 3 \
   --require-event-kind todo_claim --execute
+loopx coordination-shadow promote --goal-id <goal-id> \
+  --minimum-operations 3 \
+  --require-event-kind todo_claim \
+  --handoff-mode-migration preserve
+loopx coordination-shadow promote --goal-id <goal-id> \
+  --minimum-operations 3 \
+  --require-event-kind todo_claim \
+  --handoff-mode-migration hard_lease --execute
 loopx coordination-shadow rollback --goal-id <goal-id> \
   --provider-revision <revision-from-inspect> --execute
 ```
@@ -1823,10 +1831,18 @@ interruption. Apply holds the shared
 maintenance and legacy source locks while it revalidates the source snapshot,
 qualifies the exact shadow lineage, engages the durable writer fence, commits
 the canonical head, and reads back the promotion receipt. v0 rejects a Goal
-whose already-qualified mode is not `hard_lease`; promotion never changes that
-mode as a side effect. A successful write is immediately read back through
-the typed parity inspection. The command remains unavailable unless the exact
-goal-level `file_v0` shadow opt-in is active.
+whose already-qualified mode is not `hard_lease` when the migration option is
+omitted. An explicit `preserve` plan canonicalizes a `legacy` or `soft_claim`
+Goal without changing its ownership policy. An explicit `hard_lease` plan may
+combine the authority cutover with the one supported policy upgrade while
+preserving claims and safe lease records. It never synthesizes leases: a
+preserved claim owner acquires a lease through the ordinary atomic path before
+its next protected write. Preview exposes preserved claims, lease dispositions,
+conflicts, and the exact target digest; the mode intent, registered-agent set,
+and target digest are part of the promotion-plan identity. Other mode
+transitions remain subject to the ordinary quiescence rule. A successful write
+is immediately read back through the typed parity inspection. The command
+remains unavailable unless the exact goal-level `file_v0` shadow opt-in is active.
 
 Pre-promotion rollback is revision-fenced and non-destructive. TypeScript moves
 the exact active file-shadow lineage into a durable quarantine archive; exact
@@ -2332,9 +2348,13 @@ remain reviewable in the same bounded slice.
    preserved. The maintainer must approve the named removal explicitly in the
    RFC decision log or PR review; absence of a discovered consumer is not
    approval.*
-9. Does v0 promotion cover only `hard_lease` goals? *Proposed answer: yes. A
-   `legacy` or `soft_claim` goal first switches mode under the Appendix B
-   quiescence rule; promotion never changes the mode implicitly.*
+9. Does v0 promotion cover only `hard_lease` goals? *Resolved answer: the
+   backward-compatible default still requires a qualified `hard_lease` source.
+   A reviewed operator may explicitly choose `preserve` to canonicalize a
+   `legacy` or `soft_claim` Goal without changing its policy, or `hard_lease` to
+   perform the one supported claim-preserving upgrade inside the fenced
+   cutover. No lease is invented, and every other mode change still uses the
+   Appendix B quiescence rule.*
 10. After the provider-first read flip, Markdown and lease files are
     projections and the kernel forbids fallback to them. Which data belongs in
     the head, and how are compatibility views rendered? *Proposed answer:
