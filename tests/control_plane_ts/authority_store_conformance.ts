@@ -1,3 +1,4 @@
+import {registerTodoConsumerScopeConformance} from "./todo_consumer_scope_conformance.ts";
 import {registerUserCompletionFollowthroughConformance} from "./user_completion_followthrough_conformance.ts";
 import {registerSuccessionReadConformance} from "./succession_read_conformance.ts";
 import {registerUserCompletionUpdateConformance} from "./user_completion_update_conformance.ts";
@@ -247,6 +248,7 @@ export function registerAuthorityStoreConformance(
   registerAuthorityScanConformance(providerName, factory);
   registerOwnershipObservationConformance(providerName, factory);
   registerSuccessionReadConformance(providerName, factory);
+  registerTodoConsumerScopeConformance(providerName, factory);
   registerNativePlanningUpdateConformance(providerName, factory);
   registerUserCompletionUpdateConformance(providerName, factory);
   registerUserCompletionFollowthroughConformance(providerName, factory);

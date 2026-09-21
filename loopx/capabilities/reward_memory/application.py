@@ -18,6 +18,11 @@ from ..context_providers.base import (
 )
 from ..context_providers.openviking import classify_openviking_scope
 from .candidate_review import REWARD_MEMORY_REVIEW_SCHEMA_VERSION
+from .experience_quality import (
+    normalize_procedural_experience,
+    procedural_experience_digest,
+    procedural_experience_quality,
+)
 from .registry import IDENTITY_SCOPE_FIELDS, normalize_reward_memory_corpus
 
 
@@ -59,6 +64,8 @@ class RewardMemoryRecallItem:
     candidate_ref: str
     target_class: str
     content_summary: str
+    experience: Mapping[str, Any] | None = None
+    experience_digest: str = ""
     content_digest: str = ""
 
 
@@ -182,7 +189,12 @@ def build_active_reward_memory_record(
     expires_at = record["lifecycle"].get("expires_at")
     if expires_at:
         active_lifecycle["expires_at"] = expires_at
-    return {
+    experience = record.get("experience")
+    quality = procedural_experience_quality(
+        target_class=str(record.get("target_class") or ""),
+        experience=experience,
+    )
+    active = {
         "schema_version": REWARD_MEMORY_ACTIVE_RECORD_SCHEMA_VERSION,
         "activation_ref": activation_ref,
         "activated_at": activated,
@@ -192,6 +204,7 @@ def build_active_reward_memory_record(
         "content_summary": _compact(
             record.get("content_summary"), "content_summary", limit=500
         ),
+        "experience_quality": quality,
         "scope": dict(record["scope"]),
         "source": dict(record["source"]),
         "review": dict(reviewed_candidate["review"]),
@@ -205,6 +218,9 @@ def build_active_reward_memory_record(
         "provider_write_performed": False,
         "external_writes_performed": False,
     }
+    if experience is not None:
+        active["experience"] = normalize_procedural_experience(experience)
+    return active
 
 
 def _authority_checkpoint(
@@ -534,12 +550,28 @@ def _active_item(
             return None
         if expires.tzinfo is None or observed.tzinfo is None or observed >= expires:
             return None
+    experience = envelope.get("experience")
+    quality = procedural_experience_quality(
+        target_class=str(envelope.get("target_class") or ""),
+        experience=experience,
+    )
+    if quality["passed"] is not True:
+        return None
+    normalized_experience = (
+        normalize_procedural_experience(experience) if experience is not None else None
+    )
     return RewardMemoryRecallItem(
         memory_ref=item.resource_ref,
         candidate_ref=_token(envelope.get("candidate_ref"), "candidate_ref"),
         target_class=str(envelope["target_class"]),
         content_summary=_compact(
             envelope.get("content_summary"), "content_summary", limit=500
+        ),
+        experience=normalized_experience,
+        experience_digest=(
+            procedural_experience_digest(normalized_experience)
+            if normalized_experience is not None
+            else ""
         ),
         content_digest=hashlib.sha256(
             canonical_context_text(item.content).encode("utf-8")
@@ -674,6 +706,12 @@ def execute_reward_memory_recall(
             "candidate_ref": item.candidate_ref,
             "target_class": item.target_class,
             "content_summary": item.content_summary if expose_summary else None,
+            "experience_quality": (
+                procedural_experience_quality(
+                    target_class=item.target_class,
+                    experience=item.experience,
+                )
+            ),
             "content_exposed": expose_summary,
         }
         for item in results

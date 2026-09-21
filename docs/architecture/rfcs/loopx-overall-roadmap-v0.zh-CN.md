@@ -121,6 +121,9 @@ Muse 设计页在浏览器超时，其文章通过网页检索读取。本次调
    Agent 在范围内自主选择和分配。锁定管家/Chat profile 时必须遵守；授权灵活资源池
    时可自主选路。Codex 与 Ark 都是配置方案，不是统一偏好。展示有效选择，不复制
    密钥、不迁移旧会话、不静默越权回退。缺少条件时给出具体修复入口。
+   凭证归机器管理，成员分配与请求方授权归 Goal 管理。混合团队 showcase 应复用
+   已配置运行时，支持调节人数，展示实际解析的模型与执行环境就绪状态；依赖产物
+   必须经独立验收并被采用，之后才能把一键拉起称为可发布产品。
 3. 直接交给管家真实任务，不先建团队，不要求理解 Goal/Todo/Turn。预览有关范围、
    交付物与资源上限；已经授权、可逆的日常步骤不反复弹确认卡。
 4. 从公开资料交付带来源的研究简报。加入矛盾或更新资料，展现独立异议、精确修订、
@@ -144,7 +147,7 @@ Muse 设计页在浏览器超时，其文章通过网页检索读取。本次调
 | 阶段 / 累计目标 | 完整工作与既有 owner | 出口 / 可以宣称什么 |
 | --- | --- | --- |
 | 定位与分镜 · 2–3 个工作日 | S1/S5/S13：一个人群、一个任务、首屏设计、60–90 秒脚本、双语文案、公开证据计划 | 可审阅的精美草稿；概念与回放明确标注，不宣称产品已可用 |
-| 产品实录预览 · 5–7 个工作日 | R2/R3 + S5：review/集成 #4762，解决受支持宿主工具授权，跑通一次真实 L1 纠偏，打磨真实结果与证据视图 | 打包前端 + CLI 展示精确版本的异议/修订/验收/采用、干预和范围准确的停止；实录运行，不把合成活动当 live |
+| 产品实录预览 · 5–7 个工作日 | R2/R3 + S5：复用已合并协作与宿主工具授权，复现一次真实 L1 纠偏，打磨真实结果与证据视图 | 打包前端 + CLI 展示精确版本的异议/修订/验收/采用、干预和范围准确的停止；实录运行，不把合成活动当 live |
 | 聚焦公开 alpha · 2–3 周 | S1/S4/S12：发行包引导、遵守用户意图的管家/Chat 选路、就绪修复、单 Agent 降级、重启/重连和有用结果返回；S5 提供聚焦团队视图 | 测试前冻结五次独立干净安装，至少四次无需维护者 shell 救场拿到首个有用成果，保留全部失败。宣传持续团队协作前必须通过 G1 两轮真实协作 |
 | 可重复 beta / 完整发布包 · 4–6 周 | S4/S5/S10/S12/S13：升级/回滚、撤权/失联/额度恢复、试用反馈驱动 UX、实测成本与支持负担；可选 Lark 单独验收 | 至少三位独立用户隔天再次完成任务，公开样本分母、干预和限制；每个宣传平台/transport 都有发行包证据 |
 
@@ -153,11 +156,16 @@ Muse 设计页在浏览器超时，其文章通过网页检索读取。本次调
 性能数据。同时记录包含环境准备/登录的完整引导耗时与就绪后耗时，认证或环境
 失败仍计入漏斗。小规模试用用于发现问题，不能据此宣称统计可靠性或 PMF。
 
-关键路径是：宿主/工具就绪 → 一次真实 L1 → 打包首次使用修复 → 独立复现。
-本修订时 #4758 已合并但属于设计，#4762 仍开放，不能证明已发布或真实模型验收。
-其中 GPT 尝试被 MCP 审批拦截，没有被验收的产物；通过所属 owner 解决受支持授权
-路径，不能为了录屏全局关闭审批。既有实施 successor 保持权威；分配新工作前核对
-canonical Todos 和相关 PR。
+已合并 [#4814](https://github.com/loopx-project/loopx/pull/4814) 推进可选 S1/S5 入口：
+管家和 Goal 飞书卡片共享 canonical 团队计划决策、认证投递绑定与重试恢复。真实
+双卡交互单独验收；分配不是执行、采用或完整投研旅程。可读成果与本地首次使用
+仍是关键路径，再把已验证旅程连接到可选飞书入口。
+
+关键路径是：证据可读的产品表现 → 可复现真实过程 → 打包首次使用修复 → 独立复现。
+截至 2026-09-21，#4762 与 #4811 已合并；#4811 记录了原生 Codex MCP 执行和真实
+模型纠偏闭环，原 MCP 审批阻塞已解除。这仍不能证明发布包首次使用、连续两轮协作
+或精美宣传片已经完成。复用现有 owner 和 canonical Todo；发布前验收实际安装包，
+并通过它的前端录制真实过程；不能为了录屏全局关闭审批。
 
 首次发布不等待百 Agent、新状态 provider、完整 3D、全宿主、原生移动壳、连接器
 市场、支付/订票或示教自动化。这些保留既有 owner 与独立需求/验收，不挤占 R1
@@ -219,6 +227,7 @@ canonical Todos 和相关 PR。
 | [Provider-Neutral Turn-Start Inbox Hook v0](provider-neutral-turn-start-inbox-hook-v0.md) | S3/S8 | 显式配置下已实现 | P0 硬化：有界读→语义 triage→ACK/replay；默认关闭与 provider 私有 cursor 保持 |
 | [Provider-Neutral Post-Writeback Capability Hooks v0](provider-neutral-post-writeback-capability-hooks-v0.zh-CN.md) | S3/S8 | Draft；periodic-report 首个 vertical 已实现 | P1：R3 返回/后继复用 durable intent；hook 失败隔离，不能加入主事务或直接执行 effect |
 | [Agent IM, LoopX, And OpenViking Collaboration v0](agent-im-openviking-collaboration-v0.md) | S3/S6/S8 | Draft；三 owner 集成仍待资格 | P1/P2：IM 投递、LoopX work authority、OV context 分离；断线重放/权限撤销/来源失效 |
+| [外部证据研究能力 v0](external-evidence-research-capability-v0.zh-CN.md) | S8/S11 | Draft；已实现类型化 Core plan/admission/retirement 与 CLI 切片 | P1：用同一 provenance 回执分别验收一个 host-method 与一个 connector 的真实执行，再补 frontend/Lark 同源投影 |
 | [Per-Goal Usage, Token, and Cost Surfacing v0](goal-usage-token-cost-v0.md) | S7/S5 | Draft；Codex aggregate/cost 展示已有切片 | P0 观测→P1 多 provider：未知不作零、重复扣费去重、价格来源/时效；usage 不自动授权预算 |
 | [Intelligent Review and Dynamic Presentation Surfaces v0](intelligent-review-presentation-surfaces-v0.zh-CN.md) | S5 | Draft；action/attention 纵切及本地交付链/验收复盘已实现 | P1：跨渠道披露和受治理的修订/结算复盘；本地可见性不代表 G2 通过 |
 | [Human Attention Wishlist v0](human-attention-wishlist-v0.zh-CN.md) | S5/S11 | Draft；Held | P3：第二个重复真实需求出现才重开；sidecar 不改变 gate/quota/调度 |

@@ -38,14 +38,12 @@ from ..scheduler.execution_context import (
 from ..todos.write_hint import build_todo_write_hint
 from ..work_items.interaction_contract import (
     build_interaction_contract,
-    build_protocol_action_packet,
 )
 from .effect_program import (
     ReceiptBoundMonitorPhase,
     ReceiptBoundReplayPhase,
     ReceiptBoundTerminalPhase,
 )
-from .settlement_precedence import apply_settled_replay_route_precedence
 from .should_run_packet import (
     _build_quota_should_run_payload,
     _execution_obligation,
@@ -60,17 +58,6 @@ from .should_run_prepare import (
 
 QUOTA_PAUSED_MODE = "quota_paused"
 GOAL_STOPPED_MODE = "goal_stopped"
-
-
-def _resolve_quota_route_with_settled_replay_precedence(
-    prepared: _QuotaDecisionPreparation,
-) -> _QuotaDecisionRoute:
-    route = _resolve_quota_should_run_route(prepared)
-    apply_settled_replay_route_precedence(
-        route,
-        replay_phase=prepared.receipt_bound_replay_phase,
-    )
-    return route
 
 
 def _apply_selected_todo_guards(
@@ -112,7 +99,7 @@ def _apply_selected_todo_guards(
                 "Goal acceptance holds the current work; inspect its contract and "
                 "ask the owner to configure or rebind the current Todo."
             )
-            route = _resolve_quota_route_with_settled_replay_precedence(prepared)
+            route = _resolve_quota_should_run_route(prepared)
     workspace_guard = None
     if not prepared.inbox_priority_due:
         workspace_guard = build_agent_workspace_guard(
@@ -143,7 +130,7 @@ def _apply_selected_todo_guards(
         prepared.reason = str(
             boundary_projection_repair.get("reason") or prepared.reason
         )
-    return _resolve_quota_route_with_settled_replay_precedence(prepared)
+    return _resolve_quota_should_run_route(prepared)
 
 
 def build_quota_paused_should_run_payload(
@@ -257,7 +244,6 @@ def build_quota_paused_should_run_payload(
         codex_app_automation_id=codex_app_automation_id,
         scheduler_execution_context=resolved_scheduler_context,
     )
-    payload["protocol_action_packet"] = build_protocol_action_packet(payload)
     return payload
 
 
@@ -352,7 +338,7 @@ def build_quota_should_run(
             receipt_bound_replay_phase=receipt_bound_replay_phase,
             receipt_bound_replan_obligation_id=receipt_bound_replan_obligation_id,
         )
-        route = _resolve_quota_route_with_settled_replay_precedence(prepared)
+        route = _resolve_quota_should_run_route(prepared)
         route = _apply_selected_todo_guards(prepared, route)
         return _build_quota_should_run_payload(
             prepared,

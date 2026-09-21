@@ -595,6 +595,19 @@ it does not grant execution quota, spending, or provider authority.
    证据中同时保留原失败与新结果。纯预算调整不必捆绑无关清理。已冻结的实验或
    promotion 阈值不能追溯放宽；新阈值属于新一轮验证，不能改写历史结论。
 
+A base/head differential must remain able to measure a syntactically and
+semantically valid base that already exceeds its own historical ceiling;
+otherwise the gate deadlocks the repair before observing the candidate. The
+base-only probe may skip absolute size assertions while retaining parse,
+required-key, anchor, and semantic differential checks. The candidate always
+runs the current absolute budgets. Measurement-only mode is never a candidate
+override or merge bypass.
+
+当 base 已超过自身历史上限但输出仍可解析且语义完整时，base/head differential 必须
+仍能采集它；否则门禁会在观察修复候选之前形成死锁。仅 base 的 probe 可跳过绝对尺寸
+断言，但必须保留解析、必需字段、锚点和语义差异检查；candidate 始终执行当前绝对
+预算。measurement-only 不能用于 candidate，也不是合并旁路。
+
 The PR-review packet's `semantic_alignment` rule consumes this evidence through
 the existing `validation_matrix` and `observable_semantics` rows. It does not
 add a separate budget receipt or approval gate. The result checker verifies

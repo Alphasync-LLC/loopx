@@ -198,6 +198,13 @@ import {
 } from "./collaboration/return_delivery.ts";
 
 import { normalizeCollaborationRequest } from "./collaboration/semantic_request.ts";
+import {
+  evaluateExternalEvidenceAdmission,
+  planExternalEvidenceRequest,
+  projectExternalEvidenceDiscovery,
+  projectExternalEvidenceRetirement,
+  recordExternalEvidenceReceiptObservation,
+} from "./capabilities/external_evidence.ts";
 
 type EffectRuntimeHandler = (params: JsonObject) => unknown | Promise<unknown>;
 
@@ -659,6 +666,11 @@ export function createEffectRuntimeHandlers(
       "collaboration.request.normalize",
       (params) => normalizeCollaborationRequest(params.request),
     ],
+    ["external_evidence.discover", projectExternalEvidenceDiscovery],
+    ["external_evidence.plan", planExternalEvidenceRequest],
+    ["external_evidence.receipt", recordExternalEvidenceReceiptObservation],
+    ["external_evidence.admit", evaluateExternalEvidenceAdmission],
+    ["external_evidence.retire", projectExternalEvidenceRetirement],
     [
       "manager.return_delivery.normalize_attempt",
       (params) => normalizeManagerReturnDeliveryAttempt(params.attempt),

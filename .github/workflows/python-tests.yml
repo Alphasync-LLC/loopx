@@ -213,9 +213,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.core_tests == 'true'
     runs-on: ubuntu-latest
-    # Recent full minimum-runtime lanes need roughly 8-11 minutes including
-    # dependency install. Keep the complete conformance set and leave enough
-    # runner variance so the qualification fails on assertions, not the clock.
+    # The full public-minimum conformance suite normally takes about 9-10
+    # minutes on hosted runners. Keep enough headroom for setup and cleanup
+    # without dropping compatibility cases or weakening their deadlines.
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
