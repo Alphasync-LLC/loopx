@@ -41,10 +41,10 @@ def _configuration_path(project: Path, config_ref: str) -> Path:
     return path
 
 
-def _route(binding: dict[str, Any], *, runtime_root: Path) -> dict[str, Any]:
+def _route(binding: dict[str, Any]) -> dict[str, Any]:
     executor = managed_executor_binding_from_host_args(
         binding["host_args"],
-        environ=operator_provider_environ(runtime_root),
+        environ=operator_provider_environ(),
     )
     available = executor.get("available")
     readiness = (
@@ -110,7 +110,7 @@ def project_delegation_context(
         if not isinstance(bindings, list):
             raise ValueError("delegation directory is unavailable")
         routes = [
-            _route(service.binding(str(row["id"])), runtime_root=runtime_root)
+            _route(service.binding(str(row["id"])))
             for row in bindings[:MAX_PROJECTED_ROUTES]
         ]
         result = {

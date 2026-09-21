@@ -15,8 +15,27 @@ which layer wins when more than one layer sets a field.
 The credential is its own file, not a machine-configuration namespace:
 
 ```text
-<runtime-root>/machine/credentials/operator_provider.json
+<machine-runtime-root>/machine/credentials/operator_provider.json
 ```
+
+The canonical machine runtime is `~/.codex/loopx`, independent of `CODEX_HOME`
+and any Goal's `common_runtime_root` or Turn `--runtime-root`. Turn planning,
+default host selection, dispatch and delegation readiness use this machine
+store. A Goal-local credential file does not override it. Explicit machine
+credential APIs retain their root parameter for operating an isolated machine
+store; a Goal runtime override is not that parameter.
+
+This corrects the previous behavior where isolated Goal runtimes missed an
+already configured machine credential, and parser defaults consulted only the
+process environment. With a valid machine credential, an otherwise unspecified
+Turn host now consistently resolves to `dsh`; explicit `--host` and
+`LOOPX_TURN_HOST` still win. SDK availability is checked in the launching
+interpreter separately from credential availability.
+
+机器凭证由机器运行目录统一管理，Goal 只决定 Agent 分配、执行配置和授权。
+隔离 Goal 的运行目录不再遮蔽已配置的机器凭证；未指定 Turn host 时，
+有效的机器凭证会按既有规则选择 `dsh`。显式 host 选择保持优先，
+DSH SDK 是否安装仍按实际执行的 Python 环境检查。
 
 The directory is mode `0700` and the file is mode `0600`, written atomically.
 It is deliberately **not** part of `machine/configuration.json`: that document
