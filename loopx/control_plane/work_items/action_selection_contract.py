@@ -308,6 +308,12 @@ def build_action_selection_recovery_fields(
         "capability_repair_allowed": False,
         "workspace_repair_allowed": False,
         "actionable_by_codex": False,
+        # An unadmitted selection grants no safe bypass either: the heartbeat
+        # task body reads safe_bypass_allowed as permission to run one bounded
+        # step and spend, so the refusal must close that authority too.
+        "safe_bypass_allowed": False,
+        "safe_bypass_kind": None,
+        "safe_bypass_policy": None,
         "effective_action": EffectiveAction.QUOTA_SKIP.value,
         "state": error_code,
         "waiting_on": "codex",

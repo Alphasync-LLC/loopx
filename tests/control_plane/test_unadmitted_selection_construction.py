@@ -115,3 +115,108 @@ def test_pending_workspace_repair_requires_explicit_delivery_refusal(delivery_al
     else:
         with pytest.raises(QuotaActionSelectionConflictError):
             _requested_quota_action_selection_preflight(source, **kwargs)
+
+
+def _scoped_gate_status():
+    """Reuse the real scoped user-gate fallback producer fixture."""
+    import sys
+
+    sys.path.insert(0, "tests/control_plane")
+    from test_user_gate_lane_progress import APP_CONTEXT, AGENT_ID, GOAL_ID, _status_payload
+
+    return _status_payload(gate_action_kind="approve_product_first_screen"), {
+        "goal_id": GOAL_ID, "agent_id": AGENT_ID,
+        "scheduler_execution_context": APP_CONTEXT,
+    }
+
+
+def test_scoped_fallback_cannot_execute_under_an_unadmitted_selection():
+    """A runnable scoped fallback does not survive a refused selection.
+
+    The fallback readback grants safe_bypass_allowed, and the shipped heartbeat
+    task body reads that under should_run=false as permission for one bounded
+    step plus a spend. The selection refusal has to close that authority too,
+    or the same packet says both "no work" and "do one step and spend".
+    """
+    from loopx.control_plane.quota.turn_envelope import build_turn_envelope
+    from loopx.control_plane.turn_driver.host_candidate import extract_turn_authority
+    from loopx.presentation.renderers.quota_markdown import render_quota_should_run_markdown
+    from loopx.quota import build_quota_should_run
+
+    status, kwargs = _scoped_gate_status()
+    payload = build_quota_should_run(
+        status, requested_action_todo_id="todo_not_projected", **kwargs,
+    )
+
+    assert payload["effective_action"] == "quota_skip"
+    assert payload["state"] == "quota_action_selection_rejected"
+    for flag in (
+        "ok", "should_run", "actionable_by_codex", "safe_bypass_allowed",
+        "spend_allowed_now", "spend_after_validation", "normal_delivery_allowed",
+        "recovery_delivery_allowed", "self_repair_allowed",
+        "capability_repair_allowed", "workspace_repair_allowed",
+    ):
+        assert payload[flag] is False, flag
+    assert payload["safe_bypass_kind"] is None
+    assert payload["safe_bypass_policy"] is None
+    assert "scoped_user_gate_fallback" not in payload
+
+    obligation = payload["execution_obligation"]
+    assert obligation["kind"] == "quota_skip"
+    assert obligation["must_attempt_work"] is False
+    assert obligation["delivery_allowed"] is False
+    assert "no quota spend" in obligation["spend_policy"]
+
+    interaction = payload["interaction_contract"]
+    assert interaction["mode"] != "scoped_user_gate_fallback"
+    assert interaction["agent_channel"]["must_attempt"] is False
+    assert interaction["agent_channel"]["delivery_allowed"] is False
+    assert interaction["cli_channel"]["spend_allowed_now"] is False
+    assert interaction["cli_channel"]["spend_after_validation"] is False
+
+    summary = payload["protocol_action_packet"]["summary"]
+    assert "agent_action_required=false" in summary
+    assert "agent_action_required=true" not in summary
+
+    envelope = build_turn_envelope(payload)
+    assert envelope["writeback"]["spend_allowed_now"] is False
+    assert envelope["writeback"]["spend_after_validation"] is False
+    capsule = envelope["contract_capsule"]
+    assert capsule["interaction_contract"]["mode"] != "scoped_user_gate_fallback"
+    assert capsule["execution_obligation"]["must_attempt_work"] is False
+    assert extract_turn_authority({"turn_envelope": envelope})["write_scope"] == []
+
+    guidance = render_quota_should_run_markdown(payload)
+    assert "safe_bypass" not in guidance
+    assert "spend only after validated writeback" not in guidance
+
+
+def test_scoped_fallback_still_runs_without_a_refused_selection():
+    """The refusal closes the grant; it does not retire the fallback path."""
+    from loopx.quota import build_quota_should_run
+
+    status, kwargs = _scoped_gate_status()
+    payload = build_quota_should_run(status, **kwargs)
+
+    assert payload["should_run"] is True
+    assert payload["safe_bypass_allowed"] is True
+    assert payload["safe_bypass_kind"] == "scoped_user_gate_fallback"
+    assert payload["interaction_contract"]["mode"] == "scoped_user_gate_fallback"
+
+
+@pytest.mark.parametrize("state", ["deferred", "rejected"])
+def test_recovery_fields_close_the_safe_bypass_grant(state):
+    """Both refusal states share one owner, so both close the same authority."""
+    from loopx.control_plane.work_items.action_selection_contract import (
+        build_action_selection_recovery_fields,
+    )
+
+    source = _source(state)
+    source.update(
+        safe_bypass_allowed=True, safe_bypass_kind="scoped_user_gate_fallback",
+        safe_bypass_policy="advance the fallback; spend only after validated writeback",
+    )
+    recovery = build_action_selection_recovery_fields(source)
+    assert recovery["safe_bypass_allowed"] is False
+    assert recovery["safe_bypass_kind"] is None
+    assert recovery["safe_bypass_policy"] is None

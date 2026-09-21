@@ -468,6 +468,7 @@ def _apply_unadmitted_action_selection_precedence(
         "goal_route_hint",
         "handoff_readiness",
         "replan_action_packet",
+        "scoped_user_gate_fallback",
         "selected_todo",
         "task_orchestration_contract",
         "todo_id",
