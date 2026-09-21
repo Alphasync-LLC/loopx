@@ -4,6 +4,8 @@ import test from "node:test";
 import type {AuthorityStoreConformanceFactory} from "./authority_store_conformance.ts";
 import {productionScaleConsumerScopeFixture} from "./production_scale_coordination_fixture.ts";
 
+const PYTHON = process.env.LOOPX_TEST_PYTHON ?? "python3";
+
 // The actual Python read consumer still hosts rendering; policy runs in TS.
 const CONSUMER = `
 import json, sys
@@ -34,7 +36,7 @@ export function registerTodoConsumerScopeConformance(name: string, factory: Auth
       next_projection: projection, events: [], receipts: []})).status, "applied");
     const before = await store.loadAuthority(); assert.equal(before.status, "loaded");
     if (before.status !== "loaded") return;
-    const child = spawnSync("python3", ["-c", CONSUMER], {encoding: "utf8", timeout: 90_000,
+    const child = spawnSync(PYTHON, ["-c", CONSUMER], {encoding: "utf8", timeout: 90_000,
       input: JSON.stringify({todos: before.head.todos, cases})});
     assert.equal(child.status, 0, child.stderr);
     const result = JSON.parse(child.stdout);
