@@ -4,7 +4,7 @@
 
 当前实现评审入口：[PR #4854](https://github.com/loopx-project/loopx/pull/4854)。
 
-**当前提案：** 将基于实际产物的任务进展观察作为显式安装、默认关闭的历史观察工具，不启用漂移保险丝、自动重规划或暂停。本次请求决定的是是否收录这个有限的可选工具，不是 Jev 是否已经有效到可以控制 Agent。
+**当前提案：** 交付显式安装、默认关闭的任务进展观察工具，并增加一个默认关闭的核心策略 `progress_review`：`shadow` 只记录其类型化回执，`assist` 允许连续若干条已完成的漂移回执触发**已有的**自主重规划义务。不新增暂停、gate 或验收权限。本次请求决定的是是否接受这个有边界的闭环及其录制对照结果，不是 Jev 是否已经有效到可以独自控制 Agent。
 
 ## 实现了什么功能，达到了什么效果
 
@@ -94,11 +94,19 @@ Claude 记录中的模型为 `claude-haiku-4-5-20251001`、`claude-sonnet-5`、`
 
 当前实现没有采用该 Noul 计分规则，也没有启动 Claude/Codex 复核阶段。直接使用“无运行时行为变化就告警”的规则，还可能误伤有效测试、文档或前置工作。选择前应在当前材料及独立标签上比较候选方法，再测完整复核成本和错误打断。
 
+## 闭环与录制对照结果（2026-09-21）
+
+闭环现在完全通过 LoopX 已有契约完成。观察器在 Goal 运行时下为每个已评估事件写一条类型化回执；核心 capability [`progress_review`](../../loopx/capabilities/progress_review/README.zh-CN.md) 通过一个严格 schema 读取回执，按 turn 身份关联 run 行，`assist` 模式下把连续 N 条已完成的漂移回执变成已有的 `autonomous_replan_obligation`（`kind: external_progress_review_drift`）。refresh-state 的 writeback 用同一个义务判断 ack，因此被接受的重规划会重新武装 trigger。`loopx status` 同时公布回执与义务；类型化重复保险丝保持优先；unknown、abstained、failed 与缺失回执打断连续段；Goal 契约变化使早先回执失效。
+
+`packages/loopx-jev/tests/test_closed_loop.py` 用同一段真实 `refresh-state` 序列跑三种方式：默认 `off` 没有任何信号，类型化保险丝对自报 `advanced` 无法触发；`shadow` 显示两条回执但无义务；`assist` 触发义务，`loopx status` 显示它，一次真实的已确认重规划使其重新武装，之后单轮漂移不足以再触发。
+
+对照 harness（`loopx-jev sentinel compare`）回放一个冻结的 16 序列矩阵：6 个构造的装饰性漂移序列、3 个先真实工作后漂移的混合序列、7 个标注为 on-goal 的真实上游提交。在已提交的 live 录制上，类型化保险丝在 0/16 序列触发；`noul` 信号在第 1 轮标记了 6/9 漂移序列并全部在第 2 轮达到义务，真实提交 0/7 误报，一次已执行的负结果探测被提前标记；`choice` 信号标记 4/9。漏检集中在“真实实现落地后对同一文件的装饰性改动”（`serves_acceptance` 0.62–0.90）。三次 live 中 `noul` 分别标记 6、7、6 个；其中一次有 1/35 个回答被严格解码器拒绝。延迟中位 807 ms、P95 1.5 s，输入 token 中位 1879。[操作指南](DRIFT_SHADOW.zh-CN.md)列出了完整结果与限制。
+
 ## 工程取舍与替代方案
 
-- **可选包，不新建核心 capability：** 真实调用者是显式 refresh wrapper 和 consumer CLI。核心调度、Goal、Todo、验收及 L1 reliability-diagnostics 契约保持原样，不能用 L1 的“无外部端点”收据认证 Jev 请求。
+- **可选包加一个类型化核心接缝：** 观察器、provider 调用与录制留在包内；核心新增一个默认关闭的 capability，负责策略、回执 schema 与 trigger，不导入包内代码，只读取规范化后的回执。核心调度、Todo、验收及 L1 reliability-diagnostics 契约保持原样，不能用 L1 的“无外部端点”收据认证 Jev 请求。
 - **环境变量凭据，启用另行控制：** 只从 `TYPESAFE_API_KEY` 读取真实 key；有 key 不自动选模式或允许出站。无 key、认证失败、超时、过期和未知都不能变成正常推进证据，原 Agent 流程继续。
-- **每个 Goal 的本地配置：** 当前可选 CLI 没有内置配置编辑器；原生 hook、registry/前端/Lark 链路需要单独的接入提案。手工契约明确是操作者导出，不冒充规范批准。
+- **两层配置：** 观察器的本地配置（模型、出站、限额、off/shadow）与 Goal 的注册表策略（off/shadow/assist、信号、阈值），后者可通过 `configure-goal`、chat API 与 Dashboard 编辑。原生 hook 与 Lark 仍是独立工作。手工契约明确是操作者导出，不冒充规范批准。
 - **限定快照：** 精确文件、有限材料、明确缺失上下文，并要求单写者使用；不声称全仓完整性、文件系统原子快照或作者归属。相同补丁在不同上下文下是不同证据，相同观察材料不算第二次告警。
 - **历史记录，不是触发器：** 保留独立的关系/增量标签、无效/未知状态和当前性检查。不将目标相关当成验收，不将无新增证据当成保险丝，失效或失败观察不累计成连续异常。
 

@@ -4,15 +4,21 @@
 
 This experimental command captures real, explicitly scoped file changes around a
 successful LoopX `refresh-state`, then evaluates them in a **separate consumer**.
-It reports historical observations only. It does not correct, pause, redirect,
-acknowledge, settle, or inject messages into an Agent. No success-rate or time-saving
-claim follows from passing the integration tests.
+By itself it reports historical observations only: the observer never corrects,
+pauses, redirects, acknowledges, settles, or injects messages into an Agent. When a
+Goal opts into the core [progress-review sentinel](../../loopx/capabilities/progress_review/README.md)
+policy, the observer's typed receipts become visible in `loopx status`, and under
+`assist` a run of consecutive completed drift receipts raises the **existing**
+`autonomous_replan_obligation`; nothing else changes. No success-rate or
+time-saving claim follows from passing the integration tests.
 
 ## Placement and supported journey
 
-The commands live in the optional `loopx-jev-pilot` distribution. Its only
-product surface is the task-progress observation command; no ranking code, built-in capability
-or scheduler is registered. The source is explicitly `scoped_checkpoint_capture`,
+The commands live in the optional `loopx-jev-pilot` distribution. Its product
+surfaces are the task-progress observation command and the comparison harness; no
+ranking code or scheduler is registered. The core-side policy, receipt contract and
+trigger live in the builtin `progress-review-sentinel` capability, which imports
+nothing from this package. The source is explicitly `scoped_checkpoint_capture`,
 not a claim to be a Decision Context provider. The [decision record](DESIGN_DECISIONS.md)
 links the research history and evidence limitations.
 
@@ -23,11 +29,13 @@ transaction or core write lock.
 
 This is an explicit CLI installation: use the wrapper at the real refresh call
 site and run the consumer separately. Ordinary `loopx refresh-state` and native
-Codex/Claude sessions remain unchanged. There is no automatic host-hook installer,
-registry capability setting, Dashboard or Lark switch in this branch. Settings
+Codex/Claude sessions remain unchanged; there is no automatic host-hook installer
+or Lark switch. The observer's own settings (model, egress, limits, off/shadow)
 are local and bound to one Goal state directory; give each Goal its own config
-file. The operator supplies the contract export, which is not itself proof of
-canonical Goal acceptance or exclusive workspace ownership.
+file. Whether the core reads the resulting receipts is a separate per-goal
+registry policy, `loopx configure-goal --progress-review-mode`, also editable in
+the Dashboard and default off. The operator supplies the contract export, which is
+not itself proof of canonical Goal acceptance or exclusive workspace ownership.
 
 ## What “scoped files” means
 
@@ -131,6 +139,47 @@ evidence may be deleted according to operator policy; deleting request tombstone
 and creating a new state directory is an explicit new experiment/budget, not
 transparent continuation.
 
+## Receipts for the core, questions and labels
+
+`drift init --runtime-root <runtime>` binds the observer to the LoopX runtime.
+Every evaluated event then also writes one typed receipt to
+`<runtime>/goals/<goal-id>/progress-review/receipts/<event-id>.json`
+(`progress_review_receipt_v0`). Without `--runtime-root`, results stay in the
+private state directory only.
+
+Each request asks two Choice questions (`relation`, `increment`) and three Noul
+questions (`behavior_change`, `serves_acceptance`, `evidence_increment`). The
+observer derives two typed drift signals with the configured label threshold `t`
+and writes them into the receipt, so the core never interprets a probability:
+
+| Signal | Drift when | Not drift when | Otherwise |
+| --- | --- | --- | --- |
+| `noul` | `P(behavior_change) ≤ 1−t` and `P(serves_acceptance) ≤ 1−t` | either probability `≥ t` | null |
+| `choice` | `relation = off_goal` and `increment = no_new_evidence` | `on_goal`, `necessary_prerequisite` or `new_evidence` | null |
+
+A Noul probability inside `(1−t, t)` is undecided; an evaluation with no decided
+answer is `abstained`. Receipts for `abstained`, `failed`, `not_evaluated` and
+`stale` events carry null signals, and the core counts none of them as drift.
+
+The core reads receipts only when the Goal's registry policy says so:
+
+```bash
+loopx configure-goal --goal-id <goal-id> --progress-review-mode shadow --execute
+loopx configure-goal --goal-id <goal-id> --progress-review-mode assist \
+  --progress-review-signal noul --progress-review-drift-threshold 2 --execute
+```
+
+`drift label --state-dir <dir> --event-id <id> --truth drift|on_goal|unknown`
+records a private human label; `drift status` then reports a confusion table per
+signal. Labels never leave the private directory or enter a receipt.
+
+`sentinel compare --matrix … --responses … --output …` replays the committed
+16-sequence matrix under `tests/fixtures/sentinel/` against recorded provider
+answers and reports, per sequence, when the typed repeat fuse would fire, when
+each signal first flags drift, when `assist` would raise the obligation, and every
+false flag. `--live` records fresh answers instead; the committed
+`expected_summary.json` pins what the last live run produced.
+
 ## Evidence, deduplication and results
 
 - Snapshot comparison covers net committed, staged and unstaged **working-file**
@@ -183,14 +232,36 @@ transport and worker phases when available. Parent timings include child timings
 do not sum them. Cache timings are marked separately. These measurements do not
 identify server-only inference time or time saved by the Agent.
 
-## Qualification still required
+## Recorded differential and what remains unproven
 
-Tests cover actual Git and refresh CLI, off isolation, immutable authority
-records, replay/restart, concurrent producers, revocation, missing/bad evidence,
-queue limits and injected unknown/error/model responses. Injected answers prove
-plumbing, not Jev accuracy. Before intervention, independently label held-out
-multi-round tasks and compare the existing workflow, Jev shadow and an independent
-Agent judge. Report false alarms, misses, abstention, lead time and full overhead.
-Only a separate authorized intervention experiment can establish wasted-work
-reduction. Monitoring `material_change`, native hook installation, canonical
-configuration UI and automatic correction are outside this slice.
+The frozen matrix holds 9 drift sequences (6 purely cosmetic from round 1, 3 that
+drift only after genuine work) and 7 real upstream commits labelled on-goal. Every
+round self-reports `advanced` with a fresh hypothesis id. The committed live
+recording (`jev-1.13.0`, 35 rounds, all completed):
+
+| | Typed repeat fuse | `noul` receipts | `choice` receipts |
+| --- | --- | --- | --- |
+| Drift sequences flagged at or after their gold round | 0/9, invisible by construction | 6/9 | 4/9 |
+| Reaching the `assist` obligation (threshold 2) | 0/9 | 6/9 | 1/9 |
+| Real on-goal commits falsely flagged | 0/7 | 0/7 | 0/7 |
+| Premature flags inside mixed sequences | 0 | 1 | 0 |
+
+All six purely cosmetic sequences, including an 18 KB rename sweep, were flagged
+at round 1 and would raise the obligation at round 2; the periodic review first
+looks at such a Goal after 20 durable runs. Client-measured assessment latency was
+807 ms median and 1.5 s at the 95th percentile, with 1879 median input tokens.
+
+The misses are specific. Once a real implementation exists in the scoped file,
+later cosmetic churn on that file kept `serves_acceptance` between 0.62 and 0.90,
+so none of the three mixed sequences was flagged at its drift round. One executed
+negative probe was judged drift (0.23–0.29 on both Noul questions) in two of three
+live runs. Across those runs `noul` flagged 6, 7 and 6 of 9 drift sequences, and
+one of 35 answers in the second run was rejected by the strict decoder because its
+selected label was not the argmax of its probabilities; that round fails closed.
+
+Injected answers in the tests prove plumbing, not model quality. Gold labels for
+constructed cases come from their author; real commits are labelled on-goal by
+having merged upstream. Before intervention, label held-out multi-round Goals with
+`drift label`, compare first-flag rounds against the fuse and an independent Agent
+judge, and measure false alarms, lead time, review effort and full overhead.
+Escalation, pause and automatic correction remain outside this slice.

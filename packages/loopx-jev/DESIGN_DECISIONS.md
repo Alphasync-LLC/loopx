@@ -4,10 +4,13 @@
 
 Current implementation review: [PR #4854](https://github.com/loopx-project/loopx/pull/4854).
 
-**Current proposal:** provide task-progress observation as an explicitly installed, default-off historical
-observation tool. Do not enable a drift fuse, automatic replan or pause. The
-decision requested by this change is whether to accept this bounded optional
-tool, not whether Jev has proved useful enough to control an Agent.
+**Current proposal:** ship task-progress observation as an explicitly installed,
+default-off tool, plus a default-off core policy (`progress_review`) that can
+record its typed receipts (`shadow`) or let consecutive completed drift receipts
+raise the **existing** autonomous replan obligation (`assist`). No pause, gate or
+acceptance authority is added. The decision requested is whether to accept this
+bounded closed loop and its recorded differential, not whether Jev has proved
+useful enough to control an Agent on its own.
 
 ## Implemented functionality and observed effect
 
@@ -165,20 +168,56 @@ tests, documentation or prerequisites that do not change runtime behavior.
 Before choosing it, compare candidate methods on the current evidence and
 independent labels, then measure end-to-end review cost and false interruptions.
 
+## Closed loop and recorded differential (2026-09-21)
+
+The loop now closes through existing LoopX contracts. The observer writes one
+typed receipt per evaluated event under the Goal runtime; the core capability
+[`progress_review`](../../loopx/capabilities/progress_review/README.md) reads
+receipts through one strict schema, joins them to run rows by turn identity, and
+in `assist` turns N consecutive completed drift receipts into the existing
+`autonomous_replan_obligation` (`kind: external_progress_review_drift`). The
+refresh-state writeback judges an acknowledgement against the same obligation,
+so an accepted replan re-arms the trigger. `loopx status` publishes receipts and
+the obligation; the typed repeat fuse keeps precedence; unknown, abstained,
+failed and missing receipts break a streak; a changed goal contract invalidates
+earlier receipts.
+
+`packages/loopx-jev/tests/test_closed_loop.py` runs the same real
+`refresh-state` sequence three ways: default `off` produces no signal and the
+typed fuse cannot fire on self-declared `advanced`; `shadow` shows two receipts
+and no obligation; `assist` raises the obligation, `loopx status` shows it, a
+real acknowledged replan re-arms it, and one more drift round is not enough.
+
+The comparison harness (`loopx-jev sentinel compare`) replays a frozen matrix of
+16 sequences: 6 constructed cosmetic-drift sequences, 3 mixed sequences that
+drift after genuine work, and 7 real upstream commits labelled on-goal. On the
+committed live recording the typed fuse fired on 0/16 sequences; the `noul`
+signal flagged 6/9 drift sequences at round 1, all reaching the obligation at
+round 2, with 0/7 false flags on real commits and one premature flag on an
+executed negative probe; the `choice` signal flagged 4/9. Misses concentrate on
+cosmetic churn after a real implementation landed in the same file
+(`serves_acceptance` 0.62–0.90). Across three live runs `noul` flagged 6, 7 and 6
+of 9, and one of 35 answers was rejected by the strict decoder in one run.
+Latency was 807 ms median and 1.5 s p95 with 1879 median input tokens. The
+[operation guide](DRIFT_SHADOW.md) tabulates these results and their limits.
+
 ## Engineering choices and alternatives
 
-- **Optional package, not a new core capability:** the concrete caller is the
-  explicit refresh wrapper and consumer CLI. Core scheduling, Goal, Todo,
-  acceptance and L1 reliability-diagnostics contracts are unchanged. L1's
-  no-outbound-endpoint receipt cannot certify a Jev request.
+- **Optional package plus one typed core seam:** the observer, provider call and
+  recordings stay in the package. The core adds a default-off capability that
+  owns the policy, the receipt schema and the trigger, imports nothing from the
+  package, and reads only normalized receipts. Scheduling, Todo, acceptance and
+  L1 reliability-diagnostics contracts are unchanged; L1's no-outbound-endpoint
+  receipt cannot certify a Jev request.
 - **Environment credentials, separate opt-in:** only `TYPESAFE_API_KEY` supplies
   the live key. Having a key does not select a mode or permit egress. Missing key,
   invalid authentication, timeout, stale input and unknown answers never become
   evidence of healthy progress. The normal Agent workflow continues.
-- **Local per-Goal configuration:** this optional CLI has no built-in configuration
-  editor. Native host hooks and a registry/frontend/Lark journey would require a
-  separate integration proposal. A hand-maintained contract is explicitly an
-  operator export, not an assertion of canonical approval.
+- **Two configuration layers:** the observer's local config (model, egress,
+  limits, off/shadow) and the Goal's registry policy (off/shadow/assist, signal,
+  threshold) editable through `configure-goal`, the chat API and the Dashboard.
+  Native host hooks and Lark remain separate work. A hand-maintained contract is
+  explicitly an operator export, not an assertion of canonical approval.
 - **Narrow snapshots:** exact files, bounded material, explicit missing context,
   and single-writer use. No repository-wide completeness, atomic filesystem
   snapshot or author-attribution claim. Equal patches with different context are
