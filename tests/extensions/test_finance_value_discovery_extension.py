@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -15,9 +16,14 @@ import pytest
 from loopx.capabilities.catalog import build_capability_catalog_packet
 from loopx.cli import main
 from loopx.extensions.manifest import load_extension_manifest
-from loopx.extensions.presentation import publish_extension_projection
+from loopx.extensions.presentation import (
+    default_extension_projection_root,
+    publish_extension_projection,
+)
 from loopx.extensions.runtime import (
     default_extension_state_file,
+    doctor_installed_extension,
+    extension_catalog_entries,
     install_extension,
 )
 
@@ -801,6 +807,120 @@ json.dump({invalid_packet!r}, sys.stdout)
             request=_research_dashboard_input(),
             execute=True,
         )
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX console-script shebang fixture")
+def test_doctor_identity_binds_declared_validator_implementation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A replaced validator implementation cannot reuse the earlier doctor proof."""
+
+    runtime_source = tmp_path / "finance-source"
+    shutil.copytree(EXTENSION_SRC, runtime_source)
+    runtime_root = tmp_path / "finance-runtime"
+    venv.EnvBuilder(with_pip=False, symlinks=True).create(runtime_root)
+    runtime_python = runtime_root / "bin" / "python"
+    purelib = subprocess.run(
+        [
+            str(runtime_python),
+            "-I",
+            "-c",
+            "import sysconfig; print(sysconfig.get_paths()['purelib'])",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    (Path(purelib) / "finance-value-discovery-source.pth").write_text(
+        str(runtime_source) + "\n",
+        encoding="utf-8",
+    )
+    unacceptable_view = "must be accepted only by the replaced decision code"
+    packet = build_finance_research_dashboard_packet(_research_dashboard_input())
+    packet["presentation_projection"]["view"]["unsupported"] = unacceptable_view
+    invocation_marker = tmp_path / "provider-called"
+    provider = runtime_root / "bin" / "finance-provider"
+    provider.write_text(
+        f"""#!{runtime_python}
+import json
+import sys
+from pathlib import Path
+
+if "--doctor" in sys.argv:
+    raise SystemExit(0)
+
+Path({str(invocation_marker)!r}).write_text("called", encoding="utf-8")
+json.load(sys.stdin)
+json.dump({packet!r}, sys.stdout)
+""",
+        encoding="utf-8",
+    )
+    provider.chmod(0o755)
+    manifest = tmp_path / "extension.toml"
+    manifest.write_text(
+        MANIFEST.read_text(encoding="utf-8").replace(
+            'entrypoint = "loopx-finance-value-discovery"',
+            f"entrypoint = {json.dumps(str(provider))}",
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    state_file = default_extension_state_file(tmp_path / "runtime")
+    install_extension(manifest, state_file=state_file, execute=True)
+
+    def publish() -> dict[str, object]:
+        return publish_extension_projection(
+            "loopx-finance-value-discovery",
+            "investment-research",
+            state_file=state_file,
+            request=_research_dashboard_input(),
+            execute=True,
+        )
+
+    def ready() -> bool:
+        entries = extension_catalog_entries([manifest], state_file=state_file)
+        return bool(entries[0]["provider"]["ready"])
+
+    assert ready() is True
+    with pytest.raises(ValueError, match="unsupported keys"):
+        publish()
+    invocation_marker.unlink()
+
+    validator_module = (
+        runtime_source / "loopx_finance_value_discovery" / "presentation_view.py"
+    )
+    validator_module.write_text(
+        validator_module.read_text(encoding="utf-8")
+        + "\n\ndef validate_decision_research_view(view):\n"
+        '    """Replacement implementation that accepts any view structure."""\n'
+        "    return view\n",
+        encoding="utf-8",
+    )
+
+    assert ready() is False
+    with pytest.raises(ValueError, match="doctor readiness is stale"):
+        publish()
+    assert not invocation_marker.exists()
+
+    doctor = doctor_installed_extension(
+        "loopx-finance-value-discovery",
+        state_file=state_file,
+        execute=True,
+    )
+    assert doctor["verified"] is True
+    assert ready() is True
+
+    # Re-verifying the replaced implementation makes it runnable again, and the
+    # published view proves the replaced decision code is what executed.
+    assert publish()["status"] == "published"
+    projection_file = (
+        default_extension_projection_root(state_file)
+        / "loopx-finance-value-discovery"
+        / "investment-research.json"
+    )
+    persisted = json.loads(projection_file.read_text(encoding="utf-8"))
+    assert persisted["view"]["unsupported"] == unacceptable_view
 
 
 @pytest.mark.parametrize("legacy_command", ["source-map", "install-check"])
