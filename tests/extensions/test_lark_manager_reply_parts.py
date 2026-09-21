@@ -9,6 +9,7 @@ import pytest
 
 import loopx.extensions.lark.manager_reply_parts as parts_module
 from loopx.extensions.lark.manager_reply_parts import (
+    PART_ATTEMPT_KEY,
     PART_DELIVERY_COMPLETE_KEY,
     PART_DELIVERY_COMPLETION_UNVERIFIED,
     PART_DELIVERY_INCOMPLETE,
@@ -17,6 +18,7 @@ from loopx.extensions.lark.manager_reply_parts import (
     deliver_manager_reply_parts,
     part_delivery_incomplete_reason,
     plan_manager_reply_parts,
+    recorded_part_attempt,
 )
 
 
@@ -226,3 +228,137 @@ def test_a_verified_part_with_pending_cleanup_is_never_sent_twice(monkeypatch, d
     assert delivery["sends"].count(parts[0]) == 1
     assert delivery["sends"][1] == parts[1]
     assert delivery["state"]["delivery_parts_sent"] == len(parts)
+
+
+ATTEMPT = {
+    "schema_version": "manager_return_delivery_attempt_v0",
+    "provider": "lark",
+    "message_ref": "om_reply_fixture",
+    "intent_digest": "sha256:" + "a" * 64,
+    "provider_receipt": "sha256:" + "b" * 64,
+}
+
+
+def test_a_send_without_a_readback_records_its_provider_locator(
+    monkeypatch, delivery,
+):
+    """An unverified send must leave the locator a later attempt can check."""
+
+    parts, _ = plan_manager_reply_parts(BODY)
+
+    def unverified_send(**kwargs):
+        delivery["sends"].append(kwargs["text"])
+        recorder = kwargs.get("delivery_attempt_recorder")
+        if recorder is not None:
+            recorder(dict(ATTEMPT))
+        return {
+            "ok": False,
+            "status": "sent_unverified",
+            "idempotency_key": ATTEMPT["provider_receipt"],
+            "external_write_performed": True,
+            "verification_performed": False,
+            "reply_verified": False,
+        }
+
+    monkeypatch.setattr(parts_module, "reply_lark_event_inbox", unverified_send)
+
+    assert delivery["deliver"](parts) is None
+
+    assert delivery["state"]["delivery_parts_sent"] == 0
+    assert delivery["state"][PART_ATTEMPT_KEY] == {"index": 0, "attempt": ATTEMPT}
+    assert recorded_part_attempt(delivery["state"], 0) == ATTEMPT
+    # A different part has no locator to reconcile.
+    assert recorded_part_attempt(delivery["state"], 1) is None
+
+
+def test_a_recorded_locator_is_confirmed_instead_of_sending_the_part_again(
+    monkeypatch, delivery,
+):
+    """The reader must not receive the same part twice after an ambiguous send."""
+
+    parts, _ = plan_manager_reply_parts(BODY)
+    delivery["state"].update(
+        delivery_part_count=len(parts),
+        delivery_parts_sent=0,
+        **{PART_ATTEMPT_KEY: {"index": 0, "attempt": ATTEMPT}},
+    )
+    verified_with: list[dict] = []
+
+    def readback(**kwargs):
+        verified_with.append(dict(kwargs))
+        return {
+            "ok": True,
+            "verification_performed": True,
+            "reply_verified": True,
+            "part_reconciled": True,
+        }
+
+    monkeypatch.setattr(parts_module, "verify_lark_inbox_reply", readback)
+    monkeypatch.setattr(parts_module, "reply_lark_event_inbox", delivery["install"]())
+
+    assert delivery["deliver"](parts)["ok"] is True
+
+    # No write happened for the reconciled part, and the sequence continued at
+    # the part after it.
+    assert verified_with[0]["attempt"] == ATTEMPT
+    assert verified_with[0]["text"] == parts[0]
+    assert delivery["sends"][0] == parts[1]
+    assert delivery["sends"].count(parts[0]) == 0
+    assert delivery["state"]["delivery_parts_sent"] == len(parts)
+    assert PART_ATTEMPT_KEY not in delivery["state"]
+
+
+def test_an_unconfirmed_locator_still_sends_the_part(monkeypatch, delivery):
+    """A locator the provider cannot confirm must not drop the reader's text."""
+
+    parts, _ = plan_manager_reply_parts(BODY)
+    delivery["state"].update(
+        delivery_part_count=len(parts),
+        delivery_parts_sent=0,
+        **{PART_ATTEMPT_KEY: {"index": 0, "attempt": ATTEMPT}},
+    )
+
+    monkeypatch.setattr(
+        parts_module,
+        "verify_lark_inbox_reply",
+        lambda **kwargs: {
+            "ok": False,
+            "verification_performed": True,
+            "reply_verified": False,
+            "blocker": "provider_message_missing",
+        },
+    )
+    monkeypatch.setattr(parts_module, "reply_lark_event_inbox", delivery["install"]())
+
+    assert delivery["deliver"](parts)["ok"] is True
+
+    assert delivery["sends"][0] == parts[0]
+
+
+def test_a_confirmed_locator_settles_a_sequence_with_no_new_write(
+    monkeypatch, delivery,
+):
+    parts, _ = plan_manager_reply_parts("短答复")
+    assert len(parts) == 1
+    delivery["state"].update(
+        delivery_part_count=1,
+        delivery_parts_sent=0,
+        **{PART_ATTEMPT_KEY: {"index": 0, "attempt": ATTEMPT}},
+    )
+    monkeypatch.setattr(
+        parts_module,
+        "verify_lark_inbox_reply",
+        lambda **kwargs: {
+            "ok": True,
+            "verification_performed": True,
+            "reply_verified": True,
+            "part_reconciled": True,
+        },
+    )
+    monkeypatch.setattr(parts_module, "reply_lark_event_inbox", delivery["install"]())
+
+    assert delivery["deliver"](parts)["ok"] is True
+
+    assert delivery["sends"] == []
+    assert delivery["state"][PART_DELIVERY_COMPLETE_KEY] is True
+    assert delivery["state"][PART_DELIVERY_VERIFIED_KEY] is True

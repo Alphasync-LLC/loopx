@@ -29,6 +29,19 @@ function promptUrl(task: string) {
 const primaryArms: ArmKey[] = ["plain", "native_goal", "new_heartbeat"];
 const historicalArms: ArmKey[] = ["ssh_goal", "legacy_heartbeat"];
 const baselines: Baseline[] = ["plain", "native_goal"];
+// Derive all three metrics from the same effective task-arm cells.
+const armMetrics = Object.fromEntries((Object.keys(study.arms) as ArmKey[]).map((arm) => {
+  const rewards = study.tasks.map((row) => row[arm]);
+  return [arm, {
+    mean: rewards.reduce((sum, reward) => sum + reward, 0) / rewards.length,
+    strict: rewards.filter((reward) => reward >= study.benchmark.solved_threshold).length,
+    over80: rewards.filter((reward) => reward > 0.8).length,
+  }];
+})) as Record<ArmKey, { mean: number; strict: number; over80: number }>;
+
+function formatRate(count: number) {
+  return `${(count / study.tasks.length * 100).toFixed(1)}%`;
+}
 function compareTasks(tasks: typeof study.tasks, baseline: Baseline) {
   const deltas = tasks.map((row) => row.new_heartbeat - row[baseline]);
   const meanDelta = deltas.reduce((sum, delta) => sum + delta, 0) / deltas.length;
@@ -96,16 +109,14 @@ export function LhtbBrief() {
       <table>
         <thead><tr>{c.summaryColumns.map((label) => <th scope="col" key={label}>{label}</th>)}</tr></thead>
         <tbody>{arms.map((arm) => {
-          const row = study.arms[arm];
-          const tokens = "tokens" in row
-            ? formatMillions(row.tokens)
-            : `${formatMillions(row.input_tokens)} in / ${formatMillions(row.output_tokens)} out`;
-          const cost = "estimated_cost_usd" in row ? row.estimated_cost_usd : row.recorded_cost_usd;
+          const row = armMetrics[arm];
           return (
             <tr className={arm === "new_heartbeat" ? "is-highlight" : undefined} key={arm}>
               <th scope="row"><code>{c.armLabels[arm]}</code><span>{c.armKinds[arm]}</span></th>
-              <td><strong>{row.mean_reward.toFixed(4)}</strong></td>
-              <td>{row.pass_095}/{study.tasks.length}</td><td>{tokens}</td><td>${cost.toFixed(2)}</td>
+              <td><strong>{formatReward(row.mean)}</strong></td>
+              {[row.strict, row.over80].map((count, index) => (
+                <td key={index}><strong>{formatRate(count)}</strong><small>{count}/{study.tasks.length}</small></td>
+              ))}
             </tr>
           );
         })}</tbody>
@@ -178,6 +189,7 @@ export function LhtbBrief() {
             <p>{c.resultBody}</p>
           </div>
           {summaryTable(primaryArms)}
+          <p className="bm-runner-note">{c.metricDefinitions}</p>
           <div className="lhtb-comparisons">
             {comparisons.map((row) => (
               <article key={row.baseline}>
@@ -185,13 +197,28 @@ export function LhtbBrief() {
                 <strong>+{row.meanDelta.toFixed(4)}</strong><span>{c.deltaMean}</span>
                 <p>+{(row.relativeGain * 100).toFixed(1)}% {c.relativeGain}</p>
                 <p>{c.pairCounts.replace("{wins}", String(row.wins)).replace("{ties}", String(row.ties)).replace("{losses}", String(row.losses))}</p>
-                <p>{c.pairSolves.replace("{current}", `${study.arms.new_heartbeat.pass_095}/46`).replace("{baseline}", c.armLabels[row.baseline]).replace("{base}", `${study.arms[row.baseline].pass_095}/46`)}</p>
+                <p>{c.pairSolves.replace("{current}", formatRate(armMetrics.new_heartbeat.strict)).replace("{baseline}", c.armLabels[row.baseline]).replace("{base}", formatRate(armMetrics[row.baseline].strict))}</p>
+                <p>{c.pairOver80.replace("{current}", formatRate(armMetrics.new_heartbeat.over80)).replace("{baseline}", c.armLabels[row.baseline]).replace("{base}", formatRate(armMetrics[row.baseline].over80))}</p>
               </article>
             ))}
           </div>
           <p className="bm-runner-note">{c.comparisonNote}</p>
+          <p className="bm-runner-note">{c.thresholdNote}</p>
           <p className="bm-runner-note"><strong>{c.readingNoteLabel}</strong>{c.readingNote}</p>
           <details className="lhtb-history"><summary>{c.historyTitle}</summary><p>{c.historyBody}</p>{summaryTable(historicalArms)}</details>
+          <details className="lhtb-history">
+            <summary>{c.costTitle}</summary>
+            <div className="bm-table-wrap lhtb-cost-table"><table>
+              <thead><tr>{c.costColumns.map((label) => <th scope="col" key={label}>{label}</th>)}</tr></thead>
+              <tbody>{[...primaryArms, ...historicalArms].map((arm) => {
+                const row = study.arms[arm];
+                const tokens = "tokens" in row ? formatMillions(row.tokens)
+                  : `${formatMillions(row.input_tokens)} in / ${formatMillions(row.output_tokens)} out`;
+                const cost = "estimated_cost_usd" in row ? row.estimated_cost_usd : row.recorded_cost_usd;
+                return <tr key={arm}><th scope="row">{c.armLabels[arm]}</th><td>{tokens}</td><td>${cost.toFixed(2)}</td></tr>;
+              })}</tbody>
+            </table></div>
+          </details>
         </section>
 
         <section className="bm-section bm-shell" id="benchmark">
