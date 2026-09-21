@@ -30,6 +30,7 @@ from ..effect_program import ReceiptBoundMonitorPhase, ReceiptBoundReplayPhase
 from ..goals.goal_frontier import (
     build_goal_frontier_projection_context_from_status,
 )
+from ..quota.blocked_transition_notice import build_blocked_transition_notice
 from ..quota.error_codes import HeartbeatReceiptIdentityConflictError
 from ..agents.capability_memory import resolve_agent_capabilities
 from ..quota.goal_boundary import (
@@ -227,6 +228,7 @@ def _blocked_priority_fallback(
         return None
 
     blocked_items: list[dict[str, Any]] = []
+    transition_notices: list[dict[str, Any]] = []
     owner_visible_blocker = False
     for item in first_open:
         if not isinstance(item, dict):
@@ -268,6 +270,12 @@ def _blocked_priority_fallback(
             status == TODO_STATUS_BLOCKED or resume_condition_pending
         ):
             owner_visible_blocker = True
+            notice = build_blocked_transition_notice(
+                item,
+                selected_executable=selected,
+            )
+            if notice is not None:
+                transition_notices.append(notice)
 
     if not blocked_items:
         return None
@@ -292,6 +300,7 @@ def _blocked_priority_fallback(
             )
         ),
         "blocked_items": blocked_items[:3],
+        "blocked_transition_notices": transition_notices[:3],
         "selected_executable": selected_item,
         "recommended_action": (
             "Keep the blocked core todo visible in status while selecting fallback; "
