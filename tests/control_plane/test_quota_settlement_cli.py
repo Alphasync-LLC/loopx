@@ -20,6 +20,7 @@ from loopx.control_plane.status.autonomous_replan_projection import (
     AUTONOMOUS_REPLAN_PERIODIC_RUN_THRESHOLD,
 )
 from loopx.heartbeat_prompt import build_heartbeat_prompt
+from loopx.rollout_event_log import build_rollout_event
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GOAL_ID = "settlement-cli-fixture"
@@ -1564,6 +1565,8 @@ def test_standard_codex_app_settlement_is_receipted_and_idempotent(
         GOAL_ID,
         "--agent-id",
         AGENT_ID,
+        "--todo-id",
+        TODO_ID,
         "--turn-instance-id",
         TURN_ID,
         "--scan-path",
@@ -5415,6 +5418,147 @@ def test_same_turn_terminal_receipt_replay_preempts_autonomous_replan(
     assert fresh["decision"] == "autonomous_replan_required", fresh
     assert fresh["should_run"] is True
     assert fresh["replan_action_packet"]["obligation_id"]
+
+
+def test_settled_turn_defers_prior_unsettled_history_to_fresh_turn(
+    tmp_path: Path,
+) -> None:
+    project, runtime, registry_path = _write_fixture(tmp_path)
+    _configure_selectable_alternative(project)
+    guard_args = (
+        "quota",
+        "should-run",
+        "--codex-app",
+        "--goal-id",
+        GOAL_ID,
+        "--agent-id",
+        AGENT_ID,
+        "--todo-id",
+        TODO_ID,
+        "--turn-instance-id",
+        TURN_ID,
+        "--scan-path",
+        str(project),
+    )
+    binding = (
+        "--agent-id",
+        AGENT_ID,
+        "--todo-id",
+        TODO_ID,
+        "--turn-instance-id",
+        TURN_ID,
+    )
+
+    first_rc, first = _run_cli(registry_path, runtime, *guard_args)
+    assert first_rc == 0, first
+    assert first["selected_todo"]["todo_id"] == TODO_ID
+
+    refresh_rc, refresh = _run_cli(
+        registry_path,
+        runtime,
+        "refresh-state",
+        "--goal-id",
+        GOAL_ID,
+        "--classification",
+        "settled_turn_recovery_order_validated",
+        "--delivery-batch-scale",
+        "single_surface",
+        "--delivery-outcome",
+        "outcome_progress",
+        *binding,
+        "--no-global-sync",
+        "--suppress-external-sinks",
+    )
+    assert refresh_rc == 0, refresh
+
+    spend_rc, spend = _run_cli(
+        registry_path,
+        runtime,
+        "quota",
+        "spend-slot",
+        "--goal-id",
+        GOAL_ID,
+        "--slots",
+        "1",
+        "--source",
+        "heartbeat",
+        "--execute",
+        *binding,
+        "--scan-path",
+        str(project),
+    )
+    assert spend_rc == 0, spend
+
+    complete_rc, complete = _run_cli(
+        registry_path,
+        runtime,
+        "todo",
+        "complete",
+        "--goal-id",
+        GOAL_ID,
+        *binding,
+        "--claimed-by",
+        AGENT_ID,
+        "--evidence",
+        "settled Turn recovery order validated",
+        "--no-follow-up",
+    )
+    assert complete_rc == 0, complete
+
+    prior_turn_id = "turn-unsettled-prior"
+    prior = build_rollout_event(
+        goal_id=GOAL_ID,
+        event_kind="quota_should_run",
+        agent_id=AGENT_ID,
+        todo_id=ALTERNATIVE_TODO_ID,
+        run_id=prior_turn_id,
+        status="normal_run",
+        summary="prior host Turn requires closeout",
+        recorded_at="2025-12-31T23:59:00Z",
+        details={
+            "todo_id": ALTERNATIVE_TODO_ID,
+            "settlement_effect_id": (
+                f"{GOAL_ID}:{AGENT_ID}:{ALTERNATIVE_TODO_ID}:{prior_turn_id}"
+            ),
+            "closeout_required": True,
+        },
+    )
+    log_path = runtime / "goals" / GOAL_ID / "rollout-event-log.jsonl"
+    committed_history = log_path.read_text(encoding="utf-8")
+    log_path.write_text(
+        json.dumps(prior) + "\n" + committed_history,
+        encoding="utf-8",
+    )
+
+    replay_rc, replay = _run_cli(registry_path, runtime, *guard_args)
+    assert replay_rc == 0, replay
+    assert replay["decision"] == "skip"
+    assert replay["effective_action"] == "heartbeat_settled_skip"
+    assert replay["should_run"] is False
+    assert replay.get("unsettled_host_turn_recovery") is None
+
+    fresh_args = (
+        "quota",
+        "should-run",
+        "--codex-app",
+        "--goal-id",
+        GOAL_ID,
+        "--agent-id",
+        AGENT_ID,
+        "--turn-instance-id",
+        "turn-settlement-cli-2",
+        "--scan-path",
+        str(project),
+    )
+    fresh_rc, fresh = _run_cli(registry_path, runtime, *fresh_args)
+    assert fresh_rc == 0, fresh
+    assert fresh["effective_action"] == "unsettled_host_turn_recovery"
+    assert fresh["unsettled_host_turn_recovery"]["prior_turn_instance_id"] == (
+        prior_turn_id
+    )
+    assert fresh["unsettled_host_turn_recovery"]["binding_id"] == (
+        ALTERNATIVE_TODO_ID
+    )
 
 
 def test_legacy_read_only_workspace_mismatch_fails_then_corrects_from_todo_contract(
