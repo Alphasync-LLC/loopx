@@ -147,15 +147,18 @@ receipt。它不采集聊天、不解析 tool log、不保存 raw content，也�
 
 生产 Codex CLI Turn 在 quota/Todo admission 后执行 recall；只有独立验证、持久 writeback 与
 quota settlement 均完成后，才接受 outcome ingest。Reflection 必须使用
-`turn_reward_memory_reflection_v0`，携带精确配置的 surface、相互区分的
-research/simulation/real/engineering 来源类型和 opaque evidence refs；普通 Turn summary 不算
-证据。Provider commit 含糊或精确读回失败时，会保留一份权限为 0600、按 Goal+Agent+事件隔离的
+`turn_reward_memory_reflection_v1`，携带精确配置的 surface、相互区分的
+research/simulation/real/engineering 来源类型和 opaque evidence refs；还必须携带
+`procedural_experience_contract_v0`，分别写出适用情境、已观察结果、归因、未来行为（触发、动作、
+验证、停止条件）、失效边界，并绑定相同 evidence refs。只有事实复述、没有未来行为改变的普通
+Turn summary 不算经验。旧的 v0 reflection 只保留审计兼容，不会写成可持久召回的记忆。
+Provider commit 含糊或精确读回失败时，会保留一份权限为 0600、按 Goal+Agent+事件隔离的
 sidecar。下一个执行 Turn 会在 recall 前以同一 deterministic event 重试，使 Provider 可以去重，
 LoopX 再要求精确读回。显式关闭会停止 reconciliation，并保持零 Provider 调用。
 
 Codex App 复用同一结算边界，但不会把原始 reflection 放入 run index、rollout event 或公共
 projection。Todo-bound 的 accountable refresh 可以追加
-`--reward-memory-reflection-json <turn_reward_memory_reflection_v0 JSON>`；LoopX 只把候选存入
+`--reward-memory-reflection-json <turn_reward_memory_reflection_v1 JSON>`；LoopX 只把候选存入
 权限为 0600、按 Goal+Agent+candidate 隔离的 sidecar，并运行该 Todo 已声明的精确 completion
 validation 命令。Validator 必须返回 `reward_memory_reflection_validation_v0`，且其中的 reflection
 digest 与 evidence refs 必须完全匹配；普通验收命令仅仅退出 0 并不足够。随后只有同一 identity
@@ -194,7 +197,7 @@ recall 调用点：`reviewer_artifact.summary` 应用简短 reviewer-facing 摘�
 | `run_bound_reward` | 人对某个精确 goal/run 给出的显式评价。 | 只描述该次结果。若要影响后续行为，必须先形成紧凑候选并经过 activation policy；reward overlay 本身不是长期指令。 | Overlay 只追加；修正和撤销通过引用追加，不回写被评价的原始 run。 |
 | `hard_policy` | 显式的用户、仓库或 operator authority，或者从已验证的 owner/核心贡献者证据中推导、并绑定到既有 project/action authority scope 的策略内容。 | 在已验证作用域内形成约束或否决。模型可以从 reward、preference、经过当前 artifact 验证的 experience、选项选择、接受/拒绝结果和 maintainer correction 中推导策略含义；不能推导 credential、新的 publish/production scope 或跨用户、跨仓库 authority。 | Active record 保留 actor、evidence、scope 和 derivation provenance，直到被 supersede、revoke 或 expire。临时或证据较弱的推导应当过期或回到 review。 |
 | `soft_preference` | 显式反馈、用户选择，或者后续经过 review 的候选；作用域绑定到 workspace/project 和模块自有 surface。 | 只用于 advisory ranking 或 rewrite，不能授予 publish、merge、write、credential 或 production authority。 | 只有经过显式 review 才能持久化；支持 edit、reject、supersede、revoke 和 retire。 |
-| `procedural_experience` | 带 revision 的 trajectory、distilled experience、maintainer correction、接受/拒绝变更和经过 review 的架构经验；同时带 repository/module/revision/applicability scope。 | 只有经过当前 artifact 验证，才能作为诊断、范围判断、路由或验证建议。训练/评测 case 是证据，不是可执行指令；单次 retrieval 对 patch 没有 authority。 | Trajectory 可以只追加；distilled 或 architectural experience 支持 supersede。新的 source truth 可以把旧经验标记为 stale、quarantine、refute 或 retire。 |
+| `procedural_experience` | 带 revision 的 trajectory、distilled experience、maintainer correction、接受/拒绝变更和经过 review 的架构经验。结构化经验契约保留适用情境、已观察结果、归因、未来行为、失效边界和证据引用。 | 只有经过当前 artifact 验证和经验质量门禁，才能作为诊断、范围判断、路由或验证建议。只有事实摘要或 provider 写入成功都不构成经验；单次 retrieval 也不授予动作 authority。 | 新 source truth 或后续应用证据可以把经验标记为 stale、harmful、refuted、superseded 或 retired。初始门禁只证明结构可复用且证据绑定；真实价值仍需应用与结果归因。 |
 | `working_context` | 包含 fresh execution state（`fresh_execution_context`）和带 revision 的 session continuation 摘要（`session_working_memory`）。 | 只服务当前执行或 session 延续，不能自动升级成可复用 policy，也不能授予动作 authority。当前 source-of-truth 读取始终高于 recall 内容。 | `fresh_execution_context` 已存在于 LoopX 的 registry/state/todo/quota/checkout observation 中，本设计直接复用。Session context 继续绑定对应 session/archive revision。 |
 
 每条持久记录除了类别，还必须包含 `source`、`scope`、`authority`、`confidence`、
@@ -329,7 +332,9 @@ surface。两者都只把严格、紧凑的字段映射到同一个 `reward_memo
 lifecycle、store、scheduler、recall path 或 semantic router。LoopX 不读取或保存原始 feedback
 body，也不会根据关键词自动判断“哪条反馈值得记忆”。模型或调用模块先把材料压缩成只包含
 source ref、已验证 actor/role、精确 workspace/project/surface/revision、内容摘要、reasoning
-和当前 artifact 证据的 event。
+和当前 artifact 证据的 event。若目标类别是 `procedural_experience`，event 还必须提供完整的
+`procedural_experience_contract_v0`；缺少适用情境、已观察结果、归因、未来行为任一子字段、
+失效边界或 evidence refs 时，会在 provider 调用前拒绝。
 
 一个 `reward_memory_standing_policy_v0` 预先声明 corpus owner、reviewer、authority source、
 精确 project/surface、唯一 memory class、允许的 source kind、已验证 actor role 和 action
@@ -337,12 +342,21 @@ scope。它把“每条 comment 重复审批”收敛成“一次批准精确边
 仓库写权限、publish/production scope 或跨项目 authority。任何越界、冲突、非 current source
 或 raw/unmodelled 字段都会在 provider 调用前 `guard_blocked`。
 
+完整经验契约参与 `candidate_ref`，写入 active envelope，并在召回时一并注入。旧的“只有摘要”
+程序性记录不会被召回。该门禁证明的是结构与证据资格，不会提前宣称经验真的 helpful；后续仍由
+application receipt 和已验证 outcome attribution 判断 helpful、neutral、harmful 或 retire。
+
 同一命令按顺序执行：确定性 `candidate_ref` 去重、standing-policy accept、active envelope、
-声明 provider 的 `sync`、同一 exact corpus/surface 的 function-boundary recall，以及
-resource ref、candidate ref、canonical content digest 三重读回校验。只有三项都一致时，
-`reward_memory_ingest_receipt_v0` 才返回 `activated` 和
-`memory_available_for_recall=true`。Provider 不可用、commit pending 或读回不一致都 fail open，
-不阻塞调用方的正常工作。`observed_at` 是事件第一次被观察到的不可变时间，retry 必须复用它；
+声明 provider 的 `sync`、同一 exact corpus/surface 的 function-boundary 精确读回，以及
+resource ref、candidate ref、canonical content digest 三重校验。对于
+`procedural_experience`，还会在真实目标 surface 用适用情境与未来行为执行一次不带 candidate id
+的 `business_recall`，召回记录必须同时匹配 candidate digest 与 experience digest。这样可避免把
+“按精确 id 能读回来”误当成“做决策时能找到这条经验”。只有精确读回、经验质量门禁和必要的
+业务召回全部通过，`reward_memory_ingest_receipt_v0` 才返回 `activated` 和
+`memory_available_for_recall=true`。业务召回未命中时保持 `recall_unverified`，交给有界 reconciliation，
+不会提前激活。`exact_readback_verified=true` 只证明存储完整，不证明经验质量、可发现性或真实效用。
+Provider 不可用、commit pending、读回不一致或业务召回未命中都 fail open，不阻塞调用方的正常工作。
+`observed_at` 是事件第一次被观察到的不可变时间，retry 必须复用它；
 provider target 同时绑定 standing-policy 与 candidate digest，避免策略换版误复用旧激活。
 `--execute` 缺省关闭，dry-run 只返回 `planned`。Execute 还必须同时提供 goal id 和 allowlist
 内 agent id，调用方不能通过直接传 provider binding 绕过默认关闭的实验策略。
