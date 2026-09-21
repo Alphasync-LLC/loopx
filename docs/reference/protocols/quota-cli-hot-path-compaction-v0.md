@@ -67,6 +67,15 @@ projection. Candidate lists and peer action lists retain counts and point to
 `--include-detail vision`; `--include-detail all` restores every supported
 detail section.
 
+When a replan action carries a complete `vision_authoring` schema, the default
+`quota should-run` packet keeps its executable writeback summary (`required_fields`,
+accepted path outcomes, and rule) and replaces only that nested schema with a
+`vision_authoring_detail_ref`. `--include-detail vision` restores the schema.
+`turn plan` is different: its TurnEnvelope preserves the complete schema because
+the plan must be capable of authoring the exact input its validator accepts.
+The crowded Turn budget therefore accounts for that fixed contract without
+relaxing Todo-count growth or the small and multi-Agent ceilings.
+
 ## Qualification Contract
 
 Deterministic tests own exact full-versus-compact parity, cold-path restoration,
