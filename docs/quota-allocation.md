@@ -725,11 +725,13 @@ gap, autonomy blocker, or replan obligation fail closed. This keeps recurring
 controllers alive during ordinary waits while honoring an explicit completed
 goal shutdown without another quota-spending turn.
 
-An explicit `peer_coordination_blocked` decision is also a typed host stop, not
-an ordinary quiet wait. Its `automation_liveness` and `scheduler_hint` both
-require the current recurring heartbeat to stop without spending quota. The
-host resumes only after peer activation capability, peer runtime readiness,
-coordinator configuration, or the local work frontier materially changes.
+An explicit `peer_coordination_blocked` decision is a recoverable typed wait,
+not a terminal host stop. It keeps the recurring heartbeat alive without
+spending quota and uses the existing TypeScript-owned stateful backoff
+transition with a 10/20/30/60 minute progression. Peer activation capability,
+peer runtime readiness, coordinator configuration, or newly projected local
+work changes the reset identity and restores the initial cadence. Goal stopped,
+quota paused, and validated terminal no-follow-up remain the stop cases.
 
 An individual registered peer can instead be put in `monitor_only` work mode:
 
