@@ -9,11 +9,11 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
-from loopx.control_plane.scheduler.execution_context import (
+from loopx.control_plane.scheduler.execution_context import (  # noqa: E402
     SchedulerRuntimeProfile,
     scheduler_execution_context_for_runtime_profile,
 )
-from loopx.quota import (
+from loopx.quota import (  # noqa: E402
     build_quota_should_run as _build_quota_should_run,
     render_quota_should_run_markdown,
 )
