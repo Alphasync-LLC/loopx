@@ -273,6 +273,9 @@ def deliver_manager_reply_parts(
                 execute=True,
                 runner=reply_runner,
                 delivery_attempt_recorder=record_attempt,
+                # Part delivery is the fallback for a body the provider itself
+                # cannot take; a part is never cut by the notification length.
+                short_message_limit=None,
             )
         if not _part_accepted(last):
             delivery_state.update(

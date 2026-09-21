@@ -1193,6 +1193,11 @@ def process_lark_goal_topic_event(
                 content_format=content_format,
                 execute=True,
                 runner=reply_runner,
+                # A manager answer is bounded by the provider's request limit,
+                # not by the compact notification length: one answer is one
+                # message, and the bounded part sequence is the fallback for a
+                # body the provider itself cannot take.
+                short_message_limit=None,
             )
         except LarkOutboundTextError:
             if not manager:
