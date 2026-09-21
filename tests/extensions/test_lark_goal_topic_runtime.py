@@ -3025,3 +3025,89 @@ def test_a_part_whose_readback_failed_is_reconciled_instead_of_sent_twice(
     assert settled["status"] == "acknowledged"
     assert settled["delivery_parts_sent"] == MANAGER_REPLY_MAX_PARTS
     assert PART_ATTEMPT_KEY not in settled
+
+
+def test_a_long_manager_answer_is_delivered_as_one_message(
+    tmp_path, monkeypatch,
+):
+    """A 3000-character steward answer is one message, not a bounded sequence.
+
+    The self-imposed 1200-character cap is not a provider limit: the transport
+    already accepts up to the 150 KB provider bound, and every reader-visible
+    split costs an extra message plus a part-sequence record. This pins the
+    single-message outcome so a later change cannot silently reintroduce the
+    split for an ordinary long answer.
+    """
+
+    from loopx.extensions.lark import goal_topic_runtime as runtime
+
+    target_path, binding_path = tmp_path / "targets.json", tmp_path / "bindings.json"
+    _seed_legacy_topic(target_path, binding_path)
+    original_decide = runtime.decide_lark_topic_event
+    state: dict[str, Any] = {}
+    body = "测" * 3000
+
+    def manager_decision(**kwargs):
+        result = original_decide(**kwargs)
+        result["route"].update(
+            conversation_kind="manager", ingress_mode="session_queue",
+            authority_mode="turn_authorized",
+            event_id=kwargs["event"]["event_id"],
+            connector={"response_policy": "topic_reply"},
+        )
+        return result
+
+    monkeypatch.setattr(runtime, "decide_lark_topic_event", manager_decision)
+    monkeypatch.setattr(
+        runtime,
+        "ensure_lark_event_inbox_received_reaction",
+        lambda **kw: {"ok": True, "status": "already_received"},
+    )
+
+    kwargs = {
+        "target_payload": read_goal_channel_targets(target_path),
+        "binding_payloads": {"goal-alpha": read_goal_channel_binding(binding_path)},
+        "event": {
+            "event_id": "evt_long_answer",
+            "message_id": "om_long_answer",
+            "chat_id": "oc_public_fixture",
+            "root_id": "om_topic_alpha",
+            "create_time": "2026-09-21T15:20:00Z",
+            "content": "@linkmacbot report",
+            "mentioned": True,
+            "sender_type": "user",
+        },
+        "runtime_root": tmp_path / "runtime",
+        "answer": lambda route, text: {
+            "response_text": body,
+            "effect_receipt": runtime._session_turn_effect(route),
+        },
+        "reply_runner": _reply_runner(state),
+    }
+
+    result = runtime.process_lark_goal_topic_event(**kwargs)
+
+    sent = [
+        call[call.index("--text") + 1]
+        if "--text" in call
+        else call[call.index("--content") + 1]
+        for call in state["calls"]
+        if "+messages-reply" in call and "--dry-run" not in call
+    ]
+    assert result["status"] in {"replied_and_acknowledged", "acknowledged"}
+    assert len(sent) == 1, sent
+    # One message: the whole body in the rich-text envelope, with no part
+    # marker and no part record.
+    payload = json.loads(sent[0])
+    delivered = payload["zh_cn"]["content"][0][0]["text"]
+    assert delivered == body
+    from loopx.extensions.lark.manager_reply_delivery import delivery_path
+
+    saved = json.loads(
+        delivery_path(
+            project=kwargs["runtime_root"],
+            config_path=Path(result["inbox_config_ref"]),
+            message_id="om_long_answer",
+        ).read_text()
+    )
+    assert "delivery_part_count" not in saved
