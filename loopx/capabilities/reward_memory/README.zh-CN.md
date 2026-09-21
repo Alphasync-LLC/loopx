@@ -483,6 +483,15 @@ similarity 自行选择模块或 corpus，也不会扫描全部 corpus、调度�
 memory ref、模型给出的 reasoning summary 和 current-artifact verification，不保存原始
 provider content。
 
+Recall packet 还会区分“provider 没有返回 item”和“provider 返回 item，但被精确记录门禁
+过滤”。`provider_item_count`、`filtered_item_count` 与
+`filtered_reason_counts` 只暴露 contract、scope、lifecycle、expiry、quality 和旧契约过滤的
+有界计数，不暴露 provider 内容。只有事实摘要的旧程序性记录会标记为
+`legacy_contract_missing`，并继续保持不可召回。它的 maintenance projection 只提供两条受
+owner 治理的路径：先经正常准入写入并验证一条结构化 replacement，再退役旧记录；或者由
+corpus 声明的 retirement authority 直接退役。两条路径都必须验证 provider 写入读回；recall
+自身不会执行迁移或退役写入。
+
 Provider 不可用时，seam 返回 setup guidance 并保留原输出；这是 agent/runtime 条件，
 不会自动变成 user gate。模型 application 无效或异常也 fail open。只有同时归因到本次
 召回项并验证当前 artifact，才能产生 `applied` receipt。Issue Fix 使用固定的
