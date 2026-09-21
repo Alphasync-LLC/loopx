@@ -4,7 +4,7 @@
 - Scope: provider-neutral research planning, provenance admission, projection,
   and retirement
 - Roadmap: S8 capabilities and domain integration
-- Language note: the Chinese version is a semantic mirror; drift is a defect.
+- Language note: [中文版](external-evidence-research-capability-v0.zh-CN.md) is a semantic mirror; drift is a defect.
 
 ## Problem
 
