@@ -59,6 +59,12 @@ def settled_replay_fields() -> dict[str, Any]:
         "self_repair_allowed": False,
         "capability_repair_allowed": False,
         "workspace_repair_allowed": False,
+        # A settled Turn grants no safe bypass: the heartbeat task body reads
+        # safe_bypass_allowed as permission to run a bounded step and spend, so
+        # a fresh Turn must recompute any fallback instead of inheriting one.
+        "safe_bypass_allowed": False,
+        "safe_bypass_kind": None,
+        "safe_bypass_policy": None,
         "effective_action": EffectiveAction.HEARTBEAT_SETTLED_SKIP.value,
         "actionable_by_codex": False,
         "reason": reason,

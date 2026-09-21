@@ -91,7 +91,6 @@ from ..todos.quota_summary import (
 )
 from ..todos.user_gate import (
     apply_scoped_user_gate_fallback_projection as _apply_scoped_user_gate_fallback_projection,
-    scoped_user_gate_fallback_fields,
 )
 from ..todos.user_gate import (
     build_user_todo_notification as _build_user_todo_notification,
@@ -1442,11 +1441,9 @@ def _build_settled_quota_payload(
         state_action_projection_warning=None, next_action_warning=None,
         replan_obligation=None, notify_gate=False,
     )
-    if prepared.scoped_user_gate_fallback:
-        payload.update(scoped_user_gate_fallback_fields())
     # Work-mode diagnostics survive settlement, while execution authority comes
-    # only from the settled result, never the monitor precedence mutator.
+    # only from the settled result, never a fallback readback or the monitor
+    # precedence mutator.
     if prepared.agent_monitor_only and not prepared.inbox_priority_due:
-        payload.update(agent_work_mode="monitor_only", blocked_action_scope="advancement_work",
-                       safe_bypass_allowed=False, safe_bypass_kind=None, safe_bypass_policy=None)
+        payload.update(agent_work_mode="monitor_only", blocked_action_scope="advancement_work")
     return payload

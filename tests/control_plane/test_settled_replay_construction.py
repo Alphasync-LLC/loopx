@@ -7,6 +7,7 @@ from loopx.control_plane.effect_program import ReceiptBoundReplayPhase
 from loopx.control_plane.quota import should_run_packet
 from loopx.control_plane.quota.should_run import build_quota_should_run
 from loopx.control_plane.testing.quota_fixtures import quota_status_payload
+from loopx.presentation.renderers.quota_markdown import render_quota_should_run_markdown
 
 
 @pytest.mark.parametrize("quota_state", ["eligible", "operator_gate", "waiting_external", "exhausted"])
@@ -128,10 +129,28 @@ def test_settled_fallback_readback_cannot_reopen_execution(monkeypatch: pytest.M
         quota_status_payload(goal_id="settled-fixture", status="active", recommended_action="Continue"),
         goal_id="settled-fixture", receipt_bound_replay_phase=ReceiptBoundReplayPhase.SETTLED,
     )
-    assert payload["safe_bypass_allowed"] is True
-    assert payload["safe_bypass_kind"] == "scoped_user_gate_fallback"
+    # The heartbeat task body reads safe_bypass_allowed=true under
+    # should_run=false as permission to run one bounded step and spend once, so
+    # a settled Turn must not inherit the fallback grant from its readback.
+    assert payload["safe_bypass_allowed"] is False
+    assert payload["safe_bypass_kind"] is None
+    assert "safe_bypass_policy" not in payload
     assert payload["should_run"] is False
     assert payload["actionable_by_codex"] is False
     assert payload["execution_obligation"]["must_attempt_work"] is False
+    assert payload["interaction_contract"]["mode"] == "heartbeat_settled_skip"
+    assert payload["interaction_contract"]["agent_channel"]["must_attempt"] is False
     assert payload["interaction_contract"]["cli_channel"]["spend_after_validation"] is False
     assert "scoped_user_gate_fallback" not in payload
+
+    recommendation = payload["heartbeat_recommendation"]
+    assert recommendation["recommended_mode"] == "heartbeat_settled_skip"
+    assert recommendation["agent_must_attempt"] is False
+    assert "no quota spend" in recommendation["spend_policy"]
+
+    # The guidance the agent actually reads must not carry a second, executable
+    # reading of the same settled Turn.
+    guidance = render_quota_should_run_markdown(payload)
+    assert "safe_bypass" not in guidance
+    assert "spend only after validated writeback" not in guidance
+    assert "heartbeat_spend_policy: no quota spend" in guidance
