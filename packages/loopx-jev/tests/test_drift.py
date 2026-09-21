@@ -13,7 +13,7 @@ from loopx_jev.drift_capture import delta, stable_capture
 from loopx_jev.drift_cli import refresh
 from loopx_jev.store import atomic_json
 from loopx_jev.transport import TransportFailure
-from drift_fixtures import response
+from drift_fixtures import DRIFT_NOULS, response
 
 
 def git(repo, *args):
@@ -84,7 +84,7 @@ def change_and_queue(study, sequence=1):
 def provider(calls):
     def send(request, config, key):
         calls.append(request)
-        return {"response": response(request, ["off_goal", "no_new_evidence"])}
+        return {"response": response(request, ["off_goal", "no_new_evidence"], nouls=DRIFT_NOULS)}
 
     return send
 
@@ -242,10 +242,13 @@ def test_unknown_missing_key_and_timeout_are_not_healthy_or_drift(study):
     change_and_queue(study, 3)
 
     def unknown(request, *args):
-        return {"response": response(request, ["unknown", "unknown"])}
+        undecided = {name: 0.5 for name in DRIFT_NOULS}
+        return {"response": response(request, ["unknown", "unknown"], nouls=undecided)}
 
     drift.drain(root, config, transport=unknown, credential=lambda: "fixture")
-    assert drift.status(root)["events"][2]["status"] == "abstained"
+    event = drift.status(root)["events"][2]
+    assert event["status"] == "abstained"
+    assert event["drift_signal"] == {"noul": None, "choice": None}
 
 
 def test_contract_change_resets_baseline_without_inventing_progress(study):

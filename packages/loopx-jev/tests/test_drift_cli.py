@@ -8,7 +8,7 @@ import sys
 
 from loopx_jev import drift
 from loopx_jev.store import atomic_json
-from drift_fixtures import response
+from drift_fixtures import DRIFT_NOULS, response
 from test_drift import git
 from tests.control_plane.test_quota_settlement_cli import GOAL_ID, _write_fixture
 
@@ -116,7 +116,7 @@ def test_actual_refresh_process_capture_and_default_off(tmp_path):
 
     def provider(request, *args):
         assert "RENAMED_TIMEOUT" in json.dumps(request)
-        return {"response": response(request, ["off_goal", "no_new_evidence"])}
+        return {"response": response(request, ["off_goal", "no_new_evidence"], nouls=DRIFT_NOULS)}
 
     drift.drain(root, config, transport=provider, credential=lambda: "fixture")
     report, _ = run("drift", "status", "--state-dir", str(root))

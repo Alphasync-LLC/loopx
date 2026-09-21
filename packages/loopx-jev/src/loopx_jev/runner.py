@@ -210,7 +210,11 @@ def assess_one(
         requested_model=config.model,
         config_generation=config.generation,
         input_bytes=len(raw),
-        execution_kind="live_provider" if transport is send else "fixture_injected",
+        execution_kind=(
+            "live_provider"
+            if transport is send
+            else str(getattr(transport, "execution_kind", "") or "fixture_injected")
+        ),
     )
     try:
         if not guard():
@@ -239,7 +243,7 @@ def assess_one(
                 "answers": {
                     name: {
                         k: answer[k]
-                        for k in ("type", "choice", "probabilities", "confidence")
+                        for k in ("type", "choice", "probabilities", "confidence", "noul")
                         if k in answer
                     }
                     for name, answer in response["answers"].items()

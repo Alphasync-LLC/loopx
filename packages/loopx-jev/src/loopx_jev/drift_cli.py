@@ -134,6 +134,15 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     init.add_argument("--workspace", type=Path, required=True)
     init.add_argument("--basis", type=Path, required=True)
     init.add_argument("--path", dest="paths", action="append", required=True)
+    init.add_argument(
+        "--runtime-root",
+        type=Path,
+        help=(
+            "LoopX runtime root. When given, one typed receipt per evaluated "
+            "event is written under goals/<goal-id>/progress-review/receipts for "
+            "the core progress-review policy to read."
+        ),
+    )
     wrap = operations.add_parser(
         "refresh", help="capture around the actual refresh-state command; no inference"
     )
@@ -157,6 +166,13 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     )
     settings.add_argument("--state-dir", type=Path, required=True)
     settings.add_argument("--mode", choices=["off", "shadow"], required=True)
+    truth = operations.add_parser(
+        "label", help="record a private human truth label for one observed event"
+    )
+    truth.add_argument("--state-dir", type=Path, required=True)
+    truth.add_argument("--event-id", required=True)
+    truth.add_argument("--truth", choices=["drift", "on_goal", "unknown"], required=True)
+    truth.add_argument("--note", default="")
 
 
 def run(parsed: argparse.Namespace, invoke: Callable[[list[str]], int]) -> int:
@@ -168,7 +184,7 @@ def run(parsed: argparse.Namespace, invoke: Callable[[list[str]], int]) -> int:
     ):
         print(json.dumps({"status": "disabled"}))
         return 0
-    from .drift import configure, drain, initialize, status
+    from .drift import configure, drain, initialize, label, status
 
     if parsed.drift_command == "init":
         result = initialize(
@@ -177,7 +193,10 @@ def run(parsed: argparse.Namespace, invoke: Callable[[list[str]], int]) -> int:
             parsed.basis,
             parsed.config,
             parsed.paths,
+            runtime_root=parsed.runtime_root,
         )
+    elif parsed.drift_command == "label":
+        result = label(parsed.state_dir, parsed.event_id, parsed.truth, parsed.note)
     elif parsed.drift_command == "configure":
         result = configure(parsed.state_dir, parsed.mode)
     elif parsed.drift_command == "status":

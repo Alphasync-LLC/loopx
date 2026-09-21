@@ -46,3 +46,19 @@ def request_bytes(value: Any) -> bytes:
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
+
+
+def validate_noul(answer: Any) -> float:
+    """Return the calibrated probability of one Noul (yes/no) answer."""
+
+    if not isinstance(answer, dict) or answer.get("type") != "noul":
+        raise ValueError("invalid_answer_type")
+    value = answer.get("noul")
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (float, int))
+        or not math.isfinite(value)
+        or not 0 <= value <= 1
+    ):
+        raise ValueError("invalid_noul_probability")
+    return float(value)

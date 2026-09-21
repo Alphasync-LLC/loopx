@@ -74,14 +74,22 @@ def test_high_confidence_does_not_replace_selected_label_probability():
         "choice": "new_evidence",
         "probabilities": {"new_evidence": 1.0, "no_new_evidence": 0.0, "unknown": 0.0},
     }
+    nouls = {
+        name: {"type": "noul", "noul": 0.5}
+        for name in ("behavior_change", "serves_acceptance", "evidence_increment")
+    }
     result = decode_assessment(
-        {"model": "fixture", "answers": {"relation": answer, "increment": increment}},
+        {"model": "fixture", "answers": {"relation": answer, "increment": increment, **nouls}},
         {"facts": {"history_available": False}},
         "fixture",
         0.6,
     )
     assert result["judgments"] == {"relation": "unknown", "increment": "unknown"}
-    assert result["coverage"]["decided"] == 0
+    # Missing history withholds both increment judgments; the two other Noul
+    # probabilities are present but sit in the undecided band.
+    assert result["noul"]["evidence_increment"] is None
+    assert result["coverage"] == {"decided": 0, "total": 5}
+    assert result["drift_signal"] == {"noul": None, "choice": None}
     assert set(DOMAINS) == {"relation", "increment"}
 
 

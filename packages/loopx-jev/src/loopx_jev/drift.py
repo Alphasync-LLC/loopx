@@ -8,16 +8,26 @@ from pathlib import Path
 import time
 from typing import Any, Callable
 
+import re
+
+from loopx.capabilities.progress_review.receipt import (
+    PROGRESS_REVIEW_RECEIPT_SCHEMA_VERSION,
+    write_progress_review_receipt,
+)
 from loopx.file_lock import exclusive_file_lock
 
 from .config import Config, load_config, read_json
 from .drift_capture import delta, digest, stable_capture, validate_paths
+from .progress import QUESTION_VERSION
 from .runner import SECRET, assess_one, read_basis
 from .store import RunStore, atomic_json, initialize_run
 
 SCHEMA = "jev_drift_shadow_v0"
+LABEL_SCHEMA = "jev_drift_label_v0"
+LABELS = ("drift", "on_goal", "unknown")
 MAX_EVENTS = 256
 MAX_PENDING = 16
+_EVENT_ID = re.compile(r"^[a-f0-9]{64}$")
 
 
 def policy(path: Path | None) -> Config:
@@ -45,6 +55,7 @@ def state(root: Path) -> dict[str, Any]:
         "events",
         "seen_evidence",
         "capture_failures",
+        "runtime_root",
     }
     if not required <= value.keys() or not isinstance(value["events"], dict):
         raise ValueError("invalid_drift_state")
@@ -60,7 +71,13 @@ def contract(path: Path, repo: Path) -> tuple[dict[str, Any], str, Callable[[], 
 
 
 def initialize(
-    root: Path, repo: Path, basis_path: Path, config_path: Path, paths: list[str]
+    root: Path,
+    repo: Path,
+    basis_path: Path,
+    config_path: Path,
+    paths: list[str],
+    *,
+    runtime_root: Path | None = None,
 ) -> dict[str, Any]:
     config = policy(config_path)
     if config.mode == "off":
@@ -93,12 +110,21 @@ def initialize(
             "seen_evidence": [],
             "capture_failures": 0,
             "configuration_epoch": 0,
+            # When known, typed receipts are written under the LoopX goal
+            # runtime so the core can consume them; the private study state
+            # below never becomes authority either way.
+            "runtime_root": (
+                str(runtime_root.expanduser().resolve())
+                if runtime_root is not None
+                else None
+            ),
         },
     )
     return {
         "status": "baseline_created",
         "goal_id": basis["goal_id"],
         "scope_file_count": len(paths),
+        "receipts": "goal_runtime" if runtime_root is not None else "private_only",
         "authority": "none",
     }
 
@@ -253,6 +279,10 @@ def enqueue(
             job = {
                 "event_id": event_id,
                 "evidence_id": evidence_id,
+                "run": {
+                    key: (str(record[key]) if record.get(key) is not None else None)
+                    for key in ("turn_instance_id", "generated_at", "agent_id", "todo_id")
+                },
                 "record_digest": record_digest,
                 "contract_revision": prepared["contract_revision"],
                 "config_generation": prepared["config_generation"],
@@ -334,6 +364,18 @@ def drain(
                 current,
                 **options,
             )
+            evaluation_ns = time.perf_counter_ns() - started
+            receipt_record = None
+            if initial.get("runtime_root"):
+                receipt_record = _emit_receipt(
+                    Path(initial["runtime_root"]),
+                    initial["goal_id"],
+                    job,
+                    initial["events"][event_id]["sequence"],
+                    result,
+                    config,
+                    evaluation_ns=evaluation_ns,
+                )
             report = {
                 "schema": SCHEMA,
                 "event_id": event_id,
@@ -343,7 +385,8 @@ def drain(
                 "worker_influence": "none",
                 "historical_only": True,
                 "assessment": result,
-                "evaluation_ns": time.perf_counter_ns() - started,
+                "evaluation_ns": evaluation_ns,
+                "receipt": receipt_record,
             }
             atomic_json(root / "results" / f"{event_id}.json", report)
             with exclusive_file_lock(root / "capture.lock"):
@@ -356,22 +399,155 @@ def drain(
     return {"status": "drained", "processed": processed, "authority": "none"}
 
 
+def _emit_receipt(
+    runtime_root: Path,
+    goal_id: str,
+    job: dict[str, Any],
+    sequence: int,
+    result: dict[str, Any],
+    config: Config,
+    *,
+    evaluation_ns: int,
+) -> dict[str, Any]:
+    """Write one typed receipt for the core; failures are recorded, never raised."""
+
+    assessment = result.get("assessment") if isinstance(result.get("assessment"), dict) else None
+    completed = result.get("status") == "completed" and assessment is not None
+    timing: dict[str, int] = {"evaluation": int(evaluation_ns)}
+    total = result.get("assessment_total_ns")
+    if isinstance(total, int) and not isinstance(total, bool) and total >= 0:
+        timing["assessment_total"] = total
+    worker = result.get("worker_timing_ns")
+    if isinstance(worker, dict):
+        headers = worker.get("request_to_headers")
+        if isinstance(headers, int) and not isinstance(headers, bool) and headers >= 0:
+            timing["request_to_headers"] = headers
+    receipt = {
+        "schema_version": PROGRESS_REVIEW_RECEIPT_SCHEMA_VERSION,
+        "goal_id": goal_id,
+        "event_id": job["event_id"],
+        "evidence_id": job["evidence_id"],
+        "contract_revision": job["contract_revision"],
+        "sequence": sequence,
+        "run": job.get("run") or {},
+        "status": result.get("status"),
+        "question_version": QUESTION_VERSION,
+        "model": config.model,
+        "judgments": {
+            "choice": assessment.get("judgments") if assessment else None,
+            "noul": assessment.get("noul") if assessment else None,
+        },
+        "drift_signal": (
+            dict(assessment.get("drift_signal") or {})
+            if completed
+            else {"noul": None, "choice": None}
+        ),
+        "label_probability_threshold": config.minimum_label_probability,
+        "timing_ns": timing,
+        "usage": result.get("usage") if isinstance(result.get("usage"), dict) else None,
+        "recorded_at": time.time(),
+    }
+    try:
+        path = write_progress_review_receipt(runtime_root, goal_id, receipt)
+    except (OSError, ValueError, TypeError):
+        return {"status": "write_failed", "reason": "invalid_or_unwritable_receipt"}
+    return {"status": "written", "path": str(path)}
+
+
+def label(root: Path, event_id: str, truth: str, note: str = "") -> dict[str, Any]:
+    """Record a private human truth label for one observed event."""
+
+    if truth not in LABELS:
+        raise ValueError("invalid_label")
+    if not _EVENT_ID.fullmatch(str(event_id)):
+        raise ValueError("invalid_event_id")
+    text = str(note or "")
+    if len(text) > 200 or any(ord(char) < 32 for char in text):
+        raise ValueError("invalid_label_note")
+    with exclusive_file_lock(root / "capture.lock"):
+        current = state(root)
+        if event_id not in current["events"]:
+            raise ValueError("unknown_event")
+        atomic_json(
+            root / "results" / f"{event_id}.label.json",
+            {
+                "schema": LABEL_SCHEMA,
+                "event_id": event_id,
+                "truth": truth,
+                "note": text,
+                "labeled_at": time.time(),
+            },
+        )
+    return status(root)
+
+
+def _agreement(rows: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    """Confusion counts of private labels against each derived drift signal."""
+
+    table: dict[str, dict[str, int]] = {}
+    for signal in ("noul", "choice"):
+        cell = {
+            "true_positive": 0,
+            "false_positive": 0,
+            "false_negative": 0,
+            "true_negative": 0,
+            "undecided": 0,
+        }
+        for row in rows:
+            truth = (row.get("label") or {}).get("truth")
+            if truth not in {"drift", "on_goal"}:
+                continue
+            predicted = (row.get("drift_signal") or {}).get(signal)
+            if predicted is None:
+                cell["undecided"] += 1
+            elif predicted and truth == "drift":
+                cell["true_positive"] += 1
+            elif predicted and truth == "on_goal":
+                cell["false_positive"] += 1
+            elif not predicted and truth == "drift":
+                cell["false_negative"] += 1
+            else:
+                cell["true_negative"] += 1
+        table[signal] = cell
+    return table
+
+
 def status(root: Path) -> dict[str, Any]:
     current = state(root)
     counts: dict[str, int] = {}
+    label_counts: dict[str, int] = {}
+    receipts_written = 0
     rows = []
     for event_id, item in sorted(
         current["events"].items(), key=lambda item: item[1]["sequence"]
     ):
         counts[item["status"]] = counts.get(item["status"], 0) + 1
         row = {"event_id": event_id, **item}
+        label_path = root / "results" / f"{event_id}.label.json"
+        if label_path.is_file():
+            recorded_label, _ = read_json(label_path, 4096)
+            if isinstance(recorded_label, dict) and recorded_label.get("schema") == LABEL_SCHEMA:
+                row["label"] = {
+                    "truth": recorded_label.get("truth"),
+                    "note": recorded_label.get("note"),
+                }
+                truth = str(recorded_label.get("truth"))
+                label_counts[truth] = label_counts.get(truth, 0) + 1
         report_path = root / "results" / f"{event_id}.json"
         if report_path.is_file():
             report, _ = read_json(report_path)
             assessment = report["assessment"]
+            receipt_record = report.get("receipt")
+            if isinstance(receipt_record, dict) and receipt_record.get("status") == "written":
+                receipts_written += 1
             row.update(
                 judgments=assessment.get("assessment", {}).get("judgments"),
+                noul=assessment.get("assessment", {}).get("noul"),
+                drift_signal=assessment.get("assessment", {}).get("drift_signal"),
+                receipt=receipt_record,
                 reason=assessment.get("reason"),
+                execution_kind=assessment.get("execution_kind"),
+                assessment_total_ns=assessment.get("assessment_total_ns"),
                 evaluation_ns=report["evaluation_ns"],
                 request_id=assessment.get("request_id"),
                 usage=assessment.get("usage"),
@@ -391,6 +567,10 @@ def status(root: Path) -> dict[str, Any]:
         "authority": "none",
         "worker_influence": "none",
         "historical_only": True,
+        "runtime_root": current.get("runtime_root"),
+        "receipts_written": receipts_written,
+        "label_counts": label_counts,
+        "label_agreement": _agreement(rows),
         "counts": counts,
         "capture_failures": current["capture_failures"],
         "scope_file_count": len(current["paths"]),
