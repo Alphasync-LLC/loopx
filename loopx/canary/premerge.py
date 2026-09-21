@@ -600,10 +600,20 @@ def _gate_status(
         status = "preview_only"
     else:
         status = "passed"
+    self_merge_validation_passed = status == "passed" and not manual_holds
     return {
         "status": status,
         "merge_gate_passed": status == "passed",
-        "self_merge_allowed": status == "passed" and not manual_holds,
+        # This gate owns validation, not repository merge authority.  Keep the
+        # historical field fail-closed so a green canary cannot be mistaken for
+        # permission to bypass a repository's independent-maintainer policy.
+        "self_merge_allowed": False,
+        "self_merge_validation_passed": self_merge_validation_passed,
+        "self_merge_authority": {
+            "granted": False,
+            "reason": "repository_policy_required",
+            "next_gate": "apply repository policy and exact-head merge readiness",
+        },
         "direct_failure_count": len(direct_failures),
         "run_failure_count": len(run_failures),
         "manual_hold_count": len(manual_holds),
@@ -722,6 +732,7 @@ def apply_change_quality_verification(
                 "status": f"quality_{status}",
                 "merge_gate_passed": False,
                 "self_merge_allowed": False,
+                "self_merge_validation_passed": False,
             }
         )
         summary["failure_count"] = int(summary.get("failure_count") or 0) + 1
@@ -1028,8 +1039,9 @@ def build_premerge_validation_gate(
             "Pre-merge validation is a risk-based gate: it runs diff hygiene, "
             "changed Python compile checks, catalog-selected canaries, risk-profile "
             "smokes, and public/private boundary checks. It reports manual holds for "
-            "benchmark-sensitive or reviewer-gated surfaces instead of treating local "
-            "smoke success as self-merge permission."
+            "benchmark-sensitive or reviewer-gated surfaces. Passing validation is "
+            "not merge authority: repository policy and exact-head merge readiness "
+            "remain separate mandatory gates."
         ),
     }
     if progress_callback and execute:
@@ -1095,6 +1107,10 @@ def render_premerge_validation_gate_markdown(payload: dict[str, Any]) -> str:
         f"- ok: `{str(payload.get('ok')).lower()}`",
         f"- merge_gate_passed: `{str(gate.get('merge_gate_passed')).lower()}`",
         f"- self_merge_allowed: `{str(gate.get('self_merge_allowed')).lower()}`",
+        f"- self_merge_validation_passed: "
+        f"`{str(gate.get('self_merge_validation_passed')).lower()}`",
+        f"- self_merge_authority: "
+        f"`{str((gate.get('self_merge_authority') or {}).get('reason') or '')}`",
         f"- tier: `{payload.get('tier')}`",
         f"- dry_run: `{str(payload.get('dry_run')).lower()}`",
         f"- changed_files: `{classification.get('changed_file_count')}`",
