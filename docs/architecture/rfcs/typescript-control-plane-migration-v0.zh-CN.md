@@ -594,8 +594,17 @@ delivery pending；这不代表全部 T2 命令或整 Goal promotion 已完成�
   raw patch 权限或轮询引擎。完成后的新观察即使 hash 相同也推进新一代；历史重放
   不会重开当前任务。无变化的分组也能恢复显示，包括带优先级前缀的 native 文本。
   见[观察更新与再激活](../../reference/protocols/quota-monitor-observation-receipt-v0.md#observation-updates-and-reactivation)。
-  保留 execution lease／hard-lease 模式的再激活、其他 lifecycle caller、旧持久化／
-  capture 和整 Goal 资格仍是独立边界。
+  再激活已由既有 TS owner 原子退役旧 execution；分组对账的完整桶集合决策现由
+  `capabilities/issue_fix_monitor_reconciliation.ts` 负责，Python 保留 ledger IO、
+  公开 writer 调用和展示交付。hard-lease 观察／结束先领取自己的有限期 execution，
+  领取后重新核对计划，只释放本次执行。观察提交后进程退出，原样重试可清理残留
+  lease，不重复 Todo 业务写入；再激活本身仍不授予执行权。
+  缺失／损坏 ledger、重复活动 target、旧的空组观察现在明确拒绝；成员 hash 保留
+  Python 原有 Unicode 排序及 ASCII 转义合同。显式 runtime-root 贯穿读取和写回。
+  这是 issue-fix 调用链闭合，不是所有桶的一笔原子事务：后续桶失败不回滚之前已
+  提交的桶。无变化重试可以清理自己的中断 execution 并恢复展示。Python 适配器仍
+  有真实调用方，不能直接删除。其他 lifecycle caller、跨外部 effect 的围栏、旧持久化／
+  capture 和整 Goal 资格仍独立。见[操作合同](../../../loopx/capabilities/issue_fix/README.zh-CN.md#pr-lifecycle-monitor)。
 - 保持 unchanged poll/reschedule、generation fence、material-change successor
   去重和可归属 settlement。Monitor 不是 delivery 执行任务；独立 advancement Todo
   不能被 monitor 自身替代。
