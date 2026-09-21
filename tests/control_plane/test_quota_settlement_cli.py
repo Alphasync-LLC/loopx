@@ -2499,22 +2499,9 @@ def test_visible_goal_refresh_and_spend_preserve_selected_todo_causality(
     assert refresh["delivery_workspace_causality"]["todo_id"] == TODO_ID
     assert refresh["delivery_workspace_causality"]["requirement"] == "not_required"
 
-    spend_rc, spend = _run_cli(
-        registry_path,
-        runtime,
-        "quota",
-        "spend-slot",
-        "--goal-id",
-        GOAL_ID,
-        "--slots",
-        "1",
-        "--source",
-        "visible-goal",
-        "--execute",
-        *binding,
-        "--scan-path",
-        str(project),
-    )
+    command = refresh["settlement_owed"]["command"]
+    assert "--source visible-goal" in command
+    spend_rc, spend = _run_cli(registry_path, runtime, *shlex.split(command)[1:])
     assert spend_rc == 0, spend
     assert spend["todo_id"] == TODO_ID
     assert spend["turn_instance_id"] == turn_instance_id
