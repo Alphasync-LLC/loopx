@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke-test compact protocol action packets for quota should-run."""
+"""Smoke-test structured quota decisions without the legacy action packet."""
 
 from __future__ import annotations
 
@@ -9,11 +9,11 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
-from loopx.control_plane.scheduler.execution_context import (
+from loopx.control_plane.scheduler.execution_context import (  # noqa: E402
     SchedulerRuntimeProfile,
     scheduler_execution_context_for_runtime_profile,
 )
-from loopx.quota import (
+from loopx.quota import (  # noqa: E402
     build_quota_should_run as _build_quota_should_run,
     render_quota_should_run_markdown,
 )
@@ -41,14 +41,16 @@ CODEX_APP_SCHEDULER_CONTEXT = scheduler_execution_context_for_runtime_profile(
 
 def build_quota_should_run(*args, **kwargs):
     kwargs.setdefault("scheduler_execution_context", CODEX_APP_SCHEDULER_CONTEXT)
-    return _build_quota_should_run(*args, **kwargs)
+    guard = _build_quota_should_run(*args, **kwargs)
+    assert "protocol_action_packet" not in guard, guard
+    return guard
 
 
 def status_payload(
     *,
     agent_todos: list[dict],
     user_todos: list[dict] | None = None,
-    status: str = "protocol_packet_fixture",
+    status: str = "protocol_decision_fixture",
     next_action: str = "Advance the P1 protocol simplification spike.",
 ) -> dict:
     agent_summary = {
@@ -211,7 +213,7 @@ def user_todo(
     return item
 
 
-def assert_advancement_packet_prefers_backlog_candidate() -> None:
+def assert_advancement_decision_prefers_backlog_candidate() -> None:
     guard = build_quota_should_run(
         status_payload(
             agent_todos=[
@@ -221,23 +223,24 @@ def assert_advancement_packet_prefers_backlog_candidate() -> None:
         ),
         goal_id=GOAL_ID,
     )
-    packet = guard["protocol_action_packet"]
-    assert packet["schema_version"] == "protocol_action_packet_v0", packet
-    assert "actor=agent" in packet["summary"], packet
-    assert "user_action_required=false" in packet["summary"], packet
-    assert "agent_action_required=true" in packet["summary"], packet
-    assert "quiet_noop_allowed=false" in packet["summary"], packet
-    assert "LLM-assisted protocol simplification" in packet["summary"], packet
-    assert "compare a deterministic" not in packet["summary"], packet
-    assert "llm=no_api" in packet["summary"], packet
+    contract = guard["interaction_contract"]
+    assert contract["mode"] == "bounded_delivery", contract
+    assert contract["user_channel"]["action_required"] is False, contract
+    assert contract["agent_channel"]["must_attempt"] is True, contract
+    assert contract["agent_channel"]["quiet_noop_allowed"] is False, contract
+    assert contract["agent_channel"]["primary_action"] == (
+        "[P1] LLM-assisted protocol simplification research spike"
+    ), contract
+    assert guard["work_lane_contract"]["lane"] == "advancement_task", guard
+    assert guard["scheduler_hint"]["action"] == "run_now", guard
     summary = guard["agent_todo_summary"]
     assert summary["first_executable_items"][0]["text"] == ADVANCEMENT_TODO, summary
     assert summary["monitor_open_items"][0]["text"] == MONITOR_TODO, summary
     markdown = render_quota_should_run_markdown(guard)
-    assert "protocol_action_packet: schema=protocol_action_packet_v0 actor=agent" in markdown, markdown
+    assert "protocol_action_packet" not in markdown, markdown
 
 
-def assert_advancement_packet_keeps_user_todo_pending() -> None:
+def assert_advancement_decision_keeps_user_todo_pending() -> None:
     guard = build_quota_should_run(
         status_payload(
             agent_todos=[
@@ -247,19 +250,15 @@ def assert_advancement_packet_keeps_user_todo_pending() -> None:
         ),
         goal_id=GOAL_ID,
     )
-    packet = guard["protocol_action_packet"]
     contract = guard["interaction_contract"]
-    assert "actor=agent_with_user_gate" in packet["summary"], packet
-    assert "user_action_required=true" in packet["summary"], packet
-    assert "agent_action_required=true" in packet["summary"], packet
-    assert "user_action_pending=true" in packet["summary"], packet
-    assert f"user_action={USER_TODO}" in packet["summary"], packet
-    assert "agent_action=[P1] LLM-assisted protocol simplification research spike" in packet["summary"], packet
-    assert f"agent_action={USER_TODO}" not in packet["summary"], packet
     assert contract["mode"] == "bounded_delivery_with_user_notice", contract
     assert contract["user_channel"]["action_required"] is True, contract
     assert contract["user_channel"]["notify"] == "NOTIFY", contract
     assert contract["agent_channel"]["must_attempt"] is True, contract
+    assert contract["user_channel"]["actions"] == [USER_TODO], contract
+    assert contract["agent_channel"]["primary_action"] == (
+        "[P1] LLM-assisted protocol simplification research spike"
+    ), contract
 
 
 def assert_explicit_user_gate_still_allows_independent_agent_action() -> None:
@@ -283,18 +282,16 @@ def assert_explicit_user_gate_still_allows_independent_agent_action() -> None:
         ),
         goal_id=GOAL_ID,
     )
-    packet = guard["protocol_action_packet"]
     contract = guard["interaction_contract"]
     user_summary = guard["user_todo_summary"]
     assert guard["requires_user_action"] is True, guard
     assert guard["notify_user_on_gate"] is True, guard
     assert guard["open_todo_notification_policy"] == "repeat_until_resolved", guard
     assert user_summary["gate_open_items"][0]["text"] == gate_todo, user_summary
-    assert "actor=agent_with_user_gate" in packet["summary"], packet
-    assert "user_action_required=true" in packet["summary"], packet
-    assert "agent_action_required=true" in packet["summary"], packet
-    assert "user_action=[P0] Approve one no-upload Terminal-Bench rerun" in packet["summary"], packet
-    assert "agent_action=[P1] LLM-assisted protocol simplification" in packet["summary"], packet
+    assert len(contract["user_channel"]["actions"]) == 1, contract
+    assert contract["user_channel"]["actions"][0].startswith(
+        "[P0] Approve one no-upload Terminal-Bench rerun"
+    ), contract
     assert contract["mode"] == "bounded_delivery_with_user_notice", contract
     assert contract["user_channel"]["action_required"] is True, contract
     assert contract["user_channel"]["notify"] == "NOTIFY", contract
@@ -304,7 +301,7 @@ def assert_explicit_user_gate_still_allows_independent_agent_action() -> None:
     ), contract
 
 
-def assert_monitor_only_packet_keeps_user_todo_pending() -> None:
+def assert_monitor_only_decision_keeps_user_todo_pending() -> None:
     guard = build_quota_should_run(
         status_payload(
             status="monitor_fixture",
@@ -315,17 +312,10 @@ def assert_monitor_only_packet_keeps_user_todo_pending() -> None:
         ),
         goal_id=GOAL_ID,
     )
-    packet = guard["protocol_action_packet"]
     contract = guard["interaction_contract"]
-    assert "actor=agent_with_user_gate" in packet["summary"], packet
-    assert "user_action_required=true" in packet["summary"], packet
-    assert "agent_action_required=true" in packet["summary"], packet
-    assert "quiet_noop_allowed=false" in packet["summary"], packet
-    assert "user_action_pending=true" in packet["summary"], packet
-    assert "agent_action=repair the selected continuous_monitor todo" in packet["summary"], packet
-    assert f"user_action={USER_TODO}" in packet["summary"], packet
-    assert USER_TODO in packet["summary"], packet
     assert guard.get("notify_user_on_open_todo") is None, guard
+    assert contract["user_channel"]["actions"] == [USER_TODO], contract
+    assert guard["work_lane_contract"]["obligation"] == "repair_monitor_schedule_metadata", guard
     assert contract["mode"] == "bounded_delivery_with_user_notice", contract
     assert contract["user_channel"]["action_required"] is True, contract
     assert contract["user_channel"]["notify"] == "NOTIFY", contract
@@ -371,6 +361,7 @@ def assert_agent_scoped_user_gate_stays_diagnostic_only() -> None:
     assert guard["effective_action"] == "normal_run", guard
     assert guard["should_run"] is True, guard
     lane = guard["work_lane_contract"]
+    assert lane["lane"] == "advancement_task", lane
     assert lane["obligation"] == "repair_monitor_schedule_metadata", lane
     assert lane["monitor_policy"] == "repair_schedule_metadata_before_quiet_wait", lane
     contract = guard["interaction_contract"]
@@ -398,20 +389,16 @@ def assert_explicit_non_gating_user_todo_stays_quiet() -> None:
         ),
         goal_id=GOAL_ID,
     )
-    packet = guard["protocol_action_packet"]
     contract = guard["interaction_contract"]
-    assert "actor=agent" in packet["summary"], packet
-    assert "user_action_required=false" in packet["summary"], packet
-    assert "agent_action_required=true" in packet["summary"], packet
-    assert "quiet_noop_allowed=false" in packet["summary"], packet
-    assert "user_action_pending=true" not in packet["summary"], packet
-    assert "agent_action=repair the selected continuous_monitor todo" in packet["summary"], packet
     assert contract["mode"] == "bounded_delivery", contract
     assert contract["user_channel"]["action_required"] is False, contract
+    assert "actions" not in contract["user_channel"], contract
     assert contract["agent_channel"]["must_attempt"] is True, contract
+    assert contract["agent_channel"]["quiet_noop_allowed"] is False, contract
+    assert guard["work_lane_contract"]["obligation"] == "repair_monitor_schedule_metadata", guard
 
 
-def assert_monitor_only_packet_requires_schedule_metadata_repair() -> None:
+def assert_monitor_only_decision_requires_schedule_metadata_repair() -> None:
     guard = build_quota_should_run(
         status_payload(
             status="monitor_fixture",
@@ -421,14 +408,8 @@ def assert_monitor_only_packet_requires_schedule_metadata_repair() -> None:
         ),
         goal_id=GOAL_ID,
     )
-    packet = guard["protocol_action_packet"]
-    assert "actor=agent" in packet["summary"], packet
-    assert "user_action_required=false" in packet["summary"], packet
-    assert "agent_action_required=true" in packet["summary"], packet
-    assert "quiet_noop_allowed=false" in packet["summary"], packet
-    assert "lane=advancement_task" in packet["summary"], packet
-    assert "agent_action=repair the selected continuous_monitor todo" in packet["summary"], packet
     lane = guard["work_lane_contract"]
+    assert lane["lane"] == "advancement_task", lane
     assert lane["obligation"] == "repair_monitor_schedule_metadata", lane
     assert lane["monitor_policy"] == "repair_schedule_metadata_before_quiet_wait", lane
 
@@ -460,9 +441,6 @@ def assert_executable_recommended_action_overrides_monitor_todo() -> None:
     assert lane["obligation"] == "materialize_advancement_todo_or_blocker", lane
     assert lane["reason_codes"] == ["monitor_todo_only", "next_action_requires_advancement"], lane
     assert guard["execution_obligation"]["must_attempt_work"] is True, guard
-    packet = guard["protocol_action_packet"]
-    assert "agent_action_required=true" in packet["summary"], packet
-    assert "Collect or aggregate additional same-protocol" in packet["summary"], packet
     contract = guard["interaction_contract"]
     assert contract["agent_channel"]["must_attempt"] is True, contract
     assert (
@@ -493,11 +471,11 @@ def assert_goal_scoped_primary_action_ignores_foreign_backlog() -> None:
     )
     payload["attention_queue"]["autonomous_backlog_candidates"]["open_count"] = 2
     guard = build_quota_should_run(payload, goal_id=GOAL_ID)
-    packet = guard["protocol_action_packet"]
     contract = guard["interaction_contract"]
-    assert "Foreign Terminal-Bench" not in packet["summary"], packet
     assert "Foreign Terminal-Bench" not in contract["agent_channel"]["primary_action"], contract
-    assert "LLM-assisted protocol simplification" in packet["summary"], packet
+    assert contract["agent_channel"]["primary_action"] == (
+        "[P1] LLM-assisted protocol simplification research spike"
+    ), contract
     assert len(guard["autonomous_backlog_candidates"]["items"]) == 1, guard
     assert (
         guard["autonomous_backlog_candidates"]["items"][0]["goal_id"] == GOAL_ID
@@ -505,16 +483,16 @@ def assert_goal_scoped_primary_action_ignores_foreign_backlog() -> None:
 
 
 def main() -> None:
-    assert_advancement_packet_prefers_backlog_candidate()
-    assert_advancement_packet_keeps_user_todo_pending()
+    assert_advancement_decision_prefers_backlog_candidate()
+    assert_advancement_decision_keeps_user_todo_pending()
     assert_explicit_user_gate_still_allows_independent_agent_action()
-    assert_monitor_only_packet_keeps_user_todo_pending()
+    assert_monitor_only_decision_keeps_user_todo_pending()
     assert_agent_scoped_user_gate_stays_diagnostic_only()
     assert_explicit_non_gating_user_todo_stays_quiet()
-    assert_monitor_only_packet_requires_schedule_metadata_repair()
+    assert_monitor_only_decision_requires_schedule_metadata_repair()
     assert_executable_recommended_action_overrides_monitor_todo()
     assert_goal_scoped_primary_action_ignores_foreign_backlog()
-    print("ok: protocol action packet smoke")
+    print("ok: quota without legacy packet smoke")
 
 
 if __name__ == "__main__":

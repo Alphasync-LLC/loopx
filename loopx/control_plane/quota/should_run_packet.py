@@ -110,7 +110,6 @@ from ..work_items.goal_route_hint import build_goal_route_hint
 from ..work_items.interaction_contract import (
     build_interaction_contract,
     unadmitted_action_selection,
-    build_protocol_action_packet,
     finalize_user_gate_notification_cooldown,
 )
 from ..work_items.interaction_contract import (
@@ -1434,7 +1433,6 @@ def _build_quota_should_run_payload(
         interaction_contract=payload.get("interaction_contract"),
         scheduler_hint=payload.get("scheduler_hint"),
     )
-    payload["protocol_action_packet"] = build_protocol_action_packet(payload)
     return payload
 
 

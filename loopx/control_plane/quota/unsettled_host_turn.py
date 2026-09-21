@@ -21,7 +21,6 @@ from ..todos.contract import TODO_TASK_CLASS_MONITOR
 from ..todos.todo_semantics import todo_item_task_class
 from ..work_items.interaction_contract import (
     build_interaction_contract,
-    build_protocol_action_packet,
 )
 from .error_codes import HeartbeatReceiptIdentityConflictError
 from .monitor_poll import find_quota_monitor_poll_turn
@@ -343,5 +342,4 @@ def apply_unsettled_host_turn_recovery_if_required(
     if isinstance(cli_channel, dict):
         cli_channel["recovery_ref"] = "$.unsettled_host_turn_recovery"
     payload["interaction_contract"] = interaction_contract
-    payload["protocol_action_packet"] = build_protocol_action_packet(payload)
     return True
