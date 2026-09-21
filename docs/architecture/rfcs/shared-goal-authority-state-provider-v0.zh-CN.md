@@ -2342,7 +2342,10 @@ Task graph 的 T3 topology consumer 现共用 inventory/horizon 关系目录，�
 T3 lease inspect 已将 Todo、lease 与 handoff mode 绑定到同一 provider revision，
 promotion 后不再读取本地旧 lease 文件；canonical 空租约集合保持为空。资格策略与
 当前 acquire/lifecycle 共用 TS owner，包含 claim 分歧和 exclusion；读取结果不是
-租约授权，也不是 commit receipt。该 reader 闭合和重复规则删除不代表 provider
+租约授权，也不是 commit receipt。两条来源路径的时间／资格解释现收敛到 TS，
+覆盖归档 open 历史与损坏到期时间；注册来源及晋升 fence 变化须重新校验并有界重试。
+Python 不再为检查重建 canonical head 或诊断规则，见[读取合同](../../reference/canonical-lease-renew.md#what-inspection-proves)。
+该 reader 闭合和重复规则删除不代表 provider
 资格化，不改变 CAS/replay 或 D1–D3；永久 Markdown 展示与后续规划继续保留。
 ownership 编辑在 promotion 后现在与现有 update transaction 共用 typed authoring
 和 lifecycle 边界。claim/exclusion 门禁保留，带 lease 的 ownership 重写继续拒绝；

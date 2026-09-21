@@ -304,9 +304,11 @@ candidates. A dormant or non-resumable lane is projected under
 That blocked diagnostic does not replace the coordinator's own runnable lane or
 re-arm an activation obligation on every heartbeat. If the coordinator also
 has no in-scope runnable fallback, the final interaction mode is
-`peer_coordination_blocked`: schedulers return the bundle to its owner and stop
-the recurring heartbeat until peer capability/readiness, coordinator
-configuration, or the coordinator's own work frontier materially changes.
+`peer_coordination_blocked`: schedulers keep a no-spend observer alive with a
+10/20/30/60 minute stateful backoff. Peer capability/readiness, coordinator
+configuration, reassignment, or the coordinator's own work frontier changes
+the reset identity and restores the initial cadence; this recoverable state
+does not pause or delete the recurring heartbeat.
 
 Disable registered-peer coordination without changing peer registration or
 child-worker policy:

@@ -627,7 +627,11 @@ evidence/handoff 的脱敏展示。明确的语义修正：successor 谱系不�
 
 Lease inspect 在 promotion 后从同一 canonical revision 读取 Todo、lease 与
 handoff mode；canonical 无租约不复活本地旧文件，provider 失败不回退 Markdown。
-结果携带 provider revision，读取不修复展示、不修改租约；未 promotion 的来源契约保留。
+结果携带 provider revision，读取不修复展示、不修改租约。两条路径现由
+`task_lease_inspection.ts` 统一时间与资格解释，Python 仅投递绑定来源的注册／legacy
+事实和响应；诊断字段复用 TS 拒绝规则。归档 Todo 不产生有效租约，active 到期时间
+损坏明确报错，来源变化有界重试。未晋升存储保持原状，错误语义变更见
+[检查合同](../../reference/canonical-lease-renew.md#what-inspection-proves)。
 `task_lease_eligibility.ts` 同时替代 Python authority core 和三处 TS owner 资格判断，
 供 acquire、lifecycle 与终态 fence 复用。当前租约是否有效由 acquire 内部根据同一输入
 的 owner/claim/exclusion/注册事实推导，不再由旧 `effective` 派生提示覆盖。
@@ -791,6 +795,8 @@ PostgreSQL 读取使用同一个 repeatable-read snapshot，并发提交在下�
 不会将较新的行混入较旧 head。扫描只证明请求区间，不审计 checkpoint 之前的全部
 历史。合法结果 schema、File/NoKV 持久字节、请求身份及版本算法保持兼容。这支持
 T3/D1 reader，未完成全部 Todo writer、retention/compaction 或 promotion。
+
+配额准入与结算消费者现在从统一 Todo reader 读取完整来源，在显示压缩前解析显式 Todo 选择。它删除直接追加 Markdown 候选的路径，保留 promote 前的事件适配；promote 后权威为空或不可读都不能复活展示行。结算进度由现有 TS 回执链归约，Python 负责完整身份命令及 JSON/Markdown 展示。现有幂等 writer 可补齐缺失的 spend 回执而不再次扣款。这关闭已复现的 T3 消费者缺口，不代表 D1–D3、provider promotion 或剩余 Python 事务适配已完成。操作语义见[结算进度契约](../../quota-allocation.md#receipt-backed-settlement-progress)。
 
 **T4 — durable cutover 后兑现完整 writer 删除。**
 

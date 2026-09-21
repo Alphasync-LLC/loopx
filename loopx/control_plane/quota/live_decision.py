@@ -541,6 +541,23 @@ def build_live_quota_should_run_decision(
     fresh_operator_inbox_read = _fresh_operator_inbox_read_required(
         turn_start_hook_dispatch
     )
+    if requested_action_todo_id and not receipt_bound_todo_id:
+        # Candidate discovery and admission use the same provider-first reader.
+        # Keep the complete snapshot internal; presentation is bounded later.
+        from ...todos import list_goal_todos
+
+        source = list_goal_todos(
+            registry_path=registry_path, runtime_root_arg=str(runtime_root), goal_id=goal_id,
+        )
+        todo_fields = {key: source[key] for key in ("user_todos", "agent_todos")}
+        queue = decision_status_payload.get("attention_queue") or {}
+        decision_status_payload["attention_queue"] = {
+            **queue,
+            "items": [
+                {**item, **todo_fields} if item.get("goal_id") == goal_id else item
+                for item in queue.get("items") or []
+            ],
+        }
     payload = build_quota_should_run(
         decision_status_payload,
         goal_id=goal_id,

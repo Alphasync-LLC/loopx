@@ -426,6 +426,78 @@ def test_prose_only_reward_remains_allowed_under_a_legacy_fence(tmp_path: Path) 
     assert not (root / "authority-shadow").exists()
 
 
+def test_prose_guard_ignores_resume_evaluation_clock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from loopx.control_plane.coordination.runtime_shadow_writer_adapter import (
+        require_prose_state_write_allowed,
+    )
+    from loopx.state_refresh import replace_next_action_section
+
+    registry, state, root = fixture(tmp_path)
+    add_goal_todo(
+        registry_path=registry,
+        goal_id=GOAL,
+        role="agent",
+        text="Resume the bounded inspection.",
+        status="deferred",
+        resume_when="resume_at:2099-01-01T00:00:00Z",
+    )
+    original = state.read_text(encoding="utf-8")
+    planned, changed = replace_next_action_section(
+        original,
+        next_action="Record the bounded inspection result.",
+        updated_at="2026-09-21T00:00:00Z",
+    )
+    assert changed is True
+
+    from loopx.control_plane.coordination.local_authority_shadow_adapter import (
+        todo_partition_projector,
+    )
+    from loopx.control_plane.coordination.local_authority_shadow_projection import (
+        partition_comparison_view,
+    )
+
+    timestamps = ("2026-09-21T00:00:00Z", "2026-09-21T00:00:01Z")
+    ticks = iter(timestamps * 2)
+
+    def ticking_projector(*args, **kwargs):
+        project = todo_partition_projector(*args, **kwargs)
+
+        def project_at_distinct_time(text):
+            projection = project(text)
+            projection["todos"][0]["resume_condition"]["evaluated_at"] = next(ticks)
+            return projection
+
+        return project_at_distinct_time
+
+    monkeypatch.setattr(
+        "loopx.control_plane.coordination.local_authority_shadow_adapter.todo_partition_projector",
+        ticking_projector,
+    )
+    goal = json.loads(registry.read_text(encoding="utf-8"))["goals"][0]
+    projector = ticking_projector(goal, state_path=state)
+    before, after = projector(original), projector(planned)
+    assert before != after
+    assert before["todos"][0]["resume_condition"]["evaluated_at"] == timestamps[0]
+    assert after["todos"][0]["resume_condition"]["evaluated_at"] == timestamps[1]
+    assert partition_comparison_view(before) == partition_comparison_view(after)
+    # Prove the raw projections differ ONLY in the read-time clock.
+    after["todos"][0]["resume_condition"]["evaluated_at"] = timestamps[0]
+    assert before == after
+
+    # The real guard gets the same forced one-second difference. Restoring
+    # its old raw comparison must fail deterministically, without sleeping.
+    require_prose_state_write_allowed(
+        registry_path=registry,
+        runtime_root=root,
+        goal_id=GOAL,
+        state_path=state,
+        original_text=original,
+        planned_text=planned,
+    )
+
+
 def test_prose_only_reward_holds_before_index_append_during_maintenance(tmp_path: Path) -> None:
     from loopx.feedback import append_human_reward
     from loopx.control_plane.coordination.shadow_management import ShadowManagementError, shadow_management_state_path

@@ -80,6 +80,8 @@ COORDINATION_STATE_CONTRACT: Final = _freeze({'schema_version': 'loopx_coordinat
                                  'superseded_by',
                                  'completion_validation_required',
                                  'completion_validation_sha256',
+                                 'completion_validation_revision',
+                                 'completion_validation_revision_history',
                                  'handoff_note'],
                       'required_fields': ['schema_version',
                                           'todo_id',

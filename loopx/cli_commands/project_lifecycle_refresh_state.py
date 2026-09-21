@@ -25,6 +25,7 @@ from ..control_plane.goals.goal_vision_policy import (
     GOAL_VISION_ADVANCEMENT_POLICY_CHOICES,
 )
 from ..control_plane.quota.settlement import (
+    attach_settlement_progress,
     read_heartbeat_settlement,
     settlement_result_payload,
 )
@@ -618,6 +619,9 @@ def handle_refresh_state_command(
                     "exact settlement readback unexpectedly returned not-found"
                 )
             settlement_result = settlement_readback.delivery
+            attach_settlement_progress(
+                payload, settlement_readback, registry_path=registry_path, runtime_root=runtime_root,
+            )
             payload["settlement_result"] = settlement_result_payload(
                 settlement_result
             )

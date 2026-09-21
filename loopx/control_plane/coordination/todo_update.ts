@@ -17,6 +17,7 @@ import {
 import {planMonitorCycleTransition} from "./todo_monitor_cycle.ts";
 import {todoUpdateAdmissionRejection} from "./todo_update_admission.ts";
 import { CoordinationCommandReceipt } from "./command_receipt.ts";
+import {canonicalTodoRecord} from "./todo_presentation.ts";
 
 export const COORDINATION_TODO_UPDATE_REQUEST_SCHEMA =
   "loopx_local_coordination_todo_update_request_v0";
@@ -35,9 +36,12 @@ export const COORDINATION_TODO_COMPLETION_UPDATE_REQUEST_SCHEMA =
   "loopx_local_coordination_todo_update_request_v3";
 export const COORDINATION_TODO_OBSERVATION_UPDATE_REQUEST_SCHEMA =
   "loopx_local_coordination_todo_update_request_v4";
+export const COORDINATION_TODO_VALIDATION_REVISION_REQUEST_SCHEMA =
+  "loopx_local_coordination_todo_update_request_v5";
 export type {CoordinationTodoUpdateInput} from "./todo_update_intent.ts";
 import {normalizeTodoUpdateInput, prepareUpdatedTodo, type CoordinationTodoUpdateInput} from "./todo_update_intent.ts";
 import {executeCoordinationTodoTerminalLifecycle} from "./todo_terminal_lifecycle.ts";
+import {planCompletionValidationRevision} from "../todos/completion_validation_revision.ts";
 
 export type CoordinationTodoUpdateResult = JsonObject & {
   readonly schema_version: typeof COORDINATION_TODO_UPDATE_RESULT_SCHEMA;
@@ -79,6 +83,8 @@ function updateRequestSha(input: CoordinationTodoUpdateInput): string {
     ...(input.authority_reason == null ? {} : {authority_reason: input.authority_reason}),
     clear_fields: input.clear_fields, dry_run: input.dry_run,
     ...(input.monitor_observation === undefined ? {} : {monitor_observation: input.monitor_observation}),
+    ...(input.completion_validation_revision === undefined ? {} :
+      {completion_validation_revision: input.completion_validation_revision}),
     ...(Object.keys(input.planning_intent ?? {}).length ? {planning_intent: input.planning_intent} : {}),
     // Preserve receipt identity for pre-proof requests already persisted in v0.
     ...(input.lease_idempotency_key != null || input.lease_expected_version != null ? {
@@ -177,7 +183,38 @@ export async function executeCoordinationTodoUpdate(
   try { prepared = prepareUpdatedTodo(target.todo, input, head.head); }
   catch (error) { return failure("invalid_coordination_todo_update",
     error instanceof Error ? error.message : "invalid updated Todo"); }
-  const {next, changed, clearFields} = prepared;
+  let {next, changed, clearFields} = prepared;
+  let completionValidationRevisionReceipt: JsonObject | null = null;
+  if (input.completion_validation_revision !== undefined) {
+    try {
+      const planned = planCompletionValidationRevision({
+        todo: target.todo,
+        revision: input.completion_validation_revision,
+        actor_agent_id: input.actor_agent_id,
+        operation_id: input.operation_id,
+        revised_at: input.now.toISOString().replace(/\.\d{3}Z$/u, "Z"),
+      });
+      next = {
+        ...next,
+        ...planned.updates,
+        last_actor_agent_id: input.actor_agent_id,
+        updated_at: input.now.toISOString().replace(/\.\d{3}Z$/u, "Z"),
+      };
+      completionValidationRevisionReceipt = planned.receipt;
+      changed = true;
+      clearFields = clearFields.filter(
+        (field) => !Object.hasOwn(planned.updates, field),
+      );
+      canonicalTodoRecord(next, "updated Todo");
+    } catch (error) {
+      return failure(
+        "invalid_completion_validation_revision",
+        error instanceof Error
+          ? error.message
+          : "invalid completion validation revision",
+      );
+    }
+  }
   let cycle: ReturnType<typeof planMonitorCycleTransition>;
   try {
     cycle = planMonitorCycleTransition({goal_id: input.goal_id, before: target.todo, after: next,
@@ -208,11 +245,15 @@ export async function executeCoordinationTodoUpdate(
     status: changed ? "planned" : "no_change", changed, todo_id: input.todo_id,
     provider_revision: head.provider_revision, cursor: head.cursor, dry_run: true,
     ...(prepared.monitorTransition ? {monitor_poll_transition: prepared.monitorTransition} : {}),
+    ...(completionValidationRevisionReceipt === null ? {} :
+      {completion_validation_revision: completionValidationRevisionReceipt}),
     ...(cycle.transition === null ? {} : {monitor_lifecycle_transition: cycle.transition})};
   commit.receipts = [{schema_version: COORDINATION_TODO_UPDATE_RECEIPT_SCHEMA,
     operation_id: input.operation_id, goal_id: input.goal_id,
     todo_id: input.todo_id, request_sha256: requestSha, changed,
     ...(prepared.monitorTransition ? {monitor_poll_transition: prepared.monitorTransition} : {}),
+    ...(completionValidationRevisionReceipt === null ? {} :
+      {completion_validation_revision: completionValidationRevisionReceipt}),
     ...(cycle.transition === null ? {} : {monitor_lifecycle_transition: cycle.transition})}];
   return receipt.commit(store, commit);
 }

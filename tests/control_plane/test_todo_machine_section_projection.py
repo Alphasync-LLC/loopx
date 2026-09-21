@@ -14,6 +14,9 @@ from loopx.control_plane.todos.machine_section_projection import (
     inspect_todo_section_projection,
     render_canonical_todo_sections,
 )
+from loopx.control_plane.todos.completion_validation_projection import (
+    completion_validation_declaration_sha256,
+)
 from loopx.cli import build_parser
 from loopx.cli_commands import todo as todo_command
 from loopx.control_plane.todos import provider_projection, active_state_editing
@@ -207,6 +210,47 @@ def test_projection_rejects_unknown_fields_but_allows_known_read_model_fields() 
     )
     assert projected.changed is True
     assert "resume_ready" not in projected.markdown
+
+
+def test_projection_keeps_validation_revision_receipts_provider_only() -> None:
+    record = deepcopy(_records()[0])
+    declaration = {
+        "validation_command": "python3 -c 'raise SystemExit(0)'",
+        "validation_command_argv": None,
+        "validation_label": "revised validator",
+        "validation_timeout_seconds": 5,
+    }
+    declaration_sha256 = completion_validation_declaration_sha256(declaration)
+    record.update(
+        completion_validation_required=True,
+        completion_validation_sha256=declaration_sha256,
+        completion_validation_revision=1,
+        completion_validation_revision_history=[
+            {
+                "schema_version": "loopx_todo_completion_validation_revision_receipt_v0",
+                "revision": 1,
+                "operation_id": "revise-validator-1",
+                "actor_agent_id": "codex-worker",
+                "previous_declaration_sha256": "b" * 64,
+                "declaration_sha256": declaration_sha256,
+                "observed_at": "2026-09-20T00:00:00Z",
+            }
+        ],
+    )
+    projected = render_canonical_todo_sections(
+        SOURCE,
+        [record],
+        provider_revision="validation-revision",
+        private_validation_declarations={"todo_agent": declaration},
+    )
+
+    assert "completion_validation_revision" not in projected.markdown
+    replay = render_canonical_todo_sections(
+        projected.markdown,
+        [record],
+        provider_revision="validation-revision",
+    )
+    assert replay.changed is False
 
 
 def test_projection_renders_native_archive_with_role_and_replays() -> None:

@@ -29,8 +29,111 @@ from .completion_validation import (
     execute_completion_validation_effects,
     resolve_private_completion_validation_declaration,
 )
+from .completion_validation_store import (
+    persist_completion_validation_declaration,
+    read_completion_validation_declaration,
+)
+from .completion_validation_projection import (
+    completion_validation_declaration_sha256,
+)
 from .path_resolution import resolve_todo_state_path
 from .monitor_metadata import MonitorPollObservation
+
+
+def _completion_validation_revision_request(
+    *,
+    runtime_root: Path,
+    goal_id: str,
+    todo_id: str,
+    operation_id: str | None,
+    declaration: dict[str, Any],
+) -> dict[str, Any]:
+    if not operation_id:
+        raise ValueError("completion validation revision requires an operation id")
+    canonical = read_canonical_todos_if_promoted(
+        runtime_root=runtime_root, goal_id=goal_id
+    )
+    if canonical is None:
+        raise ValueError("Canonical authority changed during validation revision; retry")
+    target = next(
+        (todo for todo in canonical["todos"] if todo.get("todo_id") == todo_id),
+        {},
+    )
+    expected_digest = target.get("completion_validation_sha256")
+    # An idempotent retry observes the post-commit Todo. Reconstruct the
+    # original CAS witness from its durable revision receipt so the same
+    # operation id hashes to the same request instead of looking like a
+    # conflicting mutation.
+    for receipt in target.get("completion_validation_revision_history") or []:
+        if (
+            isinstance(receipt, dict)
+            and receipt.get("operation_id") == operation_id
+            and isinstance(receipt.get("previous_declaration_sha256"), str)
+        ):
+            expected_digest = receipt["previous_declaration_sha256"]
+            break
+    if not isinstance(expected_digest, str) or len(expected_digest) != 64:
+        raise ValueError("Todo has no current completion validation digest to revise")
+    return {
+        "schema_version": "loopx_todo_completion_validation_revision_v0",
+        "expected_declaration_sha256": expected_digest,
+        "declaration": declaration,
+    }
+
+
+def _publish_completion_validation_revision(
+    *,
+    runtime_root: Path,
+    goal_id: str,
+    todo_id: str,
+    operation_id: str,
+    declaration: dict[str, Any],
+    result: dict[str, Any],
+) -> None:
+    expected_digest = completion_validation_declaration_sha256(declaration)
+    canonical = read_canonical_todos_if_promoted(
+        runtime_root=runtime_root, goal_id=goal_id
+    )
+    target = next(
+        (
+            todo
+            for todo in (canonical or {}).get("todos", [])
+            if todo.get("todo_id") == todo_id
+        ),
+        {},
+    )
+    revision_history = target.get("completion_validation_revision_history")
+    if (
+        target.get("completion_validation_sha256") != expected_digest
+        or not isinstance(revision_history, list)
+        or not any(
+            isinstance(receipt, dict)
+            and receipt.get("operation_id") == operation_id
+            and receipt.get("declaration_sha256") == expected_digest
+            for receipt in revision_history
+        )
+    ):
+        raise LocalCoordinationAuthorityUnavailable(
+            "completion validation revision receipt does not match canonical readback",
+            code="completion_validation_revision_publication_mismatch",
+            payload=dict(result),
+        )
+    persist_completion_validation_declaration(
+        runtime_root=runtime_root,
+        goal_id=goal_id,
+        todo_id=todo_id,
+        declaration=declaration,
+    )
+    if read_completion_validation_declaration(
+        runtime_root=runtime_root,
+        goal_id=goal_id,
+        todo_id=todo_id,
+    ) != declaration:
+        raise LocalCoordinationAuthorityUnavailable(
+            "completion validation revision committed but private declaration readback failed",
+            code="completion_validation_revision_readback_failed",
+            payload=dict(result),
+        )
 
 
 def update_canonical_todo_if_promoted(
@@ -45,6 +148,7 @@ def update_canonical_todo_if_promoted(
     expected_provider_revision: str | None = None,
     expected_registry_sha256: str | None = None,
     monitor_observation: MonitorPollObservation | None = None,
+    completion_validation_revision: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     if not local_authority_is_promoted(runtime_root=runtime_root, goal_id=goal_id):
         return None
@@ -63,6 +167,15 @@ def update_canonical_todo_if_promoted(
         if normalized_note:
             patch["note"] = normalized_note
     completion = None
+    validation_revision = None
+    if completion_validation_revision is not None:
+        validation_revision = _completion_validation_revision_request(
+            runtime_root=runtime_root,
+            goal_id=goal_id,
+            todo_id=todo_id,
+            operation_id=operation_id,
+            declaration=completion_validation_revision,
+        )
     if str((planning_intent or {}).get("status", "")).strip().lower() == "done":
         project, state_file = resolve_todo_state_path(registry_path=registry_path, goal_id=goal_id,
             project=project, state_file=state_file, require_existing=False)
@@ -78,7 +191,8 @@ def update_canonical_todo_if_promoted(
                 persist_if_resolved=not dry_run)
         completion = {"validation_declaration": declaration}
     request = {
-        "schema_version": ("loopx_local_coordination_todo_update_request_v4" if monitor_observation is not None
+        "schema_version": ("loopx_local_coordination_todo_update_request_v5" if validation_revision is not None
+                           else "loopx_local_coordination_todo_update_request_v4" if monitor_observation is not None
                            else "loopx_local_coordination_todo_update_request_v3" if completion is not None
                            else "loopx_local_coordination_todo_update_request_v2"),
         "runtime_root": str(runtime_root.resolve()), "goal_id": goal_id,
@@ -97,6 +211,8 @@ def update_canonical_todo_if_promoted(
         "planning_intent": planning_intent or {},
         "observed_at": now_local(),
         **({"completion": completion} if completion is not None else {}),
+        **({"completion_validation_revision": validation_revision}
+           if validation_revision is not None else {}),
         **({"monitor_observation": asdict(monitor_observation)} if monitor_observation is not None else {}),
     }
     result = effect_runtime_result("coordination.local_authority.todo_update", request)
@@ -152,6 +268,16 @@ def update_canonical_todo_if_promoted(
             str(payload.get("reason") or "canonical Todo update failed; reread before retry"),
             code=str(payload.get("reason_code") or payload.get("conflict_kind")
                      or "local_authority_todo_update_failed"), payload=payload,
+        )
+    if validation_revision is not None and not dry_run:
+        declaration = dict(validation_revision["declaration"])
+        _publish_completion_validation_revision(
+            runtime_root=runtime_root,
+            goal_id=goal_id,
+            todo_id=todo_id,
+            operation_id=str(request["operation_id"]),
+            declaration=declaration,
+            result=result,
         )
     return settle_canonical_todo_projection(
         {"ok": True, "goal_id": goal_id, "todo_id": todo_id,

@@ -340,7 +340,7 @@ stateDiagram-v2
 | --- | --- | --- | --- |
 | `run_now` | `active_work` | 3 / 10 minutes | Work or repair must be attempted. |
 | `backoff_waiting_for_user` | `human_gate` | 30 / 120 minutes | Concrete user/controller action is next. |
-| `backoff_until_reassigned` | `agent_scope_wait` | 10 / 60 minutes, progression 10/20/30/60 | Handoff owner or reassignment may unblock this agent. |
+| `backoff_until_reassigned` | `agent_scope_wait` or `peer_coordination_wait` | 10 / 60 minutes, progression 10/20/30/60 | Handoff owner, peer readiness, coordinator configuration, reassignment, or new local work may unblock this agent. |
 | `backoff_until_material_transition` | `monitor_wait` | 15 / 60 minutes | Monitor-only liveness without compute spend. |
 | `backoff_until_fresh_evidence` | `unchanged_noop` | 60 / 240 minutes | Wait for fresh mapped or post-handoff evidence. |
 | `backoff_until_state_change` | `quiet_wait` | 30 / 120 minutes | No specific user/monitor path is projected. |

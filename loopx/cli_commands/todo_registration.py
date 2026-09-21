@@ -55,7 +55,7 @@ def register_todo_command(
     todo_parser.add_argument("--todo-id", help="Structured todo id from status/quota, such as todo_ab12cd34ef56.")
     todo_parser.add_argument(
         "--update-operation-id",
-        help=("For promoted text/note, planning or User completion update, reuse this operation id after a lost response; "
+        help=("For promoted text/note, planning, validator revision or User completion update, reuse this operation id after a lost response; "
               "changed intent is rejected. Planning supports status, evidence, reason, resume conditions and successor links; "
               "User status=done uses terminal validation and lease release; other leased status changes remain unsupported."),
     )
@@ -104,8 +104,9 @@ def register_todo_command(
         help=(
             "Caller-approved validation command (no shell) to run before a "
             "todo's completion commits, e.g. 'pytest -q tests/test_x.py'. Set "
-            "on `todo add`; completion runs it independently and blocks on a "
-            "non-zero exit."
+            "on `todo add`, or replace it on a promoted open Todo with `todo "
+            "update` plus operation id, provider revision and agent id; completion "
+            "runs it independently and blocks on a non-zero exit."
         ),
     )
     todo_parser.add_argument(
@@ -118,7 +119,8 @@ def register_todo_command(
             "Trusted JSON string array (argv form, no shell parsing) for the "
             "completion validation command, e.g. '[\"pytest\",\"-q\",\"tests/"
             "test_x.py\"]'. Mutually exclusive with --validation-command; set "
-            "on `todo add`."
+            "on `todo add`, or replace it through the reviewed promoted `todo "
+            "update` path."
         ),
     )
     todo_parser.add_argument(
@@ -127,7 +129,8 @@ def register_todo_command(
         help=(
             "Per-todo timeout for the caller-approved validation command. "
             "Only meaningful with --validation-command or "
-            "--validation-command-json on `todo add`; must be 1-29 so a "
+            "--validation-command-json on `todo add` or validator revision; "
+            "must be 1-29 so a "
             "timed-out validation still produces a typed receipt inside the "
             "30s outer subprocess budget. Defaults to 20."
         ),

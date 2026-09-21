@@ -798,8 +798,16 @@ def effect_runtime_request(
                 info_path.unlink(missing_ok=True)
                 continue
             break
+    if isinstance(last_error, TimeoutError):
+        # Name the method and the budget it was given: a caller that sized its
+        # own timeout too small cannot repair anything from "request failed".
+        raise EffectRuntimeStartupError(
+            f"TypeScript Effect runtime did not answer {method} within "
+            f"{timeout:g}s",
+            diagnostic_code="runtime_request_timeout",
+        ) from last_error
     raise EffectRuntimeStartupError(
-        "TypeScript Effect runtime request failed",
+        f"TypeScript Effect runtime request failed for {method}",
         diagnostic_code="runtime_request_failed",
     ) from last_error
 

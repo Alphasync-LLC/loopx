@@ -218,7 +218,13 @@ def test_dsh_host_forwards_the_resolved_credential_to_the_runtime(
 
     turn_host_adapter.run_dsh_host(_signed_request(), config=config)
 
-    assert calls[0]["env"] == credential
+    assert calls[0]["env"] == {
+        **credential,
+        "LOOPX_TURN_GOAL_ID": "g",
+        "LOOPX_TURN_AGENT_ID": "a",
+        "LOOPX_TURN_TODO_ID": "",
+        "LOOPX_TURN_WORKSPACE": str(tmp_path.resolve()),
+    }
     assert calls[0]["env"] is not credential
 
 
@@ -1007,3 +1013,28 @@ def test_subprocess_terminal_error_keeps_the_legacy_wait_contract() -> None:
     assert result["result_kind"] == "wait"
     assert result["classification"] == "no_typed_host_result"
     assert "dsh execution failed" not in completed.stderr
+
+
+def test_dsh_sdk_overrides_follow_each_verified_turn(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls = []
+    monkeypatch.setenv("LOOPX_TURN_GOAL_ID", "ambient-wrong-goal")
+
+    def runner(**kwargs):
+        calls.append(kwargs["env"])
+        return '{"result_kind":"wait"}'
+
+    monkeypatch.setattr(turn_host_adapter, "run_dsh_turn", runner)
+    pinned = {"LOOPX_TURN_TODO_ID": "stale-todo", "DSH_PERMISSION_MODE": "read-only"}
+    config = turn_host_adapter.DshHostConfig(workspace=tmp_path, env=pinned)
+    turn_host_adapter.run_dsh_host(_signed_request(todo_id="first"), config=config)
+    turn_host_adapter.run_dsh_host(_signed_request(todo_id="second"), config=config)
+    turn_host_adapter.run_dsh_host(_signed_request(), config=config)
+    assert [env["LOOPX_TURN_TODO_ID"] for env in calls] == ["first", "second", ""]
+    for env in calls:
+        assert env["LOOPX_TURN_GOAL_ID"] == "g"
+        assert env["LOOPX_TURN_AGENT_ID"] == "a"
+        assert env["LOOPX_TURN_WORKSPACE"] == str(tmp_path.resolve())
+        assert env["DSH_PERMISSION_MODE"] == "read-only"
+    assert pinned["LOOPX_TURN_TODO_ID"] == "stale-todo"
