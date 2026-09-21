@@ -45,6 +45,7 @@ from .contract import (
     TODO_STATUS_OPEN,
     format_todo_metadata_line,
     normalize_todo_id,
+    normalize_todo_generation,
     normalize_todo_status,
     require_todo_decision_scope,
     todo_marker_for_status,
@@ -287,6 +288,13 @@ def _parsed_archive_records(markdown: str) -> list[dict[str, Any]]:
             raise TodoSectionProjectionError(
                 f"archived Todo {item.get('todo_id')!r} omits its source role"
             )
+        # Metadata is textual; canonical capture and active reads normalize this
+        # counter. Archive readback must use the same codec, not compare "12" to 12.
+        if "material_change_generation" in item:
+            generation = normalize_todo_generation(item["material_change_generation"])
+            if generation is None:
+                raise TodoSectionProjectionError("invalid archived Monitor material generation")
+            item["material_change_generation"] = generation
         priority, title = todo_priority_parts(str(item.get("text") or ""))
         if priority:
             item.update(priority=priority, title=normalize_todo_text(title))

@@ -33,3 +33,18 @@ test("end-to-end fixture preserves delivery causal chain", async () => {
     item.readback === undefined ? projectionDelivery(item.changed === true) : parseProjectionDelivery(item.readback));
   assert.deepEqual(observed, ["pending", "delivered", "current", "not_required", "pending"]);
 });
+
+test("projection confirmation binds durable host readback to one observed revision", async () => {
+  const {decodeProjectionReadback, confirmProjectionReadback} = await import("../../loopx/control_plane/todos/projection_delivery.ts");
+  for (const changed of [true, false]) {
+    const readback = decodeProjectionReadback({provider_revision: "revision-a", changed});
+    assert.equal(confirmProjectionReadback(readback, "revision-a").status, changed ? "delivered" : "current");
+    assert.deepEqual(confirmProjectionReadback(readback, "revision-b"), {
+      status: "pending", provider_revision: "revision-a", observed_provider_revision: "revision-b",
+    });
+  }
+  for (const bad of [null, [], {}, {provider_revision: "", changed: false},
+    {provider_revision: "a", changed: "true"}, {provider_revision: "a", changed: false, verified: true}]) {
+    assert.throws(() => decodeProjectionReadback(bad));
+  }
+});

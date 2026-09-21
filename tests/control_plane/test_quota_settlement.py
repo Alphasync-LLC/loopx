@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -47,6 +48,46 @@ GOAL_ID = "settlement-goal"
 AGENT_ID = "codex-settlement"
 TODO_ID = "todo_settlement"
 TURN_ID = "turn-settlement-1"
+
+
+@pytest.mark.parametrize("replan", [False, True])
+def test_command_plan_supplies_actor_from_identity(replan):
+    plan = quota_effect_program.build_turn_scoped_cli_settlement_plan(
+        goal_id=GOAL_ID, agent_id=AGENT_ID, command_prefix="loopx",
+        todo_id=None if replan else TODO_ID,
+        replan_obligation_id="replan-0000000000000001" if replan else None,
+        turn_instance_id="turn with spaces", scoped_cli_args="", lifecycle_actor_args="",
+    )
+    for step in plan.as_dict()["ordered_steps"]:
+        if command := step.get("command_template"):
+            argv = shlex.split(command)
+            assert argv.count("--agent-id") == 1
+            assert argv[argv.index("--agent-id") + 1] == AGENT_ID
+            assert argv[argv.index("--turn-instance-id") + 1] == "turn with spaces"
+
+
+@pytest.mark.parametrize("arguments", ["--agent-id other", "--agent-id=other", "--agent-id",
+                                      f"--agent-id {AGENT_ID} --agent-id {AGENT_ID}"])
+@pytest.mark.parametrize("field", ["scoped_cli_args", "lifecycle_actor_args"])
+def test_command_plan_rejects_ambiguous_or_conflicting_actor(arguments, field):
+    with pytest.raises(ValueError, match="actor must match"):
+        quota_effect_program.build_turn_scoped_cli_settlement_plan(
+            goal_id=GOAL_ID, agent_id=AGENT_ID, command_prefix="loopx",
+            todo_id=TODO_ID, replan_obligation_id=None, turn_instance_id=TURN_ID,
+            **{"scoped_cli_args": "", "lifecycle_actor_args": "", field: arguments},
+        )
+
+
+@pytest.mark.parametrize("arguments", [f"--agent-id {AGENT_ID}", f" --agent-id={AGENT_ID}"])
+def test_command_plan_retains_one_matching_actor(arguments):
+    plan = quota_effect_program.build_turn_scoped_cli_settlement_plan(
+        goal_id=GOAL_ID, agent_id=AGENT_ID, command_prefix="loopx",
+        todo_id=TODO_ID, replan_obligation_id=None, turn_instance_id=TURN_ID,
+        scoped_cli_args=arguments, lifecycle_actor_args=arguments,
+    )
+    argv = shlex.split(settlement_step_command(plan.as_dict(), SettlementStepKind.QUOTA_SPEND))
+    assert argv[argv.index("--turn-instance-id") + 1] == TURN_ID
+    assert sum(arg == "--agent-id" or arg.startswith("--agent-id=") for arg in argv) == 1
 
 
 def _receipt(step: SettlementStepKind, marker: str) -> SettlementReceipt:

@@ -184,6 +184,7 @@ def claim_canonical_todo_if_promoted(
 
 def read_canonical_todos_if_promoted(
     *, runtime_root: Path, goal_id: str, include_leases: bool = False,
+    projection_readback: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Return canonical Todos after cutover, or ``None`` before cutover.
 
@@ -202,6 +203,7 @@ def read_canonical_todos_if_promoted(
             "runtime_root": str(runtime_root.expanduser().resolve(strict=False)),
             "goal_id": goal_id,
             **({"include_leases": True} if include_leases else {}),
+            **({"projection_readback": dict(projection_readback)} if projection_readback is not None else {}),
         },
     )
     if not isinstance(result, Mapping):
@@ -245,6 +247,16 @@ def read_canonical_todos_if_promoted(
             "canonical Todo/lease snapshot is incomplete", code="local_authority_snapshot_incomplete",
             payload=payload,
         )
+    if projection_readback is not None:
+        confirmation = payload.get("projection_readback")
+        if (not isinstance(confirmation, Mapping)
+            or confirmation.get("provider_revision") != projection_readback["provider_revision"]
+            or confirmation.get("observed_provider_revision") != payload.get("provider_revision")
+            or confirmation.get("status") not in {"pending", "delivered", "current"}):
+            raise LocalCoordinationAuthorityUnavailable(
+                "canonical projection confirmation is missing or invalid",
+                code="local_authority_projection_confirmation_invalid", payload=payload,
+            )
     return payload
 
 

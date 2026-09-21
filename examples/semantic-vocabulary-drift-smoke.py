@@ -252,7 +252,7 @@ RETIREMENT_ANCHOR = {
     "work_lane_contract": (29, 3),
     "external_evidence_observation": (8, 1),
     "goal_boundary": (30, 2),
-    "protocol_action_packet": (5, 2),
+    "protocol_action_packet": (1, 2),
 }
 # B3 migration surface: modules that read, write or bind the legacy field, plus
 # the modules holding its name unresolved, which have to be investigated before
@@ -265,7 +265,7 @@ MIGRATION_SURFACE_ANCHOR = {
     "work_lane_contract": (29, 3),
     "external_evidence_observation": (7, 1),
     "goal_boundary": (16, 1),
-    "protocol_action_packet": (5, 2),
+    "protocol_action_packet": (1, 2),
 }
 RETIREMENT_FIELD_KEYS = {
     "python_module_budget", "typescript_module_budget",

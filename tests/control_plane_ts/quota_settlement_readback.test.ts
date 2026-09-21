@@ -203,6 +203,50 @@ function request(runtimeRoot: string, overrides: Record<string, unknown> = {}) {
   };
 }
 
+test("settlement progress requires both effects and exact receipts", async t => {
+  const cases = [
+    { guard: false, state: "identity_required", next: "validation" },
+    { state: "writeback_required", next: "durable_writeback" },
+    { writeback: true, remove: "refresh_state", state: "writeback_receipt_required", next: "durable_writeback" },
+    { writeback: true, state: "spend_required", next: "quota_spend" },
+    { writeback: true, spend: true, remove: "quota_spend", state: "spend_receipt_required", next: "quota_spend" },
+    { writeback: true, spend: true, state: "settled", next: null },
+  ];
+  for (const entry of cases) await t.test(entry.state, async () => {
+    const root = await fixture(entry);
+    try {
+      if (entry.remove) {
+        const path = join(root, "goals", goalId, "rollout-event-log.jsonl");
+        const events = (await readFile(path, "utf8")).trim().split("\n").map(line => JSON.parse(line));
+        await writeFile(path, events.filter(event => event.event_kind !== entry.remove).map(event => JSON.stringify(event)).join("\n") + "\n");
+      }
+      const result = await readQuotaSettlement(request(root));
+      assert.deepEqual(result.progress, {
+        schema_version: "quota_settlement_progress_v0", state: entry.state,
+        next_step: entry.next, quota_spend_source: "heartbeat",
+      });
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+});
+
+test("settlement progress preserves typed source and rejects malformed sources", async () => {
+  const root = await fixture({writeback: true});
+  try {
+    const path = join(root, "goals", goalId, "rollout-event-log.jsonl");
+    const events = (await readFile(path, "utf8")).trim().split("\n").map(line => JSON.parse(line));
+    for (const source of ["visible-goal", "unknown", 42]) {
+      events[0].details.quota_spend_source = source;
+      await writeFile(path, events.map(event => JSON.stringify(event)).join("\n") + "\n");
+      if (source === "visible-goal") {
+        const result = await readQuotaSettlement(request(root));
+        assert.equal((result.progress as Record<string, unknown>).quota_spend_source, source);
+      } else {
+        await assert.rejects(readQuotaSettlement(request(root)), /settlement spend source is invalid/);
+      }
+    }
+  } finally { await rm(root, {recursive: true, force: true}); }
+});
+
 test("monitor closeout requires the exact committed effect, not a matching observation row", async t => {
   const effect = `quota-monitor-poll:${goalId}:${agentId}:${turnId}`;
   const cases: [string, Record<string, unknown>, string][] = [

@@ -13,10 +13,13 @@ import { FileAuthorityStore } from "../../loopx/control_plane/coordination/file_
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import { authorityStoreCommitFixture } from "./authority_store_conformance.ts";
-import * as runtime from "../../loopx/control_plane/coordination/local_authority_runtime.ts";
+import * as mutations from "../../loopx/control_plane/coordination/local_authority_runtime.ts";
+import * as reads from "../../loopx/control_plane/coordination/local_authority_read.ts";
+const runtime = {...mutations, ...reads};
 import { qualifiedShadow, promotionRequest, engageFence } from "./local_promotion_fixture.ts";
 import { loadLegacyCoordinationWriterFence, legacyCoordinationWriterFencePath } from "../../loopx/control_plane/coordination/legacy_writer_fence.ts";
-import { acknowledgeLocalCoordinationTodoArchive, archiveLocalCoordinationTodos, listLocalCoordinationTodos } from "../../loopx/control_plane/coordination/local_authority_runtime.ts";
+import {acknowledgeLocalCoordinationTodoArchive, archiveLocalCoordinationTodos} from "../../loopx/control_plane/coordination/local_authority_runtime.ts";
+import {listLocalCoordinationTodos} from "../../loopx/control_plane/coordination/local_authority_read.ts";
 
 for (const [fault, source, reason] of [
   ["database_missing", "sqlite_v0", "local_authority_provider_missing"],
@@ -347,14 +350,25 @@ for (const provider of ["file", "sqlite"] as const) {
       const canonical = await openLocalAuthorityStore(directory, "goal-a");
       const shadow = await qualifiedShadow(directory);
       const shadowStore = new FileAuthorityStore(join(directory, "authority-shadow", "file-v0"), "goal-a");
-      const request = promotionRequest(directory, shadow.projection, shadow.providerRevision);
+      const canonicalAuthority = provider === "sqlite" ? "sqlite_v0" : "file_v0";
+      const request = promotionRequest(
+        directory,
+        shadow.projection,
+        shadow.providerRevision,
+        canonicalAuthority,
+      );
       if (phase === "shadow_invalid") {
         // A valid store row can still contain an invalid domain projection.
         const projection = {...shadow.projection, goal_id: "different-goal"};
         const committed = await shadowStore.commitAuthority({operation_id: "invalid-domain",
           expected_provider_revision: shadow.providerRevision, next_projection: projection, receipts: [], events: []});
         assert.equal(committed.status, "applied"); if (committed.status !== "applied") return;
-        Object.assign(request, promotionRequest(directory, projection, committed.provider_revision));
+        Object.assign(request, promotionRequest(
+          directory,
+          projection,
+          committed.provider_revision,
+          canonicalAuthority,
+        ));
       }
       if (phase !== "fence_missing") await engageFence(request);
       const fencePath = legacyCoordinationWriterFencePath(directory, "goal-a");
@@ -370,7 +384,9 @@ for (const provider of ["file", "sqlite"] as const) {
           operation_id: request.operation_id, goal_id: request.goal_id,
           source_shadow_provider_revision: request.expected_shadow_provider_revision,
           source_projection_sha256: request.expected_shadow_projection_sha256,
-          writer_fence_id: request.writer_fence.fence_id, source_version: request.writer_fence.source_version};
+          writer_fence_id: request.writer_fence.fence_id,
+          source_version: request.writer_fence.source_version,
+          promotion_plan_sha256: request.writer_fence.promotion_plan_sha256};
         const seeded = await canonical.commitAuthority({operation_id: phase === "receipt_missing" ? "other-operation" : request.operation_id,
           expected_provider_revision: null, next_projection: phase === "lineage_mismatch" ?
             {...shadow.projection, extra: "different snapshot"} : shadow.projection,

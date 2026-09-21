@@ -13,14 +13,11 @@ from ..capability_hooks import (
     InteractionProjectionHookRegistration,
     dispatch_interaction_projection_hooks,
 )
+from .effect_program import ReceiptBoundReplayPhase
 from .settlement import (
     read_heartbeat_settlement,
 )
-from .effect_program import ReceiptBoundReplayPhase
-from ..work_items.interaction_contract import (
-    build_interaction_contract,
-    build_protocol_action_packet,
-)
+from ..work_items.interaction_contract import build_interaction_contract
 from ..work_items.action_portfolio import reconcile_retained_action_selection
 from ..work_items.autonomous_replan_obligation import (
     replan_obligation_id_from_packet,
@@ -121,7 +118,6 @@ def _apply_retained_action_selection_reentry(
         turn_instance_id=turn_instance_id,
         runtime_root=str(runtime_root),
     )
-    payload["protocol_action_packet"] = build_protocol_action_packet(payload)
 
 
 def _fresh_read_covers_all_pending_material(
@@ -185,7 +181,7 @@ def _project_turn_start_required_reads(
     turn_instance_id: str | None,
     runtime_root: Path,
 ) -> bool:
-    """Order evidence before work; return whether the packet needs rendering."""
+    """Order evidence before work and report whether the decision changed."""
 
     projected = _turn_start_required_reads(dispatch)
     if not projected:
@@ -271,7 +267,7 @@ def _apply_pending_capability_intent_precedence(
     ) = None,
     turn_instance_id: str | None = None,
 ) -> bool:
-    """Apply intent precedence; return whether the packet needs rendering."""
+    """Apply intent precedence and report whether the decision changed."""
 
     if not isinstance(projection, Mapping) or projection.get("state") != "pending":
         return False
@@ -545,6 +541,23 @@ def build_live_quota_should_run_decision(
     fresh_operator_inbox_read = _fresh_operator_inbox_read_required(
         turn_start_hook_dispatch
     )
+    if requested_action_todo_id and not receipt_bound_todo_id:
+        # Candidate discovery and admission use the same provider-first reader.
+        # Keep the complete snapshot internal; presentation is bounded later.
+        from ...todos import list_goal_todos
+
+        source = list_goal_todos(
+            registry_path=registry_path, runtime_root_arg=str(runtime_root), goal_id=goal_id,
+        )
+        todo_fields = {key: source[key] for key in ("user_todos", "agent_todos")}
+        queue = decision_status_payload.get("attention_queue") or {}
+        decision_status_payload["attention_queue"] = {
+            **queue,
+            "items": [
+                {**item, **todo_fields} if item.get("goal_id") == goal_id else item
+                for item in queue.get("items") or []
+            ],
+        }
     payload = build_quota_should_run(
         decision_status_payload,
         goal_id=goal_id,
@@ -593,7 +606,7 @@ def build_live_quota_should_run_decision(
             turn_start_hook_dispatch, registry=registry_path, runtime_root=runtime_root,
             goal_id=goal_id, agent_id=agent_id,
         )
-    packet_changed = _project_turn_start_required_reads(
+    _project_turn_start_required_reads(
         payload,
         turn_start_hook_dispatch,
         available_capabilities=available_capabilities,
@@ -604,21 +617,16 @@ def build_live_quota_should_run_decision(
     hook_dispatch = dispatch_interaction_projection_hooks(interaction_projection_hooks)
     projections = hook_dispatch["projections"]
     if isinstance(projections, Mapping):
-        intent_changed = _apply_pending_capability_intent_precedence(
+        _apply_pending_capability_intent_precedence(
             payload,
             projections.get("pending_capability_intent"),
             available_capabilities=available_capabilities,
             scheduler_execution_context=resolved_context,
             turn_instance_id=turn_instance_id,
         )
-        packet_changed = packet_changed or intent_changed
         interaction = payload.get("interaction_contract")
         if isinstance(interaction, dict):
             interaction.update(projections)
-    # Neither projection consumes the intermediate packet. Recovery below does
-    # require a complete decision, so finalize this projection stage here.
-    if packet_changed:
-        payload["protocol_action_packet"] = build_protocol_action_packet(payload)
     # A settled receipt owns this host Turn until it ends.  Looking for an older
     # unsettled Turn here can overwrite the settled-skip route with a recovery
     # obligation and then select a successor against the immutable receipt

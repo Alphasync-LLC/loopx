@@ -1501,6 +1501,7 @@ Continue provider-first delivery.
         "coordination.local_authority.todo_terminal",
         "coordination.local_authority.todo_terminal",
         "coordination.local_authority.todo_list",
+        "coordination.local_authority.todo_list",
     ]
     successor_id = completed["generated_successor_todo_ids"][0]
 
@@ -1523,6 +1524,7 @@ Continue provider-first delivery.
     assert runtime_calls == [
         "coordination.local_authority.todo_list",
         "coordination.local_authority.todo_terminal",
+        "coordination.local_authority.todo_list",
         "coordination.local_authority.todo_list",
     ]
 
@@ -1553,6 +1555,7 @@ Continue provider-first delivery.
     assert runtime_calls == [
         "coordination.local_authority.todo_list",
         "coordination.local_authority.todo_archive",
+        "coordination.local_authority.todo_list",
         "coordination.local_authority.todo_list",
         "coordination.local_authority.todo_archive_ack",
     ]
@@ -1585,6 +1588,7 @@ Continue provider-first delivery.
         assert runtime_calls == [
             "coordination.local_authority.todo_list",
             "coordination.local_authority.todo_archive",
+            "coordination.local_authority.todo_list",
             "coordination.local_authority.todo_list",
         ]
         unchanged = read_canonical_todos_if_promoted(
@@ -2037,6 +2041,7 @@ def test_promoted_terminal_retry_reuses_receipt_after_projection_crash(
         "coordination.local_authority.todo_list",
         "coordination.local_authority.todo_terminal",
         "coordination.local_authority.todo_list",
+        "coordination.local_authority.todo_list",
     ]
     canonical = read_canonical_todos_if_promoted(
         runtime_root=runtime_root, goal_id="goal-a"
@@ -2224,6 +2229,8 @@ def test_real_canonical_provider_preserves_complete_complex_todo_semantics(
         item for item in corrected["todos"] if item["todo_id"] == "todo_claimable"
     )
     assert corrected_item["text"] == "[P0] Corrected before claiming"
+    assert corrected_item["priority"] == "P0"
+    assert corrected_item["title"] == "Corrected before claiming"
     assert not corrected_item.get("claimed_by")
     assert corrected_item["last_actor_agent_id"] == "agent-b"
     assert not state_file.exists()

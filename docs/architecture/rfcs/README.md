@@ -139,6 +139,18 @@ changes.
 
 ## Planning, Research, And Adaptive Intelligence
 
+- [Goal-scoped Capability Portfolio and Connector Lifecycle v0](goal-scoped-capability-portfolio-v0.md)
+  ([中文版](goal-scoped-capability-portfolio-v0.zh-CN.md))
+  - **RFC status:** Draft, under maintainer review.
+  - **Delivery on `main`:** Proposal; catalog, Agent-context hooks and connector
+    inventory are prerequisites rather than a shipped portfolio.
+  - **Current boundary:** Existing Goal enablement activates supported capability
+    behavior without a second Portfolio opt-in. Direct work needs no DAG or
+    adoption record; material dependencies use bounded composition. Policy stays
+    capability-owned and existing config/effect/admission owners remain authoritative.
+    M0 includes affected product entry points; merged #4813 supplies evidence
+    infrastructure, not connector or Portfolio qualification. No new authority.
+
 - [Agent Judgment and Optional Independent Assessment v0](optional-semantic-assistance-jev-v0.md)
   ([中文版](optional-semantic-assistance-jev-v0.zh-CN.md))
   - **RFC status:** Draft; M0 [accepted-for-discussion](https://github.com/loopx-project/loopx/pull/4749#pullrequestreview-5259253204) only; Q1–Q7 remain pending.

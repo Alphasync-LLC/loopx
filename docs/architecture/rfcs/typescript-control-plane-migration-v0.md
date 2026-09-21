@@ -825,8 +825,13 @@ boundary, not all graph source delivery or the remaining T1–T4 work.
 Lease inspection now consumes one canonical Todo/lease/handoff-mode revision
 after promotion; an absent canonical lease does not revive a local lease file,
 and provider failure cannot fall back to Markdown. The read reports its provider
-revision without repairing display or changing the lease. Unpromoted inspection
-retains its legacy source contract. The shared `task_lease_eligibility.ts` owner
+revision without repairing display or changing the lease. Both routes now use
+`task_lease_inspection.ts` for time and eligibility interpretation; Python only
+projects source-bound registration/legacy facts and transports the response.
+Diagnostics reuse the TS rejection owner, including archived-Todo eligibility,
+strict active expiry and bounded source-change retry. Unpromoted storage stays
+unchanged; malformed active expiry intentionally becomes a visible error. See
+[inspection semantics](../../reference/canonical-lease-renew.md#what-inspection-proves). The shared `task_lease_eligibility.ts` owner
 also replaces the Python authority-core and three TS owner-eligibility copies
 used by acquire, lifecycle and terminal fencing. Current-lease effectiveness is
 derived inside acquire from the supplied owner/claim/exclusion/registration facts,
@@ -959,16 +964,27 @@ lineage. Ambiguous, stale, truncated or unrelated material changes cannot close
 the current obligation. This closes one T3 rule group, not
 the remaining consumers or T1/T2/D1–D3.
 
-Thresholds remain 15 advancement Todos or 20 selectable open Todos with
-advancement work. Full material revisions include terminal advancement rows;
+Long-chain scope correction (#4667): Agent lanes count 15 claimed advancement
+Todos or 20 claimed open Todos with claimed advancement work. Shared candidates
+remain selectable but no longer impose this duty; unscoped Goal observations
+retain the selectable-pool thresholds. Full material revisions include terminal advancement rows;
 timestamp-only maintenance does not rearm them. A complete agent-owned identity
 also keeps an accepted long-chain ACK valid when peers change shared unclaimed
-work. Owned material edits still rearm; an entirely unclaimed chain cannot use
-that exemption. Historical revision-only ACKs keep exact-revision matching.
+work. Owned material edits still rearm; an entirely unclaimed lane has no
+long-chain duty. Historical revision-only ACKs keep exact-revision matching.
 Intentional corrections: semantic writeback now preserves the owned identity;
 an identity without a revision or an explicitly incomplete checkpoint cannot
 suppress replanning. Other trigger kinds cannot borrow long-chain identity
-matching. No threshold, write authority or obligation-id rule changes.
+matching. The same TS owner now supplies `obligation_identity_revision` from the
+owned basis for the existing Python identity codec and predecessor proof: peer
+churn cannot invalidate an open Turn before its ACK. Numeric thresholds and
+write authority remain unchanged. `replan_semantics.ts` accepts and projects an
+evidence-linked vision path for long-chain review, preserving existing progress
+exits and stricter vision obligations. The real CLI regression follows the
+projected binding through durable ACK, satisfied checkpoint, one spend and next
+Turn readback; maintenance stays quiet and an owned material edit rearms.
+This advances overall-roadmap S2/S3's existing T3 owner, with no new provider,
+store migration, frontend setting or claim of broader RFC acceptance.
 
 The canonical index is built before display truncation. Exclusions, duplicate
 ids/index lanes, incomplete timestamps and authoritative incomplete indexes
@@ -1045,6 +1061,17 @@ This closes that T3/L5 consumer family and its bounded L7 dependency, not D1–D
 or every T3 consumer. Python retains codecs, IO and the documented legacy route
 prose hint until its remaining writers emit explicit replan flags; no new
 capability/provider or parallel business authority is introduced.
+
+The quota admission/settlement consumer now resolves explicit Todo selection
+from the complete unified Todo reader before display compaction. It removes the
+direct Markdown candidate append while preserving the pre-promotion event
+adapter. Post-promotion empty or unavailable authority cannot revive display
+rows. Settlement progress is reduced from the existing TS receipt chain;
+Python renders identity-complete commands and both JSON/Markdown readbacks.
+The existing idempotent writer repairs a missing spend receipt without a second
+debit. This closes the demonstrated T3 consumer gap, not D1–D3, provider
+promotion, or the remaining Python transaction adapters. See the
+[operating contract](../../quota-allocation.md#receipt-backed-settlement-progress).
 
 **T4 — collect full-writer retirement after durability cutover.**
 
@@ -1741,3 +1768,29 @@ behavior.
 Measured delivery records live in the [per-entry ledger](ledger/typescript-control-plane-migration-v0/).
 Each entry names its delivered boundary and remaining acceptance gaps; the T1–T4
 checkpoints above remain the current migration plan.
+
+### T2 Agent-addressed read checkpoint
+
+Todo list selection now composes with the existing typed summary-lanes batch.
+The Python role/status/id/Agent predicates and independent User scope rule are
+removed; legacy and promoted consumers share `todos/agent_scope.ts` with quota
+and decision scope. Explicit gate scope retains precedence over execution claim,
+while retained User claims now correctly restrict scoped list visibility.
+Full-source resume/succession stays evaluated before selection; original array
+ordinals survive filters and display limits. No extra selection runtime crossing,
+new capability/provider, or Python storage migration is introduced. Python keeps
+input normalization and rendering until their actual host consumers migrate.
+See [the read contract](../../reference/todo-work-counts.md); broader L5/D1 and
+local-default qualifications remain open.
+
+### T2 canonical read and display confirmation boundary
+
+Canonical single-Todo and full-source reads now have one read-only TypeScript
+module, separate from mutation orchestration and sharing the provider opening
+boundary. Projection delivery composes a revision confirmation with the existing
+full-source read; ordinary callers retain their response shape. Python owns
+physical Markdown durability/retry, not the current-head comparison. Three-attempt
+recovery and pinned-intent preservation use the existing journal-backed path;
+no new RPC method, durable ACK or provider default. The stronger confirmation
+costs one additional read on a stable delivery. Full L5/D1 qualification, D2 and
+cutover remain open; see the [projection contract](../../reference/protocols/active-state-structured-projection-v0.md).

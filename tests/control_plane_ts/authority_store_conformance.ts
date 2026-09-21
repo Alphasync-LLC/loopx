@@ -1,3 +1,5 @@
+import {registerTodoConsumerScopeConformance} from "./todo_consumer_scope_conformance.ts";
+import {registerProjectionConfirmationConformance} from "./projection_confirmation_conformance.ts";
 import {registerUserCompletionFollowthroughConformance} from "./user_completion_followthrough_conformance.ts";
 import {registerSuccessionReadConformance} from "./succession_read_conformance.ts";
 import {registerUserCompletionUpdateConformance} from "./user_completion_update_conformance.ts";
@@ -42,8 +44,8 @@ import { executeCoordinationTodoClaim } from "../../loopx/control_plane/coordina
 import { executeCoordinationTodoCreate } from "../../loopx/control_plane/coordination/todo_create.ts";
 import {executeCoordinationMonitorPoll} from "../../loopx/control_plane/coordination/todo_monitor_poll.ts";
 import { executeCoordinationTodoUpdate } from "../../loopx/control_plane/coordination/todo_update.ts";
-import { listLocalCoordinationTodos, LOCAL_COORDINATION_TODO_LIST_REQUEST_SCHEMA }
-  from "../../loopx/control_plane/coordination/local_authority_runtime.ts";
+import {LOCAL_COORDINATION_TODO_LIST_REQUEST_SCHEMA} from "../../loopx/control_plane/coordination/local_authority_runtime.ts";
+import {listLocalCoordinationTodos} from "../../loopx/control_plane/coordination/local_authority_read.ts";
 import { sharedGoalWorkFacts } from "../../loopx/control_plane/goals/shared_goal_work.ts";
 import {projectStandingDecisions} from "../../loopx/control_plane/todos/standing_decision.ts";
 import {evaluateTodoResumeConditions} from "../../loopx/control_plane/todos/resume_condition.ts";
@@ -241,12 +243,14 @@ export function registerAuthorityStoreConformance(
   providerName: string,
   factory: AuthorityStoreConformanceFactory,
 ): void {
+  registerProjectionConfirmationConformance(providerName, factory);
   registerLeaseLifecycleConformance(providerName, factory);
   registerClaimTransferConformance(providerName, factory);
   registerLeaseAcquisitionConformance(providerName, factory);
   registerAuthorityScanConformance(providerName, factory);
   registerOwnershipObservationConformance(providerName, factory);
   registerSuccessionReadConformance(providerName, factory);
+  registerTodoConsumerScopeConformance(providerName, factory);
   registerNativePlanningUpdateConformance(providerName, factory);
   registerUserCompletionUpdateConformance(providerName, factory);
   registerUserCompletionFollowthroughConformance(providerName, factory);

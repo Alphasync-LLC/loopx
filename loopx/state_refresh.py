@@ -30,9 +30,11 @@ from .control_plane.quota.refresh_external_delivery import (
 )
 from .control_plane.quota.settlement import (
     SettlementIdentity,
+    attach_settlement_progress,
     read_heartbeat_settlement,
     render_first_refresh_checkpoint_hint,
     render_refresh_recovery_markdown,
+    render_settlement_progress_markdown,
 )
 from .control_plane.quota.settlement_workspace_causality import resolve_settlement_workspace_requirement
 from .control_plane.quota.codex_session_usage import (
@@ -596,6 +598,7 @@ def render_state_refresh_markdown(payload: dict[str, Any]) -> str:
         f"- state_updated_at: `{frontmatter.get('updated_at')}`",
         f"- health_check: `{payload.get('health_check')}`",
     ]
+    lines.extend(render_settlement_progress_markdown(payload))
     if "external_sink_delivery_authorized" in payload:
         lines.append(
             "- external_sink_delivery_authorized: "
@@ -883,6 +886,7 @@ def refresh_state_run(
         settlement_readback = None
         refresh_recovery = None
         prior_writeback_run = None
+        checkpoint_supplement = False
         if todo_id or normalized_replan_obligation_id or turn_instance_id:
             if not turn_scoped_settlement_qualified:
                 raise ValueError(
@@ -929,6 +933,9 @@ def refresh_state_run(
             if not refresh_recovery:
                 raise RuntimeError("settlement readback omitted refresh recovery admission")
             prior_writeback_run = settlement_readback.writeback_run
+            checkpoint_supplement = bool(
+                refresh_recovery["decision"] == "supplement_checkpoint"
+            )
             recovery_payload = refresh_recovery_payload(
                 settlement_readback, registry_path=registry_path, runtime_root=runtime_root,
                 goal_id=safe_goal_id, dry_run=dry_run,
@@ -1122,7 +1129,16 @@ def refresh_state_run(
         effective_autonomous_replan_recorded = (
             replan_qualification.autonomous_replan_recorded
         )
-        if normalized_delivery_outcome in ACCOUNTABLE_DELIVERY_OUTCOMES:
+        # read_heartbeat_settlement admits checkpoint_supplement only for a
+        # checkpoint-only retry of an already committed writeback with the
+        # exact Goal/Agent/Todo/Turn and delivery identity. It rejects replayed
+        # mutations and conflicting vision decisions before this fence. The
+        # supplement repairs only the missing vision decision, so terminal
+        # validation remains attached to the original Todo completion.
+        if (
+            normalized_delivery_outcome in ACCOUNTABLE_DELIVERY_OUTCOMES
+            and not checkpoint_supplement
+        ):
             require_accountable_completion_validation(
                 state_text,
                 todo_fields=todo_fields,
@@ -1145,9 +1161,6 @@ def refresh_state_run(
             todo_id=(settlement_identity.todo_id if settlement_identity else None),
             completion_todo_id=completion_todo_id,
             autonomous_replan_recorded=effective_autonomous_replan_recorded,
-        )
-        checkpoint_supplement = bool(
-            refresh_recovery and refresh_recovery["decision"] == "supplement_checkpoint"
         )
         if checkpoint_supplement and not vision_checkpoint.get("satisfied"):
             raise ValueError(
@@ -1479,6 +1492,15 @@ def refresh_state_run(
                 "raw_artifacts_copied": False,
                 "recommended_action_copied": False,
             }
+        if settlement_identity is not None and not dry_run:
+            committed_readback = read_heartbeat_settlement(
+                runtime_root, goal_id=safe_goal_id, agent_id=settlement_identity.agent_id,
+                todo_id=settlement_identity.todo_id, turn_instance_id=settlement_identity.turn_instance_id,
+                replan_obligation_id=settlement_identity.replan_obligation_id,
+            )
+            if committed_readback is None:
+                raise RuntimeError("committed refresh settlement readback missing")
+            attach_settlement_progress(payload, committed_readback, registry_path=registry_path, runtime_root=runtime_root)
         return finish_external_delivery_refresh(
             payload, settlement_readback, runtime_root, dry_run=dry_run,
         )

@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from loopx.cli_commands.quota import _apply_requested_quota_action_selection_preflight
+from loopx.cli_commands.quota_action_selection import (
+    _requested_quota_action_selection_preflight,
+)
 from loopx.cli_commands.quota_failure_report import quota_failure_payload
 from loopx.control_plane.quota.error_codes import (
     QuotaActionSelectionConflictError,
@@ -35,7 +37,7 @@ def _payload(**overrides: object) -> dict[str, object]:
 
 def _raise(payload: dict[str, object]) -> QuotaActionSelectionConflictError:
     with pytest.raises(QuotaActionSelectionConflictError) as raised:
-        _apply_requested_quota_action_selection_preflight(
+        _requested_quota_action_selection_preflight(
             payload,
             requested_todo_id=REQUESTED_TODO_ID,
             receipt_bound_todo_id=None,
@@ -77,7 +79,7 @@ def test_missing_qualification_is_typed_rather_than_unexplained() -> None:
 
 
 def test_a_qualified_selection_for_the_requested_todo_is_not_a_conflict() -> None:
-    is_conflict = _apply_requested_quota_action_selection_preflight(
+    is_conflict = _requested_quota_action_selection_preflight(
         _payload(action_selection_qualification=_qualified_for(REQUESTED_TODO_ID)),
         requested_todo_id=REQUESTED_TODO_ID,
         receipt_bound_todo_id=None,
@@ -86,7 +88,7 @@ def test_a_qualified_selection_for_the_requested_todo_is_not_a_conflict() -> Non
         receipt_identity_upgraded=False,
     )
 
-    assert is_conflict is False
+    assert is_conflict is None
 
 
 def test_failure_payload_reports_the_conflict_instead_of_collection_failure() -> None:

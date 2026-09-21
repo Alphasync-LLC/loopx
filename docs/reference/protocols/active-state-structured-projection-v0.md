@@ -219,11 +219,14 @@ freshness guarantee.
 Each section includes a compact `loopx:todo-section-projection-v0` marker with
 the canonical provider revision and a SHA-256 digest of the complete canonical
 records for that role. The marker is lineage evidence, not a write API.
-The command proves that the rendered records came from the exact provider head
-observed at read time. It does not claim that the revision remains the current
-head after that read; a later canonical mutation makes the Markdown projection
-stale until the journal-backed delivery replays. Consumers must always read the
-provider, never the Markdown marker, when they need current authority state.
+The command proves that the rendered records came from an exact provider head.
+Execution now also reads authority **after** durable file readback: `delivered`
+and `current` require the rendered revision to match that observed head. This
+strengthens the previous read-time provenance contract; a successful file write
+alone no longer acknowledges delivery when an overlapping commit is observed.
+`observed_provider_revision` names the confirmation point, not a lock on future
+commits. Later mutations can still make the display stale. Consumers must always
+read the provider, never the Markdown marker, for current authority state.
 
 Rollback is intentionally asymmetric. Before promotion, the existing shadow
 rollback quarantines the candidate provider lineage and Markdown remains
@@ -278,11 +281,44 @@ concurrently restored document. When bytes already match, execution still syncs
 the file and parent directory before reporting `current`: a previous failure
 may have occurred after rename but before directory durability. A failed barrier
 keeps delivery `pending` and does not acknowledge or repeat the business mutation.
-Preview remains read-only.
+Preview remains read-only and does not request a delivery confirmation.
+
+Unpinned mutation settlement makes at most three delivery attempts under the
+existing display lock, reusing a newer complete read for the next attempt. A
+pinned `project-markdown --provider-revision` checks its basis before writing and
+never silently retargets another revision. An overlap after its write returns
+`pending`, the rendered and observed revisions, `delivery_attempts`, and
+`retry_business_mutation=false`. Persistent churn also returns pending rather
+than looping indefinitely. A confirmation outage preserves the successful
+business commit and remains retryable through the existing projection path.
+Archived Monitor material generations use the same numeric decoder as active
+reads and capture. Textual metadata such as `material_change_generation=12`
+round-trips to the canonical integer; zero remains present and mismatched values
+still fail parity. This fixes full-document recovery rejected by retained archived
+Monitors without rewriting their authority records.
+
+No new queue, persistent ACK, background worker, authority write or provider
+default is introduced. Ordinary list/exact reads keep their response shape;
+only the internal projection readback request opts into confirmation metadata.
+
+The TypeScript read owner validates complete canonical data and compares the
+host's durable readback revision with the same loaded head. Python retains
+Markdown ownership, durability, bounded IO retry and rendering. A missing
+confirmation from a downlevel runtime cannot be treated as delivery success.
+The normal successful execution adds one provider read; each caught-up attempt
+reuses the already returned full snapshot. This is a freshness cost, not a
+latency improvement or atomic transaction across the database and filesystem.
 
 中文：普通状态与投影共用原子落盘；缺失展示通过仅创建方式发布，避免覆盖并发恢复。
-字节相同的执行重试也重新完成文件和目录耐久化，之后才报告 `current`；失败继续
-保留“业务已提交、展示 pending”，不确认投影交付、不重执行业务。预览不写入。
+字节相同的执行重试也重新完成文件和目录耐久化。现在还必须在落盘后重新读取 authority，
+由 TS 核对版本，才能确认 `current/delivered`。这加强了旧的“读取时来源正确”合同；
+确认只对应一次观察点，不承诺之后永不变旧。未固定版本的交付最多尝试三次，复用较新
+完整快照；显式 `--provider-revision` 不自动换目标。持续并发或确认失败保留业务提交，
+展示返回 pending，重试只恢复展示，不重复业务。缺失文件的第二次追赶使用普通原子
+替换，不能继续误用仅创建写入。预览不写入，也不确认交付。未新增队列、持久 ACK、
+后台任务或默认 provider；普通读取形状不变，正常交付增加一次真实 provider 读取。
+归档 Monitor 的代数元数据复用现有整数解码，修复字符串与整数比较造成的整份恢复失败；
+零值仍保留，语义不一致仍拒绝，不改写 canonical 记录。
 
 Supported non-Monitor Agent updates include action/domain/repository and required
 write scopes, required/target capabilities and Explore node references. These

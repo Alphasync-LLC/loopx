@@ -39,17 +39,26 @@ def canonical_team(tmp_path):
     return runtime, state, service, preview
 
 
-def test_canonical_chat_commit_replays_after_projection_failure(canonical_team, monkeypatch):
+@pytest.mark.parametrize("failure_point", ["write", "confirmation"])
+def test_canonical_chat_commit_replays_after_projection_failure(canonical_team, monkeypatch, failure_point):
     runtime, state, service, preview = canonical_team
     def fail(*args, **kwargs):
         raise OSError("display unavailable")
-    monkeypatch.setattr(provider_projection, "atomic_write_state_text", fail)
+    if failure_point == "write":
+        monkeypatch.setattr(provider_projection, "atomic_write_state_text", fail)
+    else:
+        read_authority = provider_projection.read_canonical_todos_if_promoted
+        def read_after_write(**kwargs):
+            if kwargs.get("projection_readback") is not None:
+                raise OSError("confirmation unavailable")
+            return read_authority(**kwargs)
+        monkeypatch.setattr(provider_projection, "read_canonical_todos_if_promoted", read_after_write)
     failed = service.apply(preview["proposal_id"])["proposal"]
     assert failed["status"] == "failed"
     read = read_canonical_todos_if_promoted(runtime_root=runtime, goal_id="goal-a")
     assert len(read["todos"]) == 2
     assert len({row["todo_id"] for row in read["todos"]}) == 2
-    assert "Same work" not in state.read_text()
+    assert ("Same work" not in state.read_text()) is (failure_point == "write")
     monkeypatch.undo()
     applied = service.apply(preview["proposal_id"])["proposal"]
     assert applied["status"] == "applied", applied

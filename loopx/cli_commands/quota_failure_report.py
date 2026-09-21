@@ -18,6 +18,7 @@ from ..control_plane.coordination.legacy_writer_fence import (
 from ..control_plane.coordination.local_authority import (
     LocalCoordinationAuthorityUnavailable,
 )
+from ..control_plane.effect_runtime import EffectRuntimeStartupError
 from ..control_plane.quota.error_codes import (
     HeartbeatReceiptIdentityConflictError,
     QuotaActionSelectionConflictError,
@@ -105,9 +106,14 @@ def quota_failure_payload(
             **lock_timeout_fields,
         }
 
+    # A managed-runtime failure already carries a bounded, public-safe message
+    # (which method could not be reached and how long it was given), so publish
+    # it instead of a generic line the caller cannot act on.
     public_reason = (
         str(error)
-        if isinstance(error, HeartbeatReceiptIdentityConflictError)
+        if isinstance(
+            error, (HeartbeatReceiptIdentityConflictError, EffectRuntimeStartupError)
+        )
         else "quota collection failed"
     )
     payload: dict[str, object] = {
