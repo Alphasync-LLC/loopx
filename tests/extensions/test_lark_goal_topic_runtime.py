@@ -14,6 +14,7 @@ import pytest
 from loopx.extensions.lark.manager_reply_parts import (
     MANAGER_REPLY_MAX_PARTS,
     MANAGER_REPLY_OVERFLOW_NOTE,
+    PART_DELIVERY_COMPLETE_KEY,
 )
 from loopx.extensions.lark.event_collector import _jq_projection
 from loopx.extensions.lark.event_inbox import inspect_lark_event_inbox
@@ -2797,3 +2798,118 @@ def test_manager_retries_saved_proposal_delivery_before_source_ack(
     assert second["status"] == "replied_and_acknowledged"
     assert second["saved_response_reused"] is True
     assert delivery_calls == [(proposal_id,), (proposal_id,)]
+
+
+def test_a_fully_sent_part_sequence_settles_after_an_interrupted_receipt_write(
+    tmp_path, monkeypatch,
+):
+    """The reader already has every part; the delivery must stop saying pending.
+
+    The part loop advances the durable counter only after the provider accepted
+    a part, so a stop between the last part and the caller's own receipt used to
+    leave the answer reported as an incomplete sequence forever: every retry
+    re-sent nothing and the source was never acknowledged.
+    """
+
+    from loopx.extensions.lark import goal_topic_runtime as runtime
+    from loopx.extensions.lark.manager_reply_delivery import delivery_path
+
+    target_path, binding_path = tmp_path / "targets.json", tmp_path / "bindings.json"
+    _seed_legacy_topic(target_path, binding_path)
+    original_decide = runtime.decide_lark_topic_event
+    # Large enough that the provider refuses the markdown body and the answer
+    # has to be delivered as a bounded part sequence.
+    body = "测" * 60000
+
+    def manager_decision(**kwargs):
+        result = original_decide(**kwargs)
+        result["route"].update(
+            conversation_kind="manager", ingress_mode="session_queue",
+            authority_mode="turn_authorized",
+            event_id=kwargs["event"]["event_id"],
+            connector={"response_policy": "topic_reply"},
+        )
+        return result
+
+    monkeypatch.setattr(runtime, "decide_lark_topic_event", manager_decision)
+    monkeypatch.setattr(
+        runtime,
+        "ensure_lark_event_inbox_received_reaction",
+        lambda **kw: {"ok": True, "status": "already_received"},
+    )
+    state: dict[str, Any] = {}
+    answered: list[str] = []
+
+    def answer(route, text):
+        answered.append(text)
+        return {
+            "response_text": body,
+            "effect_receipt": runtime._session_turn_effect(route),
+        }
+
+    kwargs = {
+        "target_payload": read_goal_channel_targets(target_path),
+        "binding_payloads": {"goal-alpha": read_goal_channel_binding(binding_path)},
+        "event": {
+            "event_id": "evt_incoming",
+            "message_id": "om_incoming",
+            "chat_id": "oc_public_fixture",
+            "root_id": "om_topic_alpha",
+            "create_time": "2026-08-14T21:00:00Z",
+            "content": "@linkmacbot report",
+            "mentioned": True,
+            "sender_type": "user",
+        },
+        "runtime_root": tmp_path / "runtime",
+        "answer": answer,
+        "reply_runner": _reply_runner(state),
+    }
+    real_write = runtime._write_manager_delivery
+
+    def interrupted_receipt_write(path, payload):
+        if payload.get("status") == "sent_verified":
+            raise OSError("receipt write interrupted")
+        return real_write(path, payload)
+
+    monkeypatch.setattr(runtime, "_write_manager_delivery", interrupted_receipt_write)
+    first = runtime.process_lark_goal_topic_event(**kwargs)
+
+    assert first["status"] == "reply_delivery_receipt_unavailable"
+    assert first["source_acknowledged"] is False
+    config_path = Path(first["inbox_config_ref"])
+    state_path = delivery_path(
+        project=kwargs["runtime_root"], config_path=config_path,
+        message_id="om_incoming",
+    )
+    saved = json.loads(state_path.read_text())
+    assert saved["status"] == "pending"
+    assert saved["delivery_part_count"] == MANAGER_REPLY_MAX_PARTS
+    assert saved["delivery_parts_sent"] == MANAGER_REPLY_MAX_PARTS
+    assert saved[PART_DELIVERY_COMPLETE_KEY] is True
+    assert MANAGER_REPLY_OVERFLOW_NOTE in state["reply_text"]
+    delivered_once = [
+        call for call in state["calls"]
+        if "+messages-reply" in call and "--dry-run" not in call
+    ]
+    assert len(delivered_once) == MANAGER_REPLY_MAX_PARTS
+
+    monkeypatch.setattr(runtime, "_write_manager_delivery", real_write)
+    second = runtime.process_lark_goal_topic_event(**kwargs)
+
+    # The whole answer was already on the channel, so the retry re-sends
+    # nothing, settles the delivery and acknowledges the source.
+    assert second["ok"] is True
+    assert second["status"] == "replied_and_acknowledged"
+    assert second["saved_response_reused"] is True
+    assert len(answered) == 1
+    assert [
+        call for call in state["calls"]
+        if "+messages-reply" in call and "--dry-run" not in call
+    ] == delivered_once
+    settled = json.loads(state_path.read_text())
+    assert settled["status"] == "acknowledged"
+    assert settled["reply_verified"] is True
+    assert settled["delivery_parts_sent"] == MANAGER_REPLY_MAX_PARTS
+    pending = inspect_lark_event_inbox(project=kwargs["runtime_root"],
+                                      config_path=config_path)
+    assert pending["items"] == []
