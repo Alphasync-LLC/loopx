@@ -107,6 +107,12 @@ export function decodeLegacyCoordinationWriterFence(value: unknown): JsonObject 
     fence.schema_version !== LEGACY_COORDINATION_WRITER_FENCE_SCHEMA ||
     fence.state !== "engaged"
   ) throw new Error("legacy coordination writer fence must be engaged");
+  const promotionPlanSha256 = fence.promotion_plan_sha256 === undefined
+    ? null
+    : requireAuthorityStoreId(
+      fence.promotion_plan_sha256,
+      "writer fence promotion plan sha256",
+    );
   return canonicalAuthorityObject({
     schema_version: LEGACY_COORDINATION_WRITER_FENCE_SCHEMA,
     state: "engaged",
@@ -124,6 +130,9 @@ export function decodeLegacyCoordinationWriterFence(value: unknown): JsonObject 
       fence.expected_shadow_provider_revision,
       "writer fence expected shadow provider revision",
     ),
+    ...(promotionPlanSha256 === null ? {} : {
+      promotion_plan_sha256: promotionPlanSha256,
+    }),
   }, "legacy coordination writer fence");
 }
 

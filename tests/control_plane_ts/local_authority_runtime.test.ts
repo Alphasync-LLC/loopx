@@ -7,7 +7,10 @@ import test from "node:test";
 
 import type { JsonObject } from "../../loopx/control_plane/effect_program.ts";
 import { FileAuthorityStore } from "../../loopx/control_plane/coordination/file_authority_store.ts";
-import type { AuthorityStoreCommit } from "../../loopx/control_plane/coordination/authority_store.ts";
+import type {
+  AuthorityStore,
+  AuthorityStoreCommit,
+} from "../../loopx/control_plane/coordination/authority_store.ts";
 import {
   AuthorityStoreProtocolError,
   canonicalAuthorityBytes,
@@ -225,12 +228,22 @@ test("local promotion fences shadow revision, digest, and writer-fence identity"
     "local_authority_writer_fence_projection_mismatch",
   );
 
+  const mismatchedProvider = await promoteLocalCoordinationAuthority({
+    ...request,
+    canonical_authority: "sqlite_v0",
+  });
+  assert.equal(mismatchedProvider.status, "failed");
+  assert.equal(
+    mismatchedProvider.reason_code,
+    "local_authority_promotion_provider_mismatch",
+  );
+
   const unqualified = await promoteLocalCoordinationAuthority({
     ...request,
     minimum_operations: 2,
   });
   assert.equal(unqualified.status, "failed");
-  assert.equal(unqualified.reason_code, "local_authority_shadow_not_qualified");
+  assert.equal(unqualified.reason_code, "local_authority_writer_fence_plan_mismatch");
   const canonical = new FileAuthorityStore(join(root, "authority", "file-v0"), "goal-a");
   assert.equal((await canonical.loadAuthority()).status, "missing");
 });
@@ -281,7 +294,7 @@ test("reviewed promotion previews without effects and atomically applies the who
 
 test("reviewed promotion resumes the exact request after a fence-to-canonical interruption", async () => {
   const root = await mkdtemp(join(tmpdir(), "loopx-reviewed-promotion-recovery-"));
-  const shadow = await qualifiedShadow(root, "hard_lease");
+  const shadow = await qualifiedShadow(root, "hard_lease", 2);
   const sourceProjection = { ...shadow.projection };
   delete sourceProjection.capture_lineage_id;
   delete sourceProjection.capture_profile;
@@ -298,7 +311,7 @@ test("reviewed promotion resumes the exact request after a fence-to-canonical in
     ...source,
     schema_version: LOCAL_COORDINATION_PROMOTION_REVIEW_REQUEST_SCHEMA,
     operation_id: "promote:goal-a:recoverable",
-    minimum_operations: 1,
+    minimum_operations: 2,
     required_event_kinds: ["todo_claim"],
     execute: true,
   };
@@ -330,6 +343,36 @@ test("reviewed promotion resumes the exact request after a fence-to-canonical in
   assert.equal(changed.reason_code, "local_authority_writer_fence_conflict");
   assert.equal(changed.legacy_writer_fenced, true);
   assert.equal((await canonical.loadAuthority()).status, "missing");
+
+  const providerChangedStore: AuthorityStore = {
+    providerKind: "sqlite",
+    storeIdentity: () => canonical.storeIdentity(),
+    loadAuthority: () => canonical.loadAuthority(),
+    commitAuthority: (commit) => canonical.commitAuthority(commit),
+    readReceipt: (operationId) => canonical.readReceipt(operationId),
+    scanCommitted: (afterCursor, limit) => canonical.scanCommitted(afterCursor, limit),
+  };
+  const providerChanged = await reviewLocalCoordinationAuthorityPromotion(request, {
+    createCanonicalStore: () => providerChangedStore,
+  });
+  assert.equal(providerChanged.status, "failed", JSON.stringify(providerChanged));
+  assert.equal(providerChanged.reason_code, "local_authority_writer_fence_conflict");
+  assert.equal(providerChanged.legacy_writer_fenced, true);
+  assert.equal((await canonical.loadAuthority()).status, "missing");
+
+  for (const changedPolicy of [
+    {...request, minimum_operations: 1},
+    {...request, required_event_kinds: []},
+  ]) {
+    const rejected = await reviewLocalCoordinationAuthorityPromotion(
+      changedPolicy,
+      dependencies,
+    );
+    assert.equal(rejected.status, "failed", JSON.stringify(rejected));
+    assert.equal(rejected.reason_code, "local_authority_writer_fence_conflict");
+    assert.equal(rejected.legacy_writer_fenced, true);
+    assert.equal((await canonical.loadAuthority()).status, "missing");
+  }
 
   const recovered = await reviewLocalCoordinationAuthorityPromotion(request, dependencies);
   assert.equal(recovered.status, "recovered", JSON.stringify(recovered));
