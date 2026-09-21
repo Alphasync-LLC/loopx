@@ -58,6 +58,26 @@ def _reflection() -> str:
     )
 
 
+def _large_but_valid_reflection() -> str:
+    payload = json.loads(_reflection())
+    experience = payload["experience"]
+    payload["content_summary"] = "C" * 500
+    payload["reasoning_summary"] = "R" * 500
+    experience["applicability"] = ["A" * 500, "B" * 500]
+    experience["observed_outcome"] = "O" * 500
+    experience["attribution"] = "T" * 500
+    experience["future_behavior"] = {
+        "trigger": "G" * 500,
+        "action": "X" * 500,
+        "validation": "V" * 500,
+        "stop_condition": "S" * 500,
+    }
+    experience["limitations"] = ["L" * 500, "M" * 500]
+    serialized = json.dumps(payload)
+    assert len(serialized) > 2_400
+    return serialized
+
+
 def _validator(path: Path, *, attest: bool) -> list[str]:
     body = (
         "import json,sys; r=json.load(sys.stdin); "
@@ -198,3 +218,72 @@ def test_app_refresh_without_exact_validator_attestation_stays_pending(
     assert staged["validation_bound"] is False
     assert staged["provider_sync_count"] == 0
     assert staged["external_writes_performed"] is False
+
+
+def test_app_refresh_accepts_large_valid_reflection_without_validator(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        codex_app_outcome,
+        "_validation_declaration",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        codex_app_outcome,
+        "_goal_repo",
+        lambda *_args, **_kwargs: tmp_path,
+    )
+
+    staged = stage_codex_app_turn_outcome_candidate(
+        registry_path=tmp_path / "registry.json",
+        runtime_root=tmp_path / "runtime",
+        goal_id="goal",
+        agent_id="pilot",
+        todo_id="todo_without_validator",
+        turn_instance_id="turn-large-reflection",
+        effect_id="effect:large-reflection",
+        state_file=tmp_path / "ACTIVE_GOAL_STATE.md",
+        validation_workspace=tmp_path,
+        reflection_json=_large_but_valid_reflection(),
+        observed_at="2026-09-21T15:02:02+00:00",
+    )
+
+    assert staged["status"] == "awaiting_evidence_validation"
+    assert staged["reason_code"] == "reflection_not_bound_to_independent_validation"
+    assert staged["candidate_id"]
+    assert staged["reflection_digest"].startswith("sha256:")
+    assert staged["validation_bound"] is False
+    assert staged["provider_sync_count"] == 0
+    assert staged["external_writes_performed"] is False
+
+
+def test_app_refresh_rejects_truly_oversized_reflection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        codex_app_outcome,
+        "_goal_repo",
+        lambda *_args, **_kwargs: tmp_path,
+    )
+    payload = json.loads(_reflection())
+    payload["content_summary"] = "X" * (17 * 1024)
+
+    with pytest.raises(
+        ValueError,
+        match="reward memory reflection exceeds its bounded contract",
+    ):
+        stage_codex_app_turn_outcome_candidate(
+            registry_path=tmp_path / "registry.json",
+            runtime_root=tmp_path / "runtime",
+            goal_id="goal",
+            agent_id="pilot",
+            todo_id="todo_oversized",
+            turn_instance_id="turn-oversized-reflection",
+            effect_id="effect:oversized-reflection",
+            state_file=tmp_path / "ACTIVE_GOAL_STATE.md",
+            validation_workspace=tmp_path,
+            reflection_json=json.dumps(payload),
+            observed_at="2026-09-21T15:02:02+00:00",
+        )
