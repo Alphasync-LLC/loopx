@@ -16,6 +16,50 @@ uses a new id (omitting the id generates one). `--dry-run` validates and preview
 without running declared validation, writing a receipt, or delivering a display.
 Agent completion continues to require `loopx todo complete`.
 
+## Revising an open Todo validator
+
+A promoted Goal may replace an open, active Todo's declared completion
+validator without recreating the Todo. Read the current provider revision, then
+send the replacement as a dedicated reviewed edit:
+
+```sh
+loopx todo update --goal-id example --todo-id todo_observation \
+  --agent-id agent-a \
+  --validation-command-json '["python3","-m","pytest","-q","tests/new_test.py"]' \
+  --validation-label 'focused validation' \
+  --update-operation-id revise-validator-1 \
+  --update-expected-provider-revision file:42
+```
+
+The TypeScript transaction compares the current declaration digest, commits the
+new digest, monotonic revision and public-safe audit receipt under one provider
+CAS, and rejects terminal, archived or stale edits. The Python boundary stores
+the private command declaration only after provider success and verifies its
+readback. Reuse the same operation id, expected revision and replacement after
+a lost response; a different intent requires a new operation id and a fresh
+read. Validator replacement cannot be combined with another Todo edit.
+
+Completion receipts for a revised validator bind the current declaration
+digest. A receipt issued for the previous command, or an unbound legacy
+receipt, cannot satisfy the replacement. CLI and managed Turn use the same
+facade. The Dashboard Todo details show the current revision, digest and last
+actor; it is readback only, so no second editor or Lark-specific authority is
+introduced.
+
+## 修改开放 Todo 的验证器
+
+已晋升 Goal 可以在不重建 Todo 的前提下替换开放且仍 active 的完成验证器。调用方先
+读取当前 provider revision，再把新命令作为独立的 reviewed edit 提交。TypeScript
+事务在同一次 provider CAS 中核对旧声明摘要，并提交新摘要、单调递增的 revision 和
+公开安全的审计回执；已完成、已归档或基于旧 revision 的修改会被拒绝。Python 边界
+只在 provider 成功后保存私有命令声明，并校验读回结果。丢失响应时复用相同的
+operation id、expected revision 和替换内容；新的意图必须使用新的 operation id 并
+重新读取。验证器修改不能和其他 Todo 编辑合并提交。
+
+修改后的完成回执必须绑定当前声明摘要，因此旧命令产生的回执或未绑定摘要的历史
+回执都不能完成新验证器。CLI 与 managed Turn 复用同一 facade；Dashboard 的 Todo
+详情只读展示 revision、digest 与最后修改者，不新增第二套编辑权威或 Lark 专用状态。
+
 ## One edit, one terminal transaction
 
 The update decoder, authoring planner and record materializer are shared with

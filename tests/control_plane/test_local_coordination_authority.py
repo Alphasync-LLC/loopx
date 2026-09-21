@@ -45,6 +45,9 @@ from loopx.control_plane.todos.completion_validation_store import (
     completion_validation_declaration_path,
     read_completion_validation_declaration,
 )
+from loopx.control_plane.todos.provider_update import (
+    update_canonical_todo_if_promoted,
+)
 from loopx.control_plane.todos.contract import format_todo_metadata_line
 from loopx.todos import (
     add_goal_todo,
@@ -52,6 +55,7 @@ from loopx.todos import (
     complete_goal_todo,
     list_goal_todos,
     supersede_goal_todo,
+    update_goal_todo,
 )
 
 
@@ -599,6 +603,185 @@ def test_validated_create_recovers_sidecar_after_commit_before_publish_crash(
         goal_id="goal-a",
     )
     assert canonical_after is not None and len(canonical_after["todos"]) == 1
+
+
+def test_promoted_validator_revision_updates_canonical_digest_and_private_readback(
+    tmp_path: Path,
+) -> None:
+    registry_path, runtime_root, _state_file = _promoted_create_fixture(tmp_path)
+    created = add_goal_todo(
+        registry_path=registry_path,
+        goal_id="goal-a",
+        role="agent",
+        text="Keep validator current after repository moves",
+        claimed_by="agent-a",
+        agent_id="agent-a",
+        validation_command_json=json.dumps(
+            [sys.executable, "-c", "raise SystemExit(4)"]
+        ),
+        validation_label="focused validation",
+    )
+    todo_id = str(created["todo_id"])
+    before = read_canonical_todos_if_promoted(
+        runtime_root=runtime_root, goal_id="goal-a"
+    )
+    assert before is not None
+    old_digest = before["todos"][0]["completion_validation_sha256"]
+    replacement_argv = [sys.executable, "-c", "raise SystemExit(0)"]
+
+    revised = update_goal_todo(
+        registry_path=registry_path,
+        runtime_root_arg=str(runtime_root),
+        goal_id="goal-a",
+        todo_id=todo_id,
+        role="agent",
+        agent_id="agent-a",
+        update_operation_id="revise-validator-1",
+        update_expected_provider_revision=str(before["provider_revision"]),
+        validation_command_json=json.dumps(replacement_argv),
+        validation_label="focused validation",
+    )
+    assert revised["status"] == "applied"
+    canonical = read_canonical_todos_if_promoted(
+        runtime_root=runtime_root, goal_id="goal-a"
+    )
+    assert canonical is not None
+    todo = canonical["todos"][0]
+    assert todo["completion_validation_revision"] == 1
+    assert todo["completion_validation_sha256"] != old_digest
+    assert todo["completion_validation_revision_history"] == [
+        {
+            "schema_version": "loopx_todo_completion_validation_revision_receipt_v0",
+            "revision": 1,
+            "operation_id": "revise-validator-1",
+            "previous_declaration_sha256": old_digest,
+            "declaration_sha256": todo["completion_validation_sha256"],
+            "actor_agent_id": "agent-a",
+            "revised_at": todo["updated_at"],
+        }
+    ]
+    stored = read_completion_validation_declaration(
+        runtime_root=runtime_root, goal_id="goal-a", todo_id=todo_id
+    )
+    assert stored is not None
+    assert stored["validation_command_argv"] == replacement_argv
+    assert completion_validation_declaration_sha256(stored) == (
+        todo["completion_validation_sha256"]
+    )
+
+    replay = update_goal_todo(
+        registry_path=registry_path,
+        runtime_root_arg=str(runtime_root),
+        goal_id="goal-a",
+        todo_id=todo_id,
+        role="agent",
+        agent_id="agent-a",
+        update_operation_id="revise-validator-1",
+        update_expected_provider_revision=str(before["provider_revision"]),
+        validation_command_json=json.dumps(replacement_argv),
+        validation_label="focused validation",
+    )
+    assert replay["status"] == "replayed"
+    assert read_canonical_todos_if_promoted(
+        runtime_root=runtime_root, goal_id="goal-a"
+    ) == canonical
+
+    completed = complete_goal_todo(
+        registry_path=registry_path,
+        runtime_root_arg=str(runtime_root),
+        goal_id="goal-a",
+        todo_id=todo_id,
+        role="agent",
+        claimed_by="agent-a",
+        agent_id="agent-a",
+        no_followup=True,
+    )
+    assert completed["status"] == "done"
+    assert completed["validation_receipt"]["passed"] is True
+    assert completed["validation_receipt"]["validation_declaration_sha256"] == (
+        todo["completion_validation_sha256"]
+    )
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        {
+            "validation_command": None,
+            "validation_command_argv": '["true"]',
+            "validation_label": None,
+            "validation_timeout_seconds": None,
+        },
+        {
+            "validation_command": None,
+            "validation_command_argv": ["true"],
+            "validation_label": None,
+            "validation_timeout_seconds": "20",
+        },
+        {
+            "validation_command": None,
+            "validation_command_argv": ["true"],
+            "validation_label": "",
+            "validation_timeout_seconds": None,
+        },
+        {
+            "validation_command": " true ",
+            "validation_command_argv": None,
+            "validation_label": None,
+            "validation_timeout_seconds": None,
+        },
+    ],
+    ids=("json-string-argv", "numeric-string-timeout", "blank-label", "spaced-command"),
+)
+def test_promoted_validator_revision_rejects_noncanonical_transport_before_commit(
+    tmp_path: Path,
+    replacement: dict[str, object],
+) -> None:
+    registry_path, runtime_root, state_file = _promoted_create_fixture(tmp_path)
+    created = add_goal_todo(
+        registry_path=registry_path,
+        goal_id="goal-a",
+        role="agent",
+        text="Keep validator authority and sidecar atomic",
+        claimed_by="agent-a",
+        agent_id="agent-a",
+        validation_command_json=json.dumps([sys.executable, "-c", "raise SystemExit(4)"]),
+        validation_label="focused validation",
+    )
+    todo_id = str(created["todo_id"])
+    before = read_canonical_todos_if_promoted(
+        runtime_root=runtime_root, goal_id="goal-a"
+    )
+    assert before is not None
+    private_before = read_completion_validation_declaration(
+        runtime_root=runtime_root, goal_id="goal-a", todo_id=todo_id
+    )
+    assert private_before is not None
+
+    with pytest.raises(LocalCoordinationAuthorityUnavailable) as exc_info:
+        update_canonical_todo_if_promoted(
+            registry_path=registry_path,
+            runtime_root=runtime_root,
+            goal_id="goal-a",
+            todo_id=todo_id,
+            actor_agent_id="agent-a",
+            role="agent",
+            text=None,
+            note=None,
+            dry_run=False,
+            project=state_file.parents[3],
+            state_file=state_file,
+            operation_id="reject-noncanonical-validator",
+            expected_provider_revision=str(before["provider_revision"]),
+            completion_validation_revision=replacement,
+        )
+    assert exc_info.value.code == "invalid_local_coordination_todo_update_request"
+    assert read_canonical_todos_if_promoted(
+        runtime_root=runtime_root, goal_id="goal-a"
+    ) == before
+    assert read_completion_validation_declaration(
+        runtime_root=runtime_root, goal_id="goal-a", todo_id=todo_id
+    ) == private_before
 
 
 def test_promoted_native_create_recovers_markdown_after_delivery_crash(

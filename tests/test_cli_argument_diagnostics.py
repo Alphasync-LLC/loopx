@@ -625,6 +625,46 @@ def test_claim_operation_id_is_not_silently_ignored_by_other_commands(command, o
             ],
             "todo update does not support --next-required-capability",
         ),
+        (
+            [
+                "--todo-id",
+                "todo_example",
+                "--validation-command-json",
+                '["pytest","-q"]',
+            ],
+            "todo update validation revision requires --update-operation-id "
+            "and --update-expected-provider-revision",
+        ),
+        (
+            [
+                "--todo-id",
+                "todo_example",
+                "--validation-command-json",
+                '["pytest","-q"]',
+                "--update-operation-id",
+                "validator-revision-1",
+                "--update-expected-provider-revision",
+                "file:1",
+            ],
+            "todo update validation revision requires a registered --agent-id",
+        ),
+        (
+            [
+                "--todo-id",
+                "todo_example",
+                "--validation-command-json",
+                '["pytest","-q"]',
+                "--update-operation-id",
+                "validator-revision-1",
+                "--update-expected-provider-revision",
+                "file:1",
+                "--agent-id",
+                "agent-a",
+                "--note",
+                "also edit prose",
+            ],
+            "todo update validation revision cannot be combined with another Todo edit",
+        ),
     ],
 )
 def test_todo_update_validation_preserves_exact_diagnostics(
@@ -652,6 +692,31 @@ def test_todo_update_validation_accepts_a_mutable_field() -> None:
             "todo_example",
             "--note",
             "validated",
+        ]
+    )
+
+    validate_todo_update_options(args)
+
+
+def test_todo_update_validation_accepts_a_validator_revision() -> None:
+    args = build_parser().parse_args(
+        [
+            "todo",
+            "update",
+            "--goal-id",
+            "example-goal",
+            "--todo-id",
+            "todo_example",
+            "--agent-id",
+            "agent-a",
+            "--validation-command-json",
+            '["pytest","-q","tests/test_target.py"]',
+            "--validation-label",
+            "focused validation",
+            "--update-operation-id",
+            "validator-revision-1",
+            "--update-expected-provider-revision",
+            "file:1",
         ]
     )
 

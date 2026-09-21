@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import subprocess
 from collections.abc import Mapping
 from json import loads as json_loads
@@ -383,6 +384,14 @@ def run_declared_completion_validation_effect(
         and all(isinstance(item, str) and item for item in raw_argv)
     ):
         raise ValueError("validation_effect.validation_argv must be a string array")
+    declaration_digest = effect.get("validation_declaration_sha256")
+    if declaration_digest is not None and (
+        not isinstance(declaration_digest, str)
+        or not re.fullmatch(r"[a-f0-9]{64}", declaration_digest)
+    ):
+        raise ValueError(
+            "validation_effect.validation_declaration_sha256 must be a SHA-256 digest"
+        )
     receipt = _run_declared_completion_validation(
         validation_command=(
             str(effect["validation_command"])
@@ -412,6 +421,8 @@ def run_declared_completion_validation_effect(
     )
     if receipt is None:
         raise RuntimeError("authorized validation effect produced no receipt")
+    if declaration_digest is not None:
+        receipt["validation_declaration_sha256"] = declaration_digest
     return receipt
 
 

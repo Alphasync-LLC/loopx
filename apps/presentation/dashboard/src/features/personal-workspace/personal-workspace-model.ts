@@ -36,6 +36,9 @@ export type WorkspaceAgentTodo = {
   taskDomain?: string | null;
   text: string;
   todoId: string;
+  validationDigest?: string | null;
+  validationRevision?: number | null;
+  validationRevisionActor?: string | null;
 };
 
 export type WorkspaceTodo = WorkspaceAgentTodo & {
