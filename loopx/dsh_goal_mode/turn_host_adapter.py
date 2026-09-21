@@ -476,8 +476,19 @@ def _execute_turn_host_request(
             "runtime_bin": config.runtime_bin,
             "request_timeout_seconds": config.request_timeout_seconds,
         }
-        if config.env is not None and config.dsh_runner is None:
-            runner_arguments["env"] = dict(config.env)
+        if config.dsh_runner is None:
+            # Bind invocation-scoped tools to the verified Turn, never stale
+            # ambient process identity. Preserve only the caller-owned runtime
+            # environment; unrelated parent credentials are not copied.
+            envelope = _mapping(request.get("turn_envelope"))
+            selected = _mapping(_mapping(envelope.get("action")).get("selected_todo"))
+            runner_arguments["env"] = {
+                **dict(config.env or {}),
+                "LOOPX_TURN_GOAL_ID": str(envelope.get("goal_id") or ""),
+                "LOOPX_TURN_AGENT_ID": str(envelope.get("agent_id") or ""),
+                "LOOPX_TURN_TODO_ID": str(selected.get("todo_id") or ""),
+                "LOOPX_TURN_WORKSPACE": str(workspace),
+            }
         outcome = normalize_runner_outcome(runner(**runner_arguments))
     except DshHostResultError as exc:
         raise BuiltInHostError(

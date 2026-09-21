@@ -113,6 +113,29 @@ for a populated lineage. The adapter does not fall back to the ambiguous old
 name, rename sessions, or delete existing session files. Any persistence or
 resume behavior for the newly selected id remains owned by the dsh composition.
 
+### Task identity and context lifetime / 任务身份与上下文生命周期
+
+`--iteration-context fresh` selects a session scoped to the current Turn key;
+retrying that same transaction keeps its identity. The default
+`resume-if-available` retains the Goal/Agent/Todo lineage behavior described
+above. A durable Agent identity is not a reason to reuse another Todo's task
+packet or chat context. Independent questions should select fresh context;
+continuations must keep the exact task lineage and refresh explicit inputs.
+
+The built-in DSH adapter forwards `LOOPX_TURN_GOAL_ID`,
+`LOOPX_TURN_AGENT_ID`, `LOOPX_TURN_TODO_ID`, and `LOOPX_TURN_WORKSPACE`
+from the verified invocation to runtime tools. Those values override stale
+caller environment identities; an absent Todo becomes an empty value.
+Unrelated parent credentials are not added. These variables bind tools to a
+request; they do not grant additional permissions. Domain task packages and
+artifact validators must still verify their own task identity and revision.
+
+`fresh` 按本次 Turn 选择新上下文，同一事务重试保持身份；默认
+`resume-if-available` 按 Goal/Agent/Todo 延续。Agent 可以长期存在，但独立
+问题应使用新上下文，不能把另一个 Todo 的旧任务包当成交接。宿主将上述四个
+本次调用身份变量传给运行时工具，覆盖陈旧值；无 Todo 时为空，不额外传播
+父进程凭据。身份变量不扩大权限；领域任务包和产物仍须校验身份与版本。
+
 ## Run One Governed Turn In Process (`--host dsh`)
 
 The built-in host runs the same adapter inside the CLI process:
