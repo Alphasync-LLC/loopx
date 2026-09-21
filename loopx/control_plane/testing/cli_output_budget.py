@@ -43,6 +43,7 @@ class CliOutputBudgetSpec:
     max_lines: dict[str, dict[OutputFormat, int]]
     scale_axis: str | None = None
     max_json_growth_chars_per_unit: int | None = None
+    max_json_fixed_semantic_growth_chars: int = 0
     output_contract_version: str | None = None
 
 
@@ -164,16 +165,24 @@ CLI_OUTPUT_BUDGET_SPECS: tuple[CliOutputBudgetSpec, ...] = (
         markdown_anchor="# LoopX Turn Plan",
         max_chars={
             "small": {"json": 12_000, "markdown": 300},
-            "crowded": {"json": 12_000, "markdown": 300},
+            # The crowded fixture exercises the required-vision route. Its
+            # TurnEnvelope intentionally carries the complete authoring schema
+            # that the validator accepts; this fixed contract is not Todo-scale
+            # diagnostic growth and must not be compacted out of the plan.
+            "crowded": {"json": 13_000, "markdown": 300},
             "multi_agent": {"json": 12_000, "markdown": 300},
         },
         max_lines={
             "small": {"json": 320, "markdown": 12},
-            "crowded": {"json": 320, "markdown": 12},
+            "crowded": {"json": 360, "markdown": 12},
             "multi_agent": {"json": 320, "markdown": 12},
         },
         scale_axis="todo_count",
         max_json_growth_chars_per_unit=60,
+        # The complete validator-owned vision-authoring schema appears only on
+        # the required-vision route. Account for that fixed semantic packet
+        # separately so it does not relax the per-Todo growth budget.
+        max_json_fixed_semantic_growth_chars=3_800,
     ),
     CliOutputBudgetSpec(
         surface_id="status",
