@@ -14,6 +14,10 @@ from ..todos.contract import (
     normalize_todo_replan_obligation_id,
 )
 from ..todos.resume_planning import project_todo_resume_planning
+from .external_progress_review import (
+    EXTERNAL_PROGRESS_REVIEW_TRIGGER_KIND,
+    external_progress_review_trigger,
+)
 from .progress_observation import replan_writeback_requirements, typed_progress_repeat_trigger
 from .replan_settlement import (
     project_todo_lifecycle_settlement_reentry as project_todo_lifecycle_reentry_effect,
@@ -549,6 +553,14 @@ def build_autonomous_replan_obligation(
         ),
         None,
     )
+    review_evidence = next(
+        (
+            item
+            for item in evidence
+            if item.get("kind") == EXTERNAL_PROGRESS_REVIEW_TRIGGER_KIND
+        ),
+        None,
+    )
     first_open: dict[str, Any] = {}
     if isinstance(agent_todos, dict):
         open_items = agent_todos.get("first_open_items")
@@ -592,6 +604,20 @@ def build_autonomous_replan_obligation(
                 "text": (
                     "resolve the repeated monitor target with watch-lane expiry, "
                     "a concrete blocker, todo supersede, or successor runnable todo"
+                ),
+            }
+        )
+    elif review_evidence:
+        todo_actions.append(
+            {
+                "action": "add",
+                "role": "agent",
+                "priority": "P1",
+                "text": (
+                    "select a slice whose scoped file delta changes observable "
+                    "behavior toward a named acceptance criterion, or record why the "
+                    "current slice is a necessary prerequisite; identifier renames, "
+                    "field reordering and self-declared advancement are not progress"
                 ),
             }
         )
@@ -641,6 +667,13 @@ def build_autonomous_replan_obligation(
             "supersede, runnable successor, or coverage-backed terminal before another "
             "quiet monitor poll"
         )
+    elif review_evidence:
+        recommended_action = (
+            "run a bounded autonomous replan: the last "
+            f"{int(review_evidence.get('run_count') or 0)} observed scoped deltas were "
+            "judged off-goal without new evidence; name the acceptance criterion the "
+            "next slice serves and its validation command before more edits"
+        )
     elif any(item.get("kind") in {"periodic_review", "periodic_review_due"} for item in evidence):
         recommended_action = (
             "run a bounded autonomous periodic review: keep, split, add, retire, or ask for "
@@ -681,6 +714,18 @@ def build_autonomous_replan_obligation(
             "progress:"
             + str(typed_progress_evidence.get("progress_fingerprint") or "")
         )
+    if review_evidence:
+        if review_evidence.get("frontier_identity"):
+            extra_fields["frontier_identity"] = review_evidence["frontier_identity"]
+        extra_fields["external_progress_review"] = {
+            "schema_version": review_evidence.get("schema_version"),
+            "signal": review_evidence.get("signal"),
+            "run_count": review_evidence.get("run_count"),
+            "threshold": review_evidence.get("threshold"),
+            "evidence_ids": list(review_evidence.get("evidence_ids") or []),
+            "contract_revision": review_evidence.get("contract_revision"),
+            "authority": "advisory_evidence_only",
+        }
     result = build_autonomous_replan_obligation_payload(
         schema_version=autonomous_replan_schema_version,
         stall_threshold=(
@@ -774,6 +819,7 @@ def autonomous_replan_obligation_from_runs(
     dead_monitor_repeat_threshold: int,
     dead_monitor_repeat_schema_version: str,
     periodic_run_threshold: int,
+    external_progress_review: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     scoped_latest_runs = _latest_agent_run_history(
         latest_runs,
@@ -801,6 +847,27 @@ def autonomous_replan_obligation_from_runs(
             [typed_repeat],
             agent_todos=agent_todos,
         )
+
+    # Typed external review receipts are a sibling evidence source. They only
+    # become an obligation under an explicit per-goal `assist` policy, and the
+    # typed fuse above keeps precedence. The core never reads their raw delta.
+    if isinstance(external_progress_review, Mapping):
+        review_policy = external_progress_review.get("policy")
+        if isinstance(review_policy, Mapping) and review_policy.get("mode") == "assist":
+            raw_receipts = external_progress_review.get("receipts")
+            review_trigger = external_progress_review_trigger(
+                scoped_latest_runs,
+                receipts=raw_receipts if isinstance(raw_receipts, list) else [],
+                agent_id=agent_id,
+                threshold=int(review_policy.get("drift_threshold") or 2),
+                signal=str(review_policy.get("signal") or "noul"),
+                ack_recorded=autonomous_replan_ack_recorded,
+            )
+            if review_trigger:
+                return build_autonomous_replan_obligation(
+                    [review_trigger],
+                    agent_todos=agent_todos,
+                )
 
     # Monitor rows already carry a typed monitor target. Keep this explicit
     # state-machine input; do not infer monitor/stall state from prose fields.
