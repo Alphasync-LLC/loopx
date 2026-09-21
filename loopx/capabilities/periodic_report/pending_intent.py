@@ -655,6 +655,30 @@ def _validated_snapshot_timestamp(value: str, *, observed_at: str) -> str:
     return value
 
 
+def _cadence_coverage_fact(cadence_window: Mapping[str, Any]) -> dict[str, Any]:
+    """Build the bounded coverage caveat for one frozen calendar window.
+
+    A calendar report reads only what this agent's records can still show inside
+    the window, so the caveat describes the report's own coverage. It used to be
+    classified as a risk, which rendered a bounded coverage limitation to the
+    reader under the risks section and let it stand in for the period's headline
+    risk; supporting coverage evidence is the honest classification.
+    """
+
+    return {
+        "fact_id": "calendar_coverage",
+        "title": "本期证据覆盖范围",
+        "summary": (
+            "仅核对当前可读的本 Agent 任务记录，并按记录时间筛选本期交付；"
+            "未验证完整历史和其他 Agent。空结果不能证明本期没有进展。"
+        ),
+        "status": "unknown",
+        "content_kind": "coverage",
+        "visibility": "supporting",
+        "source_ref": "cadence:" + str(cadence_window["window_id"]),
+    }
+
+
 def _build_editorial_request(
     *,
     intent: Mapping[str, Any],
@@ -1186,12 +1210,7 @@ def _consume_pending_periodic_report_intent(
         facts = [fact for fact in facts if fact.get("status") != "done" or (
             start < datetime.fromisoformat(str(fact["completed_at"]).replace("Z", "+00:00")) <= end
         )]
-        facts.append({
-            "fact_id": "calendar_coverage", "title": "本期证据覆盖范围",
-            "summary": "仅核对当前可读的本 Agent 任务记录，并按记录时间筛选本期交付；未验证完整历史和其他 Agent。空结果不能证明本期没有进展。",
-            "status": "unknown", "content_kind": "risk",
-            "source_ref": "cadence:" + cadence_window["window_id"],
-        })
+        facts.append(_cadence_coverage_fact(cadence_window))
     request_path = _editorial_request_path(
         runtime_root,
         goal_id,
