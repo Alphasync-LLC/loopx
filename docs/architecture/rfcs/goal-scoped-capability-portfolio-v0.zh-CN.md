@@ -41,7 +41,8 @@ Portfolio 组合现有 owner：
 5. Decision Context、Explore 与 reward memory 仍是有自己准入规则的下游。
 
 **Goal 开启能力，就足以激活该能力支持的行为。** 既有配置 owner 将能力解析为
-对该 Goal enabled 后，适用的 hook 和正常执行路径自动参与，不再要求第二个
+对该 Goal 当前 Agent/surface scope enabled 后，适用的 hook 和正常执行路径自动参与，
+不再要求第二个
 Portfolio 开关、手动 adoption 或每轮提示。激活仍遵守该能力自身的触发条件、
 预算和权限契约，不表示每个 Turn 都调用全部已启用能力。
 
@@ -179,7 +180,8 @@ provider。
 
 ### 激活与按需执行
 
-配置 owner 统一解析继承、显式关闭和受支持的 operation/profile 设置。Portfolio 只
+配置 owner 统一解析继承、显式关闭、Agent/surface scope 和受支持的 operation/profile
+设置。Agent 级激活（如 reward memory）不能顺带启用同 Goal 的其他 Agent。Portfolio 只
 消费 exact effective result，不从 catalog presence 推断 enablement，也不重解释各
 owner 的历史默认值。既有显式 manual-only 或已关闭的 automation 设置继续有效。
 新增受支持的自动入口不需要 Portfolio opt-in；若改变既有能力默认值，必须由该 owner

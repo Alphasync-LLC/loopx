@@ -49,7 +49,8 @@ The portfolio composes existing owners:
 
 **Goal enablement is sufficient to activate the capability's supported behavior.**
 Once the existing configuration owner resolves a capability as enabled for a
-Goal, its applicable hooks and normal execution route participate automatically;
+Goal's current Agent/surface scope, its applicable hooks and normal execution
+route participate automatically;
 there is no second Portfolio switch, manual adoption step or per-Turn reminder.
 Activation follows the capability's trigger, budget and authority contract. It
 does not mean invoking every enabled capability on every Turn.
@@ -220,8 +221,9 @@ Goal authority provider.
 
 ### Activation and proportional execution
 
-The configuration owner resolves inheritance, explicit disable and supported
-operation/profile settings once. Portfolio consumes that exact effective result;
+The configuration owner resolves inheritance, explicit disable, Agent/surface
+scope and supported operation/profile settings once. An Agent-scoped activation
+(such as reward memory) never enables other Agents in the same Goal. Portfolio consumes that exact effective result;
 it must not infer enablement from catalog presence or reinterpret each owner's
 legacy defaults. Existing explicit manual-only or disabled automation settings
 remain effective. New supported automatic surfaces need no Portfolio opt-in;
