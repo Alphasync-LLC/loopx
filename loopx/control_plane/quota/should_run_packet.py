@@ -1,5 +1,6 @@
 from __future__ import annotations
 from .effective_action import EffectiveAction
+from .effect_program import ReceiptBoundReplayPhase
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -446,6 +447,41 @@ def _apply_agent_monitor_only_precedence(
     if isinstance(frontier, dict):
         frontier.pop("vision_continuation_audit", None)
     clear_quota_action_projections(payload)
+
+
+def _apply_unadmitted_action_selection_precedence(
+    payload: dict[str, Any],
+    *,
+    replay_phase: ReceiptBoundReplayPhase | None,
+) -> None:
+    """Finalize one closed selection recovery before shared projections."""
+
+    if replay_phase is ReceiptBoundReplayPhase.SETTLED or not (
+        unadmitted_action_selection(payload)
+    ):
+        return
+    for field in (
+        "agent_lane_next_action",
+        "agent_scope_frontier",
+        "autonomous_replan_obligation",
+        "execution_profile",
+        "goal_route_hint",
+        "handoff_readiness",
+        "replan_action_packet",
+        "selected_todo",
+        "task_orchestration_contract",
+        "todo_id",
+        "todo_write_hint",
+        "work_lane_contract",
+        "workspace_guard",
+    ):
+        payload.pop(field, None)
+    apply_action_selection_recovery_projection(payload)
+    payload["heartbeat_recommendation"] = (
+        build_action_selection_recovery_recommendation(
+            reason=str(payload.get("reason") or "")
+        )
+    )
 
 
 def _attach_truthy_fields(payload: dict[str, Any], **fields: Any) -> None:
@@ -1446,29 +1482,10 @@ def _build_quota_should_run_payload(
         payload,
         replay_phase=prepared.receipt_bound_replay_phase,
     )
-    if unadmitted_action_selection(payload):
-        for field in (
-            "agent_lane_next_action",
-            "agent_scope_frontier",
-            "autonomous_replan_obligation",
-            "execution_profile",
-            "goal_route_hint",
-            "handoff_readiness",
-            "replan_action_packet",
-            "selected_todo",
-            "task_orchestration_contract",
-            "todo_id",
-            "todo_write_hint",
-            "work_lane_contract",
-            "workspace_guard",
-        ):
-            payload.pop(field, None)
-        apply_action_selection_recovery_projection(payload)
-        payload["heartbeat_recommendation"] = (
-            build_action_selection_recovery_recommendation(
-                reason=str(payload.get("reason") or "")
-            )
-        )
+    _apply_unadmitted_action_selection_precedence(
+        payload,
+        replay_phase=prepared.receipt_bound_replay_phase,
+    )
     if (isinstance(payload.get("autonomous_replan_obligation"), dict)
             and not unadmitted_action_selection(payload)):
         payload["replan_action_packet"] = build_replan_action_packet(
