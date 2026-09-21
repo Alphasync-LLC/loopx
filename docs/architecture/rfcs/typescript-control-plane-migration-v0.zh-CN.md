@@ -792,6 +792,8 @@ PostgreSQL 读取使用同一个 repeatable-read snapshot，并发提交在下�
 历史。合法结果 schema、File/NoKV 持久字节、请求身份及版本算法保持兼容。这支持
 T3/D1 reader，未完成全部 Todo writer、retention/compaction 或 promotion。
 
+配额准入与结算消费者现在从统一 Todo reader 读取完整来源，在显示压缩前解析显式 Todo 选择。它删除直接追加 Markdown 候选的路径，保留 promote 前的事件适配；promote 后权威为空或不可读都不能复活展示行。结算进度由现有 TS 回执链归约，Python 负责完整身份命令及 JSON/Markdown 展示。现有幂等 writer 可补齐缺失的 spend 回执而不再次扣款。这关闭已复现的 T3 消费者缺口，不代表 D1–D3、provider promotion 或剩余 Python 事务适配已完成。操作语义见[结算进度契约](../../quota-allocation.md#receipt-backed-settlement-progress)。
+
 **T4 — durable cutover 后兑现完整 writer 删除。**
 
 - 2026-09-19 命令审计退役两条已经 typed、但没有实际消费者的执行面：
