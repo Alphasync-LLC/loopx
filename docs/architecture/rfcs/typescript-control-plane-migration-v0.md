@@ -789,6 +789,18 @@ all T2 commands or authorize whole-Goal promotion.
 
 **T3 — close remaining structured consumers, then remove their old reads.**
 
+Periodic-report staging, live editorial fallback and approval retry now share
+one canonical-first Todo source. Frontier and progress selection reuse the same
+complete evaluated snapshot; missing/stale display cannot invent or hide work.
+`capabilities/periodic_report_progress.ts` owns report selection and rejection
+retry ordering, retiring Python selection/sorting loops. Offset-aware instants
+retain microseconds, canonical archived rejection records remain effective, and
+explicit runtime-root applies to both intent and Todo IO. Frozen editorial
+requests retain their original basis. See [operation and boundaries](../../../loopx/capabilities/periodic_report/README.md#todo-authority-and-report-retries).
+This closes that T3/L5 consumer family, not D1 permanent display freshness,
+D2 durability, D3 whole-Goal qualification or default-provider selection. The
+conditional 5–8 remaining delivery-package estimate is unchanged.
+
 Todo summary lanes and pre-limit work counts now share `todos/summary_lanes.ts`.
 Python's lane classification and hidden-work inference loops are removed; quota
 recomputes counts after scope selection and carries incomplete source knowledge
