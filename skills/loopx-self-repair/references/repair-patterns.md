@@ -215,6 +215,17 @@ teaches a reusable control-plane lesson.
 | `artifact_without_goal_delta` | Repeated individually valid changes leave the requested user outcome or peer handoff unqualified; completion reports count fields, receipts or PRs. | Current user/task acceptance, latest main and related work, actual caller/readback, `problem_context` delivery judgment and remaining dependency. | Work was selected and settled around implementation artifacts rather than an independently useful outcome slice. | Reconcile the accepted goal, consolidate the missing integration/negative/readback work, or justify a prerequisite with its real successor and owner. Update the existing task/vision through its owner when direction changed. Do not repair by minimum LOC/PR quotas, a second task ledger, fabricated follow-ups or stronger prose alone. |
 | `runtime_shadow_query_clock_drift` | A runtime-shadow bootstrap reports matched, then an immediate read-only inspect reports drift even though no Todo or lease writer ran; a subsequent captured write can also stop with `source_partition_continuity_unproved`. | Expected and observed parity and partition digests, field-level normalized projection diff, resume-condition decision fields, prepared outbox bytes, and source mutation receipts. | `resume_condition.evaluated_at` is recomputed from the reader clock and was included in durable authority identity, so observation time changed on every read and invalidated both parity and writer continuity. | Exclude only the query-clock observation from parity and partition semantic digests in the TS owner and its Python codec mirror. Still verify full prepared bytes/projections and compare readiness, reason, generation, target, and every other Todo/lease fact. Cover clock-only equality plus a real decision-change mismatch, then reproduce bootstrap-to-inspect and captured-write continuity through the real CLI before promotion. |
 
+### Terminal confirmation and recovery
+
+Terminal confirmations must qualify the entire review → validation → canonical
+commit → display acknowledgement path. An Agent completion or Monitor stop
+cannot reuse a pre-write fingerprint check as historical recovery, nor mark a
+pending display as verified. Bind new work to the reviewed provider/registry,
+return issued source revisions across external validation, recover the original
+receipt before current-state admission, and keep missing private declaration
+recovery separate from business success. Test response loss and stale validation
+through the initiating surface and real providers, preserving non-target state.
+
 ### Runtime diagnostic drift in parity fixtures
 
 When a newer runtime fails parity only because a filesystem error includes an

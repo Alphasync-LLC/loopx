@@ -21,6 +21,12 @@
 
 ## 当前实现检查点
 
+终结审核与验证已收敛到既有 TS terminal owner：Agent 完成、Monitor 停止复用 Chat
+先恢复 canonical 回执再确认显示的路径；v2 把验证 continuation 绑定来源 revision，
+准入/回放之后才请求私有声明。删除 Python 的终结操作审核分流和提前解析声明编排。
+这闭合 T1/T2/L2 的一组真实终结 caller，剩余 leased metadata、executor fence 和 T4
+仍未完成。[语义、调用次数与回滚](../../reference/canonical-terminal-review.zh-CN.md)。
+
 Canonical create/claim/update/Monitor poll/terminal 事务现共用
 `coordination/authority_source.ts`；Python adapter 经 `authority_registry_source`
 在注册/grant 投影前后校验来源。外部验证结束后保留原 witness，在新 effect/提交前

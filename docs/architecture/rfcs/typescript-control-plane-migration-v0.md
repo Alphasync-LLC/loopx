@@ -22,6 +22,14 @@ Retain T0 caller/parity inventory, T1/T2 transaction/effect convergence, T3 comp
 
 ## Current implementation checkpoint
 
+Terminal review and validation now converge in the existing TS terminal owner.
+Agent completion and Monitor stop reuse Chat's canonical receipt-first recovery
+and display acknowledgement; v2 binds validation continuation to its source
+revision and resolves private declarations only after admission/replay. Python's
+separate terminal review selection and eager declaration sequencing are removed.
+This closes a T1/T2/L2 terminal caller family, not the remaining leased metadata,
+executor fences or T4 retirement. [Semantics, crossings and rollback](../../reference/canonical-terminal-review.md).
+
 Linked User completion now has one typed owner, `todos/user_completion.ts`.
 The terminal transaction commits exact-target scope consumption, reject/cancel
 outcomes and conditional resume with its own completion/receipt; the Markdown

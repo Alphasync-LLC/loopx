@@ -28,6 +28,11 @@
 
 ## 当前实现检查点
 
+终结 caller 现将审核与验证绑定 canonical 来源，历史回执恢复不再依赖私有 argv。
+Agent 完成和 Monitor 停止复用普通编辑的当前 head 显示确认。
+[调用与恢复合同](../../reference/canonical-terminal-review.zh-CN.md)。此批推进 L2/L5，
+未闭合 executor-held fence、D1–D3 或默认 onboarding，下文有条件的 5–8 批估算不变。
+
 本地 registry witness 现经同一 TS owner 覆盖 canonical create/claim/update、
 Monitor poll 与 terminal mutation；File、SQLite、service-injected PostgreSQL
 执行相同来源检查并保留历史回执。
