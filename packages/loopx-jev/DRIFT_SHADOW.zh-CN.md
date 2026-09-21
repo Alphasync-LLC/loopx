@@ -1,4 +1,4 @@
-# D1 限定范围的漂移旁路试点
+# 从明确选定的文件变化中，旁路评估任务进展
 
 [English](DRIFT_SHADOW.md)
 
@@ -6,11 +6,26 @@
 
 ## 实现归属和接入范围
 
-命令位于可选包 `loopx-jev-pilot`，产品入口只有 D1 shadow；没有排序代码、新的内置 capability 或调度器。输入来源明确标为 `scoped_checkpoint_capture`，不自称 Decision Context provider。[决策记录](DESIGN_DECISIONS.zh-CN.md)关联研究历史和证据限制。
+命令位于可选包 `loopx-jev-pilot`，产品入口只有任务进展旁路观察；没有排序代码、新的内置 capability 或调度器。输入来源明确标为 `scoped_checkpoint_capture`，不自称 Decision Context provider。[决策记录](DESIGN_DECISIONS.zh-CN.md)关联研究历史和证据限制。
 
 现有 L1 `reliability-diagnostics` 的禁止出站、禁止影响 Agent 的契约保持独立，不能拿它的收据证明模型推理合格。本实现不修改它或 `state_refresh.py`，模型请求不会进入核心事务或核心写锁。
 
 这是显式 CLI 接入：在真实刷新调用位置使用 wrapper，并单独运行消费者。原 `loopx refresh-state` 和原生 Codex/Claude 会话保持原行为。本分支没有自动 hook 安装、registry capability 设置、Dashboard 或 Lark 开关。配置绑定本地一个 Goal 观察目录，每个 Goal 应使用独立配置文件。操作者提供契约导出，这不自动证明规范 Goal 验收或工作区独占权。
+
+## “限定文件”具体指什么
+
+就是初始化时通过 `drift init --path` 明确指定的仓库相对文件。例如修复重试逻辑时，可以选择 `src/retry.py`、`tests/test_retry.py` 和 `reports/retry_probe.json`。这是观察器的材料清单，**不是限制工作 Agent 只能修改哪些文件**；程序不会自动发现相关文件，也不会扫描整个仓库。
+
+| 材料 | 如何进入评估 |
+| --- | --- |
+| 目标和验收条件 | 操作者提供的 basis JSON |
+| `--path` 指定文件 | 读取前后内容及净变化；允许指定尚未创建的文件 |
+| basis 中可选的 `evidence` 引用 | 明确列出的普通文件，例如测试或实验报告 |
+| 其他源码、依赖或对话历史 | 不自动读取；缺失会限制判断能力 |
+
+路径必须是文件，不是目录或通配符；最多选 32 个，并受下文的字节上限约束。初始化后清单固定；要变更范围，需显式新建观察器/预算并建立新基线。Agent 在清单外做的工作可能完全有效，`no_delta` 只表示所观察材料没有变化，不表示整个任务没有进展。读取测试报告也不等于执行测试或独立认证其中的声明。
+
+例如只选择函数所在文件，而漏掉被调用的 helper 和对应测试，评估就不能证明完整行为。应主动纳入相关测试、结果和依赖；必要材料装不下时，不能把部分材料包装成完整证据。
 
 ## 操作方法
 
@@ -23,7 +38,7 @@ uv pip install --python .venv-jev/bin/python -e '.[test]' -e packages/loopx-jev
 .venv-jev/bin/loopx-jev drift --help
 ```
 
-本切片只包含 D1，不提供 D2–D8 命令或排序代码。使用 `loopx_jev_drift_config_v0` 和 `minimum_label_probability`；旧多方向试点配置会被拒绝，不会静默提升。配置 key 本身不启用 shadow 或允许出站。失败时原 Agent 工作继续，不会自动启动独立 Agent 裁判。
+本切片只观察任务进展，不提供其他评估方向或排序代码。使用 `loopx_jev_drift_config_v0` 和 `minimum_label_probability`；旧多方向试点配置会被拒绝，不会静默提升。配置 key 本身不启用 shadow 或允许出站。失败时原 Agent 工作继续，不会自动启动独立 Agent 裁判。
 
 为已有 Goal 创建被 Git 忽略的本地目录，复制 [config.shadow.json](examples/drift/config.shadow.json) 和 [basis.json](examples/drift/basis.json)。将示例 Goal id、目标、验收条件改为本次契约。可选 `evidence` 引用交付工作区中的常规文件，例如独立产生的测试报告；不要在配置或契约中填写密钥。默认 `allow_egress: false`，确认指定材料允许出站后再设为 true，并在**消费者的环境变量**中配置 `TYPESAFE_API_KEY`。
 

@@ -1,10 +1,10 @@
-# D1 shadow: design decisions and evidence
+# Task-progress observation: design decisions and evidence
 
 [中文](DESIGN_DECISIONS.zh-CN.md) · [Operation guide](DRIFT_SHADOW.md) · [Research RFC](../../docs/architecture/rfcs/optional-semantic-assistance-jev-v0.md)
 
 Current implementation review: [PR #4854](https://github.com/loopx-project/loopx/pull/4854).
 
-**Current proposal:** retain D1 as an explicitly installed, default-off historical
+**Current proposal:** provide task-progress observation as an explicitly installed, default-off historical
 observation tool. Do not enable a drift fuse, automatic replan or pause. The
 decision requested by this change is whether to accept this bounded optional
 tool, not whether Jev has proved useful enough to control an Agent.
@@ -29,6 +29,14 @@ no skips), strict source typing and lint, documentation checks, and a built-whee
 CLI journey in an independent environment. **The observation workflow is
 implemented; reliable drift detection and reduced wasted work are not proven.**
 
+In practical terms, the tool removes the need to hand-write the selected diff
+packet and makes an additional assessment inspectable; the amount of operator
+time saved has not been measured. In current checks it recognized the retry
+implementation and necessary failing test as related to the Goal. It did not
+identify decorative renaming as drift, and it cannot certify a missing helper's
+behavior. No Agent was redirected or stopped, so these runs do not measure
+correction success, earlier intervention or final task-completion improvement.
+
 This is a public-safe decision record, not a transcript or an approval receipt.
 [RFC PR #4749](https://github.com/loopx-project/loopx/pull/4749) and
 [Discussion #4838](https://github.com/loopx-project/loopx/discussions/4838)
@@ -42,14 +50,14 @@ the limitations below are essential to interpreting the current proposal.
 | Can semantics detect busy work that the repeat fuse misses? | An `advanced` self-report or changed fingerprint can evade that specific repeat condition. This does not prove that the entire Agent/review/acceptance system is blind. | Investigate earlier evidence-based observation; retain existing acceptance and control authority. |
 | Is Jev a strict superset of the rule? | A few constructed cases, including hand-written artifact descriptions, cannot establish that claim or a production error rate. | Drop the strict-superset claim; collect attributable before/after artifacts and preserve unknowns. |
 | Should Jev replace the working Agent's judgment? | An independent read-only Agent can assess the same material too. Role separation, evidence preparation and provider choice are different treatments. | Keep the existing Agent workflow; no fallback judge is implicitly launched by this package. |
-| Should every explored direction ship? | Candidate ranking experiments also depended on reducers, contexts and different Agent entrypoints. Their results do not qualify drift detection. | Only D1 ships in this proposal. Other direction code, ranking reducers, selector changes and unrelated workflows are excluded. |
+| Should every explored direction ship? | Candidate ranking experiments also depended on reducers, contexts and different Agent entrypoints. Their results do not qualify drift detection. | Only task-progress observation ships in this proposal. Other direction code, ranking reducers, selector changes and unrelated workflows are excluded. |
 | Is the change just three model questions inside refresh? | Refresh has its own state-write transactions. Network failures must not interrupt those writes; repeated polling must not create repeated drift evidence. | Bounded capture around the command, inference in another process, durable event/request deduplication and historical-only results. |
 | Is a delta sufficient evidence? | A new test or probe may be uninterpretable without unchanged surrounding code. | Supply both scoped checkpoints plus the delta. Do not silently truncate required context to fit a request. |
 | Does a fast response justify automatic correction? | Later checks still abstained on decorative changes and disagreed on evidence increment. Capture itself also adds latency. | Keep off/shadow. High probability is not a correctness guarantee; no-new-evidence is not itself drift. |
 
 ## Current implementation: execution results
 
-The following checks exercised this D1 implementation at source revision
+The following checks exercised this task-progress observation implementation at source revision
 `2f4783bdd`. They used the installed `drift init/refresh/drain/status` entrypoints,
 real Git/files, an isolated Goal fixture and real Jev API calls. They are
 implementation checks on small constructed tasks, not independent production
@@ -103,6 +111,59 @@ not server-only inference time. Capture still adds synchronous overhead even
 though inference runs separately. Billing, production error rates and Agent
 time saved were not established. Earlier design alternatives are recorded
 qualitatively above; this table reports only the current implementation run.
+
+## Judge-method comparison: separate research evidence
+
+An earlier controlled check compared Jev and Codex on the same ten small diff
+inputs; Claude was later added to **that same set**, not a second independent
+ten-case dataset. The stored results were rechecked against the evaluation
+scripts. This comparison helps choose a future evaluator, but it is not a
+measurement of the current `drift` CLI or its two Choice questions.
+
+| Evaluator | Final alert matched expectation | Median measured client time | CLI-reported API duration median | Mean reported/estimated cost per case |
+| --- | ---: | ---: | ---: | ---: |
+| Jev `jev-1.13.0`, three Noul questions | 10/10 | 645 ms, HTTP request interval | — | about $0.00003, historical estimate only |
+| Codex, requested `gpt-6-astra` / medium | 10/10 | 9.236 s, CLI process wall | — | not reported |
+| Claude Haiku / medium | 10/10 | 10.187 s, CLI process wall | 9.191 s | $0.00844, CLI-reported |
+| Claude Sonnet / medium | 10/10 | 5.402 s, CLI process wall | 4.191 s | $0.00271, CLI-reported |
+| Claude Opus / medium | 10/10 | 8.054 s, CLI process wall | 7.019 s | $0.00528, CLI-reported |
+
+The recorded Claude models were `claude-haiku-4-5-20251001`, `claude-sonnet-5`
+and `claude-opus-5[1m]`; Jev and Codex names above are the requests in the scripts.
+Claude costs are mean `total_cost_usd`, including cache accounting, not a
+comparison of only `usage.input_tokens`. Jev's approximate cost used the
+then-recorded input price, not a verified bill or a current price quote.
+
+Important corrections to the original interpretation:
+
+- **What 10/10 scores:** Jev flagged when `behavior_change < 0.5` **or**
+  `serves_acceptance < 0.5`; Codex/Claude used the corresponding two booleans.
+  The score compares this final flag with a predeclared expected flag. It does
+  not establish that every subjudgment or probability is correct or calibrated.
+- **What the third question was:** `summary_supported`, not evidence increment.
+  It was not used to compute the 10/10 score. The inputs included the same
+  declared summary and `tests_pass` field alongside acceptance and diff, so this
+  was not a no-self-report experiment. Codex/Claude shared prompt text/schema;
+  Jev used a different typed question representation.
+- **Harness failures:** the initial one-turn limit produced 6 invalid Haiku
+  outputs and 3 invalid Opus outputs due to the structured-output turn being
+  cut off. Those are not reasoning errors. The table uses the corrected
+  three-turn runs, with ten valid outputs for each Claude variant.
+- **Comparability limits:** ten curated diffs, 424–1095 bytes, single runs and
+  labels from the same designer; Codex ran at an earlier time. Codex was
+  instructed not to use tools; Claude disabled tools. Jev's HTTP interval and
+  full CLI wall time are different measurements, not a pure inference-speed
+  ratio. CLI API duration is also not a server-only inference measurement.
+
+The evidence supports **testing** a low-overhead first assessment and an
+independent Agent review, not declaring Sonnet the best judge or Jev the only
+model that can run frequently. Agent booleans can feed deterministic repeat
+rules too; neither their shape nor a provider probability guarantees correctness.
+The current implementation does not use this Noul reducer or launch a Claude/
+Codex review stage. Applying its rule directly would also risk flagging useful
+tests, documentation or prerequisites that do not change runtime behavior.
+Before choosing it, compare candidate methods on the current evidence and
+independent labels, then measure end-to-end review cost and false interruptions.
 
 ## Engineering choices and alternatives
 

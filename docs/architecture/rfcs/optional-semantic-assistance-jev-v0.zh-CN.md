@@ -355,7 +355,7 @@ M0 不默认批准 D1 实施、自动 worker 采纳或隐藏的必需模型阶�
 - **增量：** D7/D8、暂定机会顺序、预期价值分解与有界排序比较；同步双语正文及索引。
 - **证据/剩余缺口：** 仅源码检查和文档。没有 live 提供方比较、生产 ranker 或新权限；Q1–Q7 仍待决。
 
-### 2026-09-21 — 仅 D1 的 shadow 实现提案
+### 2026-09-21 — 任务进展旁路观察实现提案（RFC D1）
 
 - **基线：** upstream `62d18677c`；当前实现只包含可选 D1 命令，不引入 D2–D8 排序或选择器改动。
 - **提案：** 真实 refresh-state 前后限定检查点采集、独立推理、off/shadow 配置和历史读回。参见[操作指南](../../../packages/loopx-jev/DRIFT_SHADOW.zh-CN.md)。
@@ -364,7 +364,7 @@ M0 不默认批准 D1 实施、自动 worker 采纳或隐藏的必需模型阶�
 
 ## 附录 B：决策日志
 
-单独提出的 [D1 shadow 工具及决策记录](../../../packages/loopx-jev/DESIGN_DECISIONS.zh-CN.md)
+单独提出的 [任务进展旁路观察工具及决策记录](../../../packages/loopx-jev/DESIGN_DECISIONS.zh-CN.md)
 不改变历史 M0 决定，也不替代 Q1–Q7。维护者单独评审可选工具范围，实验结果不等于产品采用。
 
 | 日期 | 提案 / 决定 | owner / 批准状态 | 替代方案 | 章节 |
@@ -388,6 +388,7 @@ M0 不默认批准 D1 实施、自动 worker 采纳或隐藏的必需模型阶�
 | E6 | [Jev 外部证据补充 v0](../../research/agent-workflow-audits/jev-external-evidence-supplement-v0.zh-CN.md) | 截至 2026-09-21 的第三方质量与实现证据，不改变 Q1-Q7、研究或采用状态 |
 | E7 | [D1 实现决策记录](../../../packages/loopx-jev/DESIGN_DECISIONS.zh-CN.md) | 公开论证摘要和作者报告的 fork 观察，不是上游独立资格、完整 A/B/C 或自动纠正证据 |
 | E7 | [D1 实现决策记录](../../../packages/loopx-jev/DESIGN_DECISIONS.zh-CN.md) | 公开论证摘要和当前实现的观察，不是独立资格、完整 A/B/C 或自动纠正证据 |
+| E7 | [任务进展观察决策记录](../../../packages/loopx-jev/DESIGN_DECISIONS.zh-CN.md) | 公开论证摘要和当前实现的观察，不是独立资格、完整 A/B/C 或自动纠正证据 |
 
 ## 附录 D：延后机制与排除的捷径
 

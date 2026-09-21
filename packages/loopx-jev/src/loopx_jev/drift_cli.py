@@ -123,7 +123,7 @@ def refresh(
 
 def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     parser = commands.add_parser(
-        "drift", help="D1 off/shadow observation; never steer or pause"
+        "drift", help="Optional task-progress observation; never steer or pause"
     )
     operations = parser.add_subparsers(dest="drift_command", required=True)
     init = operations.add_parser(

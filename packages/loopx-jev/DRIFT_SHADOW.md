@@ -1,4 +1,4 @@
-# D1 scoped drift shadow pilot
+# Review task progress from explicitly selected files
 
 [中文](DRIFT_SHADOW.zh-CN.md)
 
@@ -11,7 +11,7 @@ claim follows from passing the integration tests.
 ## Placement and supported journey
 
 The commands live in the optional `loopx-jev-pilot` distribution. Its only
-product surface is the D1 shadow command; no ranking code, built-in capability
+product surface is the task-progress observation command; no ranking code, built-in capability
 or scheduler is registered. The source is explicitly `scoped_checkpoint_capture`,
 not a claim to be a Decision Context provider. The [decision record](DESIGN_DECISIONS.md)
 links the research history and evidence limitations.
@@ -29,6 +29,33 @@ are local and bound to one Goal state directory; give each Goal its own config
 file. The operator supplies the contract export, which is not itself proof of
 canonical Goal acceptance or exclusive workspace ownership.
 
+## What “scoped files” means
+
+These are the exact repository-relative files supplied with `drift init --path`.
+For a retry task, an operator might select `src/retry.py`,
+`tests/test_retry.py` and `reports/retry_probe.json`. This is an observation-input
+list, **not** a restriction on which files the working Agent may edit. The
+collector does not discover relevant files or scan the entire repository.
+
+| Material | How it enters the assessment |
+| --- | --- |
+| Goal and acceptance criteria | Operator-provided basis JSON |
+| Files named by `--path` | Before/after contents and net changes; a not-yet-created file is allowed |
+| Optional `evidence` references in the basis | Explicitly named regular files, such as a test or probe report |
+| Other source, dependencies or conversation history | Not automatically read; its absence limits the judgment |
+
+Paths are files, not directories or globs, with at most 32 selected files and
+the byte bounds below. Selection stays fixed for the initialized observer; to
+change it, explicitly initialize a new observer/budget and establish a new
+baseline. Changes outside the list may still be valid Agent work. `no_delta`
+means no change in the observed material, not no progress on the whole task.
+Reading a test report does not run the test or independently certify its claim.
+
+For example, selecting only a function's file may omit the helper it calls and
+the test that exercises it. A judgment from that packet cannot certify the full
+behavior. Include relevant tests, results and dependencies deliberately; if the
+necessary material does not fit, do not present the partial packet as complete.
+
 ## Run it
 
 Use Python 3.11+ and the Node runtime required by the LoopX checkout. This
@@ -44,8 +71,8 @@ uv pip install --python .venv-jev/bin/python -e '.[test]' -e packages/loopx-jev
 .venv-jev/bin/loopx-jev drift --help
 ```
 
-This implementation contains D1 only; D2–D8 commands and ranking code are
-not provided. Use `loopx_jev_drift_config_v0` and `minimum_label_probability`; old
+This implementation only observes task progress; other assessment directions
+and ranking code are not provided. Use `loopx_jev_drift_config_v0` and `minimum_label_probability`; old
 multi-direction pilot profiles are rejected rather than silently promoted.
 A configured key alone does not activate shadow or allow egress. On failure
 the existing Agent workflow continues; no independent Agent judge is launched.

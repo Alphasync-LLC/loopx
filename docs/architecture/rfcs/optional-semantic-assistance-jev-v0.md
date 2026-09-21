@@ -355,7 +355,7 @@ No default D1 implementation, automatic worker adoption or hidden mandatory-mode
 - **Delta:** D7/D8, provisional opportunity ordering, expected-value decomposition and bounded ranking comparisons; bilingual text and index updated.
 - **Evidence/remaining gap:** source inspection and documentation only. No live provider comparison, production ranker or new authority; Q1–Q7 remain pending.
 
-### 2026-09-21 — D1-only shadow implementation proposal
+### 2026-09-21 — Task-progress shadow implementation proposal (RFC D1)
 
 - **Baseline:** upstream `62d18677c`; the implementation includes only the optional D1 command, without D2–D8 ranking or selector changes.
 - **Proposal:** scoped checkpoint capture around actual refresh-state, separate inference, off/shadow configuration and historical readback. See the [operation guide](../../../packages/loopx-jev/DRIFT_SHADOW.md).
@@ -364,7 +364,7 @@ No default D1 implementation, automatic worker adoption or hidden mandatory-mode
 
 ## Appendix B: Decision log
 
-The separately proposed [D1 shadow tool and decision record](../../../packages/loopx-jev/DESIGN_DECISIONS.md)
+The separately proposed [Task-progress observation tool and decision record](../../../packages/loopx-jev/DESIGN_DECISIONS.md)
 do not change the historical M0 decision or settle Q1–Q7. Maintainers review that
 optional-tool scope separately; experimental results do not establish product adoption.
 
@@ -389,6 +389,7 @@ Record any future accepting decision with its actual public link and exact scope
 | E6 | [Jev external evidence supplement v0 (Chinese)](../../research/agent-workflow-audits/jev-external-evidence-supplement-v0.zh-CN.md) | Third-party quality and implementation evidence as of 2026-09-21; no change to Q1-Q7 or research/adoption status |
 | E7 | [D1 implementation decision record](../../../packages/loopx-jev/DESIGN_DECISIONS.md) | Public synthesis and author-reported fork observations; not independent upstream qualification, complete A/B/C or automatic-correction evidence |
 | E7 | [D1 implementation decision record](../../../packages/loopx-jev/DESIGN_DECISIONS.md) | Public synthesis and current-implementation observations; not independent qualification, complete A/B/C or automatic-correction evidence |
+| E7 | [Task-progress observation decision record](../../../packages/loopx-jev/DESIGN_DECISIONS.md) | Public synthesis and current-implementation observations; not independent qualification, complete A/B/C or automatic-correction evidence |
 
 ## Appendix D: Deferred mechanisms and rejected shortcuts
 
