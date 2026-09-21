@@ -167,14 +167,19 @@ CLI_OUTPUT_BUDGET_SPECS: tuple[CliOutputBudgetSpec, ...] = (
             "small": {"json": 12_000, "markdown": 300},
             # The crowded fixture exercises the required-vision route. Its
             # TurnEnvelope intentionally carries the complete authoring schema
-            # that the validator accepts; this fixed contract is not Todo-scale
-            # diagnostic growth and must not be compacted out of the plan.
-            "crowded": {"json": 13_000, "markdown": 300},
+            # that the validator accepts, plus the typed executor and selection
+            # facts needed to decide whether execution is authorized. The
+            # latest-main fixture measures 14,159 chars, so 14,500 retains a
+            # narrow 341-char regression margin without relaxing Todo growth.
+            "crowded": {"json": 14_500, "markdown": 300},
             "multi_agent": {"json": 12_000, "markdown": 300},
         },
         max_lines={
             "small": {"json": 320, "markdown": 12},
-            "crowded": {"json": 360, "markdown": 12},
+            # The same latest-main fixture measures 389 lines. Keep a bounded
+            # 11-line formatting margin while the semantic character budget
+            # above remains the primary cost guard.
+            "crowded": {"json": 400, "markdown": 12},
             "multi_agent": {"json": 320, "markdown": 12},
         },
         scale_axis="todo_count",
