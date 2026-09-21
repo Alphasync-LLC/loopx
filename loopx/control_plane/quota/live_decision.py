@@ -541,8 +541,14 @@ def build_live_quota_should_run_decision(
     fresh_operator_inbox_read = _fresh_operator_inbox_read_required(
         turn_start_hook_dispatch
     )
-    if requested_action_todo_id and not receipt_bound_todo_id:
-        # Candidate discovery and admission use the same provider-first reader.
+    if (
+        requested_action_todo_id or retained_action_selection_todo_id
+    ) and not receipt_bound_todo_id:
+        # Candidate discovery, admission, and retained-selection reentry use the
+        # same provider-first reader.  A selection can be deferred by a hard
+        # frontier that is visible only in the complete Todo snapshot; reentry
+        # must not fall back to the earlier compact status projection and lose
+        # the obligation that caused the deferral.
         # Keep the complete snapshot internal; presentation is bounded later.
         from ...todos import list_goal_todos
 

@@ -1095,6 +1095,7 @@ def test_packet_retirement_preserves_reads_and_independent_capability_command(tm
 
 
 def test_retained_selection_reentry_stays_packet_free_and_signed(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     from loopx.control_plane.quota.turn_envelope import (
@@ -1104,8 +1105,24 @@ def test_retained_selection_reentry_stays_packet_free_and_signed(
     )
     from loopx.control_plane.turn_driver.host_candidate import extract_turn_authority
 
+    status_payload = _ordinary_status_payload()
+    status_item = status_payload["attention_queue"]["items"][0]
+
+    import loopx.todos
+
+    monkeypatch.setattr(
+        loopx.todos,
+        "list_goal_todos",
+        lambda **_kwargs: {
+            "ok": True,
+            "todos": status_item["agent_todos"]["first_open_items"],
+            "agent_todos": status_item["agent_todos"],
+            "user_todos": status_item["user_todos"],
+        },
+    )
+
     payload = build_live_quota_should_run_decision(
-        _ordinary_status_payload(),
+        status_payload,
         goal_id=GOAL_ID,
         agent_id=None,
         available_capabilities=["shell"],
@@ -1141,3 +1158,98 @@ def test_retained_selection_reentry_stays_packet_free_and_signed(
     assert authority["write_scope"] == []
     assert envelope["writeback"]["spend_allowed_now"] is False
     assert envelope["writeback"]["spend_after_validation"] is False
+
+
+def test_retained_selection_reentry_refreshes_provider_todos_before_replan(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A retained choice must see the same fresh frontier that deferred it."""
+
+    agent_id = "agent-provider-frontier"
+    selected_todo_id = "todo_provider_selected"
+    stale_status = quota_status_payload(
+        goal_id=GOAL_ID,
+        status="active",
+        agent_todo_items=[
+            {
+                "todo_id": selected_todo_id,
+                "index": 1,
+                "text": "[P1] Continue the selected delivery.",
+                "role": "agent",
+                "status": "open",
+                "priority": "P1",
+                "task_class": "advancement_task",
+                "claimed_by": agent_id,
+                "updated_at": "2026-09-21T00:00:00Z",
+            }
+        ],
+        recommended_action="[P1] Continue the selected delivery.",
+        next_action="[P1] Continue the selected delivery.",
+        claim_scope_agent_id=agent_id,
+        coordination={
+            "agent_model": "peer_v1",
+            "registered_agents": [agent_id],
+        },
+    )
+    fresh_items = [
+        {
+            "todo_id": selected_todo_id if index == 0 else f"todo_provider_{index:012d}",
+            "index": index + 1,
+            "text": (
+                "[P1] Continue the selected delivery."
+                if index == 0
+                else f"[P1] Preserve blocker context {index}."
+            ),
+            "role": "agent",
+            "status": "open",
+            "priority": "P1",
+            "task_class": "advancement_task" if index == 0 else "blocker",
+            "claimed_by": agent_id,
+            "updated_at": f"2026-09-{(index % 9) + 1:02d}T00:00:00Z",
+        }
+        for index in range(20)
+    ]
+    from loopx.control_plane.testing.quota_fixtures import quota_todo_summary
+
+    fresh_agent_todos = quota_todo_summary(
+        fresh_items,
+        role="agent",
+        claim_scope_agent_id=agent_id,
+    )
+    fresh_user_todos = quota_todo_summary([], role="user")
+    reads: list[str] = []
+
+    def fresh_todos(**_kwargs: object) -> dict[str, object]:
+        reads.append("provider")
+        return {
+            "ok": True,
+            "todos": fresh_items,
+            "agent_todos": fresh_agent_todos,
+            "user_todos": fresh_user_todos,
+        }
+
+    import loopx.todos
+
+    monkeypatch.setattr(loopx.todos, "list_goal_todos", fresh_todos)
+
+    payload = build_live_quota_should_run_decision(
+        stale_status,
+        goal_id=GOAL_ID,
+        agent_id=agent_id,
+        available_capabilities=["shell"],
+        include_scheduler_detail=False,
+        codex_app_current_rrule=None,
+        registry_path=tmp_path / "registry.json",
+        runtime_root=tmp_path / "runtime",
+        retained_action_selection_todo_id=selected_todo_id,
+        turn_instance_id="turn-provider-frontier-reentry",
+    )
+
+    assert reads == ["provider"]
+    assert payload["decision"] == "autonomous_replan_required"
+    assert payload["retained_action_selection"]["disposition"] == (
+        "preserve_retained_todo"
+    )
+    assert payload["replan_action_packet"]["obligation_id"]
+    assert payload["interaction_contract"]["agent_channel"]["must_attempt"] is True
