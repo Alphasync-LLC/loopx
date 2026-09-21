@@ -990,3 +990,31 @@ def test_public_multi_subagent_probe_reaches_v4_producer(tmp_path):
         "turn_envelope_action_dimensions_v4"
     ]
     assert any("agent_context" in path for path in rows[0]["json_shape_paths"])
+
+
+def test_measurement_only_probe_skips_ceiling_but_keeps_semantic_shape() -> None:
+    import runpy
+    from pathlib import Path
+
+    runner = runpy.run_path(
+        str(
+            Path(__file__).resolve().parents[2]
+            / "examples/control_plane/cli-output-probe-runner.py"
+        )
+    )
+    validate = runner["_assert_output_contract"]
+    validate(
+        output_format="json",
+        text='{"required": true}',
+        measurement={"payload": {"required": True}},
+        semantic_json_keys=("required",),
+        markdown_anchor=None,
+    )
+    with pytest.raises(AssertionError, match="lost semantic key"):
+        validate(
+            output_format="json",
+            text="{}",
+            measurement={"payload": {}},
+            semantic_json_keys=("required",),
+            markdown_anchor=None,
+        )
