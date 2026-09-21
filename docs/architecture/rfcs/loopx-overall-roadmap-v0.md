@@ -130,6 +130,11 @@ reliability, privacy equivalence or conversion rates from this investigation.
    Codex and Ark are configurations, not universal preferences. Surface the
    effective choice; never copy credentials, migrate old sessions or silently
    fall back outside authorization. Missing readiness offers a concrete repair.
+   Credentials are machine-owned; member allocation and requester grants are
+   Goal-owned. The mixed-team showcase must reuse configured runtimes with
+   adjustable member counts, show exact resolved models and interpreter readiness,
+   and qualify dependent artifacts through independent acceptance and adoption
+   before presenting a one-action launch as release-ready.
 3. Give the steward a real task without first constructing a team or learning
    Goal/Todo/Turn vocabulary. Preview relevant scope, outputs and resource limits;
    routine already-authorized reversible work proceeds without repeated cards.
