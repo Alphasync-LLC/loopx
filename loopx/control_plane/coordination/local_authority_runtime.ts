@@ -100,6 +100,7 @@ export const LOCAL_COORDINATION_TODO_CREATE_WITNESSED_REQUEST_SCHEMA = "loopx_lo
 export const LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_REQUEST_SCHEMA =
   "loopx_local_coordination_todo_terminal_lifecycle_request_v0";
 export const LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_WITNESSED_REQUEST_SCHEMA = "loopx_local_coordination_todo_terminal_lifecycle_request_v1";
+export const LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_SOURCE_BOUND_REQUEST_SCHEMA = "loopx_local_coordination_todo_terminal_lifecycle_request_v2";
 export const LOCAL_COORDINATION_TODO_ARCHIVE_REQUEST_SCHEMA =
   "loopx_local_coordination_todo_archive_request_v0";
 export const LOCAL_COORDINATION_TODO_ARCHIVE_ACK_REQUEST_SCHEMA =
@@ -1179,11 +1180,17 @@ export async function terminalLifecycleLocalCoordinationTodo(
   try {
     const input = requireJsonObject(value, "local coordination Todo terminal request");
     if (input.schema_version !== LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_REQUEST_SCHEMA &&
-        input.schema_version !== LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_WITNESSED_REQUEST_SCHEMA) {
+        input.schema_version !== LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_WITNESSED_REQUEST_SCHEMA &&
+        input.schema_version !== LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_SOURCE_BOUND_REQUEST_SCHEMA) {
       throw new TypeError("local coordination Todo terminal request schema mismatch");
     }
+    const sourceBound = input.schema_version === LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_SOURCE_BOUND_REQUEST_SCHEMA;
+    if (!sourceBound && ["review_basis", "validation_source_provider_revision", "validation_declaration_sha256"].some(key => Object.hasOwn(input, key))) {
+      throw new TypeError("terminal source binding requires request v2");
+    }
+    const reviewBasis = input.review_basis == null ? undefined : requireJsonObject(input.review_basis, "terminal review basis");
     const authoritySourcesCurrent = registryAuthoritySourceCheck(input,
-      input.schema_version === LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_WITNESSED_REQUEST_SCHEMA);
+      input.schema_version !== LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_REQUEST_SCHEMA, reviewBasis?.registry_sha256);
     if (!Array.isArray(input.registered_agents) || !Array.isArray(input.lifecycle_grants) ||
         !Array.isArray(input.successor_intents) ||
         !Array.isArray(input.linked_successor_todo_ids)) {
@@ -1211,6 +1218,15 @@ export async function terminalLifecycleLocalCoordinationTodo(
       sourceAuthority = sourceAuthorityFor(store);
       providerEvidence.source_authority = sourceAuthority;
       return {...await executeCoordinationTodoTerminalLifecycle(store, {
+        ...(sourceBound ? {validation_source_provider_revision: input.validation_source_provider_revision == null
+          ? null : requireAuthorityStoreId(input.validation_source_provider_revision, "validation source provider revision"),
+          validation_declaration_sha256: input.validation_declaration_sha256 == null
+            ? null : requireAuthorityStoreId(input.validation_declaration_sha256, "validation declaration digest")} : {}),
+        ...(reviewBasis === undefined ? {} : {review_basis: {
+          ...reviewBasis,
+          provider_revision: requireAuthorityStoreId(reviewBasis.provider_revision, "review provider revision"),
+          registry_sha256: requireAuthorityStoreId(reviewBasis.registry_sha256, "review registry digest"),
+        }}),
         goal_id: goalId,
         todo_id: requireAuthorityStoreId(input.todo_id, "todo id"),
         expected_role: input.role === null || input.role === undefined
