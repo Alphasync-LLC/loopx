@@ -44,6 +44,34 @@ test("capacity evaluation and claim lanes use one snapshot without mutating it",
   assert.equal(unavailable.current_agent_deferred_resume_count, 0);
 });
 
+test("capability reevaluation retains ready candidates outside the deferred display bound", () => {
+  const visible = fact("todo_visible", { claim: "agent-a" });
+  const ready = fact("todo_ready", {
+    claim: "agent-a", ready: true, ready_truthy: true,
+  });
+  (ready.payload as JsonObject).resume_ready = true;
+  const input = request({ available_capabilities: ["compiler"] });
+  (input.sources as JsonObject).deferred_items = [visible];
+  (input.sources as JsonObject).deferred_resume_candidates = [ready];
+
+  const result = projectTodoResumePlanning(input);
+  const lanes = result.deferred_lanes as JsonObject;
+
+  assert.deepEqual(
+    (lanes.current_agent_deferred_resume_candidates as JsonObject[]).map(
+      (row) => row.todo_id,
+    ),
+    ["todo_ready", "todo_visible"],
+  );
+  assert.equal(lanes.current_agent_deferred_resume_count, 2);
+  assert.deepEqual(
+    ((result.capacity_fields as JsonObject).deferred_items as JsonObject[]).map(
+      (row) => row.todo_id,
+    ),
+    ["todo_visible"],
+  );
+});
+
 test("a large wait source retains total counts independently from the display bound", () => {
   const input = request();
   const rows = Array.from({ length: 257 }, (_, i) => fact(`todo_wait_${i}`));
