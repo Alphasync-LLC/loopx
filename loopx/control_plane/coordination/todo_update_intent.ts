@@ -10,6 +10,10 @@ import {canonicalTodoRecord} from "./todo_presentation.ts";
 import {TODO_OWNERSHIP_INTENT_FIELDS, planTodoAuthoringScope, TODO_AUTHORING_SCOPE_REQUEST_SCHEMA} from "../todos/authoring_scope.ts";
 import {normalizeNativePlanningIntent, planNativeTodoUpdate} from "../todos/native_update_plan.ts";
 import {decodeMonitorPollObservation, type MonitorPollObservation} from "../todos/monitor_metadata.ts";
+import {
+  decodeCompletionValidationRevision,
+  type CompletionValidationRevision,
+} from "../todos/completion_validation_revision.ts";
 const UPDATE_FIELDS = new Set(["text", "note"]);
 
 export interface CoordinationTodoUpdateInput {
@@ -32,6 +36,7 @@ export interface CoordinationTodoUpdateInput {
   readonly planning_intent?: JsonObject;
   readonly completion?: JsonObject;
   readonly monitor_observation?: MonitorPollObservation;
+  readonly completion_validation_revision?: CompletionValidationRevision;
 }
 
 /** Only edit intent crosses into the terminal owner; actor/lease authority is
@@ -83,6 +88,9 @@ export function normalizeTodoUpdateInput(raw: CoordinationTodoUpdateInput): Coor
   const clearFields = raw.clear_fields.map((field, index) =>
     requireAuthorityStoreId(field, `clear_fields[${index}]`));
   const observation = raw.monitor_observation === undefined ? undefined : decodeMonitorPollObservation(raw.monitor_observation);
+  const validationRevision = raw.completion_validation_revision === undefined
+    ? undefined
+    : decodeCompletionValidationRevision(raw.completion_validation_revision);
   if (observation !== undefined) {
     // Both public observation transports use the same proof decoder. A partial
     // proof must never be collapsed to absence during admission.
@@ -95,7 +103,15 @@ export function normalizeTodoUpdateInput(raw: CoordinationTodoUpdateInput): Coor
       throw new AuthorityStoreProtocolError("Monitor observation accepts only reason and explicit reactivation; not copy, ownership, configuration or completion edits");
     }
   }
-  if (observation === undefined && Object.keys(patch).length + clearFields.length + Object.keys(planningIntent).length === 0) {
+  if (validationRevision !== undefined &&
+      (completion !== undefined || observation !== undefined ||
+       Object.keys(patch).length + clearFields.length + Object.keys(planningIntent).length > 0)) {
+    throw new AuthorityStoreProtocolError(
+      "completion validation revision cannot be combined with another Todo edit",
+    );
+  }
+  if (observation === undefined && validationRevision === undefined &&
+      Object.keys(patch).length + clearFields.length + Object.keys(planningIntent).length === 0) {
     throw new AuthorityStoreProtocolError("Todo update requires a non-empty patch");
   }
   if (new Set(clearFields).size !== clearFields.length) {
@@ -119,7 +135,9 @@ export function normalizeTodoUpdateInput(raw: CoordinationTodoUpdateInput): Coor
     throw new AuthorityStoreProtocolError("now must be a valid Date");
   }
   return {...raw, ...(completion === undefined ? {} : {completion}),
-    ...(observation === undefined ? {} : {monitor_observation: observation}), planning_intent: planningIntent, lease_idempotency_key: key, lease_expected_version: version,
+    ...(observation === undefined ? {} : {monitor_observation: observation}),
+    ...(validationRevision === undefined ? {} : {completion_validation_revision: validationRevision}),
+    planning_intent: planningIntent, lease_idempotency_key: key, lease_expected_version: version,
     goal_id: requireAuthorityStoreId(raw.goal_id, "goal id"),
     todo_id: requireAuthorityStoreId(raw.todo_id, "todo id"),
     operation_id: requireAuthorityStoreId(raw.operation_id, "operation id"),

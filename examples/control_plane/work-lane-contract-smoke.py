@@ -283,12 +283,11 @@ def assert_monitor_only_with_user_todo_surfaces_user_action_without_transition()
     assert interaction["user_channel"]["notify"] == "NOTIFY", interaction
     assert interaction["agent_channel"]["must_attempt"] is True, interaction
     assert interaction["agent_channel"]["quiet_noop_allowed"] is False, interaction
-    packet = guard["protocol_action_packet"]
-    assert "actor=agent_with_user_gate" in packet["summary"], packet
-    assert "user_action_required=true" in packet["summary"], packet
-    assert "agent_action_required=true" in packet["summary"], packet
-    assert "quiet_noop_allowed=false" in packet["summary"], packet
-    assert "user_action=[P1] Decide whether to approve a no-submit Terminal-Bench" in packet["summary"], packet
+    assert len(interaction["user_channel"]["actions"]) == 1, interaction
+    assert interaction["user_channel"]["actions"][0].startswith(
+        "[P1] Decide whether to approve a no-submit Terminal-Bench"
+    ), interaction
+    assert "protocol_action_packet" not in guard, guard
     markdown = render_quota_should_run_markdown(guard)
     assert "obligation=repair_monitor_schedule_metadata" in markdown, markdown
     assert "work_lane_monitor_policy: repair_schedule_metadata_before_quiet_wait" in markdown, markdown
@@ -666,7 +665,7 @@ def assert_mixed_monitor_and_advancement_routes_to_advancement() -> None:
     assert lane["must_attempt_work"] is True, lane
     assert guard["recommended_action"] == executable_todo, guard
     assert guard["interaction_contract"]["agent_channel"]["primary_action"] == executable_todo, guard
-    assert f"agent_action={executable_todo}" in guard["protocol_action_packet"]["summary"], guard
+    assert "protocol_action_packet" not in guard, guard
     first_items = guard["agent_todo_summary"]["first_open_items"]
     assert [item["task_class"] for item in first_items] == ["advancement_task", "continuous_monitor"], guard
 
@@ -907,9 +906,8 @@ def assert_external_monitor_context_recommends_executable_backlog() -> None:
     assert guard["interaction_contract"]["agent_channel"]["primary_action"] == (
         "[P1] Behavior regression suite lane"
     ), guard
-    packet = guard["protocol_action_packet"]["summary"]
-    assert "lane=advancement_task" in packet, packet
-    assert "agent_action=[P1] Behavior regression suite lane" in packet, packet
+    assert guard["work_lane_contract"]["lane"] == "advancement_task", guard
+    assert "protocol_action_packet" not in guard, guard
 
 
 def assert_benchmark_readiness_scan_routes_to_advancement() -> None:

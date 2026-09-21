@@ -21,7 +21,6 @@ from ..todos.contract import TODO_TASK_CLASS_MONITOR
 from ..todos.todo_semantics import todo_item_task_class
 from ..work_items.interaction_contract import (
     build_interaction_contract,
-    build_protocol_action_packet,
 )
 from .error_codes import HeartbeatReceiptIdentityConflictError
 from .monitor_poll import find_quota_monitor_poll_turn
@@ -31,6 +30,12 @@ UNSETTLED_HOST_TURN_RECOVERY_SCHEMA_VERSION = "unsettled_host_turn_recovery_v0"
 PRIOR_HOST_TURN_CLOSEOUT_PREFLIGHT_METHOD = (
     "quota.prior_host_turn_closeout.preflight"
 )
+# The typed owner validates every recorded Turn of the Goal before it can name
+# the one that still owes a closeout, so its latency grows with that Goal's own
+# history (216 Turns took ~6s on 2026-09-21). The Effect runtime default budget
+# is sized for single-record reads, and using it here made the preflight time
+# out and report the whole quota entry as unavailable.
+PRIOR_HOST_TURN_CLOSEOUT_PREFLIGHT_TIMEOUT_SECONDS = 30.0
 PRIOR_HOST_TURN_CLOSEOUT_PREFLIGHT_REQUEST_SCHEMA = (
     "loopx_prior_host_turn_closeout_preflight_request_v0"
 )
@@ -148,6 +153,7 @@ def _prior_closeout_preflight(
                 "agent_id": agent_id,
                 "exclude_turn_instance_id": current_turn_instance_id,
             },
+            timeout=PRIOR_HOST_TURN_CLOSEOUT_PREFLIGHT_TIMEOUT_SECONDS,
         )
     except EffectRuntimeRejected as exc:
         # Keep the public diagnostic the identity rule has always published,
@@ -343,5 +349,4 @@ def apply_unsettled_host_turn_recovery_if_required(
     if isinstance(cli_channel, dict):
         cli_channel["recovery_ref"] = "$.unsettled_host_turn_recovery"
     payload["interaction_contract"] = interaction_contract
-    payload["protocol_action_packet"] = build_protocol_action_packet(payload)
     return True

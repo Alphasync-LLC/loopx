@@ -36,6 +36,9 @@ export type WorkspaceAgentTodo = {
   taskDomain?: string | null;
   text: string;
   todoId: string;
+  validationDigest?: string | null;
+  validationRevision?: number | null;
+  validationRevisionActor?: string | null;
 };
 
 export type WorkspaceTodo = WorkspaceAgentTodo & {
@@ -574,4 +577,10 @@ export function workerStateLabel(state?: string | null): string {
   if (state === "monitoring") return "监控中";
   if (state === "blocked") return "受阻";
   return "待命";
+}
+
+/** Bounded card copy; the owning item retains its complete detail text. */
+export function compactWorkspaceText(value?: string | null, limit = 132) {
+  const text = (value ?? "").replace(/\s+/g, " ").trim();
+  return text.length <= limit ? text : `${text.slice(0, Math.max(0, limit - 1))}…`;
 }

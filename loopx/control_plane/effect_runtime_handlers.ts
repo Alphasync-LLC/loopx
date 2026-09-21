@@ -1,3 +1,4 @@
+import {inspectTaskLease} from "./work_items/task_lease_inspection.ts";
 import {evaluateTodoPriority} from "./todos/priority.ts";
 import {evaluateUserCompletion} from "./todos/user_completion.ts";
 import {projectTodoSuccession, projectTodoClosure} from "./todos/succession.ts";
@@ -155,12 +156,11 @@ import {
   createLocalCoordinationTodo,
   updateLocalCoordinationTodo,
   pollLocalCoordinationMonitor,
-  listLocalCoordinationTodos,
   promoteLocalCoordinationAuthority,
   reviewLocalCoordinationAuthorityPromotion,
-  readLocalCoordinationTodo,
   terminalLifecycleLocalCoordinationTodo,
 } from "./coordination/local_authority_runtime.ts";
+import {listLocalCoordinationTodos, readLocalCoordinationTodo} from "./coordination/local_authority_read.ts";
 import { evaluateCoordinationTodoClaimDecision } from "./coordination/todo_claim.ts";
 import {
   evaluateCoordinationTodoTerminalDecision,
@@ -513,6 +513,7 @@ export function createEffectRuntimeHandlers(
     ["task_lease.owner_eligibility", evaluateTaskLeaseOwnerEligibility],
     ["task_lease.acquire.decide", evaluateTaskLeaseAcquireDecision],
     ["task_lease.acquire.native", executeTaskLeaseAcquire],
+    ["task_lease.inspect.native", inspectTaskLease],
     ["task_lease.lifecycle.decide", evaluateTaskLeaseLifecycleDecision],
     ["task_lease.lifecycle.native", executeTaskLeaseLifecycle],
     ["coordination.runtime_shadow.bootstrap", bootstrapCoordinationRuntimeShadow],

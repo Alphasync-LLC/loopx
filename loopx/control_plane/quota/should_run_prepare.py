@@ -30,7 +30,6 @@ from ..effect_program import ReceiptBoundMonitorPhase, ReceiptBoundReplayPhase
 from ..goals.goal_frontier import (
     build_goal_frontier_projection_context_from_status,
 )
-from ..quota.blocked_transition_notice import build_blocked_transition_notice
 from ..quota.error_codes import HeartbeatReceiptIdentityConflictError
 from ..agents.capability_memory import resolve_agent_capabilities
 from ..quota.goal_boundary import (
@@ -99,7 +98,6 @@ from ..todos.user_gate import (
 from ..work_items.capability_monitor_fallback import (
     build_capability_gate_with_monitor_fallback,
 )
-from ..work_items.planning_inventory import quota_runnable_action_candidates
 from ..work_items.primary_action import protocol_action_text as _protocol_action_text
 from ..work_items.work_lane import (
     lark_inbox_reply_due_work_lane_contract,
@@ -229,7 +227,6 @@ def _blocked_priority_fallback(
         return None
 
     blocked_items: list[dict[str, Any]] = []
-    transition_notices: list[dict[str, Any]] = []
     owner_visible_blocker = False
     for item in first_open:
         if not isinstance(item, dict):
@@ -271,13 +268,6 @@ def _blocked_priority_fallback(
             status == TODO_STATUS_BLOCKED or resume_condition_pending
         ):
             owner_visible_blocker = True
-            # The owner notice is a typed contract, not only a boolean: it
-            # carries the cause, evidence, impact, responsible party, recovery
-            # condition and next action that #4381 asks for, and it keeps
-            # "must know" separate from "must act". See blocked_transition_notice.
-            notice = build_blocked_transition_notice(item, selected_executable=selected)
-            if notice is not None:
-                transition_notices.append(notice)
 
     if not blocked_items:
         return None
@@ -302,7 +292,6 @@ def _blocked_priority_fallback(
             )
         ),
         "blocked_items": blocked_items[:3],
-        "blocked_transition_notices": transition_notices[:3],
         "selected_executable": selected_item,
         "recommended_action": (
             "Keep the blocked core todo visible in status while selecting fallback; "
@@ -809,25 +798,12 @@ def _prepare_quota_should_run_item(
         recovery_allowed = False
         reason = str(projection_gap_repair.get("reason") or reason)
     boundary_projection_repair = None
-    # An explicit `--todo-id` names one row the caller already chose, so it is
-    # resolved against the non-terminal rows this Goal records as the shared
-    # planning inventory. The bounded suggestion lanes above are a presentation
-    # budget: seeding the by-id lookup from them alone made an owned, open,
-    # typed advancement Todo unselectable whenever the display lanes were full,
-    # which left the caller no legal way to bind its own quota guard to it.
-    # The builder still applies every eligibility predicate, so this widens
-    # reachability of the lookup, not what may be selected.
+    # Resolve exact identity before Agent/display compaction. Live callers supply
+    # the complete source; pure status callers use only their supplied snapshot.
     requested_action_candidate = (
         build_explicit_advancement_next_action(
             agent_identity=agent_identity,
-            agent_todo_items=[
-                *quota_runnable_action_candidates(
-                    agent_id=agent_frontier_id or "",
-                    agent_todo_summary=agent_todo_summary,
-                    capability_gate=capability_gate,
-                ),
-                *agent_todo_planning_source_items,
-            ],
+            agent_todo_items=agent_todo_planning_source_items,
             available_capabilities=effective_available_capabilities,
             todo_id=requested_action_todo_id,
             selection_binding="pending_action_selection",

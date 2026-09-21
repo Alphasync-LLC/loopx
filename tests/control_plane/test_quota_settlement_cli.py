@@ -50,10 +50,7 @@ def _assert_action_selection_recovery_projections(payload: dict[str, Any]) -> No
     assert payload["execution_obligation"]["must_attempt_work"] is False
     assert payload["automation_liveness"]["automation_action"] == "keep_active"
     assert payload["scheduler_hint"]["action"] == "backoff_until_state_change"
-    protocol_summary = payload["protocol_action_packet"]["summary"]
-    assert "agent_action_required=false" in protocol_summary
-    assert "agent_action_required=true" not in protocol_summary
-    assert "execute_bounded_work" not in protocol_summary
+    assert "protocol_action_packet" not in payload
     for field in (
         "autonomous_replan_obligation",
         "replan_action_packet",
@@ -63,6 +60,7 @@ def _assert_action_selection_recovery_projections(payload: dict[str, Any]) -> No
         assert field not in payload
 
     envelope = build_turn_envelope(payload)
+    assert "protocol_action_packet" not in envelope["contract_capsule"]
     assert envelope["contract_capsule"]["interaction_contract"]["mode"] == "skip"
     assert envelope["contract_capsule"]["execution_obligation"][
         "must_attempt_work"
@@ -2501,22 +2499,9 @@ def test_visible_goal_refresh_and_spend_preserve_selected_todo_causality(
     assert refresh["delivery_workspace_causality"]["todo_id"] == TODO_ID
     assert refresh["delivery_workspace_causality"]["requirement"] == "not_required"
 
-    spend_rc, spend = _run_cli(
-        registry_path,
-        runtime,
-        "quota",
-        "spend-slot",
-        "--goal-id",
-        GOAL_ID,
-        "--slots",
-        "1",
-        "--source",
-        "visible-goal",
-        "--execute",
-        *binding,
-        "--scan-path",
-        str(project),
-    )
+    command = refresh["settlement_owed"]["command"]
+    assert "--source visible-goal" in command
+    spend_rc, spend = _run_cli(registry_path, runtime, *shlex.split(command)[1:])
     assert spend_rc == 0, spend
     assert spend["todo_id"] == TODO_ID
     assert spend["turn_instance_id"] == turn_instance_id

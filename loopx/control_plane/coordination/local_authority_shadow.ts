@@ -668,11 +668,58 @@ function decodeReadRequest(value: unknown): ReadRequest {
   };
 }
 
+/**
+ * Remove query-clock observations from one Todo before authority comparison.
+ *
+ * `resume_condition.evaluated_at` records when a reader evaluated an otherwise
+ * durable resume condition.  Re-reading unchanged source therefore changes
+ * that timestamp without changing the Todo decision.  The evaluated outcome
+ * and every other resume fact remain in the authority identity, so an actual
+ * readiness transition still produces drift until the writer captures it.
+ */
+function todoAuthorityIdentityView(value: unknown): unknown {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
+  const todo = structuredClone(value as JsonObject);
+  const condition = todo.resume_condition;
+  if (condition !== null && typeof condition === "object" && !Array.isArray(condition)) {
+    const stableCondition = { ...(condition as JsonObject) };
+    delete stableCondition.evaluated_at;
+    todo.resume_condition = stableCondition;
+  }
+  return todo;
+}
+
+function authorityIdentityTodos(value: unknown): unknown {
+  return Array.isArray(value) ? value.map(todoAuthorityIdentityView) : value;
+}
+
+function partitionAuthorityIdentityView(partition: ShadowPartition, projection: JsonObject): JsonObject {
+  if (partition !== "todos") return projection;
+  return { ...projection, todos: authorityIdentityTodos(projection.todos) };
+}
+
+/**
+ * Stable identity for one source partition.
+ *
+ * Prepared outbox bytes and the supplied projection are still compared in
+ * full. This semantic digest excludes only the query-clock observation that
+ * cannot prove a source mutation, so writer continuity and final parity use
+ * the same identity boundary.
+ */
+export function localAuthorityShadowPartitionDigest(
+  partition: ShadowPartition,
+  projection: JsonObject,
+): string {
+  return `sha256:${createHash("sha256").update(
+    canonicalAuthorityBytes(partitionAuthorityIdentityView(partition, projection)),
+  ).digest("hex")}`;
+}
+
 /** Digest of the fields parity compares; must match Python `head_digest`. */
 export function localAuthorityShadowHeadDigest(head: JsonObject): string {
   const view = {
     handoff_mode: head.handoff_mode ?? null,
-    todos: head.todos ?? null,
+    todos: authorityIdentityTodos(head.todos ?? null),
     leases: head.leases ?? null,
   };
   return `sha256:${createHash("sha256").update(canonicalAuthorityBytes(view)).digest("hex")}`;
@@ -952,7 +999,10 @@ function validateEntryIdentity(request: CommitEntryRequest, binding: ShadowLinea
     sourceReference(entry, request.partition_digest), entry.capture_lineage_id, entry.source_root_digest),
   "entry_identity_mismatch");
   if (request.partition_projection !== null) {
-    requireLineage(request.partition_digest === `sha256:${canonicalAuthoritySha256(request.partition_projection)}`,
+    requireLineage(request.partition_digest === localAuthorityShadowPartitionDigest(
+      entry.partition,
+      request.partition_projection,
+    ),
       "partition_digest_mismatch");
   }
   requireLineage(entry.source.kind !== "state_event_log", "event_log_writer_not_bound");
@@ -966,7 +1016,10 @@ function partitionProjection(head: JsonObject, partition: ShadowPartition): Json
 }
 
 function validateSourceContinuity(request: CommitEntryRequest, previous: JsonObject): void {
-  const digest = `sha256:${canonicalAuthoritySha256(partitionProjection(previous, request.entry.partition))}`;
+  const digest = localAuthorityShadowPartitionDigest(
+    request.entry.partition,
+    partitionProjection(previous, request.entry.partition),
+  );
   requireLineage(request.entry.source.previous_partition_digest === digest, "source_partition_continuity_unproved");
   if (!NO_OP_RESOLUTIONS.has(request.entry.resolution)) {
     requireLineage(request.partition_digest !== digest, "partition_unchanged");

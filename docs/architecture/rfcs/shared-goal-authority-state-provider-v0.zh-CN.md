@@ -1448,7 +1448,11 @@ loopx coordination-shadow rollback --goal-id <goal-id> \
 它从当前 canonical Todo 与 task-lease view 派生紧凑 projection，只报告计数与摘要，
 并要求 `--execute` 才调用 bootstrap 或 promotion。`promote` 未带 `--execute` 时零写入；
 preview 返回精确的 qualified revision、projection digest、writer-fence identity 和
-rollback identity。apply 会在同一段 maintenance 与 legacy source 锁生命周期内重新
+rollback identity，并返回 canonical promotion-plan digest 及资格策略。该 digest 会绑定
+Goal、operation、选定 canonical provider、精确 shadow revision/projection、最小
+operation 数与规范化后的必需
+event kind；持久 fence、event 与 receipt 都携带同一 digest，因此 fence 已落盘而 canonical
+尚未提交的中断只能由完全相同的受评审 plan 恢复。apply 会在同一段 maintenance 与 legacy source 锁生命周期内重新
 验证 source snapshot、资格化精确 shadow lineage、engage 持久 writer fence、提交
 canonical head，并读回 promotion receipt。v0 会拒绝尚未资格化为 `hard_lease` 的 Goal，
 且绝不会把 handoff mode 变化藏在 promotion 副作用中。写入成功后会立即通过 typed parity inspection
@@ -2298,6 +2302,14 @@ commit receipt。各 provider 的 CAS/replay 边界、legacy 源顺序兼容、�
 活动 lane。三臂演练用真实 provider 检查此闭合；派生 readiness 不充当证据。通用历史
 导入、剩余 D3 资格化与显式 cutover 批准仍是后续工作。
 
+Runtime-shadow parity 与 source-partition continuity 的语义 digest 都只排除
+`resume_condition.evaluated_at`。该字段是查询时钟 observation；再次读取未变化的
+持久来源不应凭空制造 drift，也不应破坏后续 writer 的连续性证明。已求值的决策和
+其余 resume 事实仍全部参与比较：readiness、reason、generation、target 或任何其他
+Todo／lease 字段变化时，仍须先被 capture，否则 parity 或 continuity 必须失败。
+Prepared outbox 字节和传入 projection 仍做完整校验；完整记录（包括 observation 时间）
+也仍保留给 reader 和候选快照。
+
 Quota scope/claim 选择与 resume planning 现共用一个 TS 只读边界，消费既有
 legacy/canonical summary，不分叉 provider 专用规则。User gate 作用域与 Agent
 执行归属分开解释，active-next-action 也遵守此区分；有意语义变化与删除的 Python
@@ -2330,7 +2342,10 @@ Task graph 的 T3 topology consumer 现共用 inventory/horizon 关系目录，�
 T3 lease inspect 已将 Todo、lease 与 handoff mode 绑定到同一 provider revision，
 promotion 后不再读取本地旧 lease 文件；canonical 空租约集合保持为空。资格策略与
 当前 acquire/lifecycle 共用 TS owner，包含 claim 分歧和 exclusion；读取结果不是
-租约授权，也不是 commit receipt。该 reader 闭合和重复规则删除不代表 provider
+租约授权，也不是 commit receipt。两条来源路径的时间／资格解释现收敛到 TS，
+覆盖归档 open 历史与损坏到期时间；注册来源及晋升 fence 变化须重新校验并有界重试。
+Python 不再为检查重建 canonical head 或诊断规则，见[读取合同](../../reference/canonical-lease-renew.md#what-inspection-proves)。
+该 reader 闭合和重复规则删除不代表 provider
 资格化，不改变 CAS/replay 或 D1–D3；永久 Markdown 展示与后续规划继续保留。
 ownership 编辑在 promotion 后现在与现有 update transaction 共用 typed authoring
 和 lifecycle 边界。claim/exclusion 门禁保留，带 lease 的 ownership 重写继续拒绝；
@@ -2424,6 +2439,11 @@ route planner 本身仍不授予权限。CLI 将已提交回执交给既有 jour
   生命周期、非托管正文保留和私有字段边界；恢复不得重新执行业务操作。
 - caller 迁走后才删除旧 projection repair/receipt 路径。退出条件是可复核的
   freshness/readback 和可操作修复路径，不能只证明成功渲染过一次。
+
+D1 交付确认现于 Markdown 耐久读回后核对 canonical revision。未固定版本的结算
+最多追赶三次，复用返回的完整快照；固定版本不擅自换目标。并发、持续变化及确认故障
+保留 pending，不重做业务提交。这闭合有界交付／重试，不代表永久新鲜度、后台 drain、
+全部 L5 或 D2/D3；见[投影合同](../../reference/protocols/active-state-structured-projection-v0.md)。
 
 **D2 — 资格化一个本地 profile，不等待 PostgreSQL 部署。**
 
@@ -2522,6 +2542,13 @@ adapter，也不依赖 PostgreSQL service 部署。
 | C. Canonical transaction capture | 资格化 #3870 已合入实现 | transaction-bound outbox 已指向唯一 `coordination.runtime_shadow` lineage，并保留完整带版本的 Todo/lease record；继续完成 sustained mixed-writer parity、explicit-clear/omission 与 event-only Todo recovery 证据。 | 可与 P 并行；但 C 与选定 provider profile 都完成后，才能进入 parity 或 promotion 集成。 |
 | I. Binding 与资格集成 | C 与选定 profile 的资格化完成后 | 绑定一个精确 provider lineage、field manifest、source revision、digest 与 cursor；资格化显式 v0 import、排序/归档/consumer parity 与 recovery/capacity；缺字段时不得查询 legacy state 补齐。 | 长程本地集成需要 L，不等待 P；PostgreSQL 仅在自己的 P hold 全通过后汇合。 |
 | F. Promotion 与清理 | I 完成且 maintainer 显式批准后 | 完成 provider-first CLI routing、持锁 promotion orchestrator、兼容投影 outbox、晋升后 fenced export/rollback；随后删除重复 reference aggregate，并翻转经评审的 stage/hold 声明。 | 每个 profile 必须通过 C、I 与自身 provider 资格化；长程本地晋升还需 L，PostgreSQL 还需 P。 |
+
+Agent 定向读取检查点：Todo list 筛选已进入现有 TS summary 批次，与 quota 共用
+User gate/action 及 Agent claim 范围规则；legacy 和 canonical 消费者中的 Python
+列表谓词已删除。完整来源上的 resume/succession 与筛选后的计数不受展示上限影响。
+这只闭合 L5 的一个消费者，不代表 D1 永久新鲜度或 provider 晋升。见[读取合同](../../reference/todo-work-counts.md)。
+剩余 caller/executor、consumer recovery、contributor D2、capture/整 Goal 演练和默认
+onboarding 仍按 **5–8 个完整 PR** 条件估计，不能按本次修复机械递减。
 
 ## 附录 D：执行账本
 

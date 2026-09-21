@@ -18,6 +18,7 @@ from ..quota.settlement import (
 from ..quota.spend_sources import (
     build_quota_spend_action,
     host_goal_turn_reentry_action,
+    quota_spend_source_for_execution_context,
 )
 from ..scheduler.execution_context import (
     APP_HEARTBEAT_SETTLEMENT_RUNTIME_PROFILES,
@@ -57,7 +58,6 @@ from .user_action_frontier import user_action_owns_empty_agent_lane
 
 INTERACTION_CONTRACT_SCHEMA_VERSION = "loopx_interaction_contract_v0"
 INTERACTION_RESPONSE_PLAN_SCHEMA_VERSION = "interaction_response_plan_v0"
-PROTOCOL_ACTION_PACKET_SCHEMA_VERSION = "protocol_action_packet_v0"
 PROTOCOL_ACTION_PACKET_LLM_POLICY = "no_api"
 AUXILIARY_MONITOR_POLL_CLI_SCHEMA_VERSION = "auxiliary_monitor_poll_cli_v0"
 AUXILIARY_MONITOR_OBSERVATION_INPUT_SCHEMA_VERSION = (
@@ -438,14 +438,6 @@ def render_protocol_action_packet_summary(fields: dict[str, Any]) -> str:
             rendered = str(value)
         parts.append(f"{key}={rendered}")
     return " ".join(parts)
-
-
-def build_protocol_action_packet(payload: dict[str, Any]) -> dict[str, Any]:
-    fields = protocol_action_packet_fields(payload)
-    return {
-        "schema_version": PROTOCOL_ACTION_PACKET_SCHEMA_VERSION,
-        "summary": render_protocol_action_packet_summary(fields),
-    }
 
 
 def _interaction_mode(payload: dict[str, Any]) -> str:
@@ -1364,6 +1356,7 @@ def _build_interaction_cli_channel(
     selection.apply_action_selection_cli_gate(channel, payload)
     if settlement_plan is not None and spend_after_selection:
         channel["settlement_plan"] = settlement_plan
+        channel["quota_spend_source"] = quota_spend_source_for_execution_context(scheduler_execution_context)
     if settlement_plan is not None and replan_settlement_contract is not None:
         channel["replan_settlement_contract"] = replan_settlement_contract
     if capability_reentry is not None:

@@ -21,6 +21,7 @@ from .heartbeat_receipt import (
     upgrade_identityless_heartbeat_receipt,
 )
 from .settlement import (
+    attach_settlement_progress,
     read_heartbeat_settlement,
     settlement_result_payload,
 )
@@ -374,6 +375,9 @@ def quota_rollout_details(
         "quiet_noop_allowed": bool(agent_channel.get("quiet_noop_allowed")),
         "closeout_required": closeout_required,
     }
+    cli_channel = interaction.get("cli_channel")
+    if isinstance(cli_channel, Mapping) and cli_channel.get("quota_spend_source"):
+        details["quota_spend_source"] = cli_channel["quota_spend_source"]
     retained_todo_id = normalize_todo_id(retained_selection.get("retained_todo_id"))
     if retained_todo_id:
         retained_bound = retained_disposition == "preserve_retained_todo"
@@ -416,6 +420,10 @@ def attach_spend_settlement_result(
     )
     if readback is None:
         raise RuntimeError("exact settlement readback unexpectedly returned not-found")
+    attach_settlement_progress(
+        payload, readback, runtime_root=runtime_root,
+        registry_path=Path(str(payload["registry"])) if payload.get("registry") else None,
+    )
     identity = readback.identity.value
     if identity is None:
         settlement_result = readback.identity

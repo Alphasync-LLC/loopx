@@ -213,9 +213,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.core_tests == 'true'
     runs-on: ubuntu-latest
-    # The full public-minimum conformance suite normally takes about 9-10
-    # minutes on hosted runners. Keep enough headroom for setup and cleanup
-    # without dropping compatibility cases or weakening their deadlines.
+    # The full public-minimum suite now runs beyond ten minutes on hosted runners.
+    # Keep a bounded margin above the measured workload without weakening coverage.
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7

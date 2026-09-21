@@ -78,6 +78,31 @@ interface ResultBundle extends JsonObject {
   payload: JsonObject;
 }
 
+type SettlementProgressState = "identity_required" | "writeback_required" |
+  "writeback_receipt_required" | "spend_required" | "spend_receipt_required" | "settled";
+
+/** Receipt verification owns progress; a durable debit alone is not settlement. */
+function settlementProgress(
+  identity: SettlementResult, writeback: SettlementResult, spend: SettlementResult,
+  writebackRun: JsonObject | null, spendRun: JsonObject | null,
+  spendSource: unknown = "heartbeat",
+): JsonObject {
+  const source = spendSource ?? "heartbeat";
+  if (source !== "heartbeat" && source !== "visible-goal") {
+    throw new EffectRuntimeRequestError("settlement spend source is invalid", "malformed_settlement_state");
+  }
+  const state: SettlementProgressState = identity.failure ? "identity_required"
+    : writeback.failure ? (writebackRun ? "writeback_receipt_required" : "writeback_required")
+    : spend.failure ? (spendRun ? "spend_receipt_required" : "spend_required")
+    : "settled";
+  return {
+    schema_version: "quota_settlement_progress_v0", state,
+    next_step: identity.failure ? "validation" : writeback.failure ? "durable_writeback"
+      : spend.failure ? "quota_spend" : null,
+    quota_spend_source: source,
+  };
+}
+
 function optionalRequestString(value: unknown, label: string): string | null {
   if (value === null || value === undefined) return null;
   if (typeof value !== "string") {
@@ -667,6 +692,7 @@ function failedReadback(
     settlement: bundle(downstreamFailure),
     terminal_closeout: bundle(terminalFailure),
     terminal_settlement: bundle(downstreamFailure),
+    progress: settlementProgress(identityResult, downstreamFailure, downstreamFailure, null, null),
     workspace_causality: null,
     semantic_replan_guard: null,
     writeback_run: null,
@@ -778,6 +804,8 @@ export async function readQuotaSettlement(value: unknown): Promise<JsonObject> {
     settlement: bundle(settled),
     terminal_closeout: bundle(terminalCloseout),
     terminal_settlement: bundle(terminalSettlement),
+    progress: settlementProgress(identityResult, writeback, spend, writebackRun, spendRun,
+      receiptDetails.quota_spend_source ?? spendRun?.source),
     workspace_causality: workspaceCausality,
     semantic_replan_guard: semanticReplanGuard,
     writeback_run: writebackRun,

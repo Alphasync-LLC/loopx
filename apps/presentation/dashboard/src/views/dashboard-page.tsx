@@ -1,3 +1,4 @@
+import {compactWorkspaceText as compactShareText} from "../features/personal-workspace/personal-workspace-model";
 import type { GoalAcceptanceObservation } from "../data/goal-acceptance-observation";
 import { attentionDetails, sourceAttention } from "../features/personal-workspace/attention-details";
 import type { AttentionDetails } from "../features/personal-workspace/attention-details";
@@ -224,6 +225,9 @@ type PersonalAgentTodoItem = {
   taskDomain?: string | null;
   text: string;
   todoId: string;
+  validationDigest?: string | null;
+  validationRevision?: number | null;
+  validationRevisionActor?: string | null;
 };
 
 function inferLifecyclePhase(status?: string | null, run?: RunRecord) {
@@ -322,10 +326,6 @@ function cleanShareText(value?: string | null) {
   return (value ?? "").replace(/\s+/g, " ").trim();
 }
 
-function compactShareText(value?: string | null, limit = 132) {
-  const text = cleanShareText(value);
-  return text.length <= limit ? text : `${text.slice(0, Math.max(0, limit - 1))}…`;
-}
 
 function shareUsageById(usage?: UsageSummary | null) {
   const map = new Map<string, NonNullable<UsageSummary["goals"]>[number]>();
@@ -725,6 +725,7 @@ function personalTodoResumeReceiptId(todo: TodoItem) {
 }
 
 function personalAgentTodoFromItem(todo: TodoItem, row: GoalDirectoryRow): PersonalAgentTodoItem {
+  const latestValidationRevision = todo.completion_validation_revision_history.at(-1);
   return {
     resumeWhen: todo.resume_when ?? null,
     resumeReady: todo.resume_ready ?? null,
@@ -740,6 +741,9 @@ function personalAgentTodoFromItem(todo: TodoItem, row: GoalDirectoryRow): Perso
     taskDomain: todo.task_domain ?? null,
     text: personalTodoText(todo),
     todoId: todo.todo_id?.trim() || `${row.goal.id}:agent:${todo.index}`,
+    validationDigest: todo.completion_validation_sha256 ?? null,
+    validationRevision: todo.completion_validation_revision ?? null,
+    validationRevisionActor: latestValidationRevision?.actor_agent_id ?? null,
   };
 }
 

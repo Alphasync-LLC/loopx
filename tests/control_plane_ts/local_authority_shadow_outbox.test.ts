@@ -5,7 +5,11 @@ import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import type { JsonObject } from "../../loopx/control_plane/effect_program.ts";
-import { commitLocalAuthorityShadowEntry, readLocalAuthorityShadow } from "../../loopx/control_plane/coordination/local_authority_shadow.ts";
+import {
+  commitLocalAuthorityShadowEntry,
+  localAuthorityShadowPartitionDigest,
+  readLocalAuthorityShadow,
+} from "../../loopx/control_plane/coordination/local_authority_shadow.ts";
 import { outboxEntryIdentity, beginLeaseOutboxEntry } from "../../loopx/control_plane/coordination/local_authority_shadow_outbox.ts";
 import * as schemas from "../../loopx/control_plane/coordination/coordination_state_contract.generated.ts";
 import { fixture, pendingEntry, settleFiles, todo, sha } from "./shadow_file_fixture.ts";
@@ -207,6 +211,34 @@ test("a missing primary mutation cannot hide behind continuous sequence numbers 
   assert.equal((await f.store.loadAuthority() as { cursor: string }).cursor, "1");
 });
 
+test("Todo continuity ignores only a changed resume evaluation observation clock", async (t) => {
+  const f = await fixture(t);
+  const original = todo();
+  original.resume_condition = {
+    evaluated_at: "2026-09-20T00:00:00Z",
+    satisfied: false,
+    availability_reason: "resume_condition_pending",
+  };
+  const first = await pendingEntry(f, 1, { handoff_mode: "hard_lease", todos: [original] });
+  const delivered = await commitLocalAuthorityShadowEntry(first);
+  assert.equal(delivered.outcome, "delivered");
+  await settleFiles(f, first, delivered);
+
+  const reread = structuredClone(original);
+  (reread.resume_condition as JsonObject).evaluated_at = "2026-09-21T00:00:00Z";
+  const next = structuredClone(reread);
+  next.text = "Durable Todo mutation after another read";
+  const second = await pendingEntry(
+    f,
+    2,
+    { handoff_mode: "hard_lease", todos: [next] },
+    {
+      previousPartitionProjection: { handoff_mode: "hard_lease", todos: [reread] },
+    },
+  );
+  assert.equal((await commitLocalAuthorityShadowEntry(second)).outcome, "delivered");
+});
+
 test("prose bytes may change only while the canonical previous partition remains proved", async (t) => {
   const f = await fixture(t);
   await writeFile(f.statePath, `${await readFile(f.statePath, "utf8")}\n## Notes\nProse only.\n`);
@@ -222,4 +254,29 @@ test("Python and TypeScript entry identity include the same root and lineage", a
   assert.equal(result.stdout.trim(), outboxEntryIdentity("goal-a", "leases", 7, source, "lineage-a", root));
   assert.notEqual(outboxEntryIdentity("goal-a", "leases", 7, source, "lineage-a", root),
     outboxEntryIdentity("goal-a", "leases", 7, source, "lineage-b", root));
+});
+
+test("Python and TypeScript share the stable Todo partition digest", async () => {
+  const projection = {
+    handoff_mode: "hard_lease",
+    todos: [{
+      ...todo(),
+      resume_condition: {
+        evaluated_at: "2026-09-21T00:00:00Z",
+        satisfied: false,
+        availability_reason: "resume_condition_pending",
+      },
+    }],
+  };
+  const script = [
+    "import json, sys",
+    "from loopx.control_plane.coordination.local_authority_shadow_projection import partition_digest",
+    "print(partition_digest(json.loads(sys.argv[1])))",
+  ].join("\n");
+  const result = await execFileAsync(
+    process.env.LOOPX_TEST_PYTHON ?? "python3",
+    ["-c", script, JSON.stringify(projection)],
+    { cwd: join(import.meta.dirname, "..", "..") },
+  );
+  assert.equal(result.stdout.trim(), localAuthorityShadowPartitionDigest("todos", projection));
 });

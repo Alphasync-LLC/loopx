@@ -92,6 +92,8 @@ _TODO_UPDATE_MUTABLE_FIELDS = (
     "global_gate", "clear_global_gate", "unblocks_todo_id", "successor_todo_ids",
     "resume_when", "clear_resume_when", "no_follow_up", "monitor_target_key",
     "cadence", "next_due_at", "expires_at", "watch_only", "clear_claim",
+    "validation_command", "validation_command_json", "validation_label",
+    "validation_timeout_seconds",
 )
 
 _TODO_UPDATE_UNSUPPORTED_FIELDS = (
@@ -370,6 +372,38 @@ def validate_todo_update_options(args: argparse.Namespace) -> None:
         )
     if not any(getattr(args, field) for field in _TODO_UPDATE_MUTABLE_FIELDS):
         raise ValueError("todo update requires at least one mutable todo field")
+    validation_fields = (
+        args.validation_command,
+        args.validation_command_json,
+        args.validation_label,
+        args.validation_timeout_seconds,
+    )
+    if any(value is not None for value in validation_fields):
+        if bool(args.validation_command) == bool(args.validation_command_json):
+            raise ValueError(
+                "todo update validation revision requires exactly one of "
+                "--validation-command or --validation-command-json"
+            )
+        if not args.update_operation_id or not args.update_expected_provider_revision:
+            raise ValueError(
+                "todo update validation revision requires --update-operation-id "
+                "and --update-expected-provider-revision"
+            )
+        if not args.agent_id:
+            raise ValueError(
+                "todo update validation revision requires a registered --agent-id"
+            )
+        other_fields = tuple(
+            field for field in _TODO_UPDATE_MUTABLE_FIELDS
+            if field not in {
+                "validation_command", "validation_command_json",
+                "validation_label", "validation_timeout_seconds",
+            }
+        )
+        if any(getattr(args, field) for field in other_fields):
+            raise ValueError(
+                "todo update validation revision cannot be combined with another Todo edit"
+            )
     if args.no_follow_up and not (args.note or args.reason or args.evidence):
         raise ValueError("--no-follow-up requires --note, --reason, or --evidence")
     for field, message in _TODO_UPDATE_UNSUPPORTED_FIELDS:

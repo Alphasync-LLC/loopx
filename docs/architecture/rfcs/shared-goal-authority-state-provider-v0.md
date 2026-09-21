@@ -1813,7 +1813,13 @@ It derives the compact projection from the current canonical Todo and
 task-lease views, reports only counts and digests, and requires `--execute`
 before invoking bootstrap or promotion. `promote` is effect-free without
 `--execute`; its preview returns the exact qualified revision, projection
-digest, writer-fence identity, and rollback identity. Apply holds the shared
+digest, qualification policy, canonical promotion-plan digest, writer-fence
+identity, and rollback identity. The plan digest binds the Goal, operation,
+selected canonical provider, exact shadow revision/projection, minimum operation
+count, and normalized
+required event kinds; the durable fence, event, and receipt carry the same
+digest, so only the exact reviewed plan can recover a fence-before-canonical
+interruption. Apply holds the shared
 maintenance and legacy source locks while it revalidates the source snapshot,
 qualifies the exact shadow lineage, engages the durable writer fence, commits
 the canonical head, and reads back the promotion receipt. v0 rejects a Goal
@@ -2904,6 +2910,16 @@ re-enter active lanes. The three-arm rehearsal checks this closure against real
 providers; derived readiness is not evidence. General historical import and the
 remaining D3 qualification/explicit cutover approval are still separate work.
 
+Runtime-shadow parity and source-partition continuity exclude only
+`resume_condition.evaluated_at` from their semantic digests. That field is a
+query-clock observation, so another read of unchanged durable source must not
+manufacture drift or break a later writer's continuity proof. The evaluated
+decision and all other resume facts remain compared; a change to readiness,
+reason, generation, target, or any other Todo/lease field still fails parity or
+continuity until captured. Prepared outbox bytes and supplied projections remain
+fully verified, and the complete record, including the observation timestamp,
+remains available to readers and in the candidate snapshot.
+
 Quota scope/claim selection and resume planning now share one typed read boundary.
 It consumes existing legacy/canonical summaries without a provider-specific rule
 fork. User gate scope is distinct from Agent execution ownership, including in
@@ -2940,7 +2956,12 @@ The T3 lease-inspection reader now binds Todo, lease and handoff mode to one
 provider revision and never reads obsolete local lease files after promotion.
 Its eligibility policy is shared with current acquire/lifecycle rules, including
 claim divergence and exclusion; a read result is not a lease grant or a commit
-receipt. An empty canonical lease set stays empty. This read closure and removal
+receipt. Both source routes now interpret time and eligibility in TS, including
+archived-open retained history and explicit malformed-expiry failure; registration
+and promotion-fence changes are revalidated with bounded retry. Python no longer
+reconstructs the canonical head or diagnostic policy for inspection. See
+[the read contract](../../reference/canonical-lease-renew.md#what-inspection-proves).
+An empty canonical lease set stays empty. This read closure and removal
 of duplicate eligibility rules do not qualify a provider, alter CAS/replay or
 relax D1–D3; permanent Markdown display and the remaining roadmap stay intact.
 The ownership-edit slice now uses the same typed authoring and lifecycle boundary
@@ -3072,6 +3093,14 @@ without accepting state-only replay with fresh validation evidence. Real CLI and
 provider conformance cover the consumer family. See [operation and semantic
 changes](../../reference/todo-continuation-readback.md). This closes a bounded
 L5/L7 gap; permanent projection delivery/recovery, D2 and D3 are still open.
+
+D1 delivery confirmation now follows durable Markdown readback with a typed
+canonical revision check. Unpinned settlement retries up to three times using
+the returned complete snapshot; pinned projection never silently retargets.
+Overlap, churn and confirmation outage remain pending without repeating business
+commits. This qualifies the bounded delivery/retry boundary, not permanent
+freshness, a background drainer, all L5 consumers or D2/D3. See the
+[projection contract](../../reference/protocols/active-state-structured-projection-v0.md).
 
 **D2 — qualify exactly one local profile; independent of PostgreSQL deployment.**
 
@@ -3210,6 +3239,15 @@ soak, release, merge and live promotion retain their respective authorization.
 | C. Canonical transaction capture | Qualify the implementation merged in #3870 | Transaction-bound outbox capture targets the one `coordination.runtime_shadow` lineage and retains complete versioned Todo/lease records. Finish sustained mixed-writer parity, explicit-clear/omission coverage, and event-only Todo recovery evidence. | Can run in parallel with P, but both C and the selected provider profile must finish before parity or promotion integration. |
 | I. Binding and qualification integration | After C and the selected profile's qualification | Bind one exact provider lineage, field manifest, source revision, digest, and cursor; qualify explicit v0 import, ordering/archival/consumer parity, and recovery/capacity without consulting legacy state for missing fields. | Long-goal local integration requires L and does not wait for P. PostgreSQL joins only when its own P holds pass. |
 | F. Promotion and cleanup | After I and explicit maintainer approval | Complete provider-first CLI routing, the lock-owning promotion orchestrator, compatibility projection outbox, post-promotion fenced export/rollback, then delete duplicate reference aggregates and flip the reviewed stage/hold declarations. | Each profile must pass C, I, and its own provider qualification; long-goal local promotion additionally requires L, and PostgreSQL requires P. |
+
+Agent-addressed read checkpoint: Todo list filtering now joins the typed summary
+batch and shares User gate/action and Agent claim addressing with quota. The
+Python list predicate is retired on both legacy and canonical consumers; full
+source resume/succession and post-filter counts survive display limits. This is
+one L5 consumer closure, not D1 projection freshness or provider promotion. See
+[read semantics](../../reference/todo-work-counts.md). Remaining caller/executor,
+consumer recovery, contributor D2, capture/whole-Goal and default onboarding
+boundaries retain the conditional **5–8 cohesive PR** estimate.
 
 ## Appendix D: Execution ledger
 

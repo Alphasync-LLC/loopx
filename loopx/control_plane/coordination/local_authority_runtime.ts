@@ -10,8 +10,8 @@ import {readFile, realpath} from "node:fs/promises";
 import {createHash} from "node:crypto";
 
 import type { JsonObject } from "../effect_program.ts";
-import {acceptanceWorkGuard, projectGoalAcceptance} from "../goals/acceptance_contract.ts";
 import {decodeMonitorPollObservation} from "../todos/monitor_metadata.ts";
+import {decodeCompletionValidationRevision} from "../todos/completion_validation_revision.ts";
 import {executeCoordinationMonitorPoll, COORDINATION_MONITOR_POLL_REQUEST_SCHEMA, COORDINATION_LEASED_MONITOR_POLL_REQUEST_SCHEMA, COORDINATION_WITNESSED_MONITOR_POLL_REQUEST_SCHEMA,
   COORDINATION_MONITOR_POLL_RESULT_SCHEMA} from "./todo_monitor_poll.ts";
 import { requireJsonObject } from "../runtime_decode.ts";
@@ -28,11 +28,10 @@ import {
 } from "./coordination_state_contract.generated.ts";
 import {
   indexCoordinationProjection,
-  indexCoordinationProjectionTodos,
-  validateCoordinationTodoReadModel,
 } from "./coordination_projection.ts";
 import { authorityStoreSourceAuthority, type AuthorityStore, type AuthorityStoreReceiptResult } from "./authority_store.ts";
 import {
+  authorityUnicodeCompare,
   canonicalAuthorityBytes,
   canonicalAuthorityObject,
   canonicalAuthoritySha256,
@@ -41,6 +40,8 @@ import {
 import { FileAuthorityStore } from "./file_authority_store.ts";
 import {
   openLocalAuthorityStore,
+  openRuntimeAuthorityStore as openRuntimeStore,
+  requireLocalAuthorityRuntimeRoot as runtimeRoot,
   localAuthorityOpenFailure,
   type LocalAuthorityProviderDependencies,
 } from "./local_authority_provider.ts";
@@ -71,6 +72,7 @@ import {
   COORDINATION_TODO_REVIEWED_UPDATE_REQUEST_SCHEMA,
   COORDINATION_TODO_COMPLETION_UPDATE_REQUEST_SCHEMA,
   COORDINATION_TODO_OBSERVATION_UPDATE_REQUEST_SCHEMA,
+  COORDINATION_TODO_VALIDATION_REVISION_REQUEST_SCHEMA,
   COORDINATION_TODO_UPDATE_RESULT_SCHEMA,
   executeCoordinationTodoUpdate,
 } from "./todo_update.ts";
@@ -199,6 +201,15 @@ export async function reviewLocalCoordinationAuthorityPromotion(
           "qualified shadow provider revision",
         );
         const projectionSha256 = canonicalAuthoritySha256(head);
+        const promotionPlanSha256 = localCoordinationPromotionPlanSha256({
+          goal_id: input.goal_id,
+          operation_id: operationId,
+          canonical_authority: canonicalAuthority,
+          expected_shadow_provider_revision: providerRevision,
+          expected_shadow_projection_sha256: projectionSha256,
+          minimum_operations: minimumOperations,
+          required_event_kinds: requiredEventKinds,
+        });
         const fence = canonicalAuthorityObject({
           schema_version: LEGACY_COORDINATION_WRITER_FENCE_SCHEMA,
           state: "engaged",
@@ -207,11 +218,13 @@ export async function reviewLocalCoordinationAuthorityPromotion(
           source_version: `shadow:${providerRevision}`,
           source_projection_sha256: projectionSha256,
           expected_shadow_provider_revision: providerRevision,
+          promotion_plan_sha256: promotionPlanSha256,
         }, "reviewed legacy writer fence");
         const request: LocalCoordinationPromotionRequest = {
           runtime_root: input.runtime_root,
           goal_id: input.goal_id,
           operation_id: operationId,
+          canonical_authority: canonicalAuthority,
           expected_shadow_provider_revision: providerRevision,
           expected_shadow_projection_sha256: projectionSha256,
           minimum_operations: minimumOperations,
@@ -276,9 +289,12 @@ export async function reviewLocalCoordinationAuthorityPromotion(
         }
         const plan = {
           operation_id: operationId,
+          promotion_plan_sha256: promotionPlanSha256,
           canonical_authority: canonicalAuthority,
           expected_shadow_provider_revision: providerRevision,
           expected_shadow_projection_sha256: projectionSha256,
+          minimum_operations: minimumOperations,
+          required_event_kinds: [...requiredEventKinds].sort(authorityUnicodeCompare),
           writer_fence: fence,
           rollback_identity: {
             provider: "file_v0",
@@ -430,28 +446,8 @@ export async function pollLocalCoordinationMonitor(value: unknown,
 }
 
 interface LocalAuthorityRuntimeDependencies extends LocalAuthorityProviderDependencies {
-  createStore?: (directory: string, goalId: string) => AuthorityStore;
   createShadowStore?: (directory: string, goalId: string) => AuthorityStore;
   createCanonicalStore?: (directory: string, goalId: string) => AuthorityStore;
-}
-
-/** One runtime seam owns provider construction for every local command. */
-async function openRuntimeStore(
-  root: string,
-  goalId: string,
-  dependencies: LocalAuthorityRuntimeDependencies,
-): Promise<AuthorityStore> {
-  if (dependencies.createStore !== undefined) {
-    return dependencies.createStore(authorityDirectory(root), goalId);
-  }
-  return await openLocalAuthorityStore(root, goalId, dependencies);
-}
-
-export function runtimeRoot(value: unknown): string {
-  if (typeof value !== "string" || value.trim() !== value || !isAbsolute(value)) {
-    throw new Error("runtime_root must be an absolute path");
-  }
-  return value;
 }
 
 function claimAgentValue(value: unknown, label: string): string {
@@ -528,11 +524,53 @@ interface LocalCoordinationPromotionRequest {
   runtime_root: string;
   goal_id: string;
   operation_id: string;
+  canonical_authority: string;
   expected_shadow_provider_revision: string;
   expected_shadow_projection_sha256: string;
   minimum_operations: number;
   required_event_kinds: string[];
   writer_fence: JsonObject;
+}
+
+export interface LocalCoordinationPromotionPlanInput {
+  goal_id: string;
+  operation_id: string;
+  canonical_authority: string;
+  expected_shadow_provider_revision: string;
+  expected_shadow_projection_sha256: string;
+  minimum_operations: number;
+  required_event_kinds: string[];
+}
+
+export function localCoordinationPromotionPlanSha256(
+  value: LocalCoordinationPromotionPlanInput,
+): string {
+  const plan = canonicalAuthorityObject({
+    schema_version: "loopx_local_coordination_promotion_plan_v0",
+    goal_id: requireAuthorityStoreId(value.goal_id, "goal id"),
+    operation_id: requireAuthorityStoreId(value.operation_id, "operation id"),
+    canonical_authority: requireAuthorityStoreId(
+      value.canonical_authority,
+      "canonical authority",
+    ),
+    expected_shadow_provider_revision: requireAuthorityStoreId(
+      value.expected_shadow_provider_revision,
+      "expected shadow provider revision",
+    ),
+    expected_shadow_projection_sha256: requireAuthorityStoreId(
+      value.expected_shadow_projection_sha256,
+      "expected shadow projection sha256",
+    ),
+    minimum_operations: requiredPositiveSafeInteger(
+      value.minimum_operations,
+      "minimum_operations",
+    ),
+    required_event_kinds: requiredUniqueStrings(
+      value.required_event_kinds,
+      "required_event_kinds",
+    ).sort(authorityUnicodeCompare),
+  }, "local coordination promotion plan");
+  return canonicalAuthoritySha256(plan);
 }
 
 function decodePromotionRequest(value: unknown): LocalCoordinationPromotionRequest {
@@ -545,6 +583,10 @@ function decodePromotionRequest(value: unknown): LocalCoordinationPromotionReque
     runtime_root: runtimeRoot(input.runtime_root),
     goal_id: requireAuthorityStoreId(input.goal_id, "goal id"),
     operation_id: requireAuthorityStoreId(input.operation_id, "operation id"),
+    canonical_authority: requireAuthorityStoreId(
+      input.canonical_authority,
+      "canonical authority",
+    ),
     expected_shadow_provider_revision: requireAuthorityStoreId(
       input.expected_shadow_provider_revision,
       "expected shadow provider revision",
@@ -574,6 +616,7 @@ function promotionIdentity(request: LocalCoordinationPromotionRequest): JsonObje
     source_projection_sha256: request.expected_shadow_projection_sha256,
     writer_fence_id: request.writer_fence.fence_id,
     source_version: request.writer_fence.source_version,
+    promotion_plan_sha256: localCoordinationPromotionPlanSha256(request),
   }, "local coordination promotion identity");
 }
 
@@ -634,6 +677,7 @@ function promotionResult(
     source_projection_sha256: request.expected_shadow_projection_sha256,
     writer_fence_id: request.writer_fence.fence_id,
     source_version: request.writer_fence.source_version,
+    promotion_plan_sha256: localCoordinationPromotionPlanSha256(request),
     canonical_authority: canonicalAuthority,
     legacy_writer_fenced: true,
     legacy_fallback_used: false,
@@ -687,7 +731,6 @@ export async function promoteLocalCoordinationAuthority(
       legacy_fallback_used: false,
     };
   }
-
   // Provider opening can fail before durable fence readback. Report only
   // evidence this invocation actually verified, including in the outer catch.
   let writerFenceVerified = false;
@@ -701,6 +744,26 @@ export async function promoteLocalCoordinationAuthority(
       request.goal_id,
     ) ?? await openRuntimeStore(request.runtime_root, request.goal_id, dependencies);
     const canonicalAuthority = sourceAuthorityFor(canonical);
+    if (request.canonical_authority !== canonicalAuthority) return {
+      schema_version: LOCAL_COORDINATION_PROMOTION_RESULT_SCHEMA,
+      status: "failed",
+      reason_code: "local_authority_promotion_provider_mismatch",
+      reason: "promotion request is not bound to the selected canonical authority provider",
+      expected_canonical_authority: request.canonical_authority,
+      observed_canonical_authority: canonicalAuthority,
+      legacy_writer_fenced: false,
+      legacy_fallback_used: false,
+    };
+    const promotionPlanSha256 = localCoordinationPromotionPlanSha256(request);
+    if (request.writer_fence.promotion_plan_sha256 !== promotionPlanSha256) return {
+      schema_version: LOCAL_COORDINATION_PROMOTION_RESULT_SCHEMA,
+      status: "failed",
+      reason_code: "local_authority_writer_fence_plan_mismatch",
+      reason: "writer fence is not bound to the complete reviewed promotion plan",
+      promotion_plan_sha256: promotionPlanSha256,
+      legacy_writer_fenced: false,
+      legacy_fallback_used: false,
+    };
     const persistedFence = await loadLegacyCoordinationWriterFence(
       request.runtime_root,
       request.goal_id,
@@ -1019,7 +1082,8 @@ export async function updateLocalCoordinationTodo(
         input.schema_version !== COORDINATION_TODO_PLANNING_UPDATE_REQUEST_SCHEMA &&
         input.schema_version !== COORDINATION_TODO_REVIEWED_UPDATE_REQUEST_SCHEMA &&
         input.schema_version !== COORDINATION_TODO_COMPLETION_UPDATE_REQUEST_SCHEMA &&
-        input.schema_version !== COORDINATION_TODO_OBSERVATION_UPDATE_REQUEST_SCHEMA) {
+        input.schema_version !== COORDINATION_TODO_OBSERVATION_UPDATE_REQUEST_SCHEMA &&
+        input.schema_version !== COORDINATION_TODO_VALIDATION_REVISION_REQUEST_SCHEMA) {
       throw new TypeError("local coordination Todo update request schema mismatch");
     }
     const planningIntent = input.planning_intent == null ? undefined :
@@ -1030,6 +1094,7 @@ export async function updateLocalCoordinationTodo(
     }
     const completionUpdate = input.schema_version === COORDINATION_TODO_COMPLETION_UPDATE_REQUEST_SCHEMA;
     const observationUpdate = input.schema_version === COORDINATION_TODO_OBSERVATION_UPDATE_REQUEST_SCHEMA;
+    const validationRevisionUpdate = input.schema_version === COORDINATION_TODO_VALIDATION_REVISION_REQUEST_SCHEMA;
     if (!observationUpdate && Object.hasOwn(input, "monitor_observation")) {
       throw new TypeError("Monitor observation payload requires request v4");
     }
@@ -1038,7 +1103,14 @@ export async function updateLocalCoordinationTodo(
       throw new TypeError("Todo completion payload requires request v3");
     }
     if (completionUpdate && input.completion == null) throw new TypeError("Todo completion update requires its completion payload");
-    const reviewed = observationUpdate || completionUpdate || input.schema_version === COORDINATION_TODO_REVIEWED_UPDATE_REQUEST_SCHEMA;
+    if (!validationRevisionUpdate && Object.hasOwn(input, "completion_validation_revision")) {
+      throw new TypeError("Completion validation revision payload requires request v5");
+    }
+    if (validationRevisionUpdate && input.completion_validation_revision == null) {
+      throw new TypeError("Completion validation revision update requires its revision payload");
+    }
+    const reviewed = observationUpdate || completionUpdate || validationRevisionUpdate ||
+      input.schema_version === COORDINATION_TODO_REVIEWED_UPDATE_REQUEST_SCHEMA;
     if (!reviewed && ["lifecycle_grants", "authority_reason", "registry_source",
       "expected_provider_revision", "expected_registry_sha256"].some(field => Object.hasOwn(input, field))) {
       throw new TypeError("Todo update admission and revision fields require request v2");
@@ -1079,6 +1151,8 @@ export async function updateLocalCoordinationTodo(
         planning_intent: planningIntent,
         ...(observationUpdate ? {monitor_observation: decodeMonitorPollObservation(input.monitor_observation)} : {}),
         ...(completionUpdate ? {completion: requireJsonObject(input.completion, "Todo completion payload")} : {}),
+        ...(validationRevisionUpdate ? {completion_validation_revision:
+          decodeCompletionValidationRevision(input.completion_validation_revision)} : {}),
         clear_fields: input.clear_fields.map((field) => claimAgentValue(field, "clear field")),
         dry_run: input.dry_run as boolean,
         now: claimObservedAt(input.observed_at),
@@ -1281,131 +1355,6 @@ export async function acknowledgeLocalCoordinationTodoArchive(
       reason_code: error instanceof ShadowManagementError ? error.reason_code :
         "invalid_local_coordination_todo_archive_ack_request",
       reason: error instanceof Error ? error.message : "invalid archive acknowledgement",
-      ...localAuthorityOpenFailure(error),
-    };
-  }
-}
-
-/** Provider-first exact Todo read. Missing/unavailable state never falls back. */
-export async function readLocalCoordinationTodo(
-  value: unknown,
-  dependencies: LocalAuthorityRuntimeDependencies = {},
-): Promise<JsonObject> {
-  let sourceAuthority = "file_v0";
-  try {
-    const input = requireJsonObject(value, "local coordination Todo read request");
-    if (input.schema_version !== LOCAL_COORDINATION_TODO_READ_REQUEST_SCHEMA) {
-      throw new Error("local coordination Todo read request schema mismatch");
-    }
-    const root = runtimeRoot(input.runtime_root);
-    const goalId = requireAuthorityStoreId(input.goal_id, "goal id");
-    const todoId = requireAuthorityStoreId(input.todo_id, "todo id");
-    const store = await openRuntimeStore(root, goalId, dependencies);
-    sourceAuthority = sourceAuthorityFor(store);
-    const head = await store.loadAuthority();
-    if (head.status !== "loaded") {
-      return {
-        schema_version: LOCAL_COORDINATION_TODO_READ_RESULT_SCHEMA,
-        ...head,
-        source_authority: sourceAuthority,
-        decision_read_from_provider: true,
-        legacy_fallback_used: false,
-      };
-    }
-    const projection = indexCoordinationProjectionTodos(head.head, goalId);
-    validateCoordinationTodoReadModel(head.head, goalId);
-    const todo = projection.todos.get(todoId);
-    const acceptance = todo === undefined ? null : acceptanceWorkGuard(head.head, goalId, todoId);
-    return {
-      schema_version: LOCAL_COORDINATION_TODO_READ_RESULT_SCHEMA,
-      status: todo === undefined ? "missing" : "found",
-      todo_id: todoId,
-      ...(todo === undefined ? {} : { todo }),
-      ...(acceptance === null ? {} : {goal_acceptance_guard: acceptance}),
-      todo_ids: projection.todo_ids,
-      provider_revision: head.provider_revision,
-      cursor: head.cursor,
-      source_authority: sourceAuthority,
-      decision_read_from_provider: true,
-      legacy_fallback_used: false,
-    };
-  } catch (error) {
-    return {
-      schema_version: LOCAL_COORDINATION_TODO_READ_RESULT_SCHEMA,
-      status: "failed",
-      reason_code: "invalid_local_coordination_todo_read_request",
-      reason: error instanceof Error ? error.message : "invalid Todo read request",
-      source_authority: sourceAuthority,
-      decision_read_from_provider: true,
-      legacy_fallback_used: false,
-      ...localAuthorityOpenFailure(error),
-    };
-  }
-}
-
-/** Provider-first Todo collection read. Missing/unavailable state never falls back. */
-export async function listLocalCoordinationTodos(
-  value: unknown,
-  dependencies: LocalAuthorityRuntimeDependencies = {},
-): Promise<JsonObject> {
-  let sourceAuthority = "file_v0";
-  try {
-    const input = requireJsonObject(value, "local coordination Todo list request");
-    if (input.schema_version !== LOCAL_COORDINATION_TODO_LIST_REQUEST_SCHEMA) {
-      throw new Error("local coordination Todo list request schema mismatch");
-    }
-    if (input.include_leases !== undefined && typeof input.include_leases !== "boolean") {
-      throw new Error("include_leases must be a boolean");
-    }
-    const root = runtimeRoot(input.runtime_root);
-    const goalId = requireAuthorityStoreId(input.goal_id, "goal id");
-    const store = await openRuntimeStore(root, goalId, dependencies);
-    sourceAuthority = sourceAuthorityFor(store);
-    const head = await store.loadAuthority();
-    if (head.status !== "loaded") {
-      return {
-        schema_version: LOCAL_COORDINATION_TODO_LIST_RESULT_SCHEMA,
-        ...head,
-        source_authority: sourceAuthority,
-        decision_read_from_provider: true,
-        legacy_fallback_used: false,
-      };
-    }
-    const projection = indexCoordinationProjectionTodos(head.head, goalId);
-    const todoReadModel = validateCoordinationTodoReadModel(head.head, goalId);
-    const leaseIndex = input.include_leases === true
-      ? indexCoordinationProjection(head.head, goalId) : null;
-    const acceptance = projectGoalAcceptance(head.head, goalId);
-    return {
-      schema_version: LOCAL_COORDINATION_TODO_LIST_RESULT_SCHEMA,
-      status: "loaded",
-      todos: projection.todo_ids.map((todoId) => projection.todos.get(todoId)!),
-      todo_ids: projection.todo_ids,
-      todo_read_model: todoReadModel,
-      ...(acceptance.enabled !== true ? {} : {goal_acceptance_contract: acceptance,
-        goal_acceptance_work_guards: Object.fromEntries(projection.todo_ids.flatMap(id => {
-          const guard = acceptanceWorkGuard(head.head, goalId, id);
-          return guard === null ? [] : [[id, guard]];
-        }))}),
-      ...(leaseIndex === null ? {} : {
-        leases: leaseIndex.lease_todo_ids.map((id) => leaseIndex.leases.get(id)!),
-        handoff_mode: head.head.handoff_mode ?? "legacy",
-      }),
-      provider_revision: head.provider_revision,
-      cursor: head.cursor,
-      source_authority: sourceAuthority,
-      decision_read_from_provider: true,
-      legacy_fallback_used: false,
-    };
-  } catch (error) {
-    return {
-      schema_version: LOCAL_COORDINATION_TODO_LIST_RESULT_SCHEMA,
-      status: "failed",
-      reason_code: "invalid_local_coordination_todo_list_request",
-      reason: error instanceof Error ? error.message : "invalid Todo list request",
-      source_authority: sourceAuthority,
-      decision_read_from_provider: true,
-      legacy_fallback_used: false,
       ...localAuthorityOpenFailure(error),
     };
   }

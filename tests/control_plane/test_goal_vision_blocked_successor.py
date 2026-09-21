@@ -698,7 +698,7 @@ def test_exact_blocked_successor_defers_only_open_vision_gap(
     cli_actions = guard["interaction_contract"]["cli_channel"]["next_cli_actions"]
     assert "quota monitor-poll" in cli_actions[0]
     assert "quota should-run" in cli_actions[1]
-    assert "agent_action_required=true" in guard["protocol_action_packet"]["summary"]
+    assert "protocol_action_packet" not in guard
     cli_wait = guard["interaction_contract"]["cli_channel"]["vision_wait_state"]
     assert cli_wait["selected_todo_id"] == WAITING_ID
     assert cli_wait["automatic_resume"] is True

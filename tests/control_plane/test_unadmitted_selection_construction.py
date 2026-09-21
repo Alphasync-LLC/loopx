@@ -6,7 +6,9 @@ import shlex
 
 import pytest
 
-from loopx.cli_commands.quota import _requested_quota_action_selection_preflight
+from loopx.cli_commands.quota_action_selection import (
+    _requested_quota_action_selection_preflight,
+)
 from loopx.control_plane.work_items import interaction_contract
 from loopx.control_plane.work_items.action_selection_contract import (
     action_selection_needs_recovery,
@@ -174,14 +176,13 @@ def test_scoped_fallback_cannot_execute_under_an_unadmitted_selection():
     assert interaction["cli_channel"]["spend_allowed_now"] is False
     assert interaction["cli_channel"]["spend_after_validation"] is False
 
-    summary = payload["protocol_action_packet"]["summary"]
-    assert "agent_action_required=false" in summary
-    assert "agent_action_required=true" not in summary
+    assert "protocol_action_packet" not in payload
 
     envelope = build_turn_envelope(payload)
     assert envelope["writeback"]["spend_allowed_now"] is False
     assert envelope["writeback"]["spend_after_validation"] is False
     capsule = envelope["contract_capsule"]
+    assert "protocol_action_packet" not in capsule
     assert capsule["interaction_contract"]["mode"] != "scoped_user_gate_fallback"
     assert capsule["execution_obligation"]["must_attempt_work"] is False
     assert extract_turn_authority({"turn_envelope": envelope})["write_scope"] == []
