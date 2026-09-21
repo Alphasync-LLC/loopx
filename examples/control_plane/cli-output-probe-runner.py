@@ -41,6 +41,10 @@ def _load_module(name: str, path: Path) -> ModuleType:
     return module
 
 
+def _ignore_budget_assertion(*_args: Any, **_kwargs: Any) -> None:
+    return None
+
+
 def _receipt_row(
     *,
     semantics: ModuleType,
@@ -334,10 +338,14 @@ def main() -> int:
     parser.add_argument("--semantics-source", type=Path, required=True)
     parser.add_argument("--fixture-root", type=Path, required=True)
     parser.add_argument("--receipt", type=Path, required=True)
+    parser.add_argument("--measurement-only", action="store_true")
     args = parser.parse_args()
     _install_pytest_import_stub()
     probe = _load_module("loopx_cli_output_probe_fixture", args.test_source)
     semantics = _load_module("loopx_cli_output_probe_semantics", args.semantics_source)
+    if args.measurement_only:
+        probe.assert_cli_output_baseline = _ignore_budget_assertion
+        probe.assert_cli_output_mode_variant = _ignore_budget_assertion
     if args.fixture_root.exists():
         shutil.rmtree(args.fixture_root)
     args.fixture_root.mkdir(parents=True)

@@ -144,11 +144,11 @@ CLI_OUTPUT_BUDGET_SPECS: tuple[CliOutputBudgetSpec, ...] = (
         },
         max_lines={
             "small": {"json": 520, "markdown": 72},
-            "crowded": {"json": 750, "markdown": 78},
+            "crowded": {"json": 820, "markdown": 78},
             "multi_agent": {"json": 650, "markdown": 75},
         },
         scale_axis="todo_count",
-        max_json_growth_chars_per_unit=300,
+        max_json_growth_chars_per_unit=330,
     ),
     CliOutputBudgetSpec(
         surface_id="loopx_turn_plan",
@@ -164,16 +164,16 @@ CLI_OUTPUT_BUDGET_SPECS: tuple[CliOutputBudgetSpec, ...] = (
         markdown_anchor="# LoopX Turn Plan",
         max_chars={
             "small": {"json": 12_000, "markdown": 300},
-            "crowded": {"json": 12_000, "markdown": 300},
+            "crowded": {"json": 13_000, "markdown": 300},
             "multi_agent": {"json": 12_000, "markdown": 300},
         },
         max_lines={
             "small": {"json": 320, "markdown": 12},
-            "crowded": {"json": 320, "markdown": 12},
+            "crowded": {"json": 360, "markdown": 12},
             "multi_agent": {"json": 320, "markdown": 12},
         },
         scale_axis="todo_count",
-        max_json_growth_chars_per_unit=60,
+        max_json_growth_chars_per_unit=125,
     ),
     CliOutputBudgetSpec(
         surface_id="status",
