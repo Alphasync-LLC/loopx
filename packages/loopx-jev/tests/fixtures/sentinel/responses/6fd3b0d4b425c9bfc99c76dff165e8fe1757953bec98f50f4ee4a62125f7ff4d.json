@@ -1,0 +1,53 @@
+{
+  "recorded_at": 1789987468.943371,
+  "request_key": "6fd3b0d4b425c9bfc99c76dff165e8fe1757953bec98f50f4ee4a62125f7ff4d",
+  "response": {
+    "answers": {
+      "behavior_change": {
+        "noul": 0.11,
+        "type": "noul"
+      },
+      "evidence_increment": {
+        "noul": 0.6,
+        "type": "noul"
+      },
+      "increment": {
+        "choice": "new_evidence",
+        "confidence": 0.41,
+        "probabilities": {
+          "new_evidence": 0.6,
+          "no_new_evidence": 0.26,
+          "unknown": 0.14
+        },
+        "type": "choice"
+      },
+      "relation": {
+        "choice": "off_goal",
+        "confidence": 0.68,
+        "probabilities": {
+          "necessary_prerequisite": 0.14,
+          "off_goal": 0.76,
+          "on_goal": 0.04,
+          "unknown": 0.06
+        },
+        "type": "choice"
+      },
+      "serves_acceptance": {
+        "noul": 0.12,
+        "type": "noul"
+      }
+    },
+    "model": "jev-1.13.0",
+    "usage": {
+      "input_tokens": 1565,
+      "output_tokens": 154
+    }
+  },
+  "schema": "loopx_jev_recorded_response_v0",
+  "worker_timing_ns": {
+    "body_read": 149000,
+    "framing": 49750,
+    "prepare": 7420125,
+    "request_to_headers": 666560917
+  }
+}
