@@ -9,16 +9,23 @@ import pytest
 
 import loopx.extensions.lark.manager_reply_parts as parts_module
 from loopx.extensions.lark.manager_reply_parts import (
+    MANAGER_REPLY_STALL_NOTICE,
     PART_ATTEMPT_KEY,
     PART_DELIVERY_COMPLETE_KEY,
     PART_DELIVERY_COMPLETION_UNVERIFIED,
     PART_DELIVERY_INCOMPLETE,
     PART_DELIVERY_VERIFIED_KEY,
+    PART_STALL_NOTICE_ATTEMPT_KEY,
+    PART_STALL_COUNT_KEY,
+    PART_STALL_NOTICE_KEY,
     completed_part_delivery_receipt,
+    deliver_manager_reply_after_length_failure,
     deliver_manager_reply_parts,
     part_delivery_incomplete_reason,
     plan_manager_reply_parts,
+    plan_stalled_part_notice,
     recorded_part_attempt,
+    recorded_stall_notice_attempt,
 )
 
 
@@ -71,6 +78,7 @@ def delivery(tmp_path: Path):
         "sends": sends,
         "install": install,
         "deliver": deliver,
+        "tmp": tmp_path,
     }
 
 
@@ -153,6 +161,7 @@ def test_a_changed_split_restarts_instead_of_resuming_mid_answer(monkeypatch, de
         delivery_part_count=len(parts) + 1,
         delivery_parts_sent=len(parts) + 1,
         reply_idempotency_key="sha256:another-split",
+        **{PART_STALL_COUNT_KEY: 3},
         **{
             PART_DELIVERY_COMPLETE_KEY: True,
             PART_DELIVERY_VERIFIED_KEY: True,
@@ -165,6 +174,8 @@ def test_a_changed_split_restarts_instead_of_resuming_mid_answer(monkeypatch, de
     assert delivery["sends"][0] == parts[0]
     assert delivery["state"]["delivery_part_count"] == len(parts)
     assert delivery["state"]["delivery_parts_sent"] == len(parts)
+    # Stalls counted for the abandoned split do not speak for this one.
+    assert PART_STALL_COUNT_KEY not in delivery["state"]
 
 
 def test_an_unkeyed_or_unfinished_record_never_claims_verification():
@@ -362,3 +373,215 @@ def test_a_confirmed_locator_settles_a_sequence_with_no_new_write(
     assert delivery["sends"] == []
     assert delivery["state"][PART_DELIVERY_COMPLETE_KEY] is True
     assert delivery["state"][PART_DELIVERY_VERIFIED_KEY] is True
+
+
+def _stalled_state(parts: list[str], *, stalls: int, sent: int) -> dict:
+    return {
+        "delivery_part_count": len(parts),
+        "delivery_parts_sent": sent,
+        PART_STALL_COUNT_KEY: stalls,
+        "delivery_text": BODY,
+        "content_format": "text",
+    }
+
+
+def test_a_stalled_sequence_tells_the_reader_once_after_real_retries(
+    monkeypatch, delivery,
+):
+    """Silence is the worst outcome: say what was delivered and where the rest is."""
+
+    parts, _ = plan_manager_reply_parts(BODY)
+    state = _stalled_state(parts, stalls=3, sent=2)
+    sent_texts: list[str] = []
+
+    def failing_parts(**kwargs):
+        sent_texts.append(kwargs["text"])
+        if kwargs["text"].startswith("("):
+            return {"ok": False, "status": "reply_provider_failed",
+                    "idempotency_key": None}
+        return {"ok": True, "status": "sent_verified", "idempotency_key": "sha256:n",
+                "verification_performed": True, "reply_verified": True}
+
+    monkeypatch.setattr(parts_module, "reply_lark_event_inbox", failing_parts)
+
+    reply, reason = deliver_manager_reply_after_length_failure(
+        reply_text=BODY,
+        delivery_state=state,
+        delivery_path=delivery["tmp"] / "delivery.json",
+        write_delivery=lambda path, payload: None,
+        reply_runner=object(),
+        root=delivery["tmp"],
+        config_path=delivery["tmp"] / "config.json",
+        message_id="om_fixture",
+    )
+
+    assert reply is None
+    assert reason == PART_DELIVERY_INCOMPLETE
+    notices = [text for text in sent_texts if text.startswith("本条答复")]
+    assert notices == [MANAGER_REPLY_STALL_NOTICE.format(sent=2, count=len(parts))]
+    assert state[PART_STALL_NOTICE_KEY] is True
+
+    # The reader is told once. A later attempt that still cannot finish the
+    # sequence does not repeat the notice.
+    sent_texts.clear()
+    state[PART_STALL_COUNT_KEY] = 4
+    deliver_manager_reply_after_length_failure(
+        reply_text=BODY,
+        delivery_state=state,
+        delivery_path=delivery["tmp"] / "delivery.json",
+        write_delivery=lambda path, payload: None,
+        reply_runner=object(),
+        root=delivery["tmp"],
+        config_path=delivery["tmp"] / "config.json",
+        message_id="om_fixture",
+    )
+    assert [text for text in sent_texts if text.startswith("本条答复")] == []
+
+
+def test_a_sequence_that_has_not_retried_yet_stays_quiet(delivery):
+    parts, _ = plan_manager_reply_parts(BODY)
+
+    assert plan_stalled_part_notice(_stalled_state(parts, stalls=1, sent=2)) is None
+    assert plan_stalled_part_notice(_stalled_state(parts, stalls=2, sent=2)) is None
+    assert plan_stalled_part_notice(_stalled_state(parts, stalls=3, sent=2)) is not None
+
+
+def test_a_sequence_that_delivered_nothing_stays_quiet(delivery):
+    """Nothing was delivered, so the last-attempt answer is still the whole story."""
+
+    parts, _ = plan_manager_reply_parts(BODY)
+
+    assert plan_stalled_part_notice(_stalled_state(parts, stalls=9, sent=0)) is None
+    assert plan_stalled_part_notice(_stalled_state(parts, stalls=9, sent=len(parts))) is None
+
+
+def test_a_rejected_notice_is_offered_again_on_the_next_attempt(
+    monkeypatch, delivery,
+):
+    parts, _ = plan_manager_reply_parts(BODY)
+    state = _stalled_state(parts, stalls=3, sent=2)
+    attempts: list[str] = []
+
+    def rejecting_everything(**kwargs):
+        attempts.append(kwargs["text"])
+        return {"ok": False, "status": "reply_provider_failed", "idempotency_key": None}
+
+    monkeypatch.setattr(parts_module, "reply_lark_event_inbox", rejecting_everything)
+
+    deliver_manager_reply_after_length_failure(
+        reply_text=BODY,
+        delivery_state=state,
+        delivery_path=delivery["tmp"] / "delivery.json",
+        write_delivery=lambda path, payload: None,
+        reply_runner=object(),
+        root=delivery["tmp"],
+        config_path=delivery["tmp"] / "config.json",
+        message_id="om_fixture",
+    )
+
+    assert state.get(PART_STALL_NOTICE_KEY) is not True
+    assert state["last_delivery_notice_status"] == "reply_provider_failed"
+    assert any(text.startswith("本条答复") for text in attempts)
+
+    state[PART_STALL_COUNT_KEY] = 4
+    attempts.clear()
+    deliver_manager_reply_after_length_failure(
+        reply_text=BODY,
+        delivery_state=state,
+        delivery_path=delivery["tmp"] / "delivery.json",
+        write_delivery=lambda path, payload: None,
+        reply_runner=object(),
+        root=delivery["tmp"],
+        config_path=delivery["tmp"] / "config.json",
+        message_id="om_fixture",
+    )
+    assert any(text.startswith("本条答复") for text in attempts)
+
+
+def test_a_notice_the_provider_took_but_did_not_read_back_is_confirmed(
+    monkeypatch, delivery,
+):
+    """A notice the provider accepted but could not read back is not repeated.
+
+    The transport records the provider locator of the notice before it reads the
+    message back, so a send that comes back ``sent_unverified`` has to be
+    confirmed on the next attempt instead of being posted to the reader twice.
+    """
+
+    parts, _ = plan_manager_reply_parts(BODY)
+    state = _stalled_state(parts, stalls=2, sent=2)
+    notice = MANAGER_REPLY_STALL_NOTICE.format(sent=2, count=len(parts))
+    sends: list[str] = []
+    verifications: list[str] = []
+
+    def ambiguous_send(**kwargs):
+        sends.append(kwargs["text"])
+        if kwargs["text"].startswith("("):
+            return {
+                "ok": False,
+                "status": "reply_provider_failed",
+                "idempotency_key": None,
+            }
+        kwargs["delivery_attempt_recorder"](
+            {
+                "schema_version": "manager_return_delivery_attempt_v0",
+                "provider": "lark",
+                "message_ref": "om_notice",
+                "intent_digest": "sha256:notice-intent",
+                "provider_receipt": "sha256:notice-receipt",
+            }
+        )
+        return {
+            "ok": False,
+            "status": "sent_unverified",
+            "idempotency_key": "sha256:notice-receipt",
+            "write_performed": True,
+            "verification_performed": True,
+            "reply_verified": False,
+        }
+
+    def confirmed_notice(**kwargs):
+        verifications.append(kwargs["text"])
+        return {
+            "ok": True,
+            "status": "sent_verified",
+            "idempotency_key": "sha256:notice-receipt",
+            "verification_performed": True,
+            "reply_verified": True,
+        }
+
+    monkeypatch.setattr(parts_module, "reply_lark_event_inbox", ambiguous_send)
+    monkeypatch.setattr(parts_module, "verify_lark_inbox_reply", confirmed_notice)
+
+    def deliver_with_stalls():
+        return deliver_manager_reply_after_length_failure(
+            reply_text=BODY,
+            delivery_state=state,
+            delivery_path=delivery["tmp"] / "delivery.json",
+            write_delivery=lambda path, payload: None,
+            reply_runner=object(),
+            root=delivery["tmp"],
+            config_path=delivery["tmp"] / "config.json",
+            message_id="om_fixture",
+        )
+
+    deliver_with_stalls()
+
+    # The notice went out but its readback did not confirm it, so the reader may
+    # already have it and the record keeps that attempt's locator.
+    assert [text for text in sends if text.startswith("本条答复")] == [notice]
+    assert state.get(PART_STALL_NOTICE_KEY) is not True
+    assert recorded_stall_notice_attempt(state) == {
+        "schema_version": "manager_return_delivery_attempt_v0",
+        "provider": "lark",
+        "message_ref": "om_notice",
+        "intent_digest": "sha256:notice-intent",
+        "provider_receipt": "sha256:notice-receipt",
+    }
+
+    deliver_with_stalls()
+
+    assert verifications == [notice]
+    assert [text for text in sends if text.startswith("本条答复")] == [notice]
+    assert state[PART_STALL_NOTICE_KEY] is True
+    assert PART_STALL_NOTICE_ATTEMPT_KEY not in state
