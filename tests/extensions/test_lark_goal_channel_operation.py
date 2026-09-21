@@ -13,7 +13,7 @@ import pytest
 
 from loopx.chat_action_store import ActionConflictError, ChatActionStore
 from loopx.chat_actions import ChatActionService
-from loopx.cli_commands.goal_channel import _prepare_goal_channel_operation
+from loopx.cli_commands.goal_channel_operation import _prepare_goal_channel_operation
 from loopx.extensions.lark.goal_channel_contracts import (
     GOAL_CHANNEL_BINDING_SCHEMA_VERSION,
     write_goal_channel_binding,
