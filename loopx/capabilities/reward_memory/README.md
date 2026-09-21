@@ -645,6 +645,17 @@ packets expose opaque provider references and compact lineage; application
 receipts contain hashed memory references, the model-owned reasoning summary,
 and current-artifact verification, never raw provider content.
 
+Recall packets also separate a provider that returned no items from provider
+items rejected by the exact-record gates. `provider_item_count`,
+`filtered_item_count`, and `filtered_reason_counts` expose only bounded counts
+for contract, scope, lifecycle, expiry, quality, and legacy-contract filters;
+they never expose provider content. A fact-only procedural record is reported
+as `legacy_contract_missing` while remaining non-recallable. Its maintenance
+projection offers only two owner-governed paths: ingest a separately validated
+replacement and then retire the legacy record, or retire it directly through
+the corpus's declared retirement authority. Both paths require provider write
+readback. Recall itself performs no migration or retirement write.
+
 Provider unavailability returns setup guidance and preserves the base output.
 It is an agent/runtime condition, not a user gate. Invalid or failed model
 application also preserves the base output. An `applied` receipt requires both
