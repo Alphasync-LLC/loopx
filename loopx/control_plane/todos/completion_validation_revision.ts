@@ -6,6 +6,7 @@ import {
   requireAuthorityStoreId,
 } from "../coordination/authority_store_codec.ts";
 import {normalizeTodoAgent} from "../coordination/todo_agents.ts";
+import {normalizeTodoCompletionValidationDeclaration} from "./completion_validation_declaration.ts";
 
 export const COMPLETION_VALIDATION_REVISION_SCHEMA =
   "loopx_todo_completion_validation_revision_v0";
@@ -112,16 +113,23 @@ export function decodeCompletionValidationRevision(
       "completion validation revision has unsupported fields or schema",
     );
   }
+  const declaration = normalizeTodoCompletionValidationDeclaration(
+    canonicalAuthorityObject(
+      revision.declaration,
+      "completion validation declaration",
+    ),
+    {strict_fields: true, require_command: true},
+  );
+  if (!declaration.ok) {
+    throw new AuthorityStoreProtocolError(declaration.summary);
+  }
   return {
     schema_version: COMPLETION_VALIDATION_REVISION_SCHEMA,
     expected_declaration_sha256: digest(
       revision.expected_declaration_sha256,
       "expected_declaration_sha256",
     ),
-    declaration: canonicalAuthorityObject(
-      revision.declaration,
-      "completion validation declaration",
-    ),
+    declaration: declaration.value,
   };
 }
 

@@ -1595,6 +1595,68 @@ export function registerAuthorityStoreConformance(
         "agent-a",
       );
     });
+    test(`${providerName} conformance: malformed validator revision leaves authority unchanged (${native ? "native" : "v0"})`, async (t) => {
+      const {store} = await factory(t);
+      const goalId = "goal-validator-revision-rejection";
+      const original = {
+        validation_command: null,
+        validation_command_argv: ["true"],
+        validation_label: null,
+        validation_timeout_seconds: null,
+      };
+      const projection = todoClaimProjection(goalId, native);
+      const todo = (projection.todos as Record<string, unknown>[])[0]!;
+      Object.assign(todo, {
+        claimed_by: "agent-a",
+        completion_validation_required: true,
+        completion_validation_sha256: canonicalAuthoritySha256(original),
+        completion_validation_revision: 0,
+        completion_validation_revision_history: [],
+      });
+      projection.todo_read_model = coordinationTodoReadModel(
+        projection.todos as JsonObject[],
+        (projection.todo_read_model as JsonObject).schema_version,
+      );
+      assert.equal((await store.commitAuthority({
+        expected_provider_revision: null,
+        operation_id: "init-validator-revision-rejection",
+        events: [],
+        receipts: [],
+        next_projection: projection,
+      })).status, "applied");
+      const before = await store.loadAuthority();
+      assert.equal(before.status, "loaded");
+      if (before.status !== "loaded") return;
+      for (const [index, declaration] of [
+        {unexpected: "accepted"},
+        {...original, validation_command: "true"},
+        {...original, validation_command_argv: []},
+        {...original, validation_timeout_seconds: 30},
+      ].entries()) {
+        const operationId = `reject-validator-revision-${index}`;
+        const rejected = await executeCoordinationTodoUpdate(store, {
+          goal_id: goalId,
+          todo_id: "todo-claim",
+          expected_role: "agent",
+          actor_agent_id: "agent-a",
+          registered_agents: ["agent-a", "agent-b"],
+          operation_id: operationId,
+          expected_provider_revision: before.provider_revision,
+          patch: {},
+          clear_fields: [],
+          completion_validation_revision: {
+            schema_version: "loopx_todo_completion_validation_revision_v0",
+            expected_declaration_sha256: canonicalAuthoritySha256(original),
+            declaration,
+          },
+          dry_run: false,
+          now: new Date("2026-09-05T05:46:00Z"),
+        });
+        assert.equal(rejected.status, "failed", JSON.stringify(declaration));
+        assert.deepEqual(await store.loadAuthority(), before);
+        assert.equal((await store.readReceipt(operationId)).status, "missing");
+      }
+    });
     test(`${providerName} conformance: provider-neutral Todo claim transaction (${native ? "native" : "v0"})`, async (t) => {
       const { store } = await factory(t);
       const goalId = "goal-claim";

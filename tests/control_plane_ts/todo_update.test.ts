@@ -264,6 +264,53 @@ test("terminal or digest-stale Todo rejects validator revision without a receipt
   }
 });
 
+test("validator revision rejects malformed declarations before provider mutation", async () => {
+  const original = {
+    validation_command: null,
+    validation_command_argv: ["true"],
+    validation_label: null,
+    validation_timeout_seconds: null,
+  };
+  const malformed = [
+    {unexpected: "accepted"},
+    {...original, unexpected: true},
+    {...original, validation_command: "true"},
+    {...original, validation_command_argv: []},
+    {...original, validation_command_argv: ["true", ""]},
+    {...original, validation_command_argv: 1},
+    {...original, validation_timeout_seconds: 30},
+    {...original, validation_timeout_seconds: true},
+    {...original, validation_label: 1},
+  ];
+  for (const [index, declaration] of malformed.entries()) {
+    const {store, request} = await seeded({
+      completion_validation_required: true,
+      completion_validation_sha256: canonicalAuthoritySha256(original),
+      completion_validation_revision: 0,
+      completion_validation_revision_history: [],
+    });
+    const before = await store.loadAuthority();
+    assert.equal(before.status, "loaded");
+    if (before.status !== "loaded") return;
+    const operationId = `reject-malformed-validator-${index}`;
+    const result = await executeCoordinationTodoUpdate(store, {
+      ...request,
+      operation_id: operationId,
+      expected_provider_revision: before.provider_revision,
+      patch: {},
+      clear_fields: [],
+      completion_validation_revision: {
+        schema_version: "loopx_todo_completion_validation_revision_v0",
+        expected_declaration_sha256: canonicalAuthoritySha256(original),
+        declaration,
+      },
+    });
+    assert.equal(result.status, "failed", JSON.stringify(declaration));
+    assert.deepEqual(await store.loadAuthority(), before);
+    assert.equal((await store.readReceipt(operationId)).status, "missing");
+  }
+});
+
 test("provider-first update commits complete record and replays by intent", async () => {
   const {store, request} = await seeded();
   const preview = await executeCoordinationTodoUpdate(store, {...request, dry_run: true});
