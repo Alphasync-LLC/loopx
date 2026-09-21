@@ -18,6 +18,9 @@ from ..capabilities.machine_configuration.builtins import (
 )
 from ..capabilities.machine_configuration.store import read_machine_configuration
 from ..capabilities.pr_review_queue.result_check import check_review_result
+from ..capabilities.pr_review_queue.github_source import (
+    scan_github_pull_request_targets,
+)
 from ..file_lock import exclusive_file_lock
 from ..pr_review import (
     build_pr_review_packet,
@@ -149,6 +152,16 @@ def register_pr_review_command(
         help="Read public-safe PR metadata from a JSON fixture instead of live gh output.",
     )
     parser.add_argument(
+        "--target-exact-head",
+        action="append",
+        default=[],
+        metavar="NUMBER@HEAD_OID",
+        help=(
+            "Read only this exact PR head instead of scanning a lifecycle queue. "
+            "Repeatable for a small explicit review batch."
+        ),
+    )
+    parser.add_argument(
         "--fresh-audit-exact-head",
         action="append",
         default=[],
@@ -208,6 +221,7 @@ def handle_pr_review_command(
         return None
     checkpoint_path: Path | None = None
     resolved_review_priority = DEFAULT_REVIEW_PRIORITY
+    target_exact_heads = list(getattr(args, "target_exact_head", []) or [])
     try:
         machine_configuration = (read_machine_configuration(runtime_root, registry=build_builtin_machine_configuration_registry()) if runtime_root is not None else None)
         goal = None
@@ -233,6 +247,7 @@ def handle_pr_review_command(
                 or args.repo
                 or args.since
                 or args.fresh_audit_exact_head
+                or target_exact_heads
                 or args.check_merge_readiness
             ):
                 raise ValueError(
@@ -263,6 +278,7 @@ def handle_pr_review_command(
                 or args.projected_exact_head
                 or args.since
                 or args.fresh_audit_exact_head
+                or target_exact_heads
             ):
                 raise ValueError(
                     "merge readiness cannot be combined with queue or observation options"
@@ -349,6 +365,15 @@ def handle_pr_review_command(
                 "--observation-state-file cannot be combined with "
                 "--previous-observation-json"
             )
+        if target_exact_heads and args.autonomous_observation:
+            raise ValueError(
+                "--target-exact-head cannot be combined with --autonomous-observation"
+            )
+        if target_exact_heads and args.since:
+            raise ValueError(
+                "--target-exact-head already defines the review window and "
+                "cannot be combined with --since"
+            )
         explicit_review_priority = getattr(args, "review_priority", None)
         if explicit_review_priority is not None:
             resolved_review_priority = normalize_review_priority(explicit_review_priority)
@@ -372,6 +397,19 @@ def handle_pr_review_command(
                 Path(args.fixture).expanduser()
             )
             repository = repository or repository_from_fixture
+            if target_exact_heads:
+                requested_targets = normalize_fresh_audit_exact_heads(
+                    target_exact_heads
+                )
+                pull_requests = [
+                    item
+                    for item in pull_requests
+                    if (
+                        f"{item.get('number')}@"
+                        f"{str(item.get('headRefOid') or '').lower()}"
+                        in requested_targets
+                    )
+                ]
             source = "fixture"
             source_scan = None
         else:
@@ -382,13 +420,23 @@ def handle_pr_review_command(
                     "authenticated GitHub reviewer identity is required for "
                     "autonomous author-owned scheduling"
                 )
-            source_scan = scan_github_pull_requests(
-                repo=repository,
-                limit=max(1, args.limit) + 1,
-                state_filter=normalize_pr_state_filter(args.state),
-                since=args.since,
-                **({"wait_for_ci": False} if not wait_for_ci else {}),
-            )
+            if target_exact_heads:
+                if not repository:
+                    raise RuntimeError("GitHub repository could not be resolved")
+                source_scan = scan_github_pull_request_targets(
+                    repository=repository,
+                    exact_heads=target_exact_heads,
+                    **({"wait_for_ci": False} if not wait_for_ci else {}),
+                )
+                source = "github_cli_exact_targets"
+            else:
+                source_scan = scan_github_pull_requests(
+                    repo=repository,
+                    limit=max(1, args.limit) + 1,
+                    state_filter=normalize_pr_state_filter(args.state),
+                    since=args.since,
+                    **({"wait_for_ci": False} if not wait_for_ci else {}),
+                )
             pull_requests = source_scan["pull_requests"]
         if checkpoint_path is not None and previous_observation:
             checkpoint_repository = str(
@@ -411,6 +459,7 @@ def handle_pr_review_command(
             source_scan=source_scan,
             reviewer_login=reviewer_login,
             fresh_audit_exact_heads=args.fresh_audit_exact_head,
+            target_exact_heads=target_exact_heads,
             review_priority=resolved_review_priority,
             wait_for_ci=wait_for_ci,
         )
@@ -465,13 +514,14 @@ def handle_pr_review_command(
             "request": {
                 "schema_version": "loopx_pr_review_command_request_v0",
                 "command": "/loopx-pr-review",
-                "cli_command": "loopx pr-review [--repo owner/repo] [--state open|merged|all] [--review-priority other-developers-first|owner-first] [--since ISO]",
+                "cli_command": "loopx pr-review [--repo owner/repo] [--target-exact-head NUMBER@HEAD_OID] [--state open|merged|all] [--review-priority other-developers-first|owner-first] [--since ISO]",
                 "repository": args.repo,
                 "limit": max(1, args.limit),
                 "state_filter": normalize_pr_state_filter(args.state),
                 "since": args.since,
                 "review_priority": resolved_review_priority.value,
                 "fresh_audit_exact_heads": list(args.fresh_audit_exact_head),
+                "target_exact_heads": target_exact_heads,
                 "source": "fixture" if args.fixture else "github_cli",
                 "privacy_mode": "public_safe_github_metadata",
                 "dry_run": True,

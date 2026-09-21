@@ -9,6 +9,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Callable
 
+from .selection_execution import normalize_fresh_audit_exact_heads
+
 GitHubJsonRunner = Callable[..., Any]
 
 DETAIL_FIELDS = (
@@ -19,6 +21,26 @@ DETAIL_FIELDS = (
     "createdAt",
     "commits",
     "reviews",
+)
+
+PR_LIST_FIELDS = (
+    "number",
+    "title",
+    "url",
+    "state",
+    "isDraft",
+    "headRefName",
+    "headRefOid",
+    "baseRefName",
+    "author",
+    "createdAt",
+    "updatedAt",
+    "closedAt",
+    "mergedAt",
+    "mergeCommit",
+    "changedFiles",
+    "additions",
+    "deletions",
 )
 
 
@@ -138,6 +160,80 @@ def attach_pr_review_details(
     for key in detail_fields:
         row[key] = details[key]
     return True
+
+
+def scan_github_pull_request_targets(
+    *,
+    repository: str,
+    exact_heads: Sequence[str],
+    cwd: Path | None = None,
+    run_gh_json: GitHubJsonRunner = run_gh_json,
+    wait_for_ci: bool = True,
+) -> dict[str, Any]:
+    """Read only explicitly requested exact heads, without scanning a queue."""
+
+    targets = normalize_fresh_audit_exact_heads(exact_heads)
+    if not targets:
+        raise ValueError("at least one target exact head is required")
+
+    pull_requests: list[dict[str, Any]] = []
+    for target in sorted(
+        targets, key=lambda item: (int(item.split("@", 1)[0]), item)
+    ):
+        number, expected_head = target.split("@", 1)
+        try:
+            row = run_gh_json(
+                [
+                    "pr",
+                    "view",
+                    number,
+                    "--json",
+                    ",".join(PR_LIST_FIELDS),
+                    "--repo",
+                    repository,
+                ],
+                cwd=cwd,
+            )
+        except Exception as exc:
+            raise RuntimeError(f"target PR #{number} metadata read failed") from exc
+        if not isinstance(row, dict):
+            raise RuntimeError(f"target PR #{number} metadata read was not an object")
+        actual_head = str(row.get("headRefOid") or "").strip().lower()
+        if actual_head != expected_head:
+            raise ValueError(
+                f"target PR #{number} head changed: expected {expected_head}, "
+                f"remote is {actual_head or 'unavailable'}"
+            )
+        details_ok = attach_pr_review_details(
+            row,
+            repository=repository,
+            cwd=cwd,
+            **({"wait_for_ci": False} if not wait_for_ci else {}),
+            run_gh_json=run_gh_json,
+        )
+        if not details_ok:
+            raise RuntimeError(f"target PR #{number} detail read was incomplete")
+        pull_requests.append(row)
+
+    return {
+        "schema_version": "pr_review_source_scan_v0",
+        "complete": True,
+        "mode": "exact_targets",
+        "requested_exact_heads": sorted(targets),
+        "observed_exact_heads": sorted(targets),
+        "pull_requests": pull_requests,
+        "states": [
+            {
+                "state": "exact_targets",
+                "fetch_limit": len(targets),
+                "fetched_count": len(pull_requests),
+                "included_after_window": len(pull_requests),
+                "detail_read_failures": 0,
+                "source_saturated": False,
+                "source_read_valid": True,
+            }
+        ],
+    }
 
 
 PR_REVIEW_DETAIL_MAX_WORKERS = 8

@@ -23,6 +23,7 @@ from .capabilities.pr_review_queue import (
     scheduling_tier,
 )
 from .capabilities.pr_review_queue.github_source import (
+    PR_LIST_FIELDS,
     attach_pr_review_details as _attach_pr_review_details,
 )
 from .capabilities.pr_review_queue.github_source import run_gh_json as _run_gh_json
@@ -230,25 +231,6 @@ def scan_github_pull_requests(
     search_date = _github_search_date(since)
     if search_date:
         search_args = ["--search", f"updated:>={search_date}"]
-    list_fields = [
-        "number",
-        "title",
-        "url",
-        "state",
-        "isDraft",
-        "headRefName",
-        "headRefOid",
-        "baseRefName",
-        "author",
-        "createdAt",
-        "updatedAt",
-        "closedAt",
-        "mergedAt",
-        "mergeCommit",
-        "changedFiles",
-        "additions",
-        "deletions",
-    ]
     fetch_limit = max(1, limit)
     if since:
         fetch_limit = max(fetch_limit, min(100, fetch_limit * 3))
@@ -267,7 +249,7 @@ def scan_github_pull_requests(
                 "--limit",
                 str(fetch_limit),
                 "--json",
-                ",".join(list_fields),
+                ",".join(PR_LIST_FIELDS),
                 *search_args,
                 *repo_args,
             ],
@@ -1045,6 +1027,7 @@ def build_pr_review_packet(
     source_scan: Mapping[str, Any] | None = None,
     reviewer_login: str | None = None,
     fresh_audit_exact_heads: Sequence[str] = (),
+    target_exact_heads: Sequence[str] = (),
     review_priority: object = DEFAULT_REVIEW_PRIORITY,
     wait_for_ci: bool = True,
 ) -> dict[str, Any]:
@@ -1053,6 +1036,7 @@ def build_pr_review_packet(
     generated_at_text = _now_iso()
     generated_at = _parse_timestamp(generated_at_text) or datetime.now(timezone.utc)
     requested_fresh_audits = normalize_fresh_audit_exact_heads(fresh_audit_exact_heads)
+    requested_targets = normalize_fresh_audit_exact_heads(target_exact_heads)
     normalized_all = [
         _normalize_pr(
             item,
@@ -1075,10 +1059,14 @@ def build_pr_review_packet(
             item, review_priority=normalized_priority
         )
     )
-    packet_limit = max(1, limit)
+    packet_limit = len(requested_targets) if requested_targets else max(1, limit)
     unmerged_all = [item for item in normalized_all if str(item.get("state") or "").upper() != "MERGED"]
     merged_all = [item for item in normalized_all if str(item.get("state") or "").upper() == "MERGED"]
-    if normalized_state_filter == "all":
+    if requested_targets:
+        normalized = normalized_all
+        unmerged_items = unmerged_all
+        merged_items = merged_all
+    elif normalized_state_filter == "all":
         unmerged_items = unmerged_all[:packet_limit]
         merged_items = merged_all[:packet_limit]
         normalized = unmerged_items + merged_items
@@ -1089,6 +1077,12 @@ def build_pr_review_packet(
     observed_exact_heads = {
         key for item in normalized if (key := exact_head_key(item))
     }
+    missing_targets = requested_targets - observed_exact_heads
+    if missing_targets:
+        raise ValueError(
+            "target exact head is absent from the current result: "
+            + ", ".join(sorted(missing_targets))
+        )
     missing_fresh_audits = requested_fresh_audits - observed_exact_heads
     if missing_fresh_audits:
         raise ValueError(
@@ -1132,7 +1126,13 @@ def build_pr_review_packet(
         "complete": complete,
         "truncated": not complete,
         "limit": packet_limit,
-        "limit_scope": "per_group" if normalized_state_filter == "all" else "filtered_queue",
+        "limit_scope": (
+            "exact_targets"
+            if requested_targets
+            else "per_group"
+            if normalized_state_filter == "all"
+            else "filtered_queue"
+        ),
         "source_scan_complete": source_scan_complete,
         "observed_count_is_lower_bound": not source_scan_complete,
         "observed_pr_count": len(normalized_all),
@@ -1222,7 +1222,7 @@ def build_pr_review_packet(
         "request": {
             "schema_version": "loopx_pr_review_command_request_v0",
             "command": COMMAND,
-            "cli_command": "loopx pr-review [--repo owner/repo] [--state open|merged|all] [--review-priority other-developers-first|owner-first] [--since ISO]",
+            "cli_command": "loopx pr-review [--repo owner/repo] [--target-exact-head NUMBER@HEAD_OID] [--state open|merged|all] [--review-priority other-developers-first|owner-first] [--since ISO]",
             "repository": repository,
             "limit": max(1, limit),
             "state_filter": normalized_state_filter,
@@ -1235,6 +1235,7 @@ def build_pr_review_packet(
             "reviewer_login": reviewer_login,
             "review_priority": normalized_priority.value,
             "fresh_audit_exact_heads": sorted(requested_fresh_audits),
+            "target_exact_heads": sorted(requested_targets),
             "include": [
                 "pull_request_list",
                 "result_completeness",
