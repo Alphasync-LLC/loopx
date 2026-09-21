@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
+import venv
 
 import pytest
 
@@ -68,6 +71,7 @@ def _projection_provider(
     *,
     projection: dict[str, object] | None = None,
     invocation_marker: Path | None = None,
+    interpreter: str | Path = sys.executable,
 ) -> Path:
     response = projection if projection is not None else _provider_projection()
     marker_statement = (
@@ -76,7 +80,7 @@ def _projection_provider(
         else f"Path({str(invocation_marker)!r}).write_text('called', encoding='utf-8')\n"
     )
     path.write_text(
-        f"""#!{sys.executable}
+        f"""#!{interpreter}
 import json
 from pathlib import Path
 import sys
@@ -352,6 +356,81 @@ def test_projection_publication_fails_when_validator_unavailable_on_execute(
         )
 
     assert not marker.exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX console-script shebang fixture")
+def test_projection_publication_loads_validator_from_isolated_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime_root = tmp_path / "provider-runtime"
+    venv.EnvBuilder(with_pip=False, symlinks=True).create(runtime_root)
+    runtime_python = runtime_root / "bin" / "python"
+    purelib = subprocess.run(
+        [
+            str(runtime_python),
+            "-I",
+            "-c",
+            "import sysconfig; print(sysconfig.get_paths()['purelib'])",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    validator_module = Path(purelib) / "isolated_presentation_validator.py"
+    validator_module.write_text(
+        "def validate_view(value):\n"
+        "    if value.get('runtime_marker') != 'isolated':\n"
+        "        raise ValueError('isolated validator rejected view')\n"
+        "    return value\n",
+        encoding="utf-8",
+    )
+    projection = _provider_projection()
+    projection["presentation_projection"]["view"]["runtime_marker"] = "isolated"
+    provider = _projection_provider(
+        runtime_root / "bin" / "isolated-provider",
+        projection=projection,
+        interpreter=runtime_python,
+    )
+    manifest = _projection_manifest(
+        tmp_path / "extension.toml",
+        entrypoint=provider,
+    )
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace(
+            "loopx.extensions.presentation:validate_opaque_presentation_view",
+            "isolated_presentation_validator:validate_view",
+        ),
+        encoding="utf-8",
+    )
+    state_file = tmp_path / "runtime" / "extensions" / "state.json"
+    install_extension(manifest, state_file=state_file, execute=True)
+    ambient = tmp_path / "ambient"
+    ambient.mkdir()
+    (ambient / "isolated_presentation_validator.py").write_text(
+        "raise RuntimeError('ambient PYTHONPATH must not be imported')\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PYTHONPATH", str(ambient))
+    assert str(Path(purelib)) not in sys.path
+
+    receipt = publish_extension_projection(
+        "test-research-extension",
+        "investment-research",
+        state_file=state_file,
+        request={"schema_version": "synthetic_request_v0"},
+        execute=True,
+    )
+
+    assert receipt["status"] == "published"
+    envelope = read_extension_projection(
+        state_file=state_file,
+        extension_id="test-research-extension",
+        surface_id="investment-research",
+        extension_revision=str(receipt["revision"]),
+        payload_sha256=str(receipt["payload_sha256"]),
+    )
+    assert envelope["view"]["runtime_marker"] == "isolated"
 
 
 def test_active_presentation_surfaces_project_empty_ready_and_review_due(

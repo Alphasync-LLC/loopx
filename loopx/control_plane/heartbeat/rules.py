@@ -28,7 +28,7 @@ HEARTBEAT_VISION_WRITEBACK_RULE_SHORT = (
 )
 REWARD_MEMORY_OUTCOME_RULE = (
     "`reward_memory_recall.experiment.automatic_ingest=true`: reusable Todo outcomes "
-    "add `--reward-memory-reflection-json <turn_reward_memory_reflection_v0 JSON>` "
+    "add `--reward-memory-reflection-json <turn_reward_memory_reflection_v1 JSON>` "
     "to refresh. LoopX stages privately; provider ingest needs caller-declared Todo "
     "validator to attest exact reflection digest/evidence, then exact writeback/spend "
     "readback. Missing attestation stays awaiting; zero provider calls. Never include "

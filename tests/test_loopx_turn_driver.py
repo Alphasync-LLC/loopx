@@ -2763,7 +2763,7 @@ def test_turn_run_once_commits_independently_validated_progress(
             "summary": "One intermediate fixture step passed validation.",
             "reward_memory_reflection_json": json.dumps(
                 {
-                    "schema_version": "turn_reward_memory_reflection_v0",
+                    "schema_version": "turn_reward_memory_reflection_v1",
                     "status": "eligible",
                     "surface_id": "agent_workflow.turn_admission",
                     "outcome_kind": "engineering",
@@ -2771,6 +2771,28 @@ def test_turn_run_once_commits_independently_validated_progress(
                     "reasoning_summary": "The independent validator passed.",
                     "confidence": "high",
                     "evidence_refs": ["artifact:fixture-validation"],
+                    "experience": {
+                        "schema_version": "procedural_experience_contract_v0",
+                        "applicability": ["Repeating the validated fixture sequence"],
+                        "observed_outcome": (
+                            "The independent validator accepted the fixture sequence."
+                        ),
+                        "attribution": (
+                            "The result is bound to the exact fixture validation artifact."
+                        ),
+                        "future_behavior": {
+                            "trigger": "The same fixture sequence must be repeated.",
+                            "action": "Reuse the verified fixture sequence.",
+                            "validation": "Run the independent fixture validator.",
+                            "stop_condition": (
+                                "Stop reuse when the fixture revision or validator changes."
+                            ),
+                        },
+                        "limitations": [
+                            "The sequence applies only to the validated fixture revision."
+                        ],
+                        "evidence_refs": ["artifact:fixture-validation"],
+                    },
                 }
             ),
         }
@@ -3145,7 +3167,7 @@ def test_turn_run_once_codex_cli_wires_validated_reflection_post_settlement(
     project, runtime, registry = _write_live_fixture(tmp_path)
     reflection = json.dumps(
         {
-            "schema_version": "turn_reward_memory_reflection_v0",
+            "schema_version": "turn_reward_memory_reflection_v1",
             "status": "eligible",
             "surface_id": "agent_workflow.turn_admission",
             "outcome_kind": "engineering",
@@ -3153,6 +3175,26 @@ def test_turn_run_once_codex_cli_wires_validated_reflection_post_settlement(
             "reasoning_summary": "The independent validator passed.",
             "confidence": "high",
             "evidence_refs": ["receipt:codex-cli-validator"],
+            "experience": {
+                "schema_version": "procedural_experience_contract_v0",
+                "applicability": ["Running the validated Codex CLI sequence"],
+                "observed_outcome": (
+                    "The independent validator accepted the Codex CLI sequence."
+                ),
+                "attribution": "The outcome is bound to the exact validator receipt.",
+                "future_behavior": {
+                    "trigger": "The same Codex CLI sequence is considered again.",
+                    "action": "Reuse the validated Codex CLI sequence.",
+                    "validation": "Require the exact Codex CLI validator receipt.",
+                    "stop_condition": (
+                        "Stop reuse when the sequence or validator revision changes."
+                    ),
+                },
+                "limitations": [
+                    "The result applies only to the validated CLI sequence."
+                ],
+                "evidence_refs": ["receipt:codex-cli-validator"],
+            },
         },
         separators=(",", ":"),
     )

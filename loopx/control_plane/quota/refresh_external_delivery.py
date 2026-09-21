@@ -3,7 +3,70 @@ from pathlib import Path
 from typing import Any
 
 from ...rollout_event_log import append_rollout_event, build_rollout_event, rollout_event_log_path
-from .settlement import QuotaSettlementReadback, settlement_result_payload
+from .effect_program import (
+    SettlementStepKind,
+    build_turn_scoped_cli_settlement_plan,
+)
+from .settlement import (
+    QuotaSettlementReadback,
+    settlement_result_payload,
+    settlement_step_command,
+)
+
+TURN_SETTLEMENT_OWED_SCHEMA_VERSION = "turn_settlement_owed_v0"
+
+
+def turn_settlement_owed(
+    readback: QuotaSettlementReadback,
+    *,
+    command_prefix: str = "loopx",
+) -> dict[str, Any] | None:
+    """Name the settlement step a committed writeback still owes.
+
+    A turn-scoped writeback appends the accountable run, but the Turn is only
+    settled once the quota spend for the same effect identity exists. Reporting
+    the writeback as finished hid that debt until the next wake raised
+    ``unsettled_host_turn_recovery``, so the owed step is named here together
+    with the exact command that pays it under the same identity.
+    """
+
+    identity = readback.identity.value
+    if identity is None or readback.spend_run is not None:
+        return None
+    owed: dict[str, Any] = {
+        "schema_version": TURN_SETTLEMENT_OWED_SCHEMA_VERSION,
+        "kind": "quota_spend",
+        "effect_id": identity.effect_id,
+        "goal_id": identity.goal_id,
+        "agent_id": identity.agent_id,
+        "todo_id": identity.todo_id,
+        "replan_obligation_id": identity.replan_obligation_id,
+        "turn_instance_id": identity.turn_instance_id,
+        "reason": (
+            "the writeback is committed but this Turn still owes its quota spend; "
+            "spend once for the same settlement identity and do not treat the "
+            "writeback alone as closeout"
+        ),
+        "recovery_does_not_spend": True,
+    }
+    if bool(identity.todo_id) == bool(identity.replan_obligation_id):
+        # A turn-scoped identity carries exactly one work item. Without it the
+        # debt is still owed, but no exact command can be offered.
+        return owed
+    plan = build_turn_scoped_cli_settlement_plan(
+        goal_id=identity.goal_id,
+        agent_id=identity.agent_id,
+        command_prefix=command_prefix,
+        todo_id=identity.todo_id,
+        replan_obligation_id=identity.replan_obligation_id,
+        scoped_cli_args="",
+        lifecycle_actor_args="",
+        turn_instance_id=identity.turn_instance_id,
+    )
+    command = settlement_step_command(plan.as_dict(), SettlementStepKind.QUOTA_SPEND)
+    if command:
+        owed["command"] = command
+    return owed
 
 
 def finish_external_delivery_refresh(
@@ -17,6 +80,13 @@ def finish_external_delivery_refresh(
         raise RuntimeError("TypeScript refresh external delivery result missing or invalid")
     payload["external_delivery"] = {k: v for k, v in plan.items() if k != "transition"}
     payload["external_sink_delivery_authorized"] = plan["authorized"] is True
+    if payload.get("ok") and not dry_run:
+        owed = turn_settlement_owed(readback)
+        if owed is not None:
+            # The committed writeback is not a closeout: name the step and the
+            # exact command this Turn still owes so the caller cannot mistake
+            # one for the other.
+            payload["settlement_owed"] = owed
     transition = plan.get("transition")
     if payload.get("ok") and transition and not dry_run:
         identity = readback.identity.value

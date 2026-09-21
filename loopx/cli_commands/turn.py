@@ -186,7 +186,9 @@ def handle_turn_command(
         # whether that host can launch here, so a caller never has to infer it
         # from the host id. The explicit runner hook is the one launchability
         # fact only this command layer knows.
-        operator_environ = operator_provider_environ(runtime_root)
+        # Goal state and machine authentication have different owners. A Goal
+        # runtime override must not select a different credential store.
+        operator_environ = operator_provider_environ()
         payload["managed_executor"] = managed_executor_binding(
             args.host,
             # The credential a managed Turn authenticates with is this
