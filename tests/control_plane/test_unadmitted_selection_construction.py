@@ -6,7 +6,9 @@ import shlex
 
 import pytest
 
-from loopx.cli_commands.quota import _requested_quota_action_selection_preflight
+from loopx.cli_commands.quota_action_selection import (
+    _requested_quota_action_selection_preflight,
+)
 from loopx.control_plane.work_items import interaction_contract
 from loopx.control_plane.work_items.action_selection_contract import (
     action_selection_needs_recovery,
