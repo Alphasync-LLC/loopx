@@ -1549,6 +1549,8 @@ def test_standard_codex_app_settlement_is_receipted_and_idempotent(
     binding = (
         "--agent-id",
         AGENT_ID,
+        "--todo-id",
+        TODO_ID,
         "--turn-instance-id",
         TURN_ID,
     )
