@@ -18,14 +18,11 @@ from .list_projection import compact_explicit_limit_todo_summary
 from .succession_warning import public_todo_summary
 from .contract import (
     build_todo_id,
-    normalize_todo_blocks_agent,
-    normalize_todo_bound_agent,
     normalize_todo_claimed_by,
-    normalize_todo_excluded_agents,
     normalize_todo_id,
     normalize_todo_status,
 )
-from .todo_summary import compact_evaluated_todo_group, compact_todo_group, todo_item_status
+from .todo_summary import compact_evaluated_todo_group, compact_todo_group
 
 
 def empty_todo_summary(*, role: str) -> dict[str, Any]:
@@ -40,17 +37,6 @@ def empty_todo_summary(*, role: str) -> dict[str, Any]:
         "first_open_items": [],
     }
 
-def _user_todo_visible_to_agent(item: dict[str, Any], agent_id: str) -> bool:
-    if bool(item.get("global_gate")):
-        return True
-    blocks_agent = normalize_todo_blocks_agent(item.get("blocks_agent"))
-    if blocks_agent:
-        return blocks_agent == agent_id
-    bound_agent = normalize_todo_bound_agent(item.get("bound_agent"))
-    if bound_agent:
-        return bound_agent == agent_id
-    return True
-
 def filtered_todo_summary(
     summary: dict[str, Any] | None,
     *,
@@ -61,36 +47,9 @@ def filtered_todo_summary(
     item_limit: int | None = None,
 ) -> dict[str, Any]:
     items = list((summary or {}).get("items") or [])
-    normalized_status = normalize_todo_status(status)
-    if normalized_status:
-        items = [item for item in items if todo_item_status(item) == normalized_status]
-    normalized_todo_id = normalize_todo_id(todo_id) if todo_id else None
-    if normalized_todo_id:
-        items = [
-            item
-            for item in items
-            if normalize_todo_id(item.get("todo_id")) == normalized_todo_id
-        ]
-    normalized_agent_id = normalize_todo_claimed_by(agent_id) if agent_id else None
-    if normalized_agent_id:
-        if role == "agent":
-            items = [
-                item
-                for item in items
-                if normalized_agent_id
-                not in normalize_todo_excluded_agents(item.get("excluded_agents"))
-                and (
-                    not normalize_todo_claimed_by(item.get("claimed_by"))
-                    or normalize_todo_claimed_by(item.get("claimed_by"))
-                    == normalized_agent_id
-                )
-            ]
-        elif role == "user":
-            items = [
-                item
-                for item in items
-                if _user_todo_visible_to_agent(item, normalized_agent_id)
-            ]
+    selection = {"role": role, "status": normalize_todo_status(status),
+        "todo_id": normalize_todo_id(todo_id) if todo_id else None,
+        "agent_id": normalize_todo_claimed_by(agent_id) if agent_id else None}
     source_section = str((summary or {}).get("source_section") or TODO_SECTION_HEADINGS[role])
     return (
         compact_evaluated_todo_group(
@@ -98,7 +57,7 @@ def filtered_todo_summary(
             source_section=source_section,
             role=role,
             item_limit=item_limit,
-            full_selection=not (normalized_status or normalized_todo_id or normalized_agent_id),
+            selection=selection,
         )
         or empty_todo_summary(role=role)
     )

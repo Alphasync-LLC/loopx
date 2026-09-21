@@ -1,7 +1,7 @@
 # RFC: Live Team Workspace v0
 
 - **RFC status:** Draft; proposed product and presentation decisions.
-- **Delivery maturity:** Design only. An isolated synthetic visual exploration does not qualify production execution or streaming.
+- **Delivery maturity:** Partial implementation: bounded team inspection is shipped; the readable result/comparison slice is proposed in [#4828](https://github.com/loopx-project/loopx/pull/4828). Spatial streaming remains a design, not production qualification.
 - **Owners:** existing workspace presentation, collaboration and runtime owners.
 - **Created / normative revision:** 2026-09-20.
 - **Implementation baseline:** `e7ef75c08`.
@@ -309,16 +309,27 @@ Pausing the coordinator does not stop dispatched workers: name those workers and
 the remaining execution scope. If worker cancellation is unsupported, state it
 explicitly; a whole-team stop claim requires worker-owner termination readback.
 
-Implementation checkpoint (2026-09-20): [#4762](https://github.com/loopx-project/loopx/pull/4762)
-is open and proposes version-bound response/revision/use inputs, explicit
-requester adoption into an accepted downstream artifact, evidence navigation,
-contextual feedback and scoped coordinator pause. File/SQLite, CLI/MCP and
-packaged-browser checks cover that local slice; the real GPT attempt stopped at
-MCP tool approval before an accepted artifact. This is neither shipped acceptance
-nor L1 qualification. Review and reuse that producer rather than rebuilding it.
+Implementation checkpoint (2026-09-21): [#4762](https://github.com/loopx-project/loopx/pull/4762)
+and [#4811](https://github.com/loopx-project/loopx/pull/4811) are merged. The latter
+records native Codex MCP execution and a real-model correction/acceptance/adoption
+qualification. This retires the earlier host-approval blocker; it does not prove
+the released first-use journey, two continuing cycles or observer comprehension.
+Reuse the existing version-bound readback, feedback and scoped pause owners.
+The presentation slice in #4828 returns readable reports to the original Goal
+conversation and compares an explicitly selected dependency with the accepted
+output, preferring the same artifact name/type. The referenced artifact and hash
+must match; source text stays inspectable, with no inferred JSON narrative. A newer,
+missing or unverified source must not silently replace the requested version.
+Text differences do not establish semantic correctness or requester adoption.
+Keep readable output and comparison prominent; retain raw identifiers in details.
+Merged [#4814](https://github.com/loopx-project/loopx/pull/4814) adds confirmation
+of one canonical team plan from manager and Goal Lark cards. Authenticated card
+bindings and the shared decision owner prevent a second click from creating a
+second assignment. This strengthens the optional request/intervention entry;
+real dual-card click-through remains post-install acceptance. It does not prove
+execution, result return or whole-team stopping.
 `consume_return` alone still means consumption, not version-bound adoption.
-Qualify the substantive independent objection, correction and useful synthesis
-through the selected real-model episode before claiming L1. Motion is retained
+Motion is retained
 only when it clarifies these transitions;
 remove effects that obscure absent execution, absent acceptance or source loss.
 Broader semantic zoom, extra actors and renderer experiments follow this exit.

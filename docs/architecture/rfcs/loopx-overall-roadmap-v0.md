@@ -130,6 +130,11 @@ reliability, privacy equivalence or conversion rates from this investigation.
    Codex and Ark are configurations, not universal preferences. Surface the
    effective choice; never copy credentials, migrate old sessions or silently
    fall back outside authorization. Missing readiness offers a concrete repair.
+   Credentials are machine-owned; member allocation and requester grants are
+   Goal-owned. The mixed-team showcase must reuse configured runtimes with
+   adjustable member counts, show exact resolved models and interpreter readiness,
+   and qualify dependent artifacts through independent acceptance and adoption
+   before presenting a one-action launch as release-ready.
 3. Give the steward a real task without first constructing a team or learning
    Goal/Todo/Turn vocabulary. Preview relevant scope, outputs and resource limits;
    routine already-authorized reversible work proceeds without repeated cards.
@@ -149,6 +154,12 @@ issue-to-reviewed-patch is the next already-owned use case, not a second blocker
 for the first research preview. Lark is an optional later transport using the
 same session, audience and result owners; first local onboarding must not require
 Lark configuration. CLI readback remains part of every claimed local journey.
+Merged [#4814](https://github.com/loopx-project/loopx/pull/4814) advances this
+optional S1/S5 entry: manager and Goal Lark cards share one canonical team-plan
+decision, authenticated delivery bindings and retry recovery. Qualify real
+dual-card interaction separately; assignment is not execution, adoption or a
+completed research journey. Keep readable results and local first use on the
+critical path, then connect that proven journey to the optional Lark entry.
 
 #### Delivery order, owners and release claims
 
@@ -161,7 +172,7 @@ support. A missing dependency moves the date, not the acceptance bar.
 | Stage / cumulative target | Complete work and existing owner | Exit / permitted claim |
 | --- | --- | --- |
 | Narrative and storyboard · 2–3 working days | S1/S5/S13: one audience, one task, first-screen design, 60–90s script, bilingual copy and public evidence plan | Reviewable polished draft; label concepts and replays. No runnable-product claim |
-| Recorded product preview · 5–7 working days | R2/R3 + S5: review/integrate #4762, resolve supported host-tool authorization, run one real L1 correction; refine the actual result and evidence view | Packaged frontend plus CLI show exact-version objection/revision/acceptance/adoption, intervention and scoped stop. Record an actual run; no synthetic activity presented as live |
+| Recorded product preview · 5–7 working days | R2/R3 + S5: reuse merged collaboration and host-tool authorization, run one reproducible L1 correction; refine the actual result and evidence view | Packaged frontend plus CLI show exact-version objection/revision/acceptance/adoption, intervention and scoped stop. Record an actual run; no synthetic activity presented as live |
 | Focused public alpha · 2–3 weeks | S1/S4/S12: release-package onboarding, intent-respecting steward/Chat selection, readiness repair, single-Agent fallback, restart/reconnect and useful result return; S5 supplies focused team view | Freeze five independent clean-install attempts before testing; at least four reach the first useful result without maintainer shell intervention, all failures retained. G1's two real cycles must pass before advertising continued team collaboration |
 | Repeatable beta / full launch kit · 4–6 weeks | S4/S5/S10/S12/S13: upgrade/rollback, revoke/unavailable/quota recovery, pilot-driven UX, measured cost and support; qualify optional Lark separately | At least three independent users repeat a task on another day; publish denominator, interruptions and limitations. Each advertised platform/transport has its own release-artifact evidence |
 
@@ -173,13 +184,14 @@ onboarding time (including prerequisites/login) and the post-readiness interval;
 authentication or environment failures stay in the funnel. A small pilot is
 feedback, not statistical reliability or product-market fit.
 
-The critical path is host/tool readiness → real L1 episode → packaged first-use
-repair → independent reproduction. #4758 is merged design; #4762 is open at this
-revision and does not establish a shipped or real-model-qualified journey.
-Its GPT trial ended at MCP approval with no accepted artifact. Resolve the
-supported authorization path with its owner; never turn off approval globally
-to obtain a recording. Existing implementation successors remain authoritative;
-inspect canonical Todos and related PRs before assigning a new slice.
+The critical path is usable evidence presentation → a reproducible real episode →
+packaged first-use repair → independent reproduction. As of 2026-09-21, #4762 and
+#4811 are merged; #4811 records native Codex MCP execution and a real-model
+correction lifecycle. The earlier MCP approval block is resolved. This evidence
+does not establish a released first-use journey, two continuing cycles or a
+polished launch film. Reuse those owners and canonical Todos; qualify the actual
+release package and record the episode through its frontend before publishing.
+Never disable approvals globally to obtain a recording.
 
 The first launch does not wait for hundred-Agent scale, a new state provider,
 full 3D, all hosts, mobile-native shells, a connector marketplace, payment/booking
@@ -250,6 +262,7 @@ This maps **all 30 primary RFCs** at the scope baseline, counting language mirro
 | [Provider-Neutral Turn-Start Inbox Hook v0](provider-neutral-turn-start-inbox-hook-v0.md) | S3/S8 | Implemented with explicit configuration | P0 hardening: bounded read→semantic triage→ACK/replay; preserve default-off and private provider cursors |
 | [Provider-Neutral Post-Writeback Capability Hooks v0](provider-neutral-post-writeback-capability-hooks-v0.md) | S3/S8 | Draft; first periodic-report vertical implemented | P1: R3 return/successors reuse durable intent; isolate hook failure, no primary-transaction coupling/direct effects |
 | [Agent IM, LoopX, And OpenViking Collaboration v0](agent-im-openviking-collaboration-v0.md) | S3/S6/S8 | Draft; three-owner integration unqualified | P1/P2: separate IM delivery, LoopX work authority and OV context; reconnect/revoke/source-loss cases |
+| [External Evidence Research Capability v0](external-evidence-research-capability-v0.md) | S8/S11 | Draft; typed Core plan/admission/retirement and CLI slice implemented | P1: qualify one host-method and one connector execution with the same provenance receipt; then add frontend/Lark projection companions |
 | [Per-Goal Usage, Token, and Cost Surfacing v0](goal-usage-token-cost-v0.md) | S7/S5 | Draft; Codex aggregate/cost display slice exists | P0 observation→P1 provider coverage: unknown is not zero, deduplicate accounting, price source/freshness; usage grants no budget |
 | [Intelligent Review and Dynamic Presentation Surfaces v0](intelligent-review-presentation-surfaces-v0.md) | S5 | Draft; action/attention verticals and local delivery-chain/acceptance review implemented | P1: cross-channel disclosure and governed amendment/settlement review; local visibility does not qualify G2 |
 | [Human Attention Wishlist v0](human-attention-wishlist-v0.md) | S5/S11 | Draft; Held | P3: reopen only on repeated second real need; sidecar cannot alter gates/quota/scheduling |

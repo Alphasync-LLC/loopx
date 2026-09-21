@@ -496,7 +496,7 @@
         "unsettled_host_turn_recovery": "A host Turn is unsettled and must be recovered before anything else: the selected Todo and action portfolio are dropped, should_run is set, and normal, recovery and self-repair delivery are all refused."
       },
       "producers": [
-        "loopx/cli_commands/quota.py::_apply_requested_quota_action_selection_preflight",
+        "loopx/control_plane/work_items/action_selection_contract.py::build_action_selection_recovery_fields",
         "loopx/control_plane/quota/decision_summary.py::_task_orchestration_effective_action",
         "loopx/control_plane/quota/decision_summary.py::quota_effective_action",
         "loopx/control_plane/quota/decision_summary.py::resolve_quota_run_decision",
@@ -505,8 +505,7 @@
         "loopx/control_plane/work_items/action_portfolio.ts::reconcileRetainedActionSelection",
         "loopx/control_plane/quota/projection_repair.py::build_boundary_projection_repair_hint",
         "loopx/control_plane/quota/projection_repair.py::build_state_projection_gap_repair_hint",
-        "loopx/control_plane/quota/settlement_precedence.py::apply_settled_replay_payload_precedence",
-        "loopx/control_plane/quota/settlement_precedence.py::apply_settled_replay_route_precedence",
+        "loopx/control_plane/quota/settlement_precedence.py::settled_replay_fields",
         "loopx/control_plane/quota/should_run.py::build_quota_paused_should_run_payload",
         "loopx/control_plane/quota/should_run_packet.py::_apply_agent_monitor_only_precedence",
         "loopx/control_plane/quota/should_run_packet.py::_resolve_quota_should_run_route",
@@ -1109,9 +1108,9 @@
           "typescript_migration_surface": 1
         },
         "protocol_action_packet": {
-          "python_module_budget": 5,
+          "python_module_budget": 1,
           "typescript_module_budget": 2,
-          "python_migration_surface": 5,
+          "python_migration_surface": 1,
           "typescript_migration_surface": 2
         }
       }

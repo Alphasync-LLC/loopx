@@ -11,7 +11,12 @@ Preview it explicitly:
 loopx quota should-run --goal-id <goal-id> --agent-id <agent-id> --turn-envelope
 ```
 
-The default `quota should-run` output remains unchanged. The v0 envelope keeps:
+The envelope flag selects a projection of the full decision. The original v0
+contract left the default `quota should-run` output unchanged; the
+[PR-05 migration](protocol-action-packet-decision-v0.md) omits
+`protocol_action_packet` from new full decisions, including live, paused and
+recovery output, from the first release containing #4794. Historical v0 reads
+remain supported for the v0 reader lifetime. The v0 envelope keeps:
 
 - the selected todo, claim, and effective action;
 - the bounded action portfolio when the agent must choose among multiple
@@ -144,15 +149,26 @@ The compact envelope does not truncate those executable commands into unusable
 strings. It carries non-exhaustive `writeback.suggested_todo_ids` plus
 `selection_command_ref`; the full decision remains the authority for exact argv.
 
-`protocol_action_packet` remains in the full decision/cold path. The envelope
-reconstructs its ordered semantic fields from `action`, `user`, work-lane,
-automation, and scheduler contracts, while carrying the explicit
-`llm_policy=no_api` invariant. When the reconstruction matches exactly, the
-capsule keeps only the source summary hash and derivation status. If a compact
-action differs, it keeps only that field-level `residue`; if an older or opaque
-packet cannot be reconstructed, it retains the original summary. This removes
-repetition only after parity and does not change source packet persistence or
-the default quota output.
+Historical full decisions may carry `protocol_action_packet`. For those inputs,
+the envelope reconstructs its ordered semantic fields from `action`, `user`,
+work-lane, automation, and scheduler contracts, while carrying the explicit
+`llm_policy=no_api` invariant. Exact reconstruction retains the source summary
+hash and derivation status; a differing compact action retains field-level
+`residue`; an opaque summary follows `unverified_retain_summary`. These remain
+historical read paths and do not rewrite stored packets or envelopes.
+
+Under PR-05, a new source without a packet produces no
+`contract_capsule.protocol_action_packet` witness. The ordered semantic
+projection `protocol_action_packet_fields` and historical summary renderer
+remain; packet absence does not remove typed obligations or their signature
+coverage. Source and envelope signature documents must match for that input.
+Compared with a packet-bearing source, the document may lack the capsule's
+packet witness and have a different hash. This is not a cross-version hash
+compatibility promise; existing signature checks and historical signatures
+remain intact. The v1.1.0 reader/host accepts the tested new and stored v0 examples.
+The [migration contract](protocol-action-packet-decision-v0.md) defines the
+release boundary, v0 reader lifetime, consumer set and rollback steps; unknown
+external readers and complete private archives are not implicitly qualified.
 
 Large todo summaries, frontier diagnostics, readiness history, compatibility
 fields, and warning collections stay on the referenced full-decision/status
@@ -227,8 +243,9 @@ monitor, user-gate, capability-gate, workspace-guard, and blocked states.
 promotion fixture. It covers delivery, monitor quiet-skip, user gate,
 capability gate, workspace guard, autonomous replan, successor replan,
 blocked, and throttled decisions. Every case must preserve the canonical action
-signature, reconstruct `protocol_action_packet`, and remain within the 8 KiB
-budget.
+signature and remain within the 8 KiB budget. Historical packet-bearing inputs
+must retain their reconstruction, residue, or opaque-summary witness; inputs
+without a packet must preserve typed obligations without inventing a witness.
 
 The matrix records exact measurements in validation rather than treating a
 dated size range as the contract. This keeps the projection available as an

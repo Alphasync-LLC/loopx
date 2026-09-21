@@ -13,6 +13,8 @@ import subprocess
 import sys
 import uuid
 
+from loopx.control_plane.operator_provider import operator_provider_environ
+
 from scenario import REVISIONS, roster, encoded, evidence, task
 from acceptance import GOAL, canonical_tasks, require_completed, todo_id, validate_delivery, validate_member
 from execution import host_arguments, configure_delegations
@@ -166,8 +168,8 @@ def prepare_execution(root: Path, model: str, environment_id: str, dsh_model: st
 def launch(root: Path, model: str, environment_id: str, dsh_model: str, topology: str = "local-led") -> dict:
     if importlib.util.find_spec("deepseek_harness") is None:
         raise ValueError("install_loopx_deepseek_harness_extra_in_this_interpreter")
-    if not os.environ.get("ARK_API_KEY") or not os.environ.get("DEEPSEEK_API_KEY"):
-        raise ValueError("ARK_API_KEY_and_DEEPSEEK_API_KEY_required")
+    if not os.environ.get("ARK_API_KEY") or not operator_provider_environ().get("DEEPSEEK_API_KEY"):
+        raise ValueError("ARK_API_KEY_and_machine_or_environment_DEEPSEEK_credential_required")
     prepare_execution(root, model, environment_id, dsh_model, topology)
     os.environ["LOOPX_RESEARCH_DEMO_ROOT"] = str(root)
     result = turn(root, "lead", "report", root / "lead", [sys.executable, str(HERE / "research_team.py"), "validate-report", str(root)],

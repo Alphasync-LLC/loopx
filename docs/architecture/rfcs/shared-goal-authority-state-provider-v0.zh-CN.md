@@ -2527,6 +2527,13 @@ adapter，也不依赖 PostgreSQL service 部署。
 | I. Binding 与资格集成 | C 与选定 profile 的资格化完成后 | 绑定一个精确 provider lineage、field manifest、source revision、digest 与 cursor；资格化显式 v0 import、排序/归档/consumer parity 与 recovery/capacity；缺字段时不得查询 legacy state 补齐。 | 长程本地集成需要 L，不等待 P；PostgreSQL 仅在自己的 P hold 全通过后汇合。 |
 | F. Promotion 与清理 | I 完成且 maintainer 显式批准后 | 完成 provider-first CLI routing、持锁 promotion orchestrator、兼容投影 outbox、晋升后 fenced export/rollback；随后删除重复 reference aggregate，并翻转经评审的 stage/hold 声明。 | 每个 profile 必须通过 C、I 与自身 provider 资格化；长程本地晋升还需 L，PostgreSQL 还需 P。 |
 
+Agent 定向读取检查点：Todo list 筛选已进入现有 TS summary 批次，与 quota 共用
+User gate/action 及 Agent claim 范围规则；legacy 和 canonical 消费者中的 Python
+列表谓词已删除。完整来源上的 resume/succession 与筛选后的计数不受展示上限影响。
+这只闭合 L5 的一个消费者，不代表 D1 永久新鲜度或 provider 晋升。见[读取合同](../../reference/todo-work-counts.md)。
+剩余 caller/executor、consumer recovery、contributor D2、capture/整 Goal 演练和默认
+onboarding 仍按 **5–8 个完整 PR** 条件估计，不能按本次修复机械递减。
+
 ## 附录 D：执行账本
 
 本 RFC 的交付记录是 [`ledger/shared-goal-authority-state-provider-v0/`](ledger/shared-goal-authority-state-provider-v0/) 下的文件，
