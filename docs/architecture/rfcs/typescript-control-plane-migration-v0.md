@@ -1062,6 +1062,17 @@ or every T3 consumer. Python retains codecs, IO and the documented legacy route
 prose hint until its remaining writers emit explicit replan flags; no new
 capability/provider or parallel business authority is introduced.
 
+The quota admission/settlement consumer now resolves explicit Todo selection
+from the complete unified Todo reader before display compaction. It removes the
+direct Markdown candidate append while preserving the pre-promotion event
+adapter. Post-promotion empty or unavailable authority cannot revive display
+rows. Settlement progress is reduced from the existing TS receipt chain;
+Python renders identity-complete commands and both JSON/Markdown readbacks.
+The existing idempotent writer repairs a missing spend receipt without a second
+debit. This closes the demonstrated T3 consumer gap, not D1–D3, provider
+promotion, or the remaining Python transaction adapters. See the
+[operating contract](../../quota-allocation.md#receipt-backed-settlement-progress).
+
 **T4 — collect full-writer retirement after durability cutover.**
 
 - The 2026-09-19 command audit retires two already-typed but unconsumed
