@@ -295,6 +295,15 @@ def main() -> int:
         assert blocked_turn["scheduler_hint"]["unchanged_poll"][
             "local_scheduler"
         ] == "stop", blocked_turn
+        assert blocked_turn["automation_liveness"]["keep_active"] is False, (
+            blocked_turn
+        )
+        assert blocked_turn["automation_liveness"]["pause_allowed"] is True, (
+            blocked_turn
+        )
+        assert blocked_turn["automation_liveness"]["automation_action"] == (
+            "stop_peer_coordination_blocked"
+        ), blocked_turn
         assert blocked_turn["interaction_contract"]["cli_channel"][
             "spend_after_validation"
         ] is False, blocked_turn

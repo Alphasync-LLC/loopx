@@ -725,6 +725,12 @@ gap, autonomy blocker, or replan obligation fail closed. This keeps recurring
 controllers alive during ordinary waits while honoring an explicit completed
 goal shutdown without another quota-spending turn.
 
+An explicit `peer_coordination_blocked` decision is also a typed host stop, not
+an ordinary quiet wait. Its `automation_liveness` and `scheduler_hint` both
+require the current recurring heartbeat to stop without spending quota. The
+host resumes only after peer activation capability, peer runtime readiness,
+coordinator configuration, or the local work frontier materially changes.
+
 An individual registered peer can instead be put in `monitor_only` work mode:
 
 ```bash
