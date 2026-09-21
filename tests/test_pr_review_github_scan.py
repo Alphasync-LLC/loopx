@@ -276,6 +276,48 @@ def test_pr_list_marks_source_incomplete_when_rest_files_are_still_truncated(
     assert "files" not in scan["pull_requests"][0]
 
 
+def test_exact_target_read_skips_lifecycle_queue_scan(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    def fake(args: list[str], *, cwd: Path | None = None):
+        calls.append(args)
+        assert args[:2] == ["pr", "view"]
+        requested_fields = set(args[args.index("--json") + 1].split(","))
+        if "number" in requested_fields:
+            return _rows()[int(args[2]) - 1]
+        return _fake_run_gh_json(args, cwd=cwd)
+
+    scan = github_source_module.scan_github_pull_request_targets(
+        repository="owner/repo",
+        exact_heads=[f"1@{HEAD_1}", f"2@{HEAD_2}"],
+        run_gh_json=fake,
+    )
+
+    assert scan["complete"] is True
+    assert scan["mode"] == "exact_targets"
+    assert scan["requested_exact_heads"] == [f"1@{HEAD_1}", f"2@{HEAD_2}"]
+    assert [row["number"] for row in scan["pull_requests"]] == [1, 2]
+    assert len(calls) == 4
+    assert all(call[:2] == ["pr", "view"] for call in calls)
+    assert not any(call[:2] == ["pr", "list"] for call in calls)
+
+
+def test_exact_target_read_fails_closed_when_remote_head_changed(
+    monkeypatch,
+) -> None:
+    def fake(args: list[str], *, cwd: Path | None = None):
+        row = _rows()[0]
+        row["headRefOid"] = HEAD_2
+        return row
+
+    with pytest.raises(ValueError, match="head changed"):
+        github_source_module.scan_github_pull_request_targets(
+            repository="owner/repo",
+            exact_heads=[f"1@{HEAD_1}"],
+            run_gh_json=fake,
+        )
+
+
 def test_security_policy_keeps_public_entry_classification_after_move() -> None:
     assert pr_review_module._file_area(".github/SECURITY.md") == (
         "public_entry_or_policy"
@@ -982,6 +1024,45 @@ def test_queue_prioritizes_other_developers_by_default(monkeypatch) -> None:
     assert [item["number"] for item in packet["pull_requests"]] == [32, 31]
     assert packet["request"]["review_priority"] == "other-developers-first"
     assert packet["scheduling_policy"]["other_developers_first_active"] is True
+
+
+def test_exact_target_packet_is_complete_without_queue_inventory(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(pr_review_module, "_now_iso", lambda: "2026-08-18T12:00:00Z")
+    row = _queue_pr(
+        31,
+        author="maintainer",
+        ready_at="2026-08-17T06:00:00Z",
+        updated_at="2026-08-18T11:58:00Z",
+    )
+    exact_head = f"31@{row['headRefOid']}"
+
+    packet = pr_review_module.build_pr_review_packet(
+        pull_requests=[row],
+        repository="owner/repo",
+        limit=100,
+        source="github_cli_exact_targets",
+        target_exact_heads=[exact_head],
+        reviewer_login="maintainer",
+    )
+
+    assert packet["request"]["target_exact_heads"] == [exact_head]
+    assert packet["result_completeness"]["complete"] is True
+    assert packet["result_completeness"]["limit_scope"] == "exact_targets"
+    assert packet["result_completeness"]["limit"] == 1
+    assert packet["result_completeness"]["recommended_limit"] is None
+    assert [item["number"] for item in packet["pull_requests"]] == [31]
+
+    with pytest.raises(ValueError, match="target exact head is absent"):
+        pr_review_module.build_pr_review_packet(
+            pull_requests=[row],
+            repository="owner/repo",
+            limit=100,
+            source="fixture",
+            target_exact_heads=[f"32@{HEAD_2}"],
+            reviewer_login="maintainer",
+        )
 
 
 def test_community_feedback_and_aged_backlog_precede_remaining_queue(

@@ -46,7 +46,7 @@ workflow or the merge-focused `loopx-pr-merge` skill.
 
 | Command | CLI reference | Intent |
 | --- | --- | --- |
-| `/loopx-pr-review` | `loopx pr-review [--repo owner/repo] [--state open\|merged\|all] [--review-priority other-developers-first\|owner-first] [--since ISO] [--fresh-audit-exact-head NUMBER@HEAD_OID]` | List open and merged PRs for the current project or explicit repository, provide concrete main-regression analysis for each actionable PR, and include a blank five-block template that agentloop fills after reading the selected PR body/diff. The default prioritizes non-owner developer PRs; `owner-first` opts into owner priority. A typed exact-head option is required to re-audit an unchanged concluded head. |
+| `/loopx-pr-review` | `loopx pr-review [--repo owner/repo] [--target-exact-head NUMBER@HEAD_OID] [--state open\|merged\|all] [--review-priority other-developers-first\|owner-first] [--since ISO] [--fresh-audit-exact-head NUMBER@HEAD_OID]` | Review a small explicit batch with repeatable `--target-exact-head`, or list a lifecycle queue when no target is supplied. Both paths provide concrete main-regression analysis and the five-block review contract. The default queue prioritizes non-owner developer PRs; `owner-first` opts into owner priority. `--fresh-audit-exact-head` separately forces new evidence for an unchanged concluded head. |
 | pre-merge readback | `loopx pr-review --repo owner/repo --check-merge-readiness NUMBER@HEAD_OID` | Immediately before merge, fail closed unless the remote PR is still open at the reviewed head, its standalone conclusion approves that head, all checks are successful or skipped, review-thread pagination is complete with no unresolved thread, and merge state is compatible. This read grants no merge authority. |
 
 The slash command must run the CLI first. Agentloop must not reconstruct the
@@ -61,6 +61,20 @@ templates enter the model context:
 ```bash
 loopx --format json pr-review --state all [--repo owner/repo] [--since ISO]
 ```
+
+When the user explicitly names one or a few PRs, resolve each current head and
+request only those exact heads. This direct path is complete for the named
+targets and must not be expanded into a historical queue merely to satisfy
+queue completeness:
+
+```bash
+loopx --format json pr-review --repo owner/repo \
+  --target-exact-head 4868@0123456789abcdef0123456789abcdef01234567
+```
+
+The option is repeatable. A remote head mismatch fails closed. Use
+`--fresh-audit-exact-head` in addition only when an unchanged target already has
+a valid conclusion and the user explicitly requests new evidence.
 
 The live source scan keeps the list query lightweight and enriches each PR's
 nested commits, reviews, and checks with a bounded pool of concurrent

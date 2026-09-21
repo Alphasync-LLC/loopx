@@ -90,6 +90,7 @@ def main() -> int:
         "Never send the projection ACK before the Todo exists",
         "Generic `re-review`, `重新review`, and `复审` wording selects the named PR; it is not a force-refresh token.",
         "the row stays in `pull_requests` inventory but must not appear in `review_sequence`",
+        "--target-exact-head NUMBER@HEAD_OID",
     ):
         assert phrase in skill_text, phrase
     assert len(skill_source.splitlines()) <= 180, len(skill_source.splitlines())
@@ -229,7 +230,7 @@ def main() -> int:
     assert request["command"] == "/loopx-pr-review", request
     assert (
         request["cli_command"]
-        == "loopx pr-review [--repo owner/repo] [--state open|merged|all] [--review-priority other-developers-first|owner-first] [--since ISO]"
+        == "loopx pr-review [--repo owner/repo] [--target-exact-head NUMBER@HEAD_OID] [--state open|merged|all] [--review-priority other-developers-first|owner-first] [--since ISO]"
     ), request
     assert request["privacy_mode"] == "public_safe_github_metadata", request
     assert request["dry_run"] is True, request
@@ -253,6 +254,18 @@ def main() -> int:
     assert payload["summary"]["total_pr_count"] == 4, payload["summary"]
     assert payload["summary"]["open_pr_count"] == 3, payload["summary"]
     assert payload["summary"]["merged_pr_count"] == 1, payload["summary"]
+    target = payload["pull_requests"][0]
+    exact_target = f"{target['number']}@{target['head_oid']}"
+    targeted = json.loads(
+        run_cli(
+            "--format", "json", "pr-review", "--fixture", str(FIXTURE),
+            "--target-exact-head", exact_target,
+        ).stdout
+    )
+    assert targeted["request"]["target_exact_heads"] == [exact_target], targeted
+    assert targeted["result_completeness"]["complete"] is True, targeted
+    assert targeted["result_completeness"]["limit_scope"] == "exact_targets", targeted
+    assert [item["number"] for item in targeted["pull_requests"]] == [target["number"]]
     assert payload["summary"]["post_merge_review_count"] == 1, payload["summary"]
     assert payload["summary"]["review_attention_count"] == 3, payload["summary"]
     assert payload["summary"]["draft_count"] == 1, payload["summary"]

@@ -17,14 +17,14 @@ state or time window. Route approval, merge, self-merge, and admin bypass to
 `loopx-pr-merge` (optional repo-kept workflow, not installed by default) after
 the evidence review is complete; it never replaces this skill's exact-head gate.
 
-Run `loopx --format json pr-review --state all` before ad hoc GitHub reads.
+For named PRs, resolve heads and run repeatable `--target-exact-head NUMBER@HEAD_OID`; run `loopx --format json pr-review --state all` only for queue intent, never to expand explicit targets into historical inventory.
 
 Translate only explicit filters:
 
 - `--repo owner/repo`
 - `--since ISO`
 - `--state open|merged|all`
-- `--limit N`
+- `--limit N`; `--target-exact-head NUMBER@HEAD_OID` (repeatable direct read)
 - `--review-priority other-developers-first|owner-first` (default `other-developers-first`; use `owner-first` to opt into owner priority)
 When omitted, the CLI resolves `pull_request_review` from the standard machine
 capability editor; an absent namespace keeps the default `other-developers-first`.
@@ -43,9 +43,9 @@ paths named by `agent_response_contract.required_packet_fields_to_preserve`:
 - `pull_requests[review_action_kind!=null].review_template`
 - `pull_requests[review_action_kind!=null].evidence_commands`
 
-Do not pipe the only copy through `jq`. When an exhaustive request has
+Do not pipe the only copy through `jq`. When an exhaustive queue request has
 `result_completeness.complete=false`, rerun with its `recommended_limit` before
-reviewing.
+reviewing; `limit_scope=exact_targets` is already complete for the named targets.
 
 Require the revision the installed capability declares, not a literal this file pins: read
 `review_execution_contract.policy_revision` from the packet and require the result's `review_policy_revision` to equal it.
