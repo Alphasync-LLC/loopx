@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import tomllib
+import venv
 from copy import deepcopy
 from pathlib import Path
 
@@ -745,9 +746,27 @@ def test_projection_publisher_loads_finance_validator_from_manifest(
     invalid_packet["presentation_projection"]["view"]["unsupported"] = (
         "must fail in the publisher process"
     )
-    provider = tmp_path / "finance-provider"
+    runtime_root = tmp_path / "finance-runtime"
+    venv.EnvBuilder(with_pip=False, symlinks=True).create(runtime_root)
+    runtime_python = runtime_root / "bin" / "python"
+    purelib = subprocess.run(
+        [
+            str(runtime_python),
+            "-I",
+            "-c",
+            "import sysconfig; print(sysconfig.get_paths()['purelib'])",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    (Path(purelib) / "finance-value-discovery-source.pth").write_text(
+        str(EXTENSION_SRC) + "\n",
+        encoding="utf-8",
+    )
+    provider = runtime_root / "bin" / "finance-provider"
     provider.write_text(
-        f"""#!{sys.executable}
+        f"""#!{runtime_python}
 import json
 import sys
 
@@ -768,13 +787,7 @@ json.dump({invalid_packet!r}, sys.stdout)
         ),
         encoding="utf-8",
     )
-    existing = os.environ.get("PYTHONPATH")
-    monkeypatch.setenv(
-        "PYTHONPATH",
-        os.pathsep.join(
-            part for part in [str(EXTENSION_SRC), str(ROOT), existing] if part
-        ),
-    )
+    monkeypatch.delenv("PYTHONPATH", raising=False)
     monkeypatch.syspath_prepend(str(EXTENSION_SRC))
     sys.modules.pop("loopx_finance_value_discovery.presentation_view", None)
     state_file = default_extension_state_file(tmp_path / "runtime")
