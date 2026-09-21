@@ -5,7 +5,7 @@
 - **作者 / Owner：** LoopX capability 与 control-plane 维护者
 - **创建时间：** 2026-09-21
 - **最近一次规范修订：** 2026-09-21
-- **实现基线：** `0ef7ebd749ec97a698a8fc7f2a29844dd368689b`
+- **实现基线：** `1c67753d82c73e3c19eabbb30ee39f41bc7eeaa2`
 - **相关契约：** [总路线图](loopx-overall-roadmap-v0.zh-CN.md)、
   [研究探索](research-exploration-control-plane-v0.zh-CN.md)、
   [Agent Loop Effect](agent-loop-effect-interpreter-v0.zh-CN.md)、
@@ -40,10 +40,18 @@ Portfolio 组合现有 owner：
 4. external-evidence 生命周期负责稳定研究方法和 connector 的资格认定；
 5. Decision Context、Explore 与 reward memory 仍是有自己准入规则的下游。
 
-默认是建议态并 fail-open。Portfolio 不可用时，普通工作仍应继续；只有
-选中 Todo 明确要求缺失能力时，才由已有 capability admission 阻断。
-自发现可以在已有授权内建议或运行有界 trial，但不能安装软件、启用
-provider、扩大 network/write scope、修改模型授权或批准 protected effect。
+**Goal 开启能力，就足以激活该能力支持的行为。** 既有配置 owner 将能力解析为
+对该 Goal enabled 后，适用的 hook 和正常执行路径自动参与，不再要求第二个
+Portfolio 开关、手动 adoption 或每轮提示。激活仍遵守该能力自身的触发条件、
+预算和权限契约，不表示每个 Turn 都调用全部已启用能力。
+
+按实际需求使用最少机制：没有启用能力时不增加 Portfolio 工作；一个能力或多个
+独立能力走原有直接路径；出现真实依赖或选择取舍时才生成有界组合。只有既有配置
+无法表达的显式跨 Turn 采用/生命周期决策，才需要持久化 Portfolio 状态。
+
+组合建议 fail-open，既有能力义务仍须执行。Portfolio 不可用不能抑制已启用的
+直接路径，也不能绕过 Todo admission。自发现不能安装软件、启用 provider、
+扩大 scope、修改模型授权或批准 protected effect。
 
 本 RFC 不批准自动安装能力、connector 市场、Core 内的垂域排序或金融
 执行权限。
@@ -79,14 +87,16 @@ projection 与说明文字里。
 - 模型回复、tool call、commit 或 connector 调用本身不是效果证据。
 - replay 幂等；revision 漂移不能静默复用旧计划。
 - CLI、managed Turn、前端和 Lark 读取同一份公开投影。
-- 功能关闭和 Portfolio 失败时保留现有 Agent 路径。
+- enablement、adoption policy 与 owner qualification 是分别拥有的 typed fact。
+- 使用已启用能力不要求存在 Portfolio record。
+- 功能关闭和 Portfolio 失败时，保留既有能力路径及其义务，包括显式 automation 设置。
 
 ## 3. 范围与非目标
 
 ### 范围内
 
 - provider-neutral 的 capability descriptor 引用与 Goal adoption record；
-- 带明确选择/跳过理由的有界能力组合 DAG；
+- 优先直接激活，仅在需要时生成有界组合 DAG；
 - trial、adoption、degradation、retirement 决策，以及 owner 回执的类型化引用；
 - 建立在 external-evidence 生命周期之上的 connector qualification profile；
 - 通过 `before_plan`、`before_delegate`、`after_delegate_result` 注入；
@@ -118,20 +128,34 @@ projection 与说明文字里。
 - Todo capability gate 判断已知任务能否执行，不会从 Goal 缺口发现能力；
 - `agent_context` 已支持三个 guidance-only、有界 phase；
 - connector registry 保存库存和简单使用遥测，不负责来源资格；
-- PR #4813 提议 typed discovery、plan、execution receipt observation、parent
-  admission 和 retirement，并将 provider execution 留在 Core 外；
+- 已合并的 #4813 交付 `external-evidence` discovery、plan、receipt observation、
+  parent admission 与 evidence retirement，provider execution 仍在 Core 外；
+  它没有交付持久的 connector qualification 状态机；
 - Decision Context 拥有决策证据，Explore 拥有研究拓扑，reward memory
   拥有经过资格审查的可复用结果经验。
 
-本 RFC 组合这些 owner。它不会让 #4813 自动达到 merge-ready，也不声称其
-真实 provider 端到端验证已经交付。
+既有 configuration editor 和 Goal capability settings 已共用 preview/apply/readback。
+Periodic-report post-writeback hook 在组合入口解析 Goal subscription；reward-memory
+hook 保留 owner 定义的 surface/automation 设置。这些是复用边界，不证明所有能力已在
+所有 host 接通。通用自动参与、Portfolio 状态和跨入口读回仍是本 RFC 的提案。
 
 ## 5. 建议架构
 
 ### Owner 与权限
 
-TypeScript control plane 拥有规范化、identity、合法状态迁移和公开 Portfolio
-projection。TS 迁移期间 Python 仅保留 adapter。
+**放置决策：** 建议 capability id 为 `goal-capability-portfolio`，provider id 为
+`builtin`（设计标记，本 PR 不新增注册）。独立用户结果是跨 Agent 查看和保留 Goal 的
+能力选择。轻量 read model 归 built-in capability policy，读取既有 Goal 配置不应要求
+安装垂域包。Catalog、configuration、Decision Context、extension lifecycle 继续满足
+各自契约，但都不拥有跨能力选择历史。
+
+选择、需求判断与生命周期策略归该 capability；typed normalization、identity 与迁移
+留在它的 TypeScript owning boundary，Python 只适配传输。通用 Kernel 复用注册、
+有界 dispatch、schema 校验、失败隔离和既有 effect/Todo admission；不理解能力名称、
+connector 阶段、垂域排序或 Portfolio adoption 状态。注册发生在 composition root，
+共享 quota/scheduler/Todo reducer 不导入 Portfolio policy。Provider 执行和独立版本的
+垂域集成继续归原 capability/extension/package；不新增 worker、scheduler、workflow
+DSL、binding store 或通用 effect ledger。
 
 Portfolio 只拥有：
 
@@ -139,10 +163,11 @@ Portfolio 只拥有：
 - 选中的组合和 exact revision；
 - Portfolio 生命周期迁移回执与复评触发条件。
 
-adoption record 不会 bind、enable 或 invoke capability。这些变更继续通过现有
-Goal configuration 与 external-capability-binding 的 preview/apply/readback 事务
-完成；Portfolio 只引用该事务，不持久化平行 provider binding。若 `adopted` entry
-要求的 binding stale 或缺失，它可以展示，但不可运行。
+既有 Goal configuration 与 external-capability binding 仍是 runtime enablement 的
+唯一 owner，其 preview/apply/readback 无需 adoption record 就激活支持的行为；
+Portfolio 不得否决该直接路径。反过来，adoption record 不启用或执行 capability：
+`adopted` 所需 binding 缺失或 stale 时可展示但不可运行。Degrade/retire 只改变
+Portfolio 选择策略，停用能力仍须通过原配置 owner。
 
 它仅引用而不复制：catalog/extension 声明、生效配置、provider readiness、
 Todo 要求、授权决策、external-evidence receipt，以及 Decision Context、
@@ -152,22 +177,49 @@ Explore、memory artifact id。
 Portfolio writer。所有变更经过一个 typed reducer 和当前 Goal authority
 provider。
 
+### 激活与按需执行
+
+配置 owner 统一解析继承、显式关闭和受支持的 operation/profile 设置。Portfolio 只
+消费 exact effective result，不从 catalog presence 推断 enablement，也不重解释各
+owner 的历史默认值。既有显式 manual-only 或已关闭的 automation 设置继续有效。
+新增受支持的自动入口不需要 Portfolio opt-in；若改变既有能力默认值，必须由该 owner
+在发布前披露并完成验证。
+
+| 生效状态与当前工作 | 自动行为 | 额外 Portfolio 工作 |
+| --- | --- | --- |
+| 没有启用能力 | 保留原 Agent 路径 | 无 provider/model 调用、hook contribution 或持久写入 |
+| 已启用，触发条件不适用 | 保持能力可用，不调用 | 热路径 contribution 为空，可按需 inspect 原因 |
+| 已启用且适用，直接或独立工作 | 按原 admission 运行既有 hook/route | 不要求 trial、DAG、adoption receipt 或额外模型调用 |
+| 已启用且存在真实依赖或取舍 | 生成最小有界计划，通过既有 owner 执行 | 只保留选中的依赖闭包和必要决策引用 |
+| binding/readiness/authority/budget 缺失 | 保留 owner 的 unavailable、blocked 或 deferred 结果 | 不隐式修复、替换 provider 或授予权限 |
+
+Host 必须真实 dispatch 已注册且适用的 hook，不能只打印“有这个 enabled 能力”。没有
+自动 hook 的命令仍通过正常 Agent/tool 路径使用；不支持的 host integration 显示
+unsupported，不能宣称激活成功。自动执行 protected effect 仍要求既有 exact admission。
+可选排序建议不得把机器强制的能力义务改成 suggestion。
+
+组合依据是 typed input/output dependency、共享受限资源、备选 provider 选择，或需要
+联合结果的明确验收缺口。能力数量、关键词匹配本身不足以触发组合。优先读取已有
+生效配置，仅为未解决缺口扩大发现范围。两个独立能力保持直接路径；一个操作若需在
+高成本 provider 间取舍，也可能需要计划。规划失败时原生 hook 继续运行。
+
 ### 状态模型与 schema
+
+以下是建议契约草图，不是五个必建的新 store。直接激活只读取既有 owner，不创建
+这些持久记录。只有不能从配置或 owner receipt 推导的显式跨 Turn policy 才落 adoption/
+lifecycle state；仅 composed 路径需要 plan。每个新增字段必须有真实 consumer。
 
 #### `capability_catalog_entry_v1`
 
 这是现有 capability declaration 的规范化引用：
 
 ```text
-capability_id, capability_revision, owner_ref
-outcome_tags[], lifecycle_phases[]
-input_schema_ref, output_schema_ref, receipt_schema_ref
-provider_requirements[], connector_requirements[]
-required_host_capabilities[], required_authority_scopes[]
-privacy_class, cost_class, readiness_ref, fallback_ref
+capability_id, capability_revision, owner_ref, declaration_ref, declaration_digest
+effective_config_ref?, readiness_ref?
 ```
 
-Portfolio 不编辑该记录。
+Portfolio 不编辑或持久化第二份 catalog。仅在选择需要时，从原 owner 解析 outcome、
+phase、schema、authority、privacy 与 cost 声明。
 
 #### `goal_capability_adoption_v1`
 
@@ -177,8 +229,8 @@ gap_ref, capability_id, capability_revision
 status = candidate | trial | adopted | degraded | retired
 reason, alternatives[], expected_effects[]
 effective_config_ref, effective_config_revision, config_digest
-binding_ref, binding_digest, binding_status
-trial_budget, trial_window, authority_refs[]
+binding_ref?, binding_digest?
+trial_budget?, trial_window?, authority_refs[]
 owner_observation_refs[], lifecycle_receipt_refs[]
 review_after, degradation_conditions[], retirement_conditions[]
 created_at, updated_at
@@ -187,12 +239,15 @@ created_at, updated_at
 `gap_ref` 指向结果或验收缺口，不创建第二份 Todo。状态迁移要求 expected
 current revision。字段省略表示保留；可选字段按字段定义显式 clear 语义。
 执行需要 binding 时，`binding_ref` 解析现有 Goal binding，而不是 Portfolio
-复制一份 provider configuration。
+复制一份 provider configuration。Binding readiness/status 只在读时联结原 owner。
+已启用的直接能力可以没有 adoption record，此时 inspect 返回 `adoption_status=null`，
+不能伪造 `adopted` 迁移。Read model 分开呈现 effective enablement、execution mode
+（`disabled | direct | composed`）与可选 adoption status，并保留 provenance。
 
 #### `capability_composition_plan_v1`
 
 ```text
-goal_id, todo_id?, turn_id?, composition_id, portfolio_revision
+goal_id, todo_id?, turn_id?, composition_id, portfolio_revision?
 gap_refs[], nodes[], edges[], selected_at, expires_at
 node: capability/provider/connector/worker/reducer 引用，
       phase、输入/输出 schema、exact revision、预算、
@@ -200,13 +255,13 @@ node: capability/provider/connector/worker/reducer 引用，
 ```
 
 `composition_id` 是全部规范化决策字段的 canonical digest。图必须无环。
-每个候选都有 `selected`、`skipped`、`unavailable` 或 `incompatible` 及理由。
+每个纳入考虑的候选都有 `selected`、`skipped`、`unavailable` 或 `incompatible` 及理由。
 计划是 guidance，不是执行授权。
 
 #### `capability_owner_receipt_observation_v1`
 
 ```text
-observation_id, composition_id, node_id, phase
+observation_id, composition_id?, node_id?, phase
 goal/todo/turn identity
 owner_kind, owner_revision
 owner_receipt_ref, owner_receipt_digest
@@ -226,7 +281,7 @@ owner readback 与索引冲突时，以 owner 为准；Portfolio 的生命周期
 
 每次成功的 Portfolio mutation 返回 `capability_lifecycle_transition_receipt_v1`，
 只包含 adoption id、operation id、预期/已提交 Portfolio revision、迁移前后
-adoption status、reason、composition id、owner-observation refs 和下次 review
+adoption status、reason、可选 composition id、owner-observation refs 和下次 review
 trigger。`adopted` 只表示 Goal 的 capability-adoption policy 选中了该能力，
 不表示证据已准入、结果成功或获得新权限。
 
@@ -243,27 +298,30 @@ trigger。`adopted` 只表示 Goal 的 capability-adoption policy 选中了该�
 ### 命令与事件生命周期
 
 ```text
-发现 Goal 缺口
-  → 投影 catalog 候选
-  → 预览 composition
-  → 选择有界 trial 或已有 adoption
-  → 读回 exact config/provider revision
-  → before_delegate 冻结 route
-  → after_delegate_result 观察 owner receipt
-  → 原 capability/domain owner 评估结果
-  → Portfolio keep / reconfigure / degrade / retire adoption
+读回既有 Goal enablement → capability owner 判断适用性
+  ├─ 独立工作 → 原生 hook/direct route
+  └─ 真实依赖/取舍 → 有界 plan → 既有 execution owner
+两条路径 → owner result/readback
+  → 仅在需要跨 Turn policy 时：adoption/lifecycle transition
 ```
+
+Discovery/trial 用于缺失的方法或不确定的选择，不是已启用工作必经入口。组合中的
+delegation 在 `before_delegate` 冻结路线，在 `after_delegate_result` 观察 owner receipt；
+无 delegation 的工作保留原生执行和结果边界。
 
 变更 identity 为 `(goal_id, adoption_id, expected_revision, operation_id)`。
 同一意图 replay 返回原 receipt；identity drift fail-closed。provider/config
 revision 漂移使计划失效。丢失响应时先读回 receipt，再重试。
 
-Portfolio 不可读取时，规划继续并报告 `coverage=unknown`。若 Todo 明确要求
+Portfolio 不可读取时，规划继续并报告 Portfolio availability unknown，不构造证据
+coverage 事实。若 Todo 明确要求
 缺失能力，由已有 capability admission 只阻断该 Todo；Portfolio 不得削弱它。
 
 ### Connector qualification profile
 
-Connector 复用 external-evidence 生命周期，不建平行状态机：
+Connector qualification 归 `external-evidence-research`，消费其已有 plan/receipt/
+admission/retirement 引用。以下是拟议的 connector-owner profile，不是 #4813 已交付的
+证据 retirement 状态机，也不是 Portfolio adoption 词汇：
 
 ```text
 external-research discovery
@@ -280,15 +338,20 @@ provider revision、source refs、coverage interval、freshness、rights snapsho
 cost、latency、failure 和 output digest。注册和 ready 仍只是库存事实。parent
 qualification 与 finance evidence eligibility 或其他垂域准入继续分开。
 
-Portfolio 的 `active` 或 `adopted` 只描述选择策略。安装、enablement、doctor
+Portfolio 的 `adopted` 只描述选择策略。若 qualification owner 支持 connector `active`，
+它必须作为单独标注的 owner-joined fact 展示。例如 `adoption_status=adopted` 与
+`connector_qualification.status=active` 可同时存在，但 owner ref 不同，互不映射。
+已 adopted entry 可引用 degraded connector；active connector 也可没有 Portfolio
+adoption。Connector owner 尚未提供该 typed fact 时 qualification 为 unknown，不能
+从 registry readiness 或 evidence admission 构造它。安装、enablement、doctor
 status、provider revision 与 rollback 继续来自 extension runtime 和现有 Goal
 binding。disable、uninstall、doctor failure 或 binding revision drift 会令 composition
 stale；Portfolio 不得静默切换 provider。
 
 ### Runtime 注入
 
-- **`before_plan`：** 投影当前 gap、有效 adoption、stale/unavailable 节点和
-  最小有用组合；允许空选择。
+- **`before_plan`：** 读取 enabled 且适用的能力；独立直接工作不增加 Portfolio
+  contribution。组合工作只投影当前 gap、选中的依赖和 stale/unavailable 节点。
 - **`before_delegate`：** 冻结 worker/connector/provider revision、预算、
   schema、authority refs 和 composition digest。垂域只描述问题和验收标准；
   通用 delegation owner 控制容量、route 和 result receipt。
@@ -296,8 +359,13 @@ stale；Portfolio 不得静默切换 provider。
   生命周期复评。成本、覆盖、失败、admission、decision effect 与 utility 留在原
   owner receipt。worker 原始回答不是 adoption 或 lifecycle receipt。
 
-可选 Turn-start 摘要只包含 Portfolio revision、当前 gap、所选组合、stale/
-unavailable 节点和下次复评触发条件。完整 catalog 和历史不进入 prompt。
+对应生命周期事件发生时才适用这些 phase；不为 bound read-only call 强制创建
+delegation 或 governed Turn。既有 turn-start/post-writeback hook 和 pending-intent
+执行保留原 owner，Portfolio 不重复 dispatch 或对一个 effect 重复记账。
+
+可选 Turn-start 摘要只包含相关 composition ref、stale/unavailable 依赖和下次复评
+条件。直接工作不增加 Portfolio prompt 段落；完整 catalog/history 与 owner join 留给
+按需 inspect。有界声明按既有 revision 缓存，配置/provider/receipt drift 仅失效相关项。
 
 ## 6. 替代方案与选择
 
@@ -315,6 +383,12 @@ unavailable 节点和下次复评触发条件。完整 catalog 和历史不进�
 
 拒绝。Decision Context 组装决策证据，不能成为配置、provider 或授权 owner。
 
+### 强制 Portfolio adoption 与通用 planner
+
+拒绝。既有 enablement 已决定能力是否参与；对独立工作再要求开关、trial、adoption
+record 或 graph，会产生第二道门槛及额外 token、写入和故障依赖。直接路径保持优先，
+组合是按需 capability policy，不是每个 Goal/Turn 的 Kernel 前置条件。
+
 ### 完全自动安装
 
 v0 拒绝。它混淆推荐、配置和授权。Portfolio 可以通过现有 governed owner
@@ -322,7 +396,8 @@ v0 拒绝。它混淆推荐、配置和授权。Portfolio 可以通过现有 gov
 
 ## 7. 安全、隐私与兼容
 
-- Portfolio 默认 advisory，不保存 secret 或原始私有 payload。
+- 自动激活是集成义务；组合排序是建议。既有 admission、必需验证与权限继续强制
+  执行。Portfolio 不保存 secret 或原始私有 payload。
 - 公共投影隐藏私有来源、账户和付费数据细节。它可在读时联结 owner 投影中
   已授权的有界 coverage/failure 字段，但 Portfolio 不持久化另一份副本。
 - readiness observation 不能变成 durable grant；已有 authority 与 protected
@@ -336,30 +411,36 @@ v0 拒绝。它混淆推荐、配置和授权。Portfolio 可以通过现有 gov
 
 ## 8. 迁移与回滚
 
-M0 在现有 owner 上增加只读 inspect。M1 在 default-off capability 后保存
-candidate 和 trial。现有 registry 记录继续可读，但不批量晋升；connector
-只有通过新 exact-revision qualification receipt 才 active。
+M0 先验证自动直接参与和既有 owner 的只读 inspect。未配置/已关闭能力保留原默认值；
+已启用能力无需新的 Portfolio opt-in 或批量 adoption 迁移。新增集成必须保留各 owner
+显式 automation 设置；connector 只有通过自身 exact-revision 证据才能取得资格。
 
-按 Goal 推进 rollout。开放变更前，preflight 校验 Portfolio owner、authority
-provider、配置引用和公开投影。回滚时关闭 Portfolio injection，保留 receipt
-供审计；原 catalog、配置、证据和任务 owner 继续运行。v0 不做破坏性
-registry migration。
+按 Goal 使用既有 capability configuration 推进 rollout。任何持久 Portfolio 变更前，
+preflight 校验 typed owner、authority provider 与引用。M0 不依赖新 storage；M2 只为
+不可推导的 policy 增加状态。回滚移除 Portfolio planning/write，保留只读审计回执和
+已启用的原生路径；若要停止能力本身，通过原 configuration/binding owner disable。
+v0 不做破坏性 registry migration。
 
 ## 9. 验证与验收
 
 | 声明 | 测试或证据 | 必须结果 | 边界 / 排除项 |
 | --- | --- | --- | --- |
+| 开启即自动可用 | 通过既有 Goal editor/CLI enable，随后新建受支持的 Agent session，不执行 Portfolio 命令或 adoption | 适用原生 hook/route 运行并完成 owner readback，无第二次 opt-in | 保留所需权限和显式 manual-only 设置 |
+| 简单需求保持轻量 | 零个、一个、两个独立能力，再加入一个真实依赖 | 直接场景不增加 Portfolio 模型/provider 调用、DAG 或持久写入；依赖场景仅生成必要计划 | 原 owner 执行成本仍须可见 |
+| 关闭/失败保持 parity | CLI、managed Turn、context、post-writeback 路径同工作负载比较 base/head，注入 Portfolio failure | 原生决策/effect 不变，不重复 dispatch 或加门槛 | 真正 required-capability failure 仍由 owner 阻断 |
+| 状态词各有 owner | adoption `adopted` + connector `active`，再做 connector degradation 和无 adoption 场景 | 分别标注 refs/status，不自动映射、不伪造 adoption | connector qualification profile 尚未交付 |
+| Core 保持通用 | caller/import 审计加无关能力执行 | policy 归 capability，Todo/quota/scheduler rule 无 Portfolio 分支 | 保留既有通用 admission |
 | Portfolio 不授予权限 | mutation 与对抗 fixture | 扩权请求被拒绝，不写 grant | 不验证每个外部 provider |
 | Plan 绑定 exact 语义 | 修改 gap/config/provider/route/budget/graph | digest mismatch fail-closed | 不证明 live execution |
 | replay 幂等 | 丢响应与并发重试 fixture | 一次迁移、一份 receipt | provider side effect 仍归 provider |
-| 失败保留有用工作 | Portfolio/provider unavailable fixture | 普通 Todo 继续且 coverage unknown；硬要求仅阻断该 Todo | 无 availability SLO |
+| 失败保留有用工作 | Portfolio/provider unavailable fixture | 原生路径继续，Portfolio availability unknown；硬要求仅阻断该 Todo | 无 availability SLO |
 | Connector 生命周期可审计 | discovery→trial→qualification→degrade→retire fixture | 每步 exact revision + typed reason | 垂域 eligibility 独立验证 |
 | Provider binding 保持单一 owner | 现有 Goal binding preview/apply/readback 加 disable/upgrade/rollback fixture | Portfolio 引用 exact binding，drift 后变 stale，不写平行 binding | extension runtime 继续证明 provider readiness |
 | 自发现有用 | 新 finance 与非金融 Agent 只收到同一 Goal | 选出最小合理组合或解释空选择 | 两例不证明普遍 uplift |
 | 组合改善结果 | 冻结 baseline 对比 Portfolio-assisted trial | 在申明成本内改善首次有效行动、覆盖或决策质量，保留失败 | 不自动生产晋升 |
 | 三个 hook 一致 | before-plan/delegate/result 契约测试 | 同一 composition identity 和 route/result lineage | 排除原始模型质量 |
 | Owner truth 不重复 | 分别纠正并退役一个 external-evidence receipt 与一个非证据 outcome receipt | Portfolio 跟随不可变 superseding refs，不残留复制的 admission/effect 事实 | 各 owner 继续验证自己的语义 |
-| 产品入口一致 | CLI、打包前端、Lark 验收 | 同 Portfolio revision、adoption status、reason、owner refs 与 review trigger；联结 owner 事实保留 provenance | 各 transport/owner projection 单独资格验证 |
+| 产品入口一致 | CLI、打包前端、Lark 的既有 Goal settings preview/apply/readback；新 session、stale、重连和重复操作 | 同 effective enablement、direct/composed mode、可选 adoption status 和 owner refs，无第二个激活控件 | 每个已开放入口发布时就有可用读回；owner fact 保留 provenance |
 | 垂域边界成立 | finance 与另一垂域 fixture | Core 不理解垂域，domain admission 独立 | 不授予交易权限 |
 
 衡量首次有效行动、证据覆盖、stale/重复来源错误、人工介入、token/费用、
@@ -367,14 +448,22 @@ registry migration。
 
 ## 10. 运维契约
 
-Operator 可查看 Portfolio revision、active/trial/degraded adoption、exact config/
+Operator 可查看 effective enablement、direct/composed mode、可选 Portfolio revision、
+adopted/trial/degraded adoption、exact config/
 provider revision、owner-receipt refs 和下次 review trigger。获授权视图可在读时
 从原 owner 联结当前 failure、cost 与 coverage，但不持久化到 Portfolio。只对
 revision drift、rights 过期、重复失败、预算耗尽或 required capability 不可用
 产生事件提醒；日常成功调用不制造噪声。
 
-每个 Goal/Turn 的容量有界，候选分页，prompt projection 有大小限制。failure
-class 区分 unavailable、incompatible、unauthorized、stale、rights-expired、
+复用既有 capability configuration editor 与 Goal settings 入口，先显示生效行为和
+可操作的失败，按需展开组合细节和 owner receipt。不增加空 Portfolio panel、adoption
+向导或第二个 enable 按钮。Lark 使用相同配置/read model。
+
+每个 Goal 和相关事件的容量有界，按需候选分页，prompt projection 有大小限制。
+对 off/direct/composed 路径用同工作负载测量 base/head latency、token、read、write
+和 call。Off/direct 不增加 Portfolio 模型/provider 调用、持久写入或 prompt 段落；本地
+projection 开销必须符合明确测量的预算，由 M0 按仓库 budget-decision guide 记录。
+本提案不宣称通用 SLO 或性能提升。Failure class 区分 unavailable、incompatible、unauthorized、stale、rights-expired、
 budget-exhausted、provider-failed、result-unqualified。备份恢复跟随所选 Goal
 authority provider，原 provider artifact 跟随原 owner。
 
@@ -382,22 +471,26 @@ authority provider，原 provider artifact 跟随原 owner。
 
 | 里程碑 | 交付行为 | 入口条件 | 退出证据 | 回滚 |
 | --- | --- | --- | --- | --- |
-| M0 · 契约与 inspect | Portfolio 自有 adoption/composition/lifecycle-transition schema，加只读 catalog/Goal-binding/owner-receipt projection | RFC 评审；明确 catalog/config/binding/receipt owner | normalization、owner-correction、mutation、feature-off fixture | 删除投影，不落状态 |
-| M1 · 外部证据与 connector trial | #4813 与 connector descriptor/call receipt 对齐，不自动晋升 | exact-plan binding 与 provider boundary 通过 | 一个真实 host method + 一个 connector trial，含 partial/failure receipt | 保留 registry；关闭 qualification write |
-| M2 · Goal adoption owner | candidate/trial/adopted/degraded/retired reducer 与 receipt | Goal authority provider 可用 | replay、并发、drift、rollback、recovery 测试 | 关闭 writer，receipt 只读保留 |
-| M3 · 三阶段组合 | 三个 Agent-context hook 投影 Portfolio，并接通通用 delegation receipt | M0–M2 identity 稳定 | 无额外提示的新 finance/非金融 Agent trial | 可独立关闭各 hook |
-| M4 · 效果资格 | external-only/connector-only/hybrid 实验与 owner-receipt-backed lifecycle review、retirement proposal | 冻结指标、预算、stop rule | 完整分母证明收益或明确 no-uplift，且不复制 effect truth | adoption 退回 candidate/degraded |
-| M5 · 产品旅程 | CLI、打包前端、Lark 共用 inspect/reason/readback/recovery | public projection 稳定 | 跨 session、stale、重连、重复动作验收 | 隐藏变更控件，保留 CLI readback |
+| M0 · 自动直接路径与 inspect | 解析既有 enablement，dispatch 受支持的原生 hook，共享 readback；无新 Portfolio store | 明确 config/hook/admission/UI owner | 零/单/独立能力、无第二次 opt-in、off/failure parity、测量开销和受影响 CLI/前端/Lark 旅程 | 移除集成，保留原 capability route/config |
+| M1 · 外部证据与 connector trial | 复用已合入 #4813 的 evidence 生命周期，只补缺失的 connector-owner qualification | 真实 connector caller 和 exact-plan/provider boundary | 一个真实 host method + connector trial，含 partial/failure receipt，不伪造 connector status | 保留 inventory/evidence，关闭 qualification write |
+| M2 · 可选持久 adoption | 仅为不可推导的跨 Turn policy 提供 candidate/trial/adopted/degraded/retired reducer 与 receipt | 真实 caller 需要超出 config/owner receipt 的 policy；选定 Goal authority provider | replay、并发、drift、recovery、无 adoption 直接路径 | 关闭 writer，保留只读回执 |
+| M3 · 按需组合 | 通过现有 planning/delegation/result hook 传递最小依赖闭包 | M0；仅需持久 policy 时依赖 M2，仅需 connector qualification 时依赖 M1 | direct→composed→direct、无额外提示的 finance/非金融 trial、owner correction 和同工作负载开销 | 移除 planning，原生 hook 继续 |
+| M4 · 效果资格 | external-only/connector-only/hybrid 实验、owner-backed review 与 retirement proposal | 冻结指标、预算、stop rule | 完整分母证明收益或明确 no-uplift，不复制 effect truth | 通过 typed owner 回退 Portfolio 选择 |
+| M5 · 跨入口整合 | CLI、打包前端、Lark 共用 inspect/detail/recovery | shared projection 和前序纵向能力可用 | 组合旅程的跨 session、stale、重连、重复动作验收 | 隐藏可选 detail/mutation control，保留原生 readback |
 
-RFC 仍为 Draft 时里程碑也可交付。#4813 是 M1 前置，不是整个 Portfolio 的
-完成证据。overall-roadmap owner 维护 S8 顺序，canonical Todo 维护执行状态。
+M0 本身就是有用结果，不等待 connector qualification、新 authority store 或完整
+M2–M5。各里程碑必须包含自己改变的入口；不能用 M5 推迟 M0/M2/M3 必需的设置
+配套。#4813 是已合并的 evidence 基础，不证明 Portfolio 或真实 connector qualification。
+Overall-roadmap owner 维护 S8 顺序，canonical Todo 维护执行状态。本 PR 只交付
+修订后的 RFC 契约。
 
 ## 12. 未决问题
 
 1. **Portfolio storage profile。** Owner：shared-authority 与 capability
    维护者。建议 adoption record 使用当前 Goal authority provider，runtime
    enablement 复用现有 Goal external-capability binding，大 receipt/artifact 留在
-   原 owner；不得新增 Portfolio 专属 provider binding。M2 前决定。
+   原 owner；不得新增 Portfolio 专属 provider binding。仅在 M2 有真实持久 policy
+   caller 时决定，M0/直接使用不需要新 storage。
 2. **跨能力比较。** Owner：capability 维护者。建议只在一个明确 Goal gap 内
    多维比较，不产生全局总分。M3/M4 验证。
 3. **自动降级阈值。** Owner：capability + domain owner。建议自动提出 proposal，
@@ -428,6 +521,7 @@ RFC 仍为 Draft 时里程碑也可交付。#4813 是 M1 前置，不是整个 P
 | --- | --- | --- | --- | --- |
 | 2026-09-21 | 初始提案，不从实现或沉默推断批准 | 待维护者评审 | 垂域组织、registry 质量 owner、Decision Context owner | 全部 |
 | 2026-09-21 | 将通用 use/effect 状态收窄为 owner-receipt observation 和 Portfolio 自有 lifecycle receipt | exact head `1a6b15c6` 的维护者 review request | 重复的通用 effect/admission authority | 第 1、3、5、7、9–11 节 |
+| 2026-09-21 | Goal 既有 enablement 激活支持行为，直接路径优先、按需组合；adoption 与 connector qualification 使用独立状态词 | 修订提案，待 exact-head review | 第二次 opt-in、强制 DAG/adoption、Kernel 拥有选择策略 | 第 1–12 节 |
 
 ## 附录 C：证据登记
 
@@ -435,8 +529,9 @@ RFC 仍为 Draft 时里程碑也可交付。#4813 是 M1 前置，不是整个 P
 | --- | --- | --- | --- | --- | --- |
 | E1 | 三个通用 hook phase 已存在 | 实现基线 | `agent_context`/subagent-context 源码与测试 | 已检查 | 静态检查，不证明 live uplift |
 | E2 | Registry 是库存/遥测，不是 qualification | 实现基线 | connector-registry schema/CLI | 已检查 | 非穷尽 provider 审计 |
-| E3 | external-evidence typed lifecycle 是活跃前置 | PR #4813 exact head | PR diff、测试与 review | open，未上 `main` | 不声明 merge/live provider |
+| E3 | external-evidence typed lifecycle 是已合并前置 | 当前实现基线 | `external_research/README.md`、typed external-evidence owner 与 CLI | #4813 已合并，已检查源码 | 不证明 connector qualification 或 live provider |
 | E4 | 持久 Goal binding 已拥有 exact provider operation/revision/profile 选择 | 实现基线 | extension reference 与 capability-admission 源码 | 已检查 | 只读 binding 契约，不证明 provider 执行 |
+| E5 | 自动参与和设置应复用既有 owner | 当前实现基线 | `agent_context.ts`、`capability_hooks.ts`、periodic-report/reward-memory hook、configuration editor 与 Goal settings | 已检查源码 | 通用 Portfolio 激活和开销测量尚未实现 |
 
 ## 附录 D：拒绝或替代方案
 

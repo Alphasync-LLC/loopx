@@ -144,11 +144,12 @@ changes.
   - **RFC status:** Draft, under maintainer review.
   - **Delivery on `main`:** Proposal; catalog, Agent-context hooks and connector
     inventory are prerequisites rather than a shipped portfolio.
-  - **Current boundary:** Defines Goal-scoped capability adoption, composition,
-    owner-receipt observations, portfolio lifecycle receipts and connector
-    qualification by composing existing owners. It does not copy effect or
-    admission truth and grants no installation, permission or protected-effect
-    authority; PR #4813 remains an independent external-evidence prerequisite.
+  - **Current boundary:** Existing Goal enablement activates supported capability
+    behavior without a second Portfolio opt-in. Direct work needs no DAG or
+    adoption record; material dependencies use bounded composition. Policy stays
+    capability-owned and existing config/effect/admission owners remain authoritative.
+    M0 includes affected product entry points; merged #4813 supplies evidence
+    infrastructure, not connector or Portfolio qualification. No new authority.
 
 - [Agent Judgment and Optional Independent Assessment v0](optional-semantic-assistance-jev-v0.md)
   ([中文版](optional-semantic-assistance-jev-v0.zh-CN.md))

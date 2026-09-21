@@ -5,7 +5,7 @@
 - **Authors / owners:** LoopX capability and control-plane maintainers
 - **Created:** 2026-09-21
 - **Last normative revision:** 2026-09-21
-- **Implementation baseline:** `0ef7ebd749ec97a698a8fc7f2a29844dd368689b`
+- **Implementation baseline:** `1c67753d82c73e3c19eabbb30ee39f41bc7eeaa2`
 - **Related contracts:** [overall roadmap](loopx-overall-roadmap-v0.md),
   [research exploration](research-exploration-control-plane-v0.md),
   [agent loop effects](agent-loop-effect-interpreter-v0.md),
@@ -47,11 +47,23 @@ The portfolio composes existing owners:
 5. Decision Context, Explore and reward memory remain downstream consumers
    with their own admission rules.
 
-The default is advisory and fail-open. An unavailable portfolio must not stop
-ordinary work unless the selected Todo explicitly requires the missing
-capability. Self-discovery can recommend or run a bounded trial within existing
-authority; it cannot install software, enable a provider, enlarge network or
-write scope, change model authorization, or approve a protected effect.
+**Goal enablement is sufficient to activate the capability's supported behavior.**
+Once the existing configuration owner resolves a capability as enabled for a
+Goal, its applicable hooks and normal execution route participate automatically;
+there is no second Portfolio switch, manual adoption step or per-Turn reminder.
+Activation follows the capability's trigger, budget and authority contract. It
+does not mean invoking every enabled capability on every Turn.
+
+Use the least machinery that satisfies the work: no enabled capability adds no
+Portfolio work; one capability or several independent capabilities use their
+existing direct routes; a material dependency or selection tradeoff introduces
+a bounded composition. Durable portfolio state is created only for an explicit
+cross-Turn adoption/lifecycle decision that existing configuration cannot express.
+
+Composition advice is fail-open; existing capability obligations are not.
+An unavailable portfolio must not suppress enabled direct routes or bypass
+Todo admission. Discovery cannot install software, enable a provider, enlarge
+scope, change model authorization or approve a protected effect.
 
 This RFC does not approve automatic capability installation, a connector
 marketplace, domain-specific ranking in Core, or finance execution authority.
@@ -95,14 +107,17 @@ decision. Today those facts live in separate projections and prose.
   evidence by itself.
 - Replays are idempotent and revision drift cannot silently reuse an old plan.
 - CLI, managed Turn, frontend and Lark read the same public projection.
-- Feature-off and portfolio-failure paths preserve the existing Agent route.
+- Enablement, adoption policy and owner qualification are separate typed facts.
+- No Portfolio record is required to use an already enabled capability.
+- Feature-off and portfolio-failure paths preserve existing capability routes
+  and their obligations, including explicit automation settings.
 
 ## 3. Scope and non-goals
 
 ### In scope
 
 - a provider-neutral capability descriptor reference and Goal adoption record;
-- a bounded capability composition DAG with explicit selection and skip reasons;
+- direct activation first, with a bounded composition DAG only when needed;
 - trial, adoption, degradation and retirement decisions, plus typed references
   to owner receipts;
 - a connector qualification profile built on the external-evidence lifecycle;
@@ -141,22 +156,41 @@ At the implementation baseline:
   `after_delegate_result` with bounded guidance-only projections;
 - the connector registry stores inventory and simple usage telemetry, not
   source qualification;
-- the external-evidence slice in PR #4813 proposes typed discovery, plan,
-  receipt observation, parent admission and retirement while keeping provider
-  execution outside Core;
+- merged PR #4813 ships `external-evidence` discovery, plan, receipt observation,
+  parent admission and evidence retirement, with provider execution outside Core;
+  it does not ship a durable connector qualification state machine;
 - Decision Context owns decision evidence, Explore owns research topology, and
   reward memory owns qualified reusable outcome lessons.
 
-This RFC composes those owners. It does not make PR #4813 merge-ready or claim
-that its end-to-end provider qualification has shipped.
+The existing configuration editor and Goal capability settings already share
+preview/apply/readback. Periodic-report post-writeback hooks resolve their Goal
+subscription at composition; reward-memory hooks preserve owner-defined
+surface/automation settings. These are reuse boundaries, not proof that every
+capability is already wired into every host. General automatic participation,
+Portfolio state and cross-surface readback remain proposed here.
 
 ## 5. Proposed architecture
 
 ### Ownership and authority
 
-The TypeScript control plane owns normalization, identity, transition legality
-and the public portfolio projection. Python remains an adapter while the
-TypeScript migration is active.
+**Placement:** proposed capability id `goal-capability-portfolio`; provider id
+`builtin` (a design label, not a new registration in this PR). Its independent
+caller outcome is inspecting and retaining a Goal's capability choices across
+Agents. The small read model belongs with built-in capability policy because it
+must understand existing Goal configuration without installing a domain package.
+Catalog, configuration, Decision Context and extension lifecycle remain sufficient
+for their own contracts; none owns cross-capability selection history.
+
+Selection, demand detection and lifecycle policy belong to that capability.
+Typed normalization, identities and transitions stay in its TypeScript owning
+boundary; Python only adapts transport. The generic Kernel reuses registration,
+bounded dispatch, schema validation, failure isolation and existing effect/Todo
+admission. It must not learn capability names, connector stages, domain ranking
+or portfolio adoption states. Registration occurs at the composition root;
+shared quota, scheduler and Todo reducers do not import portfolio policy.
+Provider execution and independently versioned domain integrations remain in
+their existing capabilities/extensions/packages. No new worker, scheduler,
+workflow DSL, binding store or generic effect ledger is required.
 
 The portfolio owns only:
 
@@ -164,11 +198,13 @@ The portfolio owns only:
 - the selected composition and its exact revision;
 - portfolio lifecycle-transition receipts and review triggers.
 
-An adoption record does not bind, enable or invoke a capability. Those changes
-continue through the existing Goal configuration and external-capability-binding
-preview/apply/readback transaction. The portfolio references that transaction;
-it never persists a parallel provider binding. An `adopted` entry with a stale
-or missing required binding is visible but not runnable.
+Existing Goal configuration and external-capability binding remain the sole
+runtime enablement owners. Their preview/apply/readback activates supported
+behavior without an adoption record; the Portfolio cannot veto that direct
+route. Conversely, an adoption record does not enable or invoke a capability:
+`adopted` with a missing/stale required binding is visible but not runnable.
+Degrade/retire changes Portfolio selection policy only; disabling a capability
+still uses its existing configuration owner.
 
 It references, without copying:
 
@@ -182,22 +218,58 @@ No chat, UI, connector, worker or domain capability may become an alternate
 portfolio writer. Mutations pass through one typed reducer and the configured
 Goal authority provider.
 
+### Activation and proportional execution
+
+The configuration owner resolves inheritance, explicit disable and supported
+operation/profile settings once. Portfolio consumes that exact effective result;
+it must not infer enablement from catalog presence or reinterpret each owner's
+legacy defaults. Existing explicit manual-only or disabled automation settings
+remain effective. New supported automatic surfaces need no Portfolio opt-in;
+any change to an existing capability's defaults must be disclosed and qualified
+by that owner before release.
+
+| Effective state and current work | Automatic behavior | Additional Portfolio work |
+| --- | --- | --- |
+| No enabled capability | Existing Agent path | No provider/model calls, hook contribution or durable Portfolio write |
+| Enabled but trigger not applicable | Keep capability ready; do not invoke | Empty hot-path contribution; optional inspect reason |
+| Enabled and applicable; direct or independent work | Run the existing supported hook/route within its own admission | No trial, DAG, adoption receipt or extra model call required |
+| Enabled with a material dependency or tradeoff | Produce the smallest bounded plan; execute through existing owners | Only the selected dependency closure and necessary decision refs |
+| Missing binding/readiness/authority/budget | Preserve the owner's unavailable, blocked or deferred result | No implicit repair, provider replacement or grant |
+
+The host must actually dispatch registered applicable hooks, not merely print
+that an enabled capability exists. Commands that have no automatic hook remain
+available through the normal Agent/tool route; unsupported host integration is
+reported as unsupported, not as successful activation. Automatic protected-effect
+execution still requires its existing exact admission. Optional ranking advice
+cannot turn a machine-enforced capability obligation into a suggestion.
+
+Composition is justified by a typed input/output dependency, shared constrained
+resource, alternative-provider choice or a named acceptance gap requiring joint
+results. Capability count and keyword matches alone are insufficient. Use known
+effective configuration first; broaden discovery only for an unresolved gap.
+Two independent capabilities stay direct. One operation choosing between costly
+providers may warrant a plan. Existing native hooks continue while planning fails.
+
 ### State model and schema
+
+These are proposed contract sketches, not five mandatory new stores. Direct
+activation reads existing owners and creates none of these durable records.
+Materialize adoption/lifecycle state only when an explicit cross-Turn policy
+cannot be derived from configuration or existing owner receipts; a plan is
+needed only for the composed route. A new field must have a real consumer.
 
 #### `capability_catalog_entry_v1`
 
 This is a normalized reference to an existing capability declaration:
 
 ```text
-capability_id, capability_revision, owner_ref
-outcome_tags[], lifecycle_phases[]
-input_schema_ref, output_schema_ref, receipt_schema_ref
-provider_requirements[], connector_requirements[]
-required_host_capabilities[], required_authority_scopes[]
-privacy_class, cost_class, readiness_ref, fallback_ref
+capability_id, capability_revision, owner_ref, declaration_ref, declaration_digest
+effective_config_ref?, readiness_ref?
 ```
 
-The portfolio does not edit this record.
+The portfolio does not edit or persist a second catalog. Outcome, phase, schema,
+authority, privacy and cost declarations are resolved from their original owners
+only when selection needs them.
 
 #### `goal_capability_adoption_v1`
 
@@ -207,8 +279,8 @@ gap_ref, capability_id, capability_revision
 status = candidate | trial | adopted | degraded | retired
 reason, alternatives[], expected_effects[]
 effective_config_ref, effective_config_revision, config_digest
-binding_ref, binding_digest, binding_status
-trial_budget, trial_window, authority_refs[]
+binding_ref?, binding_digest?
+trial_budget?, trial_window?, authority_refs[]
 owner_observation_refs[], lifecycle_receipt_refs[]
 review_after, degradation_conditions[], retirement_conditions[]
 created_at, updated_at
@@ -218,12 +290,16 @@ created_at, updated_at
 Todo. A transition needs an expected current revision. Omitting a field preserves
 it; explicit clear semantics are defined per optional field. `binding_ref`
 resolves the existing Goal binding when execution requires one; it is not a
-portfolio-owned copy of provider configuration.
+portfolio-owned copy of provider configuration. Binding readiness/status is a
+read-time owner join. An enabled direct capability may have no adoption record;
+inspection reports `adoption_status=null`, not a fabricated `adopted` transition.
+The read model separates effective enablement, execution mode
+(`disabled | direct | composed`) and optional adoption status, with provenance.
 
 #### `capability_composition_plan_v1`
 
 ```text
-goal_id, todo_id?, turn_id?, composition_id, portfolio_revision
+goal_id, todo_id?, turn_id?, composition_id, portfolio_revision?
 gap_refs[], nodes[], edges[], selected_at, expires_at
 node: capability/provider/connector/worker/reducer reference,
       phase, input/output schema, exact revision, budget,
@@ -232,14 +308,14 @@ node: capability/provider/connector/worker/reducer reference,
 ```
 
 `composition_id` is a canonical digest of all normalized decision-relevant
-fields. The graph must be acyclic. Each candidate receives `selected`,
+fields. The graph must be acyclic. Each considered candidate receives `selected`,
 `skipped`, `unavailable` or `incompatible` with a reason. A plan is guidance,
 not execution authority.
 
 #### `capability_owner_receipt_observation_v1`
 
 ```text
-observation_id, composition_id, node_id, phase
+observation_id, composition_id?, node_id?, phase
 goal/todo/turn identity
 owner_kind, owner_revision
 owner_receipt_ref, owner_receipt_digest
@@ -262,7 +338,7 @@ wins and a portfolio lifecycle transition cannot consume the stale observation.
 Each successful portfolio mutation returns a
 `capability_lifecycle_transition_receipt_v1` containing only the adoption id,
 operation id, expected and committed portfolio revisions, previous and next
-adoption status, reason, composition id, owner-observation references and next
+adoption status, reason, optional composition id, owner-observation references and next
 review trigger. `adopted` means the Goal's capability-adoption policy selected
 the capability. It never means evidence was admitted, an outcome succeeded or
 new authority was granted.
@@ -282,16 +358,17 @@ Two examples preserve the boundary:
 ### Command and event lifecycle
 
 ```text
-Goal gap observed
-  → catalog candidates projected
-  → composition previewed
-  → bounded trial or existing adoption selected
-  → exact config/provider revisions read back
-  → route frozen at before_delegate
-  → owner receipts observed at after_delegate_result
-  → owning capability/domain evaluates its result
-  → portfolio keeps / reconfigures / degrades / retires the adoption
+Existing Goal enablement read back → capability-owned applicability check
+  ├─ independent work → native hook/direct route
+  └─ material dependency/tradeoff → bounded plan → existing execution owners
+Both routes → owner result/readback
+  → only if cross-Turn policy is needed: adoption/lifecycle transition
 ```
+
+Discovery/trial is for a missing method or uncertain selection, not a mandatory
+entry gate for already enabled work. Composed delegation freezes its route at
+`before_delegate` and observes owner receipts at `after_delegate_result`;
+non-delegated work keeps its native execution and result boundary.
 
 The mutation identity is `(goal_id, adoption_id, expected_revision,
 operation_id)`. Replay with the same intent returns the original receipt;
@@ -299,14 +376,16 @@ identity drift fails closed. Provider/config revision drift invalidates the
 plan. Lost responses reconcile through receipt readback before retry.
 
 If a portfolio cannot be read, planning continues without portfolio guidance
-and reports `coverage=unknown`. If a Todo explicitly requires the missing
-capability, normal capability admission blocks that Todo; the portfolio does
+and reports Portfolio availability as unknown; it does not invent an evidence
+coverage fact. If a Todo explicitly requires the missing capability, normal capability admission blocks that Todo; the portfolio does
 not weaken it.
 
 ### Connector qualification profile
 
-Connectors use the external-evidence lifecycle rather than a parallel state
-machine:
+Connector qualification belongs to `external-evidence-research`, consuming its
+existing plan/receipt/admission/retirement references. The following is a proposed
+connector-owner profile, not the evidence-retirement state machine shipped by
+#4813 and not Portfolio adoption vocabulary:
 
 ```text
 external-research discovery
@@ -325,7 +404,14 @@ latency, failure and output digest. Registration and readiness remain
 inventory facts. Parent qualification remains distinct from finance evidence
 eligibility or another domain's admission.
 
-Portfolio `active` or `adopted` describes selection policy only. Installation,
+Portfolio `adopted` describes selection policy only. Connector `active`, if
+supported by that qualification owner, is a separately labeled owner-joined fact.
+For example, `adoption_status=adopted` and `connector_qualification.status=active`
+can coexist with different owner refs; neither maps to the other. An adopted
+entry can reference a degraded connector, and an active connector need not have
+any Portfolio adoption. Until the connector owner supplies that typed fact,
+qualification is unknown; registry readiness or evidence admission cannot mint it.
+Installation,
 enablement, doctor status, provider revision and rollback continue to come from
 the extension runtime and existing Goal binding. Disable, uninstall, doctor
 failure or binding revision drift makes the composition stale; the portfolio
@@ -333,8 +419,9 @@ must not silently resolve a replacement provider.
 
 ### Runtime injection
 
-- **`before_plan`:** project the current gap, active adoptions, stale or
-  unavailable nodes and a minimal useful composition. Allow an empty selection.
+- **`before_plan`:** read enabled applicable capabilities; emit no Portfolio
+  contribution for independent direct work. For composed work, project only the
+  current gap, selected dependencies and stale/unavailable nodes.
 - **`before_delegate`:** freeze worker/connector/provider revisions, budget,
   schemas, authority references and composition digest. Domain capabilities
   describe the question and acceptance criteria; the generic delegation owner
@@ -344,9 +431,16 @@ must not silently resolve a replacement provider.
   effect and utility remain in their owning receipts. Raw worker prose is not
   an adoption or lifecycle receipt.
 
-An optional Turn-start summary contains only portfolio revision, current gap,
-selected composition, stale/unavailable nodes and the next review trigger. The
-full catalog and history stay out of the prompt envelope.
+These phases apply when their corresponding lifecycle event exists. They do
+not force delegation or a governed Turn for a bound read-only call. Existing
+turn-start/post-writeback hooks and pending-intent execution retain their owners;
+Portfolio neither duplicates dispatch nor journals an effect twice.
+
+An optional Turn-start summary contains only a relevant composition reference,
+stale/unavailable dependencies and next review trigger. Direct work adds no
+Portfolio prompt section. Full catalog/history and owner joins stay behind
+on-demand inspect. Cache bounded declarations by their existing revision;
+configuration/provider/receipt drift invalidates only affected entries.
 
 ## 6. Alternatives and design choices
 
@@ -367,6 +461,14 @@ admission require exact call evidence, time, coverage, rights and domain rules.
 Rejected. Decision Context assembles decision evidence; it must not become a
 configuration, provider or authorization owner.
 
+### Mandatory portfolio adoption and a universal planner
+
+Rejected. Existing enablement already answers whether a capability participates.
+Requiring another switch, trial, adoption record or graph for independent work
+creates a second gate and unnecessary tokens, writes and failure dependencies.
+The direct path remains primary; composition is a demand-driven capability
+policy, not a Kernel prerequisite for every Goal or Turn.
+
 ### Fully automatic self-installation
 
 Rejected for v0. It collapses recommendation, configuration and authority. The
@@ -375,8 +477,9 @@ owners, but cannot perform it implicitly.
 
 ## 7. Safety, privacy, and compatibility
 
-- The portfolio is advisory by default and stores no secrets or raw private
-  payloads.
+- Automatic activation is an integration obligation; composition ranking is
+  advice. Existing admission, required validation and authority remain enforced.
+  Portfolio stores no secrets or raw private payloads.
 - Public projections redact private source, account and paid-data details. They
   may join authorized, bounded coverage or failure fields from owner
   projections at read time, but the portfolio does not persist another copy.
@@ -393,32 +496,40 @@ owners, but cannot perform it implicitly.
 
 ## 8. Migration and rollback
 
-M0 introduces read-only inspection over existing owners. M1 stores candidate
-and trial records behind a default-off capability. Existing registry records
-remain readable and are not bulk-promoted. A connector becomes active only
-through a new exact-revision qualification receipt.
+M0 first qualifies automatic direct participation and read-only inspection over
+existing owners. Unconfigured/disabled capabilities retain their defaults;
+enabled capabilities need no new Portfolio opt-in or bulk adoption migration.
+Adding this integration must preserve each owner's explicit automation settings.
+A connector becomes qualified only through its own exact-revision evidence.
 
-Rollout proceeds Goal by Goal. Before enabling mutations, preflight verifies
-the portfolio owner, authority provider, configuration references and public
-projection. Rollback disables portfolio injection and retains receipts for
-audit; original catalog, configuration, evidence and task owners continue.
-No destructive registry migration is part of v0.
+Rollout proceeds Goal by Goal using existing capability configuration controls.
+Before any durable Portfolio mutation, preflight verifies its typed owner,
+authority provider and references. M0 ships without a new storage dependency;
+M2 adds state only for irreducible policy. Rollback removes Portfolio planning
+and writes while retaining receipts for read-only audit and preserving enabled
+native routes. To stop a capability itself, disable it through its original
+configuration/binding owner. No destructive registry migration is part of v0.
 
 ## 9. Validation and acceptance
 
 | Claim | Test or evidence | Required result | Boundary / exclusions |
 | --- | --- | --- | --- |
+| Enabled means usable automatically | enable through existing Goal editor/CLI, then a fresh supported Agent session without Portfolio command or adoption | applicable native hook/route runs and returns owner readback; no second opt-in | required authority and explicit manual-only settings remain enforced |
+| Small work stays small | zero, one, two independent capabilities, then one real dependency | direct cases add zero Portfolio model/provider calls, DAGs or durable writes; dependency produces only needed plan | ordinary owner execution cost remains visible |
+| Off/failure parity | compare same base/head workload on CLI, managed Turn, context and post-writeback paths; inject Portfolio failure | unchanged native decisions/effects; no duplicated dispatch or new gate | an actual required-capability failure still blocks through its owner |
+| State vocabularies keep their owners | adoption `adopted` + connector `active`, then connector degradation and no-adoption cases | separately labeled refs/statuses; no automatic mapping or fabricated adoption | connector qualification profile is not yet shipped |
+| Core stays generic | caller/import audit plus unrelated capability execution | policy is capability-owned; no Portfolio branches in Todo/quota/scheduler rules | existing generic admission still applies |
 | Portfolio does not grant authority | mutation and adversarial fixtures | requested scope expansion rejected; no grant written | does not qualify each external provider |
 | Plan binds exact semantics | mutate gap, config, provider, route, budget and graph fields | digest mismatch fails closed | does not prove live execution |
 | Replay is idempotent | lost-response and concurrent retry fixtures | one transition and one receipt | provider side effects remain provider-owned |
-| Failure preserves useful work | portfolio/provider unavailable fixture | ordinary Todo continues with unknown coverage; hard requirement blocks only that Todo | no availability SLO |
+| Failure preserves useful work | portfolio/provider unavailable fixture | native route continues with Portfolio availability unknown; hard requirement blocks only that Todo | no availability SLO |
 | Connector lifecycle is auditable | discovery→trial→qualification→degrade→retire fixture | every transition has exact revision and typed reason | domain eligibility tested separately |
 | Provider binding keeps one owner | existing Goal binding preview/apply/readback plus disable/upgrade/rollback fixtures | portfolio references the exact binding and becomes stale on drift; it writes no parallel binding | extension runtime still proves provider readiness |
 | Self-discovery is useful | fresh finance and non-finance Agents receive the same Goal only | both select a minimal defensible composition or explain empty selection | two cases do not prove universal uplift |
 | Composition improves outcomes | frozen baseline versus portfolio-assisted trials | better first useful action, coverage or decision quality within declared cost; failures retained | no automatic production promotion |
 | Three hooks agree | before-plan/delegate/result contract tests | same composition identity and exact route/result lineage | raw model quality excluded |
 | Owner truth is not duplicated | correct and retire one external-evidence receipt and one non-evidence outcome receipt | portfolio follows immutable superseding refs; no copied admission/effect fact survives | each owner still validates its own semantics |
-| Product surfaces agree | CLI, packaged frontend and Lark acceptance | same portfolio revision, adoption status, reasons, owner refs and review triggers; joined owner facts retain provenance | each transport and owner projection qualified separately |
+| Product surfaces agree | existing Goal settings preview/apply/readback in CLI, packaged frontend and Lark; new-session, stale, reconnect and repeated-action cases | same effective enablement, direct/composed mode, optional adoption status and owner refs; no second activation control | release each enabled entry point only with its usable readback; owner facts retain provenance |
 | Domain boundaries hold | finance and another domain fixtures | Core remains domain-neutral; domain admission remains independent | no trading authorization |
 
 Measure time to first useful action, evidence coverage, stale/duplicate-source
@@ -428,7 +539,8 @@ success metric.
 
 ## 10. Operational contract
 
-Operators can inspect the current portfolio revision, active/trial/degraded
+Operators can inspect effective enablement, direct/composed mode, optional
+portfolio revision, adopted/trial/degraded
 adoptions, exact config/provider revisions, owner-receipt references and next
 review triggers. Authorized views may join current failures, cost and coverage
 from their owners without persisting them in the portfolio. Alerts are
@@ -436,9 +548,19 @@ event-driven for revision drift, rights expiry, repeated failure, budget
 exhaustion or a required capability becoming unavailable; routine successful
 calls do not create noise.
 
-Capacity is bounded per Goal and Turn. Candidate enumeration is paginated and
-prompt projection is size-limited. Failure classes distinguish unavailable,
-incompatible, unauthorized, stale, rights-expired, budget-exhausted,
+Reuse the existing capability configuration editor and Goal settings entry.
+Show effective behavior and actionable failures first; composition details and
+owner receipts are on demand. Do not add an empty Portfolio panel, an adoption
+wizard or a second enable button. Lark uses the same configuration/read model.
+
+Capacity is bounded per Goal and relevant event. Candidate enumeration is
+paginated on demand and prompt projection is size-limited. Measure same-workload
+base/head latency, tokens, reads, writes and calls for off/direct/composed paths.
+Off/direct add no Portfolio model or provider calls, durable writes or prompt
+section. Any local projection overhead must fit an explicitly measured budget;
+M0 records that budget using the repository budget-decision guide. No universal
+SLO or performance win is claimed by this proposal. Failure classes distinguish
+unavailable, incompatible, unauthorized, stale, rights-expired, budget-exhausted,
 provider-failed and result-unqualified. Backup and recovery follow the selected
 Goal authority provider; raw provider artifacts follow their original owners.
 
@@ -446,16 +568,19 @@ Goal authority provider; raw provider artifacts follow their original owners.
 
 | Milestone | Shipped behavior | Entry gate | Exit evidence | Rollback |
 | --- | --- | --- | --- | --- |
-| M0 · Contract and inspect | Portfolio-owned adoption/composition/lifecycle-transition schemas plus read-only catalog, Goal-binding and owner-receipt projections | RFC review; catalog/config/binding/receipt owners identified | normalization, owner-correction, mutation and feature-off fixtures | remove projection; no stored state |
-| M1 · External evidence and connector trial | #4813 lifecycle aligned with connector descriptor/call receipt; no auto-promotion | exact-plan binding and provider boundary accepted | one real host method and one connector trial with partial/failure receipts | keep registry inventory; disable qualification writes |
-| M2 · Goal adoption owner | candidate/trial/adopted/degraded/retired reducer and receipts | Goal authority provider available | replay, concurrency, drift, rollback and recovery tests | disable writer; retain receipts read-only |
-| M3 · Three-phase composition | portfolio projection at all three Agent-context hooks and generic delegation receipts | M0–M2 identities stable | no-hint fresh-Agent finance/non-finance trials | disable hooks independently |
-| M4 · Effect qualification | external-only, connector-only and hybrid trials; owner-receipt-backed lifecycle review and retirement proposals | frozen metrics, budget and stop rules | retained denominators show benefit or explicit no-uplift without copied effect truth | revert adoption to candidate/degraded |
-| M5 · Product journey | CLI, packaged frontend and Lark share inspect, reasons, readback and recovery | shared public projection stable | cross-session, stale, reconnect and repeated-action acceptance | hide mutation controls; CLI readback remains |
+| M0 · Automatic direct path and inspect | Resolve existing enablement, dispatch supported native hooks and expose shared readback; no new Portfolio store | existing config, hooks, admission and UI owners identified | zero/one/independent-capability cases; no second opt-in; off/failure parity and measured overhead; affected CLI/frontend/Lark journeys | remove integration; existing capability routes/config remain |
+| M1 · External evidence and connector trial | Reuse merged #4813 evidence lifecycle; add only missing connector-owner qualification | real connector caller and exact-plan/provider boundary | one real host method and one connector trial with partial/failure receipts; no fabricated connector status | retain inventory/evidence; disable qualification writes |
+| M2 · Optional durable adoption | candidate/trial/adopted/degraded/retired reducer and receipts only for irreducible cross-Turn policy | concrete caller needs policy beyond existing config/owner receipts; Goal authority provider selected | replay, concurrency, drift, recovery and no-adoption direct path | disable writer; retain read-only receipts |
+| M3 · Demand-driven composition | Small dependency closure through existing planning/delegation/result hooks | M0; M2 only when durable policy needed; M1 only for connector qualification | direct→composed→direct, no-hint finance/non-finance trials, owner correction and same-workload overhead | remove planning; native hooks continue |
+| M4 · Effect qualification | external-only, connector-only and hybrid trials; owner-backed review and retirement proposals | frozen metrics, budget and stop rules | retained denominators show benefit or explicit no-uplift without copied effect truth | revert Portfolio selection through its typed owner |
+| M5 · Cross-surface consolidation | Common inspect/detail/recovery across CLI, packaged frontend and Lark | shared projection and preceding verticals available | cross-session, stale, reconnect and repeated-action acceptance for the combined journey | hide optional detail/mutation controls; native readback remains |
 
-Milestones may ship while the RFC remains Draft. #4813 is an M1 prerequisite,
-not proof of the whole portfolio. The overall-roadmap owner tracks S8 ordering;
-canonical Todos track implementation.
+M0 is a useful outcome on its own and does not wait for connector qualification,
+a new authority store or the complete M2–M5 design. Each milestone includes the
+entry points it changes; M5 cannot defer a required M0/M2/M3 settings companion.
+#4813 is merged evidence infrastructure, not proof of the Portfolio or live
+connector qualification. The overall-roadmap owner tracks S8 ordering; canonical
+Todos track implementation. This PR delivers only the revised RFC contract.
 
 ## 12. Open decisions
 
@@ -463,7 +588,8 @@ canonical Todos track implementation.
    maintainers. Recommendation: use the configured Goal authority provider for
    adoption records, reuse existing Goal external-capability bindings for
    runtime enablement, and keep large receipts/artifacts with their owners. Do
-   not create a portfolio-specific provider binding. Decide before M2.
+   not create a portfolio-specific provider binding. Decide only when M2 has a
+   concrete durable-policy caller; M0/direct use needs no new storage.
 2. **Cross-capability comparison.** Owner: capability maintainers.
    Recommendation: compare only within a named Goal gap and report multiple
    dimensions; do not create one global score. Validate in M3/M4.
@@ -497,6 +623,7 @@ canonical Todos track implementation.
 | --- | --- | --- | --- | --- |
 | 2026-09-21 | Initial proposal; no approval inferred | pending maintainer review | domain-only organization, registry-as-quality-owner, Decision Context owner | all |
 | 2026-09-21 | Narrow generic use/effect state to owner-receipt observations and portfolio-only lifecycle receipts | maintainer review request on exact head `1a6b15c6` | duplicate generic effect/admission authority | Sections 1, 3, 5, 7, 9–11 |
+| 2026-09-21 | Existing Goal enablement activates supported behavior; direct-first, composition on demand; adoption and connector qualification retain separate vocabularies | revised proposal pending exact-head review | second opt-in, mandatory DAG/adoption, Kernel-owned selection | Sections 1–12 |
 
 ## Appendix C: Evidence registry
 
@@ -504,8 +631,9 @@ canonical Todos track implementation.
 | --- | --- | --- | --- | --- | --- |
 | E1 | Three generic hook phases exist | implementation baseline | `agent_context` and subagent-context tests/source | inspected | static inspection, not live uplift |
 | E2 | Registry is inventory/telemetry rather than qualification | implementation baseline | connector-registry schema and CLI | inspected | no exhaustive provider audit |
-| E3 | External-evidence typed lifecycle is an active prerequisite | PR #4813 exact head above | PR diff, tests and review | open; not on `main` | no merge or live-provider claim |
+| E3 | External-evidence typed lifecycle is a merged prerequisite | current implementation baseline | `external_research/README.md`, typed external-evidence owner and CLI | merged via #4813; source inspected | not connector qualification or live-provider evidence |
 | E4 | Durable Goal binding already owns exact provider operation/revision/profile selection | implementation baseline | extension reference and capability-admission source | inspected | read-only binding contract; does not prove provider execution |
+| E5 | Automatic participation and settings should reuse existing owners | current implementation baseline | `agent_context.ts`, `capability_hooks.ts`, periodic-report/reward-memory hooks, configuration editor and Goal settings | source inspected | general Portfolio activation and measured overhead remain unimplemented |
 
 ## Appendix D: Rejected or superseded alternatives
 
