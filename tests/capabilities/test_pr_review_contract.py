@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -605,3 +606,22 @@ def test_observable_semantics_covers_diagnostics_and_claim_neutral_note_paths() 
         "observable_semantics"
         in contract["verdict_policy"]["open_pr_unresolved_semantics"]
     )
+
+
+def test_pr_review_skill_tracks_the_capability_policy_revision() -> None:
+    """The host skill must not pin a policy revision the capability owns.
+
+    A hardcoded number here goes stale on the next capability bump and blocks
+    reviewers with an unrelated mismatch: the skill text said ``== 6`` while
+    the installed contract already emitted 7. The skill has to compare the
+    packet's ``review_execution_contract.policy_revision`` with the result's
+    ``review_policy_revision`` instead of naming a value itself.
+    """
+
+    skill = (
+        Path(__file__).resolve().parents[2] / "skills/loopx-pr-review/SKILL.md"
+    ).read_text(encoding="utf-8")
+
+    assert "review_execution_contract.policy_revision" in skill
+    assert "review_policy_revision" in skill
+    assert re.search(r"policy_revision\s*==\s*\d+", skill) is None, skill

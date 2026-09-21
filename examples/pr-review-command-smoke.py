@@ -18,9 +18,6 @@ import loopx.pr_review as pr_review_module  # noqa: E402
 from loopx.capabilities.project_skill_delivery.core import (  # noqa: E402
     discover_project_scoped_skill_ids,
 )
-from loopx.capabilities.pr_review_queue.review_contract import (  # noqa: E402
-    REVIEW_POLICY_REVISION,
-)
 from loopx.doctor import REQUIRED_INSTALLED_SKILL_PHRASES  # noqa: E402
 from loopx.pr_review import (  # noqa: E402
     _github_search_date,
@@ -85,7 +82,8 @@ def main() -> int:
         "详细中文评审",
         "英文简短结论",
         "complete Chinese five-block review plus one concise English verdict",
-        f"Require execution `policy_revision == {REVIEW_POLICY_REVISION}`",
+        "review_execution_contract.policy_revision",
+        "review_policy_revision",
         "Do not retain expired temporary worktree overrides",
         "Treat `candidate` as a preview, not a durable projection",
         "durable Todo target-key readback -> `--projected-exact-head` -> exact-head review/comment readback -> `--handled-exact-head`",
@@ -106,13 +104,11 @@ def main() -> int:
         assert duplicated_contract_heading not in skill_source, (
             duplicated_contract_heading
         )
-    policy_requirement = re.search(
-        r"Require execution `policy_revision == ([0-9]+)`", skill_source
-    )
-    assert policy_requirement, "skill must declare an exact review policy revision"
-    assert int(policy_requirement.group(1)) == REVIEW_POLICY_REVISION, (
-        policy_requirement.group(1),
-        REVIEW_POLICY_REVISION,
+    # The skill must track the capability's revision, not pin a copy of it:
+    # a literal here goes stale on the next capability bump and blocks
+    # reviewers with a mismatch that has nothing to do with their change.
+    assert not re.search(r"policy_revision\s*==\s*[0-9]+", skill_source), (
+        "skill must not pin a literal review policy revision"
     )
 
     # The merge-decision workflow must require the capability-owned review
