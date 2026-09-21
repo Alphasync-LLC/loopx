@@ -11,6 +11,10 @@ accepted it, so a state that already shows every part accepted means the reader
 has the whole answer even when the caller never got to write its own receipt
 (a failed settle write, or a process that stopped right after the last part).
 That case settles from the record instead of re-sending nothing forever.
+
+A send the provider accepted but did not read back leaves its provider locator
+in the same record. The next attempt verifies that locator before sending the
+part again, so an ambiguous send is reconciled instead of repeated.
 """
 
 from __future__ import annotations
@@ -19,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from .inbox_reply import reply_lark_event_inbox
+from .inbox_reply import reply_lark_event_inbox, verify_lark_inbox_reply
 from .outbound import DEFAULT_LARK_TEXT_LIMIT, split_lark_outbound_text
 
 # An oversized answer is delivered as a bounded sequence rather than a flood:
@@ -32,6 +36,7 @@ MANAGER_REPLY_OVERFLOW_NOTE = (
 )
 PART_DELIVERY_COMPLETE_KEY = "delivery_parts_complete"
 PART_DELIVERY_VERIFIED_KEY = "delivery_parts_verified"
+PART_ATTEMPT_KEY = "delivery_part_attempt"
 PART_DELIVERY_INCOMPLETE = "reply_part_delivery_incomplete"
 PART_DELIVERY_COMPLETION_UNVERIFIED = "reply_part_delivery_completion_unverified"
 
@@ -52,11 +57,16 @@ def plan_manager_reply_parts(reply_text: str) -> tuple[list[str], bool]:
 
 
 def _part_verified(reply: Mapping[str, Any]) -> bool:
-    """Whether the provider readback confirmed this part on the channel."""
+    """Whether the provider reported this part present on the channel.
+
+    A part can be confirmed either by the readback that follows its own send or
+    by the reconciliation of an earlier send the provider accepted but did not
+    read back. Both mean the reader has that text, which is the fact the counter
+    records; a reconciled part has no new write of its own.
+    """
 
     return bool(
-        reply.get("external_write_performed") is True
-        and reply.get("verification_performed") is True
+        reply.get("verification_performed") is True
         and reply.get("reply_verified") is True
     )
 
@@ -136,6 +146,52 @@ def part_delivery_incomplete_reason(delivery_state: Mapping[str, Any]) -> str:
     return PART_DELIVERY_INCOMPLETE
 
 
+def recorded_part_attempt(
+    delivery_state: Mapping[str, Any], index: int
+) -> Mapping[str, Any] | None:
+    """The provider locator of the part that was attempted but not confirmed."""
+
+    recorded = delivery_state.get(PART_ATTEMPT_KEY)
+    if not isinstance(recorded, Mapping) or recorded.get("index") != index:
+        return None
+    attempt = recorded.get("attempt")
+    return attempt if isinstance(attempt, Mapping) else None
+
+
+def reconciled_part_reply(
+    *,
+    parts: list[str],
+    index: int,
+    delivery_state: Mapping[str, Any],
+    reply_runner: Any,
+    root: Path,
+    config_path: Path,
+    message_id: str,
+) -> Mapping[str, Any] | None:
+    """Confirm a previously attempted part instead of sending it twice.
+
+    Returns the verification result when the provider still reports the part on
+    the channel, and ``None`` when there is nothing to reconcile or the provider
+    could not confirm it (the caller then sends the part, as before). The
+    verification performs no write of its own.
+    """
+
+    attempt = recorded_part_attempt(delivery_state, index)
+    if attempt is None:
+        return None
+    verified = verify_lark_inbox_reply(
+        project=root,
+        config_path=config_path,
+        message_id=message_id,
+        text=parts[index],
+        attempt=attempt,
+        runner=reply_runner,
+    )
+    if verified.get("reply_verified") is not True:
+        return None
+    return {**dict(verified), "part_reconciled": True}
+
+
 def deliver_manager_reply_parts(
     *,
     parts: list[str],
@@ -184,15 +240,40 @@ def deliver_manager_reply_parts(
     write_delivery(delivery_path, delivery_state)
     last: Mapping[str, Any] | None = None
     for index in range(sent, len(parts)):
-        last = reply_lark_event_inbox(
-            project=root,
+        last = reconciled_part_reply(
+            parts=parts,
+            index=index,
+            delivery_state=delivery_state,
+            reply_runner=reply_runner,
+            root=root,
             config_path=config_path,
             message_id=message_id,
-            text=parts[index],
-            content_format=content_format,
-            execute=True,
-            runner=reply_runner,
         )
+        if last is None:
+            # The locator of the part being sent now replaces any older one, so
+            # the record always points at the most recent unconfirmed attempt.
+            delivery_state.pop(PART_ATTEMPT_KEY, None)
+
+            def record_attempt(attempt: Mapping[str, Any], *, index=index) -> None:
+                delivery_state[PART_ATTEMPT_KEY] = {
+                    "index": index,
+                    "attempt": dict(attempt),
+                }
+                delivery_state["updated_at"] = datetime.now(
+                    timezone.utc
+                ).isoformat()
+                write_delivery(delivery_path, delivery_state)
+
+            last = reply_lark_event_inbox(
+                project=root,
+                config_path=config_path,
+                message_id=message_id,
+                text=parts[index],
+                content_format=content_format,
+                execute=True,
+                runner=reply_runner,
+                delivery_attempt_recorder=record_attempt,
+            )
         if not _part_accepted(last):
             delivery_state.update(
                 delivery_parts_sent=index,
@@ -201,6 +282,7 @@ def deliver_manager_reply_parts(
             )
             write_delivery(delivery_path, delivery_state)
             return None
+        delivery_state.pop(PART_ATTEMPT_KEY, None)
         delivery_state.update(
             delivery_parts_sent=index + 1,
             **(
