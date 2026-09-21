@@ -357,16 +357,16 @@ No default D1 implementation, automatic worker adoption or hidden mandatory-mode
 
 ### 2026-09-21 — D1-only shadow implementation proposal
 
-- **Baseline:** upstream `62d18677c`; only the optional D1 command is carried from the fork, without D2–D8 ranking or selector changes.
+- **Baseline:** upstream `62d18677c`; the implementation includes only the optional D1 command, without D2–D8 ranking or selector changes.
 - **Proposal:** scoped checkpoint capture around actual refresh-state, separate inference, off/shadow configuration and historical readback. See the [operation guide](../../../packages/loopx-jev/DRIFT_SHADOW.md).
-- **Evidence boundary:** [discussion evolution and author-reported fork measurements](../../../packages/loopx-jev/DESIGN_DECISIONS.md); deterministic integration checks are distinct from provider accuracy and task benefit. No automatic intervention or native host-hook rollout.
+- **Evidence boundary:** [discussion evolution and current-implementation measurements](../../../packages/loopx-jev/DESIGN_DECISIONS.md); deterministic integration checks are distinct from provider accuracy and task benefit. No automatic intervention or native host-hook rollout.
 - **Pending:** maintainer acceptance of this optional-tool scope and independently evaluated comparative value. The earlier M0 intake is not retroactive implementation approval.
 
 ## Appendix B: Decision log
 
 The separately proposed [D1 shadow tool and decision record](../../../packages/loopx-jev/DESIGN_DECISIONS.md)
 do not change the historical M0 decision or settle Q1–Q7. Maintainers review that
-optional-tool scope separately; fork experiments are not upstream adoption.
+optional-tool scope separately; experimental results do not establish product adoption.
 
 | Date | Proposal / decision | Owner / approval state | Alternatives | Sections |
 | --- | --- | --- | --- | --- |
@@ -388,6 +388,7 @@ Record any future accepting decision with its actual public link and exact scope
 | E5 | A/B/C and F01–F12 | Proposed experiments/obligations; unexecuted for this feature |
 | E6 | [Jev external evidence supplement v0 (Chinese)](../../research/agent-workflow-audits/jev-external-evidence-supplement-v0.zh-CN.md) | Third-party quality and implementation evidence as of 2026-09-21; no change to Q1-Q7 or research/adoption status |
 | E7 | [D1 implementation decision record](../../../packages/loopx-jev/DESIGN_DECISIONS.md) | Public synthesis and author-reported fork observations; not independent upstream qualification, complete A/B/C or automatic-correction evidence |
+| E7 | [D1 implementation decision record](../../../packages/loopx-jev/DESIGN_DECISIONS.md) | Public synthesis and current-implementation observations; not independent qualification, complete A/B/C or automatic-correction evidence |
 
 ## Appendix D: Deferred mechanisms and rejected shortcuts
 

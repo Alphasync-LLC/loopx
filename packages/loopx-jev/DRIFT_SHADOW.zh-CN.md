@@ -23,7 +23,7 @@ uv pip install --python .venv-jev/bin/python -e '.[test]' -e packages/loopx-jev
 .venv-jev/bin/loopx-jev drift --help
 ```
 
-本切片只包含 D1，不包含旧 fork 的 D2–D8 命令或排序代码。使用 `loopx_jev_drift_config_v0` 和 `minimum_label_probability`；旧多方向试点配置会被拒绝，不会静默提升。配置 key 本身不启用 shadow 或允许出站。失败时原 Agent 工作继续，不会自动启动独立 Agent 裁判。
+本切片只包含 D1，不提供 D2–D8 命令或排序代码。使用 `loopx_jev_drift_config_v0` 和 `minimum_label_probability`；旧多方向试点配置会被拒绝，不会静默提升。配置 key 本身不启用 shadow 或允许出站。失败时原 Agent 工作继续，不会自动启动独立 Agent 裁判。
 
 为已有 Goal 创建被 Git 忽略的本地目录，复制 [config.shadow.json](examples/drift/config.shadow.json) 和 [basis.json](examples/drift/basis.json)。将示例 Goal id、目标、验收条件改为本次契约。可选 `evidence` 引用交付工作区中的常规文件，例如独立产生的测试报告；不要在配置或契约中填写密钥。默认 `allow_egress: false`，确认指定材料允许出站后再设为 true，并在**消费者的环境变量**中配置 `TYPESAFE_API_KEY`。
 

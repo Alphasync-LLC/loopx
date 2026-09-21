@@ -44,8 +44,8 @@ uv pip install --python .venv-jev/bin/python -e '.[test]' -e packages/loopx-jev
 .venv-jev/bin/loopx-jev drift --help
 ```
 
-This slice contains D1 only. Earlier fork D2–D8 commands and ranking code are
-excluded. Use `loopx_jev_drift_config_v0` and `minimum_label_probability`; old
+This implementation contains D1 only; D2–D8 commands and ranking code are
+not provided. Use `loopx_jev_drift_config_v0` and `minimum_label_probability`; old
 multi-direction pilot profiles are rejected rather than silently promoted.
 A configured key alone does not activate shadow or allow egress. On failure
 the existing Agent workflow continues; no independent Agent judge is launched.
