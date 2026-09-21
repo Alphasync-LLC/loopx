@@ -4411,7 +4411,10 @@ def test_todoless_blocked_replan_settles_read_only_external_evidence_without_wor
 
     assert replay_rc == 0, replay
     assert replay["effective_action"] == "heartbeat_settled_skip"
+    assert replay["interaction_contract"]["mode"] == "heartbeat_settled_skip"
+    assert replay["execution_obligation"]["kind"] == "heartbeat_settled_skip"
     assert replay["should_run"] is False
+    assert replay.get("error_code") is None
     assert replay.get("selected_todo") is None
     assert replay.get("unsettled_host_turn_recovery") is None
 
