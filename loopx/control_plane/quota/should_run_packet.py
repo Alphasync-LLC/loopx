@@ -1,5 +1,6 @@
 from __future__ import annotations
 from .effective_action import EffectiveAction
+from .effect_program import ReceiptBoundReplayPhase
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,7 +19,6 @@ from ..agents.agent_lane_recommendation import (
 )
 from ..agents.agent_scope import (
     AgentScopeFrontierAction,
-    _action_scope_tokens_from_text,
     _agent_lane_frontier_hint,
     _agent_scope_deferred_resume_candidates,
     _agent_scope_frontier_action,
@@ -47,9 +47,6 @@ from ..quota.policy_constants import (
     MONITOR_DUE_ITEM_LIMIT,
 )
 from ..quota.recent_runs import (
-    goal_latest_runs as _goal_latest_runs,
-)
-from ..quota.recent_runs import (
     recent_external_monitor_observation_unchanged as _recent_external_monitor_observation_unchanged,
 )
 from ..quota.selected_todo_projection import (
@@ -71,12 +68,6 @@ from ..quota.task_orchestration import (
 )
 from ..quota.task_orchestration import (
     payload_work_lane_contract as _payload_work_lane_contract,
-)
-from ..runtime.decision_freshness import (
-    decision_freshness_warning as _decision_freshness_warning,
-)
-from ..runtime.promotion_readiness import (
-    promotion_readiness_warning as _promotion_readiness_warning,
 )
 from ..scheduler.automation_liveness import build_automation_liveness
 from ..scheduler.execution_context import (
@@ -100,9 +91,6 @@ from ..todos.quota_summary import (
 )
 from ..todos.user_gate import (
     apply_scoped_user_gate_fallback_projection as _apply_scoped_user_gate_fallback_projection,
-)
-from ..todos.user_gate import (
-    build_gate_prompt as _build_gate_prompt,
 )
 from ..todos.user_gate import (
     build_user_todo_notification as _build_user_todo_notification,
@@ -132,10 +120,16 @@ from ..work_items.work_lane import (
     work_lane_contract_is_receipt_bound_monitor_settled,
 )
 from .settlement_precedence import (
-    apply_settled_replay_payload_precedence,
+    settled_replay_fields,
+    HEARTBEAT_SETTLED_REPLAY_REASON,
     clear_quota_action_projections,
 )
 from .should_run_prepare import _QuotaDecisionPreparation
+from ._supporting_projections import (
+    _attach_quota_supporting_projections,
+    _attach_truthy_fields,
+    _dict_field,
+)
 
 
 def _interaction_runtime_root(
@@ -236,77 +230,6 @@ def _execution_obligation(
         user_gate_owns_frontier=user_gate_owns_frontier,
         successor_replan_mode=AgentScopeFrontierAction.SUCCESSOR_REPLAN_REQUIRED.value,
     )
-
-
-def _recent_reward_lessons(status_payload: dict[str, Any], *, goal_id: str) -> list[dict[str, Any]]:
-    lessons: list[dict[str, Any]] = []
-    for run in _goal_latest_runs(status_payload, goal_id=goal_id):
-        reward = run.get("human_reward") if isinstance(run.get("human_reward"), dict) else {}
-        lesson = reward.get("lesson") if isinstance(reward.get("lesson"), dict) else {}
-        if not lesson:
-            continue
-        lessons.append(
-            {
-                "generated_at": run.get("generated_at"),
-                "decision": reward.get("decision"),
-                "reward": reward.get("reward"),
-                "kind": lesson.get("kind"),
-                "summary": lesson.get("summary"),
-                "avoid": lesson.get("avoid") if isinstance(lesson.get("avoid"), list) else [],
-                "prefer": lesson.get("prefer") if isinstance(lesson.get("prefer"), list) else [],
-            }
-        )
-    return lessons
-
-
-def _reward_lesson_projection_warning(
-    status_payload: dict[str, Any],
-    *,
-    goal_id: str,
-    recommended_action: str | None,
-) -> dict[str, Any] | None:
-    action = str(recommended_action or "").strip()
-    if not action:
-        return None
-    action_lower = action.lower()
-    action_tokens = _action_scope_tokens_from_text(action)
-    matches: list[dict[str, Any]] = []
-    for lesson in _recent_reward_lessons(status_payload, goal_id=goal_id):
-        for avoid in lesson.get("avoid") or []:
-            avoid_text = str(avoid or "").strip()
-            if not avoid_text:
-                continue
-            avoid_tokens = _action_scope_tokens_from_text(avoid_text)
-            exact_match = avoid_text.lower() in action_lower
-            if not exact_match and not avoid_tokens:
-                continue
-            token_overlap = sorted(action_tokens & avoid_tokens)
-            if not exact_match and len(token_overlap) < min(2, len(avoid_tokens)):
-                continue
-            matches.append(
-                {
-                    "generated_at": lesson.get("generated_at"),
-                    "decision": lesson.get("decision"),
-                    "kind": lesson.get("kind"),
-                    "summary": lesson.get("summary"),
-                    "avoid": avoid_text,
-                    "token_overlap": token_overlap[:5],
-                }
-            )
-    if not matches:
-        return None
-    return {
-        "schema_version": "reward_lesson_projection_warning_v0",
-        "source": "run_history.human_reward.lesson",
-        "goal_id": goal_id,
-        "message": (
-            "recommended_action overlaps a recent human_reward lesson avoid rule; "
-            "rebase the route or update the affected todo/next action before continuing"
-        ),
-        "recommended_action": action,
-        "match_count": len(matches),
-        "matches": matches[:3],
-    }
 
 
 def _apply_agent_monitor_only_precedence(
@@ -440,59 +363,6 @@ def _apply_agent_monitor_only_precedence(
     if isinstance(frontier, dict):
         frontier.pop("vision_continuation_audit", None)
     clear_quota_action_projections(payload)
-
-
-def _attach_truthy_fields(payload: dict[str, Any], **fields: Any) -> None:
-    payload.update({key: value for key, value in fields.items() if value})
-
-
-def _dict_field(payload: dict[str, Any], key: str) -> dict[str, Any] | None:
-    return payload.get(key) if isinstance(payload.get(key), dict) else None
-
-
-def _attach_quota_supporting_projections(
-    payload: dict[str, Any],
-    *,
-    status_payload: dict[str, Any],
-    item: dict[str, Any],
-    project_asset: dict[str, Any],
-    goal_id: str,
-    selected_recommended_action: Any,
-    state: str,
-    user_todo_summary: dict[str, Any] | None,
-    should_run: bool,
-    state_action_projection_warning: dict[str, Any] | None,
-    next_action_warning: dict[str, Any] | None,
-    replan_obligation: dict[str, Any] | None,
-) -> None:
-    _attach_truthy_fields(
-        payload,
-        stale_latest_run_warning=_dict_field(item, "stale_latest_run_warning"),
-        state_action_projection_warning=state_action_projection_warning,
-        next_action_projection_warning=next_action_warning,
-        backlog_hygiene_warning=_dict_field(item, "backlog_hygiene_warning"),
-        completed_todo_archive_warning=_dict_field(item, "completed_todo_archive_warning"),
-        autonomous_replan_obligation=replan_obligation,
-        dreaming_proposal=_dict_field(item, "dreaming_proposal"),
-        dreaming_lane_badge=_dict_field(item, "dreaming_lane_badge"),
-        interface_budget_cadence=_dict_field(project_asset, "interface_budget_cadence"),
-        decision_freshness_warning=_decision_freshness_warning(status_payload, goal_id=goal_id),
-        promotion_readiness_warning=_promotion_readiness_warning(status_payload),
-        reward_lesson_projection_warning=_reward_lesson_projection_warning(
-            status_payload,
-            goal_id=goal_id,
-            recommended_action=selected_recommended_action,
-        ),
-    )
-    if state == "operator_gate" and (
-        gate_prompt := _build_gate_prompt(item, user_todo_summary=user_todo_summary)
-    ):
-        payload["gate_prompt"] = gate_prompt
-        payload["notify_user_on_gate"] = True
-    _attach_truthy_fields(
-        payload, next_handoff_condition=item.get("next_handoff_condition"),
-        agent_command=item.get("agent_command") if should_run else None,
-    )
 
 
 def _delivery_preemptions_for_route(
@@ -774,20 +644,14 @@ def _resolve_quota_should_run_route(
     prepared: _QuotaDecisionPreparation,
 ) -> _QuotaDecisionRoute:
     item = prepared.item
-    normal_delivery_allowed = prepared.normal_delivery_allowed
-    recovery_allowed = prepared.recovery_allowed
-    self_repair_allowed = prepared.self_repair_allowed
-    state = prepared.state
-    quota = prepared.quota
-    reason = prepared.reason
     run_decision = resolve_quota_run_decision(
-        normal_delivery_allowed=normal_delivery_allowed,
-        recovery_delivery_allowed=recovery_allowed,
-        self_repair_allowed=self_repair_allowed,
+        normal_delivery_allowed=prepared.normal_delivery_allowed,
+        recovery_delivery_allowed=prepared.recovery_allowed,
+        self_repair_allowed=prepared.self_repair_allowed,
         stall_self_repair=prepared.stall_self_repair,
-        state=state,
-        quota=quota,
-        reason=reason,
+        state=prepared.state,
+        quota=prepared.quota,
+        reason=prepared.reason,
         capability_gate=prepared.capability_gate,
         capability_monitor_fallback=prepared.capability_monitor_fallback,
         workspace_guard=prepared.workspace_guard,
@@ -802,6 +666,37 @@ def _resolve_quota_should_run_route(
         goal_frontier_projection=prepared.goal_frontier_projection,
         task_orchestration_contract=prepared.task_orchestration_contract,
     )
+    if prepared.receipt_bound_replay_phase is ReceiptBoundReplayPhase.SETTLED:
+        fields = settled_replay_fields()
+        return _QuotaDecisionRoute(
+            normal_delivery_allowed=fields["normal_delivery_allowed"],
+            recovery_allowed=fields["recovery_delivery_allowed"],
+            self_repair_allowed=fields["self_repair_allowed"],
+            capability_repair_allowed=fields["capability_repair_allowed"],
+            workspace_repair_allowed=fields["workspace_repair_allowed"],
+            should_run=fields["should_run"], effective_action=fields["effective_action"],
+            reason=fields["reason"], state=run_decision.state, quota=run_decision.quota,
+            replan_decision_allowed=False, receipt_bound_replan_decision=False,
+            heartbeat_recommendation=fields["heartbeat_recommendation"],
+            external_evidence_observation=None, external_evidence_observation_recent=None,
+            selected_recommended_action=HEARTBEAT_SETTLED_REPLAY_REASON,
+            agent_lane_next_action=None, agent_scope_frontier=None,
+            agent_lane_frontier_hint=None, state_action_projection_warning=None,
+            active_state_next_action_text=_protocol_action_text(
+                item.get("active_state_next_action")
+                or prepared.project_asset.get("active_state_next_action")
+                or prepared.project_asset.get("next_action"), limit=320,
+            ),
+            latest_run_recommended_action_text=_protocol_action_text(
+                item.get("latest_run_recommended_action")
+                or prepared.project_asset.get("latest_run_recommended_action"), limit=320,
+            ),
+            next_action_warning=None, goal_route_hint=None,
+            payload_work_lane_contract=_payload_work_lane_contract(
+                prepared.work_lane_contract, effective_action=fields["effective_action"],
+                recovery_allowed=False, agent_scope_frontier=None,
+            ),
+        )
     normal_delivery_allowed = run_decision.normal_delivery_allowed
     recovery_allowed = run_decision.recovery_delivery_allowed
     self_repair_allowed = run_decision.self_repair_allowed
@@ -1126,13 +1021,58 @@ def _resolve_quota_should_run_route(
     )
 
 
-def _build_quota_should_run_payload(
+def _quota_payload_context(prepared: _QuotaDecisionPreparation, route: _QuotaDecisionRoute) -> dict[str, Any]:
+    return {
+        **_standing_decision_authority_payload_from_status_item(
+            prepared.item,
+            project_asset=prepared.project_asset,
+            agent_id=normalize_todo_claimed_by(
+                (prepared.agent_identity or {}).get("agent_id")
+            ),
+        ),
+        "ok": prepared.goal_health_ok
+            or route.self_repair_allowed
+            or route.capability_repair_allowed
+            or route.workspace_repair_allowed,
+        "status_health_ok": prepared.goal_health_ok,
+        "mode": "should-run",
+        "goal_id": prepared.safe_goal_id,
+        "quota": route.quota,
+        "state": route.state,
+        "blocked_action_scope": prepared.boundary_projection_repair.get("blocked_action_scope")
+            if prepared.boundary_projection_repair
+            else stall_repair_blocked_action_scope(prepared.stall_self_repair)
+            or route.quota.get("blocked_action_scope"),
+        "safe_bypass_allowed": bool(route.quota.get("safe_bypass_allowed")),
+        "safe_bypass_kind": route.quota.get("safe_bypass_kind"),
+        "safe_bypass_policy": route.quota.get("safe_bypass_policy"),
+        "waiting_on": prepared.item.get("waiting_on"),
+        "status": prepared.item.get("status"),
+        "lifecycle_phase": prepared.item.get("lifecycle_phase"),
+        "lifecycle_flags": prepared.item.get("lifecycle_flags"),
+        "source": prepared.item.get("source"),
+        "project_asset_source": prepared.item.get("project_asset_source"),
+        "active_state_next_action": route.active_state_next_action_text or None,
+        "latest_run_recommended_action": route.latest_run_recommended_action_text or None,
+        "execution_profile": _quota_execution_profile_summary(
+                prepared.project_asset.get("execution_profile")
+            )
+            if prepared.project_asset
+            else None,
+        "long_task_cadence_hint": prepared.item.get("long_task_cadence_hint")
+            if isinstance(prepared.item.get("long_task_cadence_hint"), dict)
+            else None,
+        "handoff_readiness": prepared.item.get("handoff_readiness"),
+        "goal_boundary": prepared.goal_boundary,
+        "plan_summary": prepared.plan.get("summary")
+    }
+
+
+def _build_active_quota_payload(
     prepared: _QuotaDecisionPreparation,
     route: _QuotaDecisionRoute,
     *,
-    turn_instance_id: str | None = None,
     include_agent_todo_detail: bool = False,
-    runtime_root: str | Path | None = None,
 ) -> dict[str, Any]:
     agent_scope_action = _agent_scope_frontier_action(route.effective_action)
     execution_obligation = _execution_obligation(
@@ -1152,24 +1092,8 @@ def _build_quota_should_run_payload(
         execution_obligation.get("must_attempt_work")
     )
     payload = {
-        **_standing_decision_authority_payload_from_status_item(
-            prepared.item,
-            project_asset=prepared.project_asset,
-            agent_id=normalize_todo_claimed_by(
-                (prepared.agent_identity or {}).get("agent_id")
-            ),
-        ),
-        "ok": (
-            prepared.goal_health_ok
-            or route.self_repair_allowed
-            or route.capability_repair_allowed
-            or route.workspace_repair_allowed
-        ),
-        "status_health_ok": prepared.goal_health_ok,
-        "mode": "should-run",
-        "goal_id": prepared.safe_goal_id,
-        "decision": (
-            AUTONOMOUS_REPLAN_REQUIRED_MODE
+        **_quota_payload_context(prepared, route),
+        "decision": AUTONOMOUS_REPLAN_REQUIRED_MODE
             if route.replan_decision_allowed
             else "run"
             if route.normal_delivery_allowed
@@ -1189,8 +1113,7 @@ def _build_quota_should_run_payload(
             if agent_scope_action is not None
             else PEER_COORDINATION_BLOCKED_ACTION
             if route.effective_action == PEER_COORDINATION_BLOCKED_ACTION
-            else "skip"
-        ),
+            else "skip",
         "should_run": route.should_run,
         "normal_delivery_allowed": route.normal_delivery_allowed,
         "recovery_delivery_allowed": route.recovery_allowed,
@@ -1205,53 +1128,15 @@ def _build_quota_should_run_payload(
             or route.capability_repair_allowed
             or route.workspace_repair_allowed
         ),
-        "reason": (
-            str(prepared.stall_self_repair.get("reason"))
+        "reason": str(prepared.stall_self_repair.get("reason"))
             if route.self_repair_allowed
             and isinstance(prepared.stall_self_repair, dict)
-            else route.reason
-        ),
-        "quota": route.quota,
-        "state": route.state,
-        "blocked_action_scope": (
-            prepared.boundary_projection_repair.get("blocked_action_scope")
-            if prepared.boundary_projection_repair
-            else stall_repair_blocked_action_scope(prepared.stall_self_repair)
-            or route.quota.get("blocked_action_scope")
-        ),
-        "safe_bypass_allowed": bool(route.quota.get("safe_bypass_allowed")),
-        "safe_bypass_kind": route.quota.get("safe_bypass_kind"),
-        "safe_bypass_policy": route.quota.get("safe_bypass_policy"),
-        "waiting_on": prepared.item.get("waiting_on"),
-        "status": prepared.item.get("status"),
-        "lifecycle_phase": prepared.item.get("lifecycle_phase"),
-        "lifecycle_flags": prepared.item.get("lifecycle_flags"),
-        "source": prepared.item.get("source"),
-        "project_asset_source": prepared.item.get("project_asset_source"),
+            else route.reason,
         "recommended_action": route.selected_recommended_action,
-        "active_state_next_action": route.active_state_next_action_text or None,
-        "latest_run_recommended_action": (
-            route.latest_run_recommended_action_text or None
-        ),
-        "execution_profile": (
-            _quota_execution_profile_summary(
-                prepared.project_asset.get("execution_profile")
-            )
-            if prepared.project_asset
-            else None
-        ),
-        "long_task_cadence_hint": (
-            prepared.item.get("long_task_cadence_hint")
-            if isinstance(prepared.item.get("long_task_cadence_hint"), dict)
-            else None
-        ),
-        "handoff_readiness": prepared.item.get("handoff_readiness"),
         "heartbeat_recommendation": route.heartbeat_recommendation,
         "execution_obligation": execution_obligation,
-        "goal_boundary": prepared.goal_boundary,
         "goal_frontier_projection": prepared.goal_frontier_projection,
-        "plan_summary": prepared.plan.get("summary"),
-        "todo_write_hint": build_todo_write_hint(prepared.safe_goal_id),
+        "todo_write_hint": build_todo_write_hint(prepared.safe_goal_id)
     }
     if payload["safe_bypass_policy"] is None:
         payload.pop("safe_bypass_policy")
@@ -1440,10 +1325,6 @@ def _build_quota_should_run_payload(
         monitor_only=prepared.agent_monitor_only,
         inbox_priority_due=prepared.inbox_priority_due,
     )
-    apply_settled_replay_payload_precedence(
-        payload,
-        replay_phase=prepared.receipt_bound_replay_phase,
-    )
     if isinstance(payload.get("autonomous_replan_obligation"), dict):
         payload["replan_action_packet"] = build_replan_action_packet(
             payload["autonomous_replan_obligation"],
@@ -1452,6 +1333,23 @@ def _build_quota_should_run_payload(
                 quota_decision_agent_id(payload) or prepared.requested_agent_id
             ),
             bounded_research_frontier=bounded_research_frontier,
+        )
+    return payload
+
+
+def _build_quota_should_run_payload(
+    prepared: _QuotaDecisionPreparation,
+    route: _QuotaDecisionRoute,
+    *,
+    turn_instance_id: str | None = None,
+    include_agent_todo_detail: bool = False,
+    runtime_root: str | Path | None = None,
+) -> dict[str, Any]:
+    if prepared.receipt_bound_replay_phase is ReceiptBoundReplayPhase.SETTLED:
+        payload = _build_settled_quota_payload(prepared, route)
+    else:
+        payload = _build_active_quota_payload(
+            prepared, route, include_agent_todo_detail=include_agent_todo_detail,
         )
     payload["automation_liveness"] = build_automation_liveness(payload)
     payload["interaction_contract"] = build_interaction_contract(
@@ -1494,4 +1392,56 @@ def _build_quota_should_run_payload(
         interaction_contract=payload.get("interaction_contract"),
         scheduler_hint=payload.get("scheduler_hint"),
     )
+    return payload
+
+
+def _build_settled_quota_payload(
+    prepared: _QuotaDecisionPreparation, route: _QuotaDecisionRoute,
+) -> dict[str, Any]:
+    payload = {
+        **_quota_payload_context(prepared, route),
+        **settled_replay_fields(),
+        "goal_frontier_projection": {
+            key: value for key, value in prepared.goal_frontier_projection.items()
+            if key not in {"autonomous_replan_decision", "replan_ack_feedback",
+                           "replan_obligation", "vision_continuation_audit", "vision_wait_state"}
+        },
+    }
+    if payload["safe_bypass_policy"] is None:
+        payload.pop("safe_bypass_policy")
+    _attach_agent_identity_contracts(payload=payload, agent_identity=prepared.agent_identity)
+    _attach_truthy_fields(
+        payload,
+        action_selection_qualification=prepared.action_selection_qualification,
+        automation_prompt_upgrade=prepared.automation_prompt_upgrade,
+        work_lane_contract=route.payload_work_lane_contract,
+        monitor_debt_arbitration=prepared.monitor_debt_arbitration if prepared.monitor_debt_arbitration.get("active") else None,
+        external_evidence_observation_recent=route.external_evidence_observation_recent,
+        control_plane=compact_control_plane_policy(prepared.item.get("control_plane")),
+        missing_gates=prepared.item.get("missing_gates"),
+        agent_todo_summary=compact_quota_todo_summary_for_payload(prepared.agent_todo_summary) if prepared.agent_todo_summary else None,
+        user_todo_summary=compact_quota_todo_summary_for_payload(prepared.user_todo_summary) if prepared.user_todo_summary else None,
+        bounded_research_frontier=_dict_field(prepared.status_payload, "bounded_research_frontier"),
+    )
+    if prepared.agent_scoped_user_todo_override:
+        payload[str(prepared.agent_scoped_user_todo_override["kind"])] = prepared.agent_scoped_user_todo_override
+    payload.update(stall_repair_payload(prepared.stall_self_repair))
+    attention_queue = _dict_field(prepared.status_payload, "attention_queue") or {}
+    for field in ("autonomous_backlog_candidates", "autonomous_monitor_candidates"):
+        value = _compact_autonomous_candidate_context(attention_queue.get(field), goal_id=prepared.safe_goal_id)
+        if value:
+            payload[field] = value
+    _attach_quota_supporting_projections(
+        payload, status_payload=prepared.status_payload, item=prepared.item,
+        project_asset=prepared.project_asset, goal_id=prepared.safe_goal_id,
+        selected_recommended_action=route.selected_recommended_action, state=route.state,
+        user_todo_summary=prepared.user_todo_summary, should_run=False,
+        state_action_projection_warning=None, next_action_warning=None,
+        replan_obligation=None, notify_gate=False,
+    )
+    # Work-mode diagnostics survive settlement, while execution authority comes
+    # only from the settled result, never a fallback readback or the monitor
+    # precedence mutator.
+    if prepared.agent_monitor_only and not prepared.inbox_priority_due:
+        payload.update(agent_work_mode="monitor_only", blocked_action_scope="advancement_work")
     return payload

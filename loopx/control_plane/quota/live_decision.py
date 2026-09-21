@@ -13,10 +13,10 @@ from ..capability_hooks import (
     InteractionProjectionHookRegistration,
     dispatch_interaction_projection_hooks,
 )
+from .effect_program import ReceiptBoundReplayPhase
 from .settlement import (
     read_heartbeat_settlement,
 )
-from .effect_program import ReceiptBoundReplayPhase
 from ..work_items.interaction_contract import build_interaction_contract
 from ..work_items.action_portfolio import reconcile_retained_action_selection
 from ..work_items.autonomous_replan_obligation import (

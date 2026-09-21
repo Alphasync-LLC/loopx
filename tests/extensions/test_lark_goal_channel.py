@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from loopx.cli_commands import goal_channel as goal_channel_cli
+from loopx.cli_commands import goal_channel_operation as goal_channel_operation_cli
 from loopx.extensions.lark import goal_channel_contracts
 from loopx.extensions.lark.goal_channel import (
     GOAL_CHANNEL_BINDING_SCHEMA_VERSION,
@@ -2142,7 +2143,6 @@ def test_cli_deliver_operation_uses_source_registry_runtime(
         "resolve_extension_activation",
         lambda *args, **kwargs: {"ok": True},
     )
-    monkeypatch.setattr(goal_channel_cli, "_binding_target_name", lambda *args: "")
 
     def capture_delivery(**kwargs: Any) -> dict[str, Any]:
         captured.update(kwargs)
@@ -2159,7 +2159,9 @@ def test_cli_deliver_operation_uses_source_registry_runtime(
         }
 
     monkeypatch.setattr(
-        goal_channel_cli, "deliver_goal_channel_operation_card", capture_delivery
+        goal_channel_operation_cli,
+        "deliver_goal_channel_operation_card",
+        capture_delivery,
     )
     result = goal_channel_cli.handle_goal_channel_command(
         argparse.Namespace(
@@ -2181,6 +2183,7 @@ def test_cli_deliver_operation_uses_source_registry_runtime(
 
     assert result == 0
     assert printed["ok"] is True
+    assert printed["extension_activation"] == {"ok": True}
     assert captured["proposal_id"] == "proposal-public-fixture"
     assert captured["action_store_root"] == source_runtime / "chat" / "actions"
     assert captured["runtime_root"] == source_runtime
@@ -2335,7 +2338,6 @@ def test_cli_deliver_operation_projects_typed_stage_blockers(
         "resolve_extension_activation",
         lambda *args, **kwargs: {"ok": True},
     )
-    monkeypatch.setattr(goal_channel_cli, "_binding_target_name", lambda *args: "")
 
     def deliver_raises(**kwargs: object) -> object:
         raise GoalChannelDeliveryStageError(
@@ -2346,7 +2348,9 @@ def test_cli_deliver_operation_projects_typed_stage_blockers(
         )
 
     monkeypatch.setattr(
-        goal_channel_cli, "deliver_goal_channel_operation_card", deliver_raises
+        goal_channel_operation_cli,
+        "deliver_goal_channel_operation_card",
+        deliver_raises,
     )
     printed: dict[str, Any] = {}
     result = goal_channel_cli.handle_goal_channel_command(
@@ -2372,6 +2376,7 @@ def test_cli_deliver_operation_projects_typed_stage_blockers(
     assert printed["blocker"] == "provider_send_rejected"
     assert printed["failure_stage"] == "send_operation_card"
     assert printed["external_write_performed"] is False
+    assert "extension_activation" not in printed
     assert "provider rejected" not in json.dumps(printed)
     _assert_public_packet(printed)
 
@@ -2405,7 +2410,6 @@ def test_cli_deliver_operation_treats_unknown_write_as_performed(
         "resolve_extension_activation",
         lambda *args, **kwargs: {"ok": True},
     )
-    monkeypatch.setattr(goal_channel_cli, "_binding_target_name", lambda *args: "")
 
     def deliver_unknown(**kwargs: object) -> object:
         raise GoalChannelDeliveryStageError(
@@ -2416,7 +2420,9 @@ def test_cli_deliver_operation_treats_unknown_write_as_performed(
         )
 
     monkeypatch.setattr(
-        goal_channel_cli, "deliver_goal_channel_operation_card", deliver_unknown
+        goal_channel_operation_cli,
+        "deliver_goal_channel_operation_card",
+        deliver_unknown,
     )
     printed: dict[str, Any] = {}
     result = goal_channel_cli.handle_goal_channel_command(
@@ -2443,4 +2449,5 @@ def test_cli_deliver_operation_treats_unknown_write_as_performed(
     assert printed["failure_stage"] == failure_stage
     assert printed["external_write_performed"] is True
     assert printed["details"]["external_write_outcome"] == "unknown"
+    assert "extension_activation" not in printed
     _assert_public_packet(printed)

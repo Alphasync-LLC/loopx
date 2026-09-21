@@ -177,7 +177,7 @@ def test_live_quota_decision_maps_to_effect_turn(tmp_path: Path) -> None:
     turn = interpret_quota_should_run_packet(
         packet,
         goal_id=GOAL_ID,
-        agent_id="codex-fixture",
+        agent_id=None,
         capabilities=["shell"],
     )
 
