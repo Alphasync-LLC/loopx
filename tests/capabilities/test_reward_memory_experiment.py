@@ -1430,6 +1430,10 @@ def test_enablement_repair_preserves_scope_and_cli_reason(
     tmp_path: Path, capsys, failure: str
 ) -> None:
     registry_path, event_path, _ = _experiment(tmp_path)
+    custom_registry = tmp_path / "custom registry" / "explicit.json"
+    custom_registry.parent.mkdir()
+    custom_registry.write_bytes(registry_path.read_bytes())
+    registry_path = custom_registry
     registry = json.loads(registry_path.read_text())
     policy = registry["goals"][0]["control_plane"]["reward_memory"]
     policy["enabled_agents"] = ["pilot", "meta"]
@@ -1450,12 +1454,21 @@ def test_enablement_repair_preserves_scope_and_cli_reason(
     assert config is None
     repair = status["repair"]
     assert repair["preview_command"] == (
-        "loopx configure-goal --goal-id reward-memory-goal "
+        "loopx --registry '<invoked-registry>' configure-goal --goal-id reward-memory-goal "
         "--reward-memory-agent pilot --reward-memory-agent meta"
     )
     assert repair["apply_command"] == repair["preview_command"] + " --execute"
     assert repair["automatic_apply"] is False
     assert repair["registry_context"] == "reuse_invoked_registry"
+    assert repair["commands_are_templates"] is True
+    assert repair["required_bindings"] == {"<invoked-registry>": "invoked_registry_path"}
+    import shlex
+
+    for key in ("preview_command", "apply_command", "verify_command"):
+        argv = shlex.split(repair[key])
+        assert argv[1:3] == ["--registry", "<invoked-registry>"]
+        argv[2] = str(registry_path)
+        assert shlex.split(shlex.join(argv))[2] == str(registry_path)
     assert policy["config_path"] not in json.dumps(repair)
     assert "viking://" not in json.dumps(repair)
     code, payload = _run(
@@ -1478,6 +1491,12 @@ def test_enablement_repair_preserves_scope_and_cli_reason(
     assert payload["experiment"]["repair"] == repair
     assert payload["provider_call_count"] == 0
     assert payload["external_writes_performed"] is False
+    assert registry_path.read_bytes() == before
+    verify_argv = shlex.split(repair["verify_command"])
+    verify_argv[2] = str(registry_path)
+    assert main(["--format", "json", *verify_argv[1:]]) == 0
+    verified = json.loads(capsys.readouterr().out)
+    assert verified["status"] == expected
     assert registry_path.read_bytes() == before
 
 

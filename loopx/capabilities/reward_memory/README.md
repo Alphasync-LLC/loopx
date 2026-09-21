@@ -59,8 +59,10 @@ Editing the ignored config invalidates its old enablement receipt. `enablement_s
 and `enablement_unverified` now return a shared `repair` plan: reuse the invoked
 registry and existing Agent allowlist with `configure-goal`, inspect the config
 change, preview, apply within existing authorization, then verify `available`.
-The commands retain the existing private config pointer; neither that pointer nor
-provider scopes are published. Apply re-runs provider write/exact-readback and
+Commands are explicitly marked templates with a required `<invoked-registry>`
+binding. Bind it to the exact invocation registry before execution; an omitted
+registry must never silently select a default. The private registry path, config
+pointer and provider scopes are not published. The config pointer is retained. Apply re-runs provider write/exact-readback and
 synchronizes the source/global binding. Never repair drift by copying a digest
 into an old receipt. Disabled capabilities offer no re-enable plan.
 

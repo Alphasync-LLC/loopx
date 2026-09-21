@@ -618,7 +618,9 @@ inbox send/reply 边界召回已经审阅过的偏好。它把指导交给 Agent
 直接修改忽略路径中的配置会使旧启用回执失效。`enablement_stale` 和
 `enablement_unverified` 现在返回共享 `repair` 计划：沿用本次 registry 和完整
 Agent 名单，通过 `configure-goal` 检查变更、预览、在既有授权内应用，再读回
-`available`。命令保留原私有配置指针，不公开路径或 provider scope；应用时重新
+`available`。命令明确标为模板，执行前必须将 `<invoked-registry>` 绑定为本次调用的
+确切 registry，不能省略后悄悄采用默认值。模板不公开 registry 路径、配置指针或
+provider scope，配置指针沿用原值；应用时重新
 执行 provider 写入及精确读回，并同步源/全局绑定。不能把新摘要填进旧回执；
 明确停用时不生成重新启用建议。
 

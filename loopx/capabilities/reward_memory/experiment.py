@@ -796,7 +796,10 @@ def _enablement_repair(
     This is a recovery plan, never authorization to trust a changed binding.
     Retain every enabled Agent when requalifying a shared corpus.
     """
-    argv = ["loopx", "configure-goal", "--goal-id", goal_id]
+    argv = [
+        "loopx", "--registry", "<invoked-registry>",
+        "configure-goal", "--goal-id", goal_id,
+    ]
     for enabled_agent in agent_ids:
         argv.extend(["--reward-memory-agent", enabled_agent])
     return {
@@ -804,8 +807,12 @@ def _enablement_repair(
         "kind": "requalify_existing_binding",
         "owner": "configure-goal",
         "registry_context": "reuse_invoked_registry",
+        "commands_are_templates": True,
+        "required_bindings": {"<invoked-registry>": "invoked_registry_path"},
         "automatic_apply": False,
         "instruction": (
+            "Bind <invoked-registry> to the exact registry used for this invocation "
+            "before executing any command; never substitute the default registry. "
             "Inspect the local configuration change and its existing authorization; "
             "preview, then apply through configure-goal within that authorization. "
             "Apply performs provider write/readback and synchronizes the binding. "
@@ -816,6 +823,8 @@ def _enablement_repair(
         "verify_command": shlex.join(
             [
                 "loopx",
+                "--registry",
+                "<invoked-registry>",
                 "reward-memory",
                 "experiment-status",
                 "--goal-id",

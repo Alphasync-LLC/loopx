@@ -45,7 +45,7 @@ def append_agent_reward_memory_markdown(
         lines.append(
             "    - reward_memory_repair: "
             + markdown_scalar(repair["preview_command"])
-            + " (reuse the invoked registry; inspect configuration changes before apply)"
+            + " (template: bind <invoked-registry> to the exact invoked registry; inspect changes before apply)"
         )
     host_coverage = agent_reward_memory.get("host_coverage")
     if not isinstance(host_coverage, list):
