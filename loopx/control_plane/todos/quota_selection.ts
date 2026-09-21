@@ -4,7 +4,7 @@ import { EffectRuntimeRequestError } from "../effect_runtime_errors.ts";
 import { requireJsonObject, requireBoolean, requireInteger, requireStringArray,
   optionalNonEmptyString } from "../runtime_decode.ts";
 import { projectTodoResumePlanning } from "./resume_planning.ts";
-import { gateAddressesAgent } from "./gate_scope.ts";
+import { gateAddressesAgent, actionAddressesAgent, claimAllowsAgent } from "./agent_scope.ts";
 import { missingRequiredCapabilities } from "../agents/capability_gate.ts";
 
 interface Row {
@@ -45,12 +45,8 @@ const bucket = (row: Row, agent: string) => row.claim === agent ? 0 : row.claim 
 function gateApplies(row: Row, agent: string | null): boolean {
   return !agent || gateAddressesAgent(row, agent);
 }
-function actionApplies(row: Row, agent: string | null): boolean {
-  const bound = row.bound ?? row.claim;
-  return !agent || !bound || bound === agent;
-}
 function executableBy(row: Row, agent: string | null): boolean {
-  return !agent || (!row.removed && !row.excluded.includes(agent) && bucket(row, agent) !== 2);
+  return !agent || (!row.removed && claimAllowsAgent(row, agent));
 }
 
 /** Presentation-only claimant coverage; never changes eligible work or counts. */
@@ -139,8 +135,8 @@ export function projectQuotaSelection(value: unknown): JsonObject {
   const gates = userMode ? source.filter(row => row.gate) : source;
   const blocking = userMode ? gates.filter(row => gateApplies(row, agent)) : gates;
   const otherGates = userMode ? gates.filter(row => !gateApplies(row, agent)) : [];
-  const actions = userMode ? source.filter(row => !row.gate && actionApplies(row, agent)) : [];
-  const otherActions = userMode ? source.filter(row => !row.gate && !actionApplies(row, agent)) : [];
+  const actions = userMode ? source.filter(row => !row.gate && actionAddressesAgent(row, agent)) : [];
+  const otherActions = userMode ? source.filter(row => !row.gate && !actionAddressesAgent(row, agent)) : [];
   // Explicit User gate scope has already decided blocking. Claim/exclusion
   // governs Agent execution, not permission to disregard that human gate.
   const open = userMode ? blocking : blocking.filter(row => executableBy(row, agent));
@@ -151,7 +147,7 @@ export function projectQuotaSelection(value: unknown): JsonObject {
   const due = supported ? monitors.filter(row => row.due && executableBy(row, agent)) : [];
   const admittedDue = due.filter(row => !row.missing.length);
   const watchOnlyMonitors = monitors.filter(row => row.watchOnly);
-  const activeVisible = (row: Row) => userMode ? (row.gate ? gateApplies(row, agent) : actionApplies(row, agent)) : executableBy(row, agent);
+  const activeVisible = (row: Row) => userMode ? (row.gate ? gateApplies(row, agent) : actionAddressesAgent(row, agent)) : executableBy(row, agent);
   const gateFilter = otherGates.length ? {
     schema_version: "agent_scoped_user_gate_filter_v0", agent_id: agent,
     policy: "user todos scoped to another agent by blocks_agent or claimed_by remain visible but do not block this agent's quota lane",

@@ -1,7 +1,8 @@
 /** Read-only lane selection over one evaluated source, before display limits. */
 import {EffectRuntimeRequestError} from "../effect_runtime_errors.ts";
 import type {JsonObject} from "../effect_program.ts";
-import {requireBoolean, requireJsonObject, requireStringLiteral} from "../runtime_decode.ts";
+import {requireBoolean, requireJsonObject, requireStringLiteral, optionalNonEmptyString, requireStringArray} from "../runtime_decode.ts";
+import {gateAddressesAgent, actionAddressesAgent, claimAllowsAgent} from "./agent_scope.ts";
 import {authorityUnicodeCompare} from "../coordination/authority_store_codec.ts";
 
 export const TODO_SUMMARY_LANES = [
@@ -70,12 +71,37 @@ export function countTodoWork(rows: readonly WorkCountRow[], sourceOpenCount: nu
     complete: complete && sourceOpenCount === rows.length, agent_id: agentId};
 }
 
+/** Filter already evaluated full-source rows. Keep their original ordinals:
+ * consumers must not confuse a selected position with a source identity. */
+function selectRows(rows: readonly Row[], source: readonly unknown[], value: unknown): {rows: Row[]; full: boolean} {
+  const selection = requireJsonObject(value, "Todo read selection");
+  const role = requireStringLiteral(selection.role, ["user", "agent"], "selection role");
+  const status = selection.status == null ? null :
+    requireStringLiteral(selection.status, ["open", "blocked", "done", "deferred"], "selection status");
+  const todo = optionalNonEmptyString(selection.todo_id, "selection todo_id");
+  const agent = optionalNonEmptyString(selection.agent_id, "selection agent_id");
+  const addressed = rows.filter(row => {
+    const raw = requireJsonObject(source[row.ordinal], "Todo source row");
+    const optional = (key: string) => optionalNonEmptyString(raw[key], key);
+    const id = optional("todo_id");
+    const scope = {claim: optional("claim"), bound: optional("bound"), blocks: optional("blocks"),
+      global: requireBoolean(raw.global, "global"), excluded: requireStringArray(raw.excluded, "excluded")};
+    const visible = !agent || (role === "agent" ? claimAllowsAgent(scope, agent) :
+      row.taskClass === "user_gate" ? gateAddressesAgent(scope, agent) : actionAddressesAgent(scope, agent));
+    return (!status || row.status === status) && (!todo || id === todo) && visible;
+  });
+  return {rows: addressed, full: !status && !todo && !agent};
+}
+
 export function projectTodoSummaryLanes(value: unknown): JsonObject {
   const request = requireJsonObject(value, "Todo summary lane request");
-  if (request.schema_version !== "todo_summary_lanes_request_v0" || !Array.isArray(request.rows)) {
+  if (!["todo_summary_lanes_request_v0", "todo_summary_lanes_request_v1"].includes(String(request.schema_version)) || !Array.isArray(request.rows)) {
     throw new EffectRuntimeRequestError("Todo summary lane request schema mismatch");
   }
-  const rows = request.rows.map(decodeRow), now = finite(request.observed_at, "observed_at");
+  const decoded = request.rows.map(decodeRow), now = finite(request.observed_at, "observed_at");
+  const selection = request.schema_version === "todo_summary_lanes_request_v1"
+    ? selectRows(decoded, request.rows, request.selection) : {rows: decoded, full: true};
+  const rows = selection.rows;
   const open = rows.filter(row => !row.done), terminal = rows.filter(row => row.done);
   const deferred = terminal.filter(row => row.status === "deferred"), done = terminal.filter(row => row.status !== "deferred");
   const ordered = [...open].sort(compare), orderedDeferred = [...deferred].sort(compare);
@@ -106,6 +132,8 @@ export function projectTodoSummaryLanes(value: unknown): JsonObject {
   } satisfies Record<TodoSummaryLane, readonly Row[]>;
   const lanes = Object.fromEntries(TODO_SUMMARY_LANES.map(key => [key, selected[key].map(row => row.ordinal)]));
   return {schema_version: "todo_summary_lanes_v0", lanes,
+    ...(request.schema_version === "todo_summary_lanes_request_v1" ? {
+      source_indices: rows.map(row => row.ordinal), full_selection: selection.full} : {}),
     work_counts: countTodoWork(open, open.length, true)};
 }
 

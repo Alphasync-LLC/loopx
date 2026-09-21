@@ -3211,6 +3211,15 @@ soak, release, merge and live promotion retain their respective authorization.
 | I. Binding and qualification integration | After C and the selected profile's qualification | Bind one exact provider lineage, field manifest, source revision, digest, and cursor; qualify explicit v0 import, ordering/archival/consumer parity, and recovery/capacity without consulting legacy state for missing fields. | Long-goal local integration requires L and does not wait for P. PostgreSQL joins only when its own P holds pass. |
 | F. Promotion and cleanup | After I and explicit maintainer approval | Complete provider-first CLI routing, the lock-owning promotion orchestrator, compatibility projection outbox, post-promotion fenced export/rollback, then delete duplicate reference aggregates and flip the reviewed stage/hold declarations. | Each profile must pass C, I, and its own provider qualification; long-goal local promotion additionally requires L, and PostgreSQL requires P. |
 
+Agent-addressed read checkpoint: Todo list filtering now joins the typed summary
+batch and shares User gate/action and Agent claim addressing with quota. The
+Python list predicate is retired on both legacy and canonical consumers; full
+source resume/succession and post-filter counts survive display limits. This is
+one L5 consumer closure, not D1 projection freshness or provider promotion. See
+[read semantics](../../reference/todo-work-counts.md). Remaining caller/executor,
+consumer recovery, contributor D2, capture/whole-Goal and default onboarding
+boundaries retain the conditional **5–8 cohesive PR** estimate.
+
 ## Appendix D: Execution ledger
 
 Delivery records for this RFC are files under
