@@ -102,16 +102,10 @@ def build_automation_liveness(payload: dict[str, Any]) -> dict[str, Any]:
     if effective_action == EffectiveAction.PEER_COORDINATION_BLOCKED.value:
         return {
             **base,
-            "keep_active": False,
-            "pause_allowed": True,
-            "pause_policy": (
-                "pause or delete the recurring automation now; resume only after "
-                "peer coordination inputs or the local frontier materially change"
-            ),
-            "automation_action": "stop_peer_coordination_blocked",
+            "automation_action": "keep_active_peer_coordination_backoff",
             "reason": (
-                "explicit peer coordination has no executable peer lane or local "
-                "fallback"
+                "peer coordination is recoverable from asynchronous peer, runtime, "
+                "configuration, or local-frontier changes"
             ),
             "next_trigger": (
                 "peer activation capability, peer runtime readiness, coordinator "

@@ -397,7 +397,7 @@ def test_app_heartbeat_settlement_keeps_automation_active_until_terminal(
     assert terminal["keep_active"] is False
 
 
-def test_peer_coordination_stop_does_not_conflict_with_scheduler_host_action() -> None:
+def test_peer_coordination_block_keeps_recoverable_heartbeat_active() -> None:
     liveness = build_automation_liveness(
         {
             "effective_action": "peer_coordination_blocked",
@@ -408,9 +408,9 @@ def test_peer_coordination_stop_does_not_conflict_with_scheduler_host_action() -
         }
     )
 
-    assert liveness["keep_active"] is False
-    assert liveness["pause_allowed"] is True
-    assert liveness["automation_action"] == "stop_peer_coordination_blocked"
+    assert liveness["keep_active"] is True
+    assert liveness["pause_allowed"] is False
+    assert liveness["automation_action"] == "keep_active_peer_coordination_backoff"
     assert "peer activation capability" in liveness["next_trigger"]
 
 

@@ -485,7 +485,7 @@
         "operator_gate_notify": "Existing result of quota_effective_action; previously missed because the literal scan did not inspect declared return functions.",
         "operator_inbox_material_review_due": "Captured operator-inbox material is pending bounded review, and normal delivery is allowed for that review.",
         "outcome_floor_recovery": "Normal delivery is refused but recovery delivery is allowed, through the quota safe bypass of kind outcome_floor_recovery.",
-        "peer_coordination_blocked": "Peer coordination blocks this lane. The scheduler stops it rather than holding it in a monitor wait.",
+        "peer_coordination_blocked": "Peer coordination blocks this lane. The scheduler keeps a no-spend observer alive with bounded stateful backoff because peer readiness, coordinator configuration, reassignment, or local work can change asynchronously.",
         "quota_skip": "The final fallback of quota_effective_action: no delivery is allowed, no repair applies, and no more specific blocked state matched.",
         "runtime_user_gate_projection_repair": "A runtime capability user-gate projection needs repair; recommended_mode repair_user_gate_projection, blocked scope user_gate_projection.",
         "scoped_user_gate_fallback": "A scoped user-gate fallback applies while replan decisions are not allowed. It replaces quota_skip, monitor_quiet_skip or an absent action, and obliges one non-gated fallback segment after the user-gate notice.",
