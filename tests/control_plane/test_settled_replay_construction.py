@@ -44,11 +44,16 @@ def test_settled_turn_never_constructs_successor_or_replan(
         assert payload[flag] is False, flag
     assert payload["execution_obligation"]["must_attempt_work"] is False
     assert payload["heartbeat_recommendation"]["agent_must_attempt"] is False
-    for field in ("selected_todo", "replan_action_packet", "autonomous_replan_obligation", "action_portfolio"):
+    for field in (
+        "selected_todo",
+        "replan_action_packet",
+        "autonomous_replan_obligation",
+        "action_portfolio",
+        "protocol_action_packet",
+    ):
         assert field not in payload
     assert payload["interaction_contract"]["agent_channel"]["must_attempt"] is False
     assert payload["interaction_contract"]["cli_channel"]["spend_after_validation"] is False
-    assert payload["protocol_action_packet"]["summary"]
 
 
 def test_pause_still_precedes_settled_replay() -> None:
