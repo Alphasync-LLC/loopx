@@ -34,6 +34,9 @@ TURN_REWARD_MEMORY_RECONCILIATION_SCHEMA_VERSION = (
     "turn_reward_memory_reconciliation_v0"
 )
 TURN_REWARD_MEMORY_SIDECAR_SCHEMA_VERSION = "turn_reward_memory_sidecar_v0"
+LEGACY_PENDING_MIGRATION_SCHEMA_VERSION = (
+    "turn_reward_memory_legacy_pending_migration_v0"
+)
 _SAFE_PATH_TOKEN = re.compile(r"[^A-Za-z0-9._-]+")
 _PENDING_PROVIDER_STATUSES = {
     "committed_pending",
@@ -168,6 +171,59 @@ def _replayed_completed_receipt(value: Mapping[str, Any]) -> dict[str, Any]:
         "reconciliation_state": "completed",
         "sidecar_receipt_reused": True,
     }
+
+
+def _terminalize_legacy_pending_sidecar(
+    path: Path,
+    value: Mapping[str, Any],
+    *,
+    goal_id: str,
+    agent_id: str,
+    migrated_at: str,
+) -> dict[str, Any] | None:
+    reflection = value.get("reflection")
+    if not isinstance(reflection, Mapping):
+        return None
+    normalized = _reflection(
+        json.dumps(
+            reflection,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+    if normalized is None or normalized.get("status") != "legacy_no_write":
+        return None
+    migration_receipt = {
+        "schema_version": LEGACY_PENDING_MIGRATION_SCHEMA_VERSION,
+        "status": "terminal_rejected",
+        "reason_code": "legacy_reflection_requires_transferable_experience",
+        "provider_write_state": "unknown_may_have_committed",
+        "provider_cleanup_performed": False,
+        "migrated_at": migrated_at,
+    }
+    public_receipt = _base(
+        goal_id=goal_id,
+        agent_id=agent_id,
+        status="no_eligible_evidence",
+        reason_code="legacy_reflection_requires_transferable_experience",
+    ) | {
+        "automatic_ingest": True,
+        "source_event_id": str(value.get("source_event_id") or "") or None,
+        "surface_id": str(value.get("surface_id") or "") or None,
+        "reconciliation_state": "rejected",
+        "legacy_pending_migration": migration_receipt,
+    }
+    _write_sidecar(
+        path,
+        dict(value)
+        | {
+            "status": "rejected",
+            "public_receipt": public_receipt,
+            "legacy_pending_migration": migration_receipt,
+        },
+    )
+    return public_receipt
 
 
 def _reflection(value: object) -> dict[str, Any] | None:
@@ -670,7 +726,7 @@ def reconcile_pending_turn_outcome_ingests(
     ).parent
     if not directory.is_dir():
         return base | {"status": "empty"}
-    pending: list[dict[str, Any]] = []
+    pending: list[tuple[Path, dict[str, Any]]] = []
     for path in sorted(directory.glob("*.json")):
         value = _load_sidecar(path)
         if (
@@ -679,9 +735,20 @@ def reconcile_pending_turn_outcome_ingests(
             and value.get("agent_id") == agent_id
             and value.get("status") == "pending"
         ):
-            pending.append(value)
+            pending.append((path, value))
     receipts: list[dict[str, Any]] = []
-    for value in pending[:limit]:
+    effective_observed_at = observed_at or datetime.now(timezone.utc).isoformat()
+    for path, value in pending[:limit]:
+        legacy_receipt = _terminalize_legacy_pending_sidecar(
+            path,
+            value,
+            goal_id=goal_id,
+            agent_id=agent_id,
+            migrated_at=effective_observed_at,
+        )
+        if legacy_receipt is not None:
+            receipts.append(legacy_receipt)
+            continue
         reflection = value.get("reflection")
         if not isinstance(reflection, Mapping):
             continue

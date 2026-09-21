@@ -306,6 +306,85 @@ def test_legacy_fact_only_reflection_is_audit_only_and_never_calls_provider(
     assert provider.retrieve_calls == 0
 
 
+def test_reconciliation_terminalizes_preupgrade_pending_legacy_reflection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = OutcomeProvider()
+    config = _config(tmp_path)
+    monkeypatch.setattr(
+        outcome_lifecycle,
+        "resolve_reward_memory_experiment",
+        lambda **_kwargs: (_status(), config),
+    )
+    monkeypatch.setattr(outcome_lifecycle, "_goal_repo", lambda *_args: tmp_path)
+    sidecar_path = turn_outcome_ingest_sidecar_path(
+        tmp_path,
+        goal_id="goal",
+        agent_id="pilot",
+        source_event_id="legacy-pending",
+    )
+    outcome_lifecycle._write_sidecar(
+        sidecar_path,
+        {
+            "schema_version": "turn_reward_memory_sidecar_v0",
+            "status": "pending",
+            "goal_id": "goal",
+            "agent_id": "pilot",
+            "turn_key": "sha256:legacy-pending-turn",
+            "source_event_id": "legacy-pending",
+            "surface_id": "agent_workflow.turn_admission",
+            "reflection": json.loads(_legacy_reflection()),
+            "reflection_validation": {},
+            "settlement_validation": {},
+            "observed_at": "2026-08-02T10:00:00+00:00",
+            "attempt_count": 1,
+            "raw_content_captured": False,
+            "public_receipt": {
+                "status": "committed_pending",
+                "reconciliation_state": "pending",
+            },
+        },
+    )
+
+    first = reconcile_pending_turn_outcome_ingests(
+        registry_path=tmp_path / "registry.json",
+        goal_id="goal",
+        agent_id="pilot",
+        observed_at="2026-08-03T10:00:00+00:00",
+        provider=provider,
+    )
+    second = reconcile_pending_turn_outcome_ingests(
+        registry_path=tmp_path / "registry.json",
+        goal_id="goal",
+        agent_id="pilot",
+        observed_at="2026-08-03T11:00:00+00:00",
+        provider=provider,
+    )
+
+    assert first["pending_count"] == 1
+    assert first["attempted_count"] == 1
+    assert first["completed_count"] == 0
+    assert first["receipts"][0]["reconciliation_state"] == "rejected"
+    assert first["receipts"][0]["legacy_pending_migration"] == {
+        "schema_version": "turn_reward_memory_legacy_pending_migration_v0",
+        "status": "terminal_rejected",
+        "reason_code": "legacy_reflection_requires_transferable_experience",
+        "provider_write_state": "unknown_may_have_committed",
+        "provider_cleanup_performed": False,
+        "migrated_at": "2026-08-03T10:00:00+00:00",
+    }
+    migrated = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    assert migrated["status"] == "rejected"
+    assert migrated["legacy_pending_migration"]["provider_write_state"] == (
+        "unknown_may_have_committed"
+    )
+    assert second["pending_count"] == 0
+    assert second["attempted_count"] == 0
+    assert provider.sync_calls == 0
+    assert provider.retrieve_calls == 0
+
+
 def test_sibling_agent_scope_is_rejected_before_provider(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
