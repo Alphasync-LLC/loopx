@@ -40,6 +40,7 @@ from loopx.extensions.runtime import (
     doctor_installed_extension,
     enable_extension,
     execute_extension_runtime_binding,
+    extension_catalog_entries,
     extension_status,
     install_extension,
     resolve_capability_binding,
@@ -688,6 +689,93 @@ def test_runtime_entrypoint_resolves_sibling_python_for_opaque_launcher(
 
     assert resolved is not None
     assert resolved.python_executable == str(sibling_python)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX symlink mutation fixture")
+def test_opaque_runtime_identity_binds_sibling_python_artifact(
+    tmp_path: Path,
+) -> None:
+    launcher = tmp_path / "provider.exe"
+    launcher.write_bytes(b"MZ opaque console launcher")
+    launcher.chmod(0o755)
+    sibling_python = tmp_path / "python.exe"
+    sibling_python.symlink_to(sys.executable)
+
+    verified = resolve_runtime_entrypoint({"entrypoint": str(launcher)})
+    sibling_python.unlink()
+    sibling_python.symlink_to("/bin/sh")
+    changed = resolve_runtime_entrypoint({"entrypoint": str(launcher)})
+
+    assert verified is not None and changed is not None
+    assert changed.python_executable == verified.python_executable == str(sibling_python)
+    assert changed.identity != verified.identity
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX symlink mutation fixture")
+def test_runtime_entrypoint_identity_binds_selected_python_artifact(
+    tmp_path: Path,
+) -> None:
+    runtime_root = tmp_path / "runtime"
+    runtime_root.mkdir()
+    interpreter = runtime_root / "python"
+    interpreter.symlink_to(sys.executable)
+    provider = runtime_root / "provider"
+    provider.write_text(
+        f"#!{interpreter}\nraise SystemExit(0)\n",
+        encoding="utf-8",
+    )
+    provider.chmod(0o755)
+
+    verified = resolve_runtime_entrypoint({"entrypoint": str(provider)})
+    interpreter.unlink()
+    interpreter.symlink_to("/bin/sh")
+    changed = resolve_runtime_entrypoint({"entrypoint": str(provider)})
+
+    assert verified is not None and changed is not None
+    assert changed.python_executable == verified.python_executable == str(interpreter)
+    assert changed.identity != verified.identity
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX shebang lifecycle fixture")
+def test_catalog_invalidates_doctor_when_selected_python_artifact_changes(
+    tmp_path: Path,
+) -> None:
+    runtime_root = tmp_path / "runtime"
+    runtime_root.mkdir()
+    interpreter = runtime_root / "python"
+    interpreter.symlink_to(sys.executable)
+    provider = _provider(runtime_root / "provider")
+    provider.write_text(
+        provider.read_text(encoding="utf-8").replace(
+            f"#!{sys.executable}",
+            f"#!{interpreter}",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    manifest = _manifest(
+        tmp_path / "extension.toml",
+        entrypoint=provider,
+        version="1.0.0",
+    )
+    state_file = tmp_path / "extensions.json"
+    install_extension(manifest, state_file=state_file, execute=True)
+    ready = extension_catalog_entries(state_file=state_file)
+    assert ready[0]["provider"]["ready"] is True
+
+    interpreter.unlink()
+    interpreter.symlink_to("/bin/sh")
+
+    stale = extension_catalog_entries(state_file=state_file)
+    assert stale[0]["provider"]["ready"] is False
+    with pytest.raises(ValueError, match="doctor readiness is stale"):
+        resolve_extension_binding(
+            "test-semantic-extension",
+            state_file=state_file,
+            capability_id="semantic-preference",
+            protocol="semantic_preference_provider_v0",
+            permission="semantic_preference.read",
+        )
 
 
 def test_standalone_runtime_does_not_require_a_capability_contract(

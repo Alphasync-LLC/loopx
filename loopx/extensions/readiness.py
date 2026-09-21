@@ -15,6 +15,7 @@ from typing import Any
 
 EXTENSION_DOCTOR_SCHEMA_VERSION = "loopx_extension_doctor_v0"
 RUNTIME_ENTRYPOINT_IDENTITY_SCHEMA_VERSION = "loopx_runtime_entrypoint_identity_v1"
+RUNTIME_EXECUTABLE_IDENTITY_SCHEMA_VERSION = "loopx_runtime_executable_identity_v1"
 
 
 @dataclass(frozen=True)
@@ -41,17 +42,17 @@ def _python_executable_for_script(path: Path) -> str | None:
         if command:
             executable = command[0]
             if Path(executable).name == "env":
-                candidates = [
+                command_candidates = [
                     item for item in command[1:] if not item.startswith("-")
                 ]
                 executable = (
                     shutil.which(
-                        candidates[0],
+                        command_candidates[0],
                         path=str(path.parent)
                         + os.pathsep
                         + os.environ.get("PATH", os.defpath),
                     )
-                    if candidates
+                    if command_candidates
                     else None
                 ) or ""
             selected = Path(executable).expanduser()
@@ -140,6 +141,31 @@ def resolved_entrypoint_identity(command: str) -> tuple[Path, str] | None:
     return path, identified[1]
 
 
+def _runtime_executable_identity(
+    entrypoint_identity: str,
+    python_executable: str | None,
+) -> str | None:
+    """Bind every executable artifact selected for one runtime."""
+
+    if python_executable is None:
+        return entrypoint_identity
+    interpreter = _file_identity(Path(python_executable), executable=True)
+    if interpreter is None:
+        return None
+    identity_payload = {
+        "schema_version": RUNTIME_EXECUTABLE_IDENTITY_SCHEMA_VERSION,
+        "kind": "executable_runtime",
+        "entrypoint_identity": entrypoint_identity,
+        "python_interpreter_identity": interpreter[1],
+    }
+    serialized = json.dumps(
+        identity_payload,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
 def resolve_runtime_entrypoint(
     runtime: Mapping[str, Any],
 ) -> ResolvedRuntimeEntrypoint | None:
@@ -148,11 +174,15 @@ def resolve_runtime_entrypoint(
         resolved = resolved_entrypoint_identity(str(runtime["entrypoint"]))
         if resolved is None:
             return None
+        python_executable = _python_executable_for_script(resolved[0])
+        identity = _runtime_executable_identity(resolved[1], python_executable)
+        if identity is None:
+            return None
         return ResolvedRuntimeEntrypoint(
             argv_prefix=(str(resolved[0]),),
-            identity=resolved[1],
+            identity=identity,
             path_prefix=str(resolved[0].parent),
-            python_executable=_python_executable_for_script(resolved[0]),
+            python_executable=python_executable,
         )
 
     interpreter_path = Path(sys.executable).expanduser()
