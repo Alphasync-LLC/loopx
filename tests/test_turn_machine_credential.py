@@ -48,6 +48,7 @@ def turn(project, runtime, registry, *options, action="plan"):
 
 def test_two_goal_runtimes_use_machine_credential_for_plan_and_dispatch(tmp_path, machine, monkeypatch):
     received = []
+    expected = []
 
     def sdk_runner(**kwargs):
         received.append(kwargs["env"])
@@ -60,6 +61,13 @@ def test_two_goal_runtimes_use_machine_credential_for_plan_and_dispatch(tmp_path
     monkeypatch.setattr(turn_host_adapter, "run_dsh_turn", sdk_runner)
     for name in ("first", "second"):
         project, runtime, registry = _write_live_fixture(tmp_path / name)
+        expected.append({
+            "DEEPSEEK_API_KEY": KEY,
+            "LOOPX_TURN_GOAL_ID": "loopx-turn-fixture",
+            "LOOPX_TURN_AGENT_ID": "codex-fixture",
+            "LOOPX_TURN_TODO_ID": "todo_fixture0001",
+            "LOOPX_TURN_WORKSPACE": str(project.resolve()),
+        })
         # A conflicting Goal-local store cannot redirect machine authentication.
         provider.write_operator_provider(runtime_root=runtime, api_key=GOAL_KEY)
         code, plan = turn(project, runtime, registry)
@@ -72,7 +80,7 @@ def test_two_goal_runtimes_use_machine_credential_for_plan_and_dispatch(tmp_path
         assert code == 0, result
         assert result["result_kind"] == "iteration_failed"
         assert result["effects"]["quota_spent"] is False
-    assert received == [{"DEEPSEEK_API_KEY": KEY}] * 2
+    assert received == expected
 
 
 def test_invalid_machine_store_cannot_fall_back_to_goal_or_environment(tmp_path, machine, monkeypatch):
