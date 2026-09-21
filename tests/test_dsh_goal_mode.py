@@ -1015,12 +1015,11 @@ def test_subprocess_terminal_error_keeps_the_legacy_wait_contract() -> None:
     assert "dsh execution failed" not in completed.stderr
 
 
-def test_dsh_tool_identity_follows_each_verified_turn_not_parent_environment(
+def test_dsh_sdk_overrides_follow_each_verified_turn(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     calls = []
     monkeypatch.setenv("LOOPX_TURN_GOAL_ID", "ambient-wrong-goal")
-    monkeypatch.setenv("ARK_API_KEY", "unrelated-private-fixture")
 
     def runner(**kwargs):
         calls.append(kwargs["env"])
@@ -1038,5 +1037,4 @@ def test_dsh_tool_identity_follows_each_verified_turn_not_parent_environment(
         assert env["LOOPX_TURN_AGENT_ID"] == "a"
         assert env["LOOPX_TURN_WORKSPACE"] == str(tmp_path.resolve())
         assert env["DSH_PERMISSION_MODE"] == "read-only"
-        assert "ARK_API_KEY" not in env
     assert pinned["LOOPX_TURN_TODO_ID"] == "stale-todo"

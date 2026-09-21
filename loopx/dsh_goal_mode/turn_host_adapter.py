@@ -478,8 +478,8 @@ def _execute_turn_host_request(
         }
         if config.dsh_runner is None:
             # Bind invocation-scoped tools to the verified Turn, never stale
-            # ambient process identity. Preserve only the caller-owned runtime
-            # environment; unrelated parent credentials are not copied.
+            # ambient process identity. This is an SDK override map, not an
+            # environment allowlist: the SDK still inherits the parent env.
             envelope = _mapping(request.get("turn_envelope"))
             selected = _mapping(_mapping(envelope.get("action")).get("selected_todo"))
             runner_arguments["env"] = {
