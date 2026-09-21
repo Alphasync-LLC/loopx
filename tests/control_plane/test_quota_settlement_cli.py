@@ -50,10 +50,7 @@ def _assert_action_selection_recovery_projections(payload: dict[str, Any]) -> No
     assert payload["execution_obligation"]["must_attempt_work"] is False
     assert payload["automation_liveness"]["automation_action"] == "keep_active"
     assert payload["scheduler_hint"]["action"] == "backoff_until_state_change"
-    protocol_summary = payload["protocol_action_packet"]["summary"]
-    assert "agent_action_required=false" in protocol_summary
-    assert "agent_action_required=true" not in protocol_summary
-    assert "execute_bounded_work" not in protocol_summary
+    assert "protocol_action_packet" not in payload
     for field in (
         "autonomous_replan_obligation",
         "replan_action_packet",
@@ -63,6 +60,7 @@ def _assert_action_selection_recovery_projections(payload: dict[str, Any]) -> No
         assert field not in payload
 
     envelope = build_turn_envelope(payload)
+    assert "protocol_action_packet" not in envelope["contract_capsule"]
     assert envelope["contract_capsule"]["interaction_contract"]["mode"] == "skip"
     assert envelope["contract_capsule"]["execution_obligation"][
         "must_attempt_work"

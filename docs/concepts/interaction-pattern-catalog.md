@@ -612,7 +612,7 @@ IP-003 scope metadata being ignored by the user-todo blocking summary.
 **Validation**
 
 - `regression/scoped-user-gate-fallback-contract.py`
-- `examples/protocol/protocol-action-packet-smoke.py`
+- `examples/protocol/quota-without-legacy-packet-smoke.py`
 - `examples/control_plane/work-lane-contract-smoke.py`
 - `examples/control_plane/quota-agent-scoped-user-gate-smoke.py` for `blocks_agent` scoped
   user gates that block only the target agent while preserving other-agent
