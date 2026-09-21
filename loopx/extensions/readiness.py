@@ -204,6 +204,7 @@ def _declared_module_origin(
             timeout=30,
             check=False,
             text=True,
+            encoding="utf-8",
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
