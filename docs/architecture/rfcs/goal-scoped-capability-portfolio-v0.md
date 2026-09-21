@@ -28,14 +28,17 @@ and must change together.
 
 LoopX will add a **Goal-scoped Capability Portfolio** that lets an Agent reason
 about, select, compose, evaluate, degrade and retire capabilities against the
-Goal's outcome and acceptance gaps. It owns adoption decisions and effect
-receipts. It does not copy capability configuration, provider state, evidence,
-Todo state, authority grants or memory into another source of truth.
+Goal's outcome and acceptance gaps. It owns adoption, composition and lifecycle
+transition decisions. It indexes immutable receipts from their existing owners;
+it does not own or restate their effects. It does not copy capability
+configuration, provider state, evidence, Todo state, authority grants or memory
+into another source of truth.
 
 The portfolio composes existing owners:
 
 1. the capability catalog describes what can be considered;
-2. original configuration and provider owners prove the effective revision;
+2. existing Goal configuration and external-capability bindings select an exact
+   operation, provider revision and profile digest;
 3. `agent_context` projects a bounded plan at `before_plan`, freezes a selected
    route at `before_delegate`, and returns typed outcomes at
    `after_delegate_result`;
@@ -100,7 +103,8 @@ decision. Today those facts live in separate projections and prose.
 
 - a provider-neutral capability descriptor reference and Goal adoption record;
 - a bounded capability composition DAG with explicit selection and skip reasons;
-- trial, use, effect, degradation and retirement receipts;
+- trial, adoption, degradation and retirement decisions, plus typed references
+  to owner receipts;
 - a connector qualification profile built on the external-evidence lifecycle;
 - injection through `before_plan`, `before_delegate` and
   `after_delegate_result`;
@@ -125,6 +129,10 @@ At the implementation baseline:
 
 - the capability catalog and extension manifests describe installed and enabled
   implementations, declared providers, hooks, permissions and readiness;
+- `goal.external_capability_bindings` already owns durable Goal-scoped enablement
+  for exact operations, provider revisions and profile digests; direct bound
+  invocation admits read-only operations without creating a Turn or spending
+  quota, while governed effects remain on their existing execution path;
 - capability admission and capability memory expose bounded Goal/provider and
   host observations but do not grant authority;
 - Todo capability gates answer whether a known task can execute; they do not
@@ -154,7 +162,13 @@ The portfolio owns only:
 
 - why a Goal considered, trialed, adopted, degraded or retired a capability;
 - the selected composition and its exact revision;
-- use/effect receipts and review triggers.
+- portfolio lifecycle-transition receipts and review triggers.
+
+An adoption record does not bind, enable or invoke a capability. Those changes
+continue through the existing Goal configuration and external-capability-binding
+preview/apply/readback transaction. The portfolio references that transaction;
+it never persists a parallel provider binding. An `adopted` entry with a stale
+or missing required binding is visible but not runnable.
 
 It references, without copying:
 
@@ -193,15 +207,18 @@ gap_ref, capability_id, capability_revision
 status = candidate | trial | adopted | degraded | retired
 reason, alternatives[], expected_effects[]
 effective_config_ref, effective_config_revision, config_digest
+binding_ref, binding_digest, binding_status
 trial_budget, trial_window, authority_refs[]
-use_receipt_refs[], effect_receipt_refs[]
+owner_observation_refs[], lifecycle_receipt_refs[]
 review_after, degradation_conditions[], retirement_conditions[]
 created_at, updated_at
 ```
 
 `gap_ref` points to an outcome or acceptance gap; it does not create a second
 Todo. A transition needs an expected current revision. Omitting a field preserves
-it; explicit clear semantics are defined per optional field.
+it; explicit clear semantics are defined per optional field. `binding_ref`
+resolves the existing Goal binding when execution requires one; it is not a
+portfolio-owned copy of provider configuration.
 
 #### `capability_composition_plan_v1`
 
@@ -219,21 +236,48 @@ fields. The graph must be acyclic. Each candidate receives `selected`,
 `skipped`, `unavailable` or `incompatible` with a reason. A plan is guidance,
 not execution authority.
 
-#### `capability_use_receipt_v1`
+#### `capability_owner_receipt_observation_v1`
 
 ```text
-receipt_id, composition_id, node_id, phase
-goal/todo/turn identity, exact provider/model/connector revision
-started_at, completed_at, cost, latency
-coverage, freshness, source_families[], typed_failures[]
-output_digest, result_ref
-parent_disposition = adopted | ignored | refuted | unknown
-decision_effects[], next_lifecycle_proposal
+observation_id, composition_id, node_id, phase
+goal/todo/turn identity
+owner_kind, owner_revision
+owner_receipt_ref, owner_receipt_digest
+observed_at, owner_receipt_status
+lineage_digest, review_trigger, next_lifecycle_proposal
 ```
 
-For non-evidence capabilities, coverage and source families may be explicit
-`not_applicable`; they must not be fabricated. Persistence success, retrieval,
-quality qualification and useful application are separate facts.
+This is a read-only index over an immutable receipt from the capability,
+provider, delegation, Decision Context, external-evidence or outcome owner. It
+must not copy provider/model/connector revisions, coverage, source families,
+cost, failure details, parent disposition, decision effects or utility. Those
+facts remain authoritative only in the referenced owner record.
+
+An owner correction, revocation or retirement creates or selects a new owner
+receipt according to that owner's protocol. The portfolio observes the new
+reference and marks the old observation superseded at read time; it never
+rewrites the owner fact. If owner readback conflicts with the index, the owner
+wins and a portfolio lifecycle transition cannot consume the stale observation.
+
+Each successful portfolio mutation returns a
+`capability_lifecycle_transition_receipt_v1` containing only the adoption id,
+operation id, expected and committed portfolio revisions, previous and next
+adoption status, reason, composition id, owner-observation references and next
+review trigger. `adopted` means the Goal's capability-adoption policy selected
+the capability. It never means evidence was admitted, an outcome succeeded or
+new authority was granted.
+
+Two examples preserve the boundary:
+
+- **External evidence.** The external-evidence owner alone records provider
+  execution observation, parent admission, coverage and retirement. If that
+  owner corrects or retires a receipt, the portfolio follows the superseding
+  owner reference and may propose `degraded`; it does not retain a competing
+  coverage or admission fact.
+- **Non-evidence capability.** A delegation owner records worker route and
+  result receipts, while the relevant evaluation owner records outcome quality.
+  The portfolio references those receipts when reviewing adoption; it does not
+  translate them into generic `admitted`, `refuted` or `decision_effects` facts.
 
 ### Command and event lifecycle
 
@@ -244,9 +288,9 @@ Goal gap observed
   → bounded trial or existing adoption selected
   → exact config/provider revisions read back
   → route frozen at before_delegate
-  → typed results observed at after_delegate_result
-  → parent adopts / ignores / refutes / leaves unknown
-  → keep / reconfigure / degrade / retire proposal
+  → owner receipts observed at after_delegate_result
+  → owning capability/domain evaluates its result
+  → portfolio keeps / reconfigures / degrades / retires the adoption
 ```
 
 The mutation identity is `(goal_id, adoption_id, expected_revision,
@@ -281,6 +325,12 @@ latency, failure and output digest. Registration and readiness remain
 inventory facts. Parent qualification remains distinct from finance evidence
 eligibility or another domain's admission.
 
+Portfolio `active` or `adopted` describes selection policy only. Installation,
+enablement, doctor status, provider revision and rollback continue to come from
+the extension runtime and existing Goal binding. Disable, uninstall, doctor
+failure or binding revision drift makes the composition stale; the portfolio
+must not silently resolve a replacement provider.
+
 ### Runtime injection
 
 - **`before_plan`:** project the current gap, active adoptions, stale or
@@ -289,9 +339,10 @@ eligibility or another domain's admission.
   schemas, authority references and composition digest. Domain capabilities
   describe the question and acceptance criteria; the generic delegation owner
   controls capacity, route and result receipts.
-- **`after_delegate_result`:** consume typed result receipts and record parent
-  disposition, cost, coverage and decision effect. Raw worker prose is not an
-  adoption receipt.
+- **`after_delegate_result`:** index typed owner-receipt references and propose
+  a portfolio lifecycle review. Cost, coverage, failure, admission, decision
+  effect and utility remain in their owning receipts. Raw worker prose is not
+  an adoption or lifecycle receipt.
 
 An optional Turn-start summary contains only portfolio revision, current gap,
 selected composition, stale/unavailable nodes and the next review trigger. The
@@ -326,8 +377,9 @@ owners, but cannot perform it implicitly.
 
 - The portfolio is advisory by default and stores no secrets or raw private
   payloads.
-- Public projections redact private source, account and paid-data details while
-  preserving typed coverage and failure facts.
+- Public projections redact private source, account and paid-data details. They
+  may join authorized, bounded coverage or failure fields from owner
+  projections at read time, but the portfolio does not persist another copy.
 - A readiness observation cannot become a durable grant. Existing authority
   scope and protected-effect confirmation remain authoritative.
 - Mixed-version readers preserve unknown fields and reject unsupported semantic
@@ -361,10 +413,12 @@ No destructive registry migration is part of v0.
 | Replay is idempotent | lost-response and concurrent retry fixtures | one transition and one receipt | provider side effects remain provider-owned |
 | Failure preserves useful work | portfolio/provider unavailable fixture | ordinary Todo continues with unknown coverage; hard requirement blocks only that Todo | no availability SLO |
 | Connector lifecycle is auditable | discovery→trial→qualification→degrade→retire fixture | every transition has exact revision and typed reason | domain eligibility tested separately |
+| Provider binding keeps one owner | existing Goal binding preview/apply/readback plus disable/upgrade/rollback fixtures | portfolio references the exact binding and becomes stale on drift; it writes no parallel binding | extension runtime still proves provider readiness |
 | Self-discovery is useful | fresh finance and non-finance Agents receive the same Goal only | both select a minimal defensible composition or explain empty selection | two cases do not prove universal uplift |
 | Composition improves outcomes | frozen baseline versus portfolio-assisted trials | better first useful action, coverage or decision quality within declared cost; failures retained | no automatic production promotion |
 | Three hooks agree | before-plan/delegate/result contract tests | same composition identity and exact route/result lineage | raw model quality excluded |
-| Product surfaces agree | CLI, packaged frontend and Lark acceptance | same revision, status, reasons, cost/coverage and failure readback | each transport qualified separately |
+| Owner truth is not duplicated | correct and retire one external-evidence receipt and one non-evidence outcome receipt | portfolio follows immutable superseding refs; no copied admission/effect fact survives | each owner still validates its own semantics |
+| Product surfaces agree | CLI, packaged frontend and Lark acceptance | same portfolio revision, adoption status, reasons, owner refs and review triggers; joined owner facts retain provenance | each transport and owner projection qualified separately |
 | Domain boundaries hold | finance and another domain fixtures | Core remains domain-neutral; domain admission remains independent | no trading authorization |
 
 Measure time to first useful action, evidence coverage, stale/duplicate-source
@@ -375,10 +429,12 @@ success metric.
 ## 10. Operational contract
 
 Operators can inspect the current portfolio revision, active/trial/degraded
-adoptions, exact config/provider revisions, recent typed failures, cost,
-coverage and next review triggers. Alerts are event-driven for revision drift,
-rights expiry, repeated failure, budget exhaustion or a required capability
-becoming unavailable; routine successful calls do not create noise.
+adoptions, exact config/provider revisions, owner-receipt references and next
+review triggers. Authorized views may join current failures, cost and coverage
+from their owners without persisting them in the portfolio. Alerts are
+event-driven for revision drift, rights expiry, repeated failure, budget
+exhaustion or a required capability becoming unavailable; routine successful
+calls do not create noise.
 
 Capacity is bounded per Goal and Turn. Candidate enumeration is paginated and
 prompt projection is size-limited. Failure classes distinguish unavailable,
@@ -390,11 +446,11 @@ Goal authority provider; raw provider artifacts follow their original owners.
 
 | Milestone | Shipped behavior | Entry gate | Exit evidence | Rollback |
 | --- | --- | --- | --- | --- |
-| M0 · Contract and inspect | Four schemas and read-only `portfolio inspect/plan` over existing owners | RFC review; catalog/config owners identified | normalization, mutation and feature-off fixtures | remove projection; no stored state |
+| M0 · Contract and inspect | Portfolio-owned adoption/composition/lifecycle-transition schemas plus read-only catalog, Goal-binding and owner-receipt projections | RFC review; catalog/config/binding/receipt owners identified | normalization, owner-correction, mutation and feature-off fixtures | remove projection; no stored state |
 | M1 · External evidence and connector trial | #4813 lifecycle aligned with connector descriptor/call receipt; no auto-promotion | exact-plan binding and provider boundary accepted | one real host method and one connector trial with partial/failure receipts | keep registry inventory; disable qualification writes |
 | M2 · Goal adoption owner | candidate/trial/adopted/degraded/retired reducer and receipts | Goal authority provider available | replay, concurrency, drift, rollback and recovery tests | disable writer; retain receipts read-only |
 | M3 · Three-phase composition | portfolio projection at all three Agent-context hooks and generic delegation receipts | M0–M2 identities stable | no-hint fresh-Agent finance/non-finance trials | disable hooks independently |
-| M4 · Effect qualification | external-only, connector-only and hybrid trials; use/effect review and retirement proposals | frozen metrics, budget and stop rules | retained denominators show benefit or explicit no-uplift | revert adoption to candidate/degraded |
+| M4 · Effect qualification | external-only, connector-only and hybrid trials; owner-receipt-backed lifecycle review and retirement proposals | frozen metrics, budget and stop rules | retained denominators show benefit or explicit no-uplift without copied effect truth | revert adoption to candidate/degraded |
 | M5 · Product journey | CLI, packaged frontend and Lark share inspect, reasons, readback and recovery | shared public projection stable | cross-session, stale, reconnect and repeated-action acceptance | hide mutation controls; CLI readback remains |
 
 Milestones may ship while the RFC remains Draft. #4813 is an M1 prerequisite,
@@ -405,8 +461,9 @@ canonical Todos track implementation.
 
 1. **Portfolio storage profile.** Owner: shared-authority and capability
    maintainers. Recommendation: use the configured Goal authority provider for
-   adoption records while keeping large receipts/artifacts with their owners.
-   Decide before M2.
+   adoption records, reuse existing Goal external-capability bindings for
+   runtime enablement, and keep large receipts/artifacts with their owners. Do
+   not create a portfolio-specific provider binding. Decide before M2.
 2. **Cross-capability comparison.** Owner: capability maintainers.
    Recommendation: compare only within a named Goal gap and report multiple
    dimensions; do not create one global score. Validate in M3/M4.
@@ -439,6 +496,7 @@ canonical Todos track implementation.
 | Date | Decision | Owner / approval | Alternatives | Normative sections changed |
 | --- | --- | --- | --- | --- |
 | 2026-09-21 | Initial proposal; no approval inferred | pending maintainer review | domain-only organization, registry-as-quality-owner, Decision Context owner | all |
+| 2026-09-21 | Narrow generic use/effect state to owner-receipt observations and portfolio-only lifecycle receipts | maintainer review request on exact head `1a6b15c6` | duplicate generic effect/admission authority | Sections 1, 3, 5, 7, 9–11 |
 
 ## Appendix C: Evidence registry
 
@@ -447,6 +505,7 @@ canonical Todos track implementation.
 | E1 | Three generic hook phases exist | implementation baseline | `agent_context` and subagent-context tests/source | inspected | static inspection, not live uplift |
 | E2 | Registry is inventory/telemetry rather than qualification | implementation baseline | connector-registry schema and CLI | inspected | no exhaustive provider audit |
 | E3 | External-evidence typed lifecycle is an active prerequisite | PR #4813 exact head above | PR diff, tests and review | open; not on `main` | no merge or live-provider claim |
+| E4 | Durable Goal binding already owns exact provider operation/revision/profile selection | implementation baseline | extension reference and capability-admission source | inspected | read-only binding contract; does not prove provider execution |
 
 ## Appendix D: Rejected or superseded alternatives
 
@@ -461,3 +520,7 @@ preserve the invariants with less state and equal product clarity.
 - Successful persistence or exact memory readback did not prove that an
   experience changed future behavior. Use and effect qualification remain
   separate.
+- A portfolio that copies coverage, admission or decision effects would create
+  a second truth that can outlive an owner correction. Portfolio state therefore
+  records only its own adoption lifecycle and immutable references to owner
+  receipts.

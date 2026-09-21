@@ -25,14 +25,16 @@
 ## 1. 决策摘要
 
 LoopX 将新增 **Goal 级 Capability Portfolio**，让 Agent 围绕 Goal 的结果
-和验收缺口，判断、选择、组合、评估、降级和退役能力。Portfolio 拥有
-采用决策和效果回执，但不会把能力配置、provider 状态、证据、Todo、
-授权或 memory 再复制成一份真相。
+和验收缺口，判断、选择、组合、评估、降级和退役能力。Portfolio 拥有采用、
+组合与生命周期迁移决策；它只索引既有 owner 的不可变回执，不拥有或重述
+这些回执的效果。它不会把能力配置、provider 状态、证据、Todo、授权或
+memory 再复制成一份真相。
 
 Portfolio 组合现有 owner：
 
 1. capability catalog 描述可考虑的能力；
-2. 原配置和 provider owner 证明生效 revision；
+2. 现有 Goal configuration 与 external-capability binding 选择 exact operation、
+   provider revision 和 profile digest；
 3. `agent_context` 在 `before_plan` 投影有界规划，在 `before_delegate`
    冻结选中路线，在 `after_delegate_result` 返回 typed 结果；
 4. external-evidence 生命周期负责稳定研究方法和 connector 的资格认定；
@@ -85,7 +87,7 @@ projection 与说明文字里。
 
 - provider-neutral 的 capability descriptor 引用与 Goal adoption record；
 - 带明确选择/跳过理由的有界能力组合 DAG；
-- trial、use、effect、degradation、retirement 回执；
+- trial、adoption、degradation、retirement 决策，以及 owner 回执的类型化引用；
 - 建立在 external-evidence 生命周期之上的 connector qualification profile；
 - 通过 `before_plan`、`before_delegate`、`after_delegate_result` 注入；
 - exact effective-config 与 provider revision readback；
@@ -108,6 +110,9 @@ projection 与说明文字里。
 
 - capability catalog 与 extension manifest 描述 installed/enabled 实现、
   provider、hook、权限与 readiness；
+- `goal.external_capability_bindings` 已拥有持久的 Goal 级 enablement，绑定 exact
+  operation、provider revision 和 profile digest；直接 binding invocation 只准入
+  read-only operation，不创建 Turn、不消耗 quota，governed effect 继续走原执行路径；
 - capability admission 与 capability memory 提供有界 Goal/provider 和宿主
   观察，但不授予权限；
 - Todo capability gate 判断已知任务能否执行，不会从 Goal 缺口发现能力；
@@ -132,7 +137,12 @@ Portfolio 只拥有：
 
 - Goal 为什么考虑、trial、采用、降级或退役某项能力；
 - 选中的组合和 exact revision；
-- use/effect receipt 与复评触发条件。
+- Portfolio 生命周期迁移回执与复评触发条件。
+
+adoption record 不会 bind、enable 或 invoke capability。这些变更继续通过现有
+Goal configuration 与 external-capability-binding 的 preview/apply/readback 事务
+完成；Portfolio 只引用该事务，不持久化平行 provider binding。若 `adopted` entry
+要求的 binding stale 或缺失，它可以展示，但不可运行。
 
 它仅引用而不复制：catalog/extension 声明、生效配置、provider readiness、
 Todo 要求、授权决策、external-evidence receipt，以及 Decision Context、
@@ -167,14 +177,17 @@ gap_ref, capability_id, capability_revision
 status = candidate | trial | adopted | degraded | retired
 reason, alternatives[], expected_effects[]
 effective_config_ref, effective_config_revision, config_digest
+binding_ref, binding_digest, binding_status
 trial_budget, trial_window, authority_refs[]
-use_receipt_refs[], effect_receipt_refs[]
+owner_observation_refs[], lifecycle_receipt_refs[]
 review_after, degradation_conditions[], retirement_conditions[]
 created_at, updated_at
 ```
 
 `gap_ref` 指向结果或验收缺口，不创建第二份 Todo。状态迁移要求 expected
 current revision。字段省略表示保留；可选字段按字段定义显式 clear 语义。
+执行需要 binding 时，`binding_ref` 解析现有 Goal binding，而不是 Portfolio
+复制一份 provider configuration。
 
 #### `capability_composition_plan_v1`
 
@@ -190,20 +203,42 @@ node: capability/provider/connector/worker/reducer 引用，
 每个候选都有 `selected`、`skipped`、`unavailable` 或 `incompatible` 及理由。
 计划是 guidance，不是执行授权。
 
-#### `capability_use_receipt_v1`
+#### `capability_owner_receipt_observation_v1`
 
 ```text
-receipt_id, composition_id, node_id, phase
-goal/todo/turn identity, exact provider/model/connector revision
-started_at, completed_at, cost, latency
-coverage, freshness, source_families[], typed_failures[]
-output_digest, result_ref
-parent_disposition = adopted | ignored | refuted | unknown
-decision_effects[], next_lifecycle_proposal
+observation_id, composition_id, node_id, phase
+goal/todo/turn identity
+owner_kind, owner_revision
+owner_receipt_ref, owner_receipt_digest
+observed_at, owner_receipt_status
+lineage_digest, review_trigger, next_lifecycle_proposal
 ```
 
-对非证据能力，coverage 和 source family 可以显式为 `not_applicable`，不能
-伪造。持久化成功、召回、质量合格和实际有用是四个不同事实。
+这是一份只读索引，指向 capability、provider、delegation、Decision Context、
+external-evidence 或 outcome owner 的不可变回执。它不得复制 provider/model/
+connector revision、coverage、source family、cost、失败细节、parent disposition、
+decision effect 或 utility；这些事实只以被引用 owner record 为权威。
+
+owner 的纠正、撤销或退役按该 owner 的协议产生或选择新回执。Portfolio 观察
+新引用，并在读时把旧 observation 标为 superseded；它不会改写 owner 事实。
+owner readback 与索引冲突时，以 owner 为准；Portfolio 的生命周期迁移不得消费
+过期 observation。
+
+每次成功的 Portfolio mutation 返回 `capability_lifecycle_transition_receipt_v1`，
+只包含 adoption id、operation id、预期/已提交 Portfolio revision、迁移前后
+adoption status、reason、composition id、owner-observation refs 和下次 review
+trigger。`adopted` 只表示 Goal 的 capability-adoption policy 选中了该能力，
+不表示证据已准入、结果成功或获得新权限。
+
+以下两个例子固定 owner 边界：
+
+- **外部证据：** external-evidence owner 独自记录 provider execution observation、
+  parent admission、coverage 与 retirement。该 owner 纠正或退役回执后，Portfolio
+  跟随 superseding owner ref，并可提出 `degraded`；它不保留另一份 coverage 或
+  admission 事实。
+- **非证据能力：** delegation owner 记录 worker route/result receipt，相关评估
+  owner 记录 outcome quality。Portfolio 复评 adoption 时只引用这些回执，不把它们
+  翻译成通用 `admitted`、`refuted` 或 `decision_effects` 事实。
 
 ### 命令与事件生命周期
 
@@ -214,9 +249,9 @@ decision_effects[], next_lifecycle_proposal
   → 选择有界 trial 或已有 adoption
   → 读回 exact config/provider revision
   → before_delegate 冻结 route
-  → after_delegate_result 观察 typed 结果
-  → parent adopt / ignore / refute / unknown
-  → 提出 keep / reconfigure / degrade / retire
+  → after_delegate_result 观察 owner receipt
+  → 原 capability/domain owner 评估结果
+  → Portfolio keep / reconfigure / degrade / retire adoption
 ```
 
 变更 identity 为 `(goal_id, adoption_id, expected_revision, operation_id)`。
@@ -245,6 +280,11 @@ provider revision、source refs、coverage interval、freshness、rights snapsho
 cost、latency、failure 和 output digest。注册和 ready 仍只是库存事实。parent
 qualification 与 finance evidence eligibility 或其他垂域准入继续分开。
 
+Portfolio 的 `active` 或 `adopted` 只描述选择策略。安装、enablement、doctor
+status、provider revision 与 rollback 继续来自 extension runtime 和现有 Goal
+binding。disable、uninstall、doctor failure 或 binding revision drift 会令 composition
+stale；Portfolio 不得静默切换 provider。
+
 ### Runtime 注入
 
 - **`before_plan`：** 投影当前 gap、有效 adoption、stale/unavailable 节点和
@@ -252,9 +292,9 @@ qualification 与 finance evidence eligibility 或其他垂域准入继续分开
 - **`before_delegate`：** 冻结 worker/connector/provider revision、预算、
   schema、authority refs 和 composition digest。垂域只描述问题和验收标准；
   通用 delegation owner 控制容量、route 和 result receipt。
-- **`after_delegate_result`：** 只消费 typed result receipt，记录 parent
-  disposition、成本、覆盖和 decision effect。worker 原始回答不是 adoption
-  receipt。
+- **`after_delegate_result`：** 只索引 typed owner-receipt ref，并提出 Portfolio
+  生命周期复评。成本、覆盖、失败、admission、decision effect 与 utility 留在原
+  owner receipt。worker 原始回答不是 adoption 或 lifecycle receipt。
 
 可选 Turn-start 摘要只包含 Portfolio revision、当前 gap、所选组合、stale/
 unavailable 节点和下次复评触发条件。完整 catalog 和历史不进入 prompt。
@@ -283,8 +323,8 @@ v0 拒绝。它混淆推荐、配置和授权。Portfolio 可以通过现有 gov
 ## 7. 安全、隐私与兼容
 
 - Portfolio 默认 advisory，不保存 secret 或原始私有 payload。
-- 公共投影隐藏私有来源、账户和付费数据细节，同时保留 typed coverage/
-  failure 事实。
+- 公共投影隐藏私有来源、账户和付费数据细节。它可在读时联结 owner 投影中
+  已授权的有界 coverage/failure 字段，但 Portfolio 不持久化另一份副本。
 - readiness observation 不能变成 durable grant；已有 authority 与 protected
   effect confirmation 继续有效。
 - 混合版本 reader 保留 unknown field，拒绝不支持的语义收窄；revision
@@ -314,10 +354,12 @@ registry migration。
 | replay 幂等 | 丢响应与并发重试 fixture | 一次迁移、一份 receipt | provider side effect 仍归 provider |
 | 失败保留有用工作 | Portfolio/provider unavailable fixture | 普通 Todo 继续且 coverage unknown；硬要求仅阻断该 Todo | 无 availability SLO |
 | Connector 生命周期可审计 | discovery→trial→qualification→degrade→retire fixture | 每步 exact revision + typed reason | 垂域 eligibility 独立验证 |
+| Provider binding 保持单一 owner | 现有 Goal binding preview/apply/readback 加 disable/upgrade/rollback fixture | Portfolio 引用 exact binding，drift 后变 stale，不写平行 binding | extension runtime 继续证明 provider readiness |
 | 自发现有用 | 新 finance 与非金融 Agent 只收到同一 Goal | 选出最小合理组合或解释空选择 | 两例不证明普遍 uplift |
 | 组合改善结果 | 冻结 baseline 对比 Portfolio-assisted trial | 在申明成本内改善首次有效行动、覆盖或决策质量，保留失败 | 不自动生产晋升 |
 | 三个 hook 一致 | before-plan/delegate/result 契约测试 | 同一 composition identity 和 route/result lineage | 排除原始模型质量 |
-| 产品入口一致 | CLI、打包前端、Lark 验收 | 同 revision/status/reason/cost/coverage/failure | 各 transport 单独资格验证 |
+| Owner truth 不重复 | 分别纠正并退役一个 external-evidence receipt 与一个非证据 outcome receipt | Portfolio 跟随不可变 superseding refs，不残留复制的 admission/effect 事实 | 各 owner 继续验证自己的语义 |
+| 产品入口一致 | CLI、打包前端、Lark 验收 | 同 Portfolio revision、adoption status、reason、owner refs 与 review trigger；联结 owner 事实保留 provenance | 各 transport/owner projection 单独资格验证 |
 | 垂域边界成立 | finance 与另一垂域 fixture | Core 不理解垂域，domain admission 独立 | 不授予交易权限 |
 
 衡量首次有效行动、证据覆盖、stale/重复来源错误、人工介入、token/费用、
@@ -326,7 +368,8 @@ registry migration。
 ## 10. 运维契约
 
 Operator 可查看 Portfolio revision、active/trial/degraded adoption、exact config/
-provider revision、近期 typed failure、成本、覆盖和下次 review trigger。只对
+provider revision、owner-receipt refs 和下次 review trigger。获授权视图可在读时
+从原 owner 联结当前 failure、cost 与 coverage，但不持久化到 Portfolio。只对
 revision drift、rights 过期、重复失败、预算耗尽或 required capability 不可用
 产生事件提醒；日常成功调用不制造噪声。
 
@@ -339,11 +382,11 @@ authority provider，原 provider artifact 跟随原 owner。
 
 | 里程碑 | 交付行为 | 入口条件 | 退出证据 | 回滚 |
 | --- | --- | --- | --- | --- |
-| M0 · 契约与 inspect | 四个 schema；在现有 owner 上提供只读 `portfolio inspect/plan` | RFC 评审；明确 catalog/config owner | normalization、mutation、feature-off fixture | 删除投影，不落状态 |
+| M0 · 契约与 inspect | Portfolio 自有 adoption/composition/lifecycle-transition schema，加只读 catalog/Goal-binding/owner-receipt projection | RFC 评审；明确 catalog/config/binding/receipt owner | normalization、owner-correction、mutation、feature-off fixture | 删除投影，不落状态 |
 | M1 · 外部证据与 connector trial | #4813 与 connector descriptor/call receipt 对齐，不自动晋升 | exact-plan binding 与 provider boundary 通过 | 一个真实 host method + 一个 connector trial，含 partial/failure receipt | 保留 registry；关闭 qualification write |
 | M2 · Goal adoption owner | candidate/trial/adopted/degraded/retired reducer 与 receipt | Goal authority provider 可用 | replay、并发、drift、rollback、recovery 测试 | 关闭 writer，receipt 只读保留 |
 | M3 · 三阶段组合 | 三个 Agent-context hook 投影 Portfolio，并接通通用 delegation receipt | M0–M2 identity 稳定 | 无额外提示的新 finance/非金融 Agent trial | 可独立关闭各 hook |
-| M4 · 效果资格 | external-only/connector-only/hybrid 实验与 use/effect review、retirement proposal | 冻结指标、预算、stop rule | 完整分母证明收益或明确 no-uplift | adoption 退回 candidate/degraded |
+| M4 · 效果资格 | external-only/connector-only/hybrid 实验与 owner-receipt-backed lifecycle review、retirement proposal | 冻结指标、预算、stop rule | 完整分母证明收益或明确 no-uplift，且不复制 effect truth | adoption 退回 candidate/degraded |
 | M5 · 产品旅程 | CLI、打包前端、Lark 共用 inspect/reason/readback/recovery | public projection 稳定 | 跨 session、stale、重连、重复动作验收 | 隐藏变更控件，保留 CLI readback |
 
 RFC 仍为 Draft 时里程碑也可交付。#4813 是 M1 前置，不是整个 Portfolio 的
@@ -352,8 +395,9 @@ RFC 仍为 Draft 时里程碑也可交付。#4813 是 M1 前置，不是整个 P
 ## 12. 未决问题
 
 1. **Portfolio storage profile。** Owner：shared-authority 与 capability
-   维护者。建议 adoption record 使用当前 Goal authority provider，大 receipt/
-   artifact 留在原 owner。M2 前决定。
+   维护者。建议 adoption record 使用当前 Goal authority provider，runtime
+   enablement 复用现有 Goal external-capability binding，大 receipt/artifact 留在
+   原 owner；不得新增 Portfolio 专属 provider binding。M2 前决定。
 2. **跨能力比较。** Owner：capability 维护者。建议只在一个明确 Goal gap 内
    多维比较，不产生全局总分。M3/M4 验证。
 3. **自动降级阈值。** Owner：capability + domain owner。建议自动提出 proposal，
@@ -383,6 +427,7 @@ RFC 仍为 Draft 时里程碑也可交付。#4813 是 M1 前置，不是整个 P
 | 日期 | 决策 | Owner / 批准 | 替代项 | 修改的规范章节 |
 | --- | --- | --- | --- | --- |
 | 2026-09-21 | 初始提案，不从实现或沉默推断批准 | 待维护者评审 | 垂域组织、registry 质量 owner、Decision Context owner | 全部 |
+| 2026-09-21 | 将通用 use/effect 状态收窄为 owner-receipt observation 和 Portfolio 自有 lifecycle receipt | exact head `1a6b15c6` 的维护者 review request | 重复的通用 effect/admission authority | 第 1、3、5、7、9–11 节 |
 
 ## 附录 C：证据登记
 
@@ -391,6 +436,7 @@ RFC 仍为 Draft 时里程碑也可交付。#4813 是 M1 前置，不是整个 P
 | E1 | 三个通用 hook phase 已存在 | 实现基线 | `agent_context`/subagent-context 源码与测试 | 已检查 | 静态检查，不证明 live uplift |
 | E2 | Registry 是库存/遥测，不是 qualification | 实现基线 | connector-registry schema/CLI | 已检查 | 非穷尽 provider 审计 |
 | E3 | external-evidence typed lifecycle 是活跃前置 | PR #4813 exact head | PR diff、测试与 review | open，未上 `main` | 不声明 merge/live provider |
+| E4 | 持久 Goal binding 已拥有 exact provider operation/revision/profile 选择 | 实现基线 | extension reference 与 capability-admission 源码 | 已检查 | 只读 binding 契约，不证明 provider 执行 |
 
 ## 附录 D：拒绝或替代方案
 
@@ -403,3 +449,6 @@ RFC 仍为 Draft 时里程碑也可交付。#4813 是 M1 前置，不是整个 P
   composition plan 都要 exact authority/readiness readback。
 - 成功持久化或 memory exact readback 不代表经验改变未来行为。use 与 effect
   qualification 必须分开。
+- Portfolio 若复制 coverage、admission 或 decision effect，会产生一份可能晚于
+  owner 纠正仍存活的第二真相。因此 Portfolio 只记录自己的 adoption lifecycle
+  和 owner receipt 的不可变引用。
