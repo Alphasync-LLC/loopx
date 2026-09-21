@@ -2956,7 +2956,12 @@ The T3 lease-inspection reader now binds Todo, lease and handoff mode to one
 provider revision and never reads obsolete local lease files after promotion.
 Its eligibility policy is shared with current acquire/lifecycle rules, including
 claim divergence and exclusion; a read result is not a lease grant or a commit
-receipt. An empty canonical lease set stays empty. This read closure and removal
+receipt. Both source routes now interpret time and eligibility in TS, including
+archived-open retained history and explicit malformed-expiry failure; registration
+and promotion-fence changes are revalidated with bounded retry. Python no longer
+reconstructs the canonical head or diagnostic policy for inspection. See
+[the read contract](../../reference/canonical-lease-renew.md#what-inspection-proves).
+An empty canonical lease set stays empty. This read closure and removal
 of duplicate eligibility rules do not qualify a provider, alter CAS/replay or
 relax D1–D3; permanent Markdown display and the remaining roadmap stay intact.
 The ownership-edit slice now uses the same typed authoring and lifecycle boundary

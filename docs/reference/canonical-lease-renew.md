@@ -49,6 +49,44 @@ already assigned to the eligible receiver. Without `--transfer-claim`, transfer 
 claim. Neither form overrides an exclusion or widens write scopes. Use the actual readback
 versions, not these example numbers.
 
+## What inspection proves
+
+`task-lease inspect` uses one TS read owner for legacy files and selected
+File/SQLite authority. Service-owned PostgreSQL uses the same reader through its
+existing identity-fenced factory; the CLI does not gain a PostgreSQL connection
+or enable a service deployment. Promoted inspection reads Todo, lease and mode
+from one complete provider revision, ignoring stale display and lease files.
+
+`lease.status: active` describes the retained record. The top-level `active`
+means its expiry is strictly after the observation clock **and** its current
+owner is eligible for the active, open Todo. An archived record cannot revive
+execution even when imported history retains `status: open` and a future lease.
+Closed, unregistered, excluded and conflicting-claim owners return `active:
+false` with the existing `executor_constraint` diagnostic. Rejection precedence
+and diagnostic fields share the mutation-admission owner.
+
+An active lease with an invalid expiry now fails with `corrupt_lease`, including
+on the legacy route; it no longer looks like an ordinary inactive lease. Missing,
+expired and released leases retain their previous successful inactive response.
+For legacy storage, TS first checks the retained lease and only asks Python for
+a full Todo projection when it is time-active; the final check re-reads the lease
+after that projection. Inactive inspection does not parse the work history.
+Registration-source receipts and the promotion fence are rechecked after the
+read. Source changes trigger at most three host attempts, then an explicit
+`authority_source_changed` failure. Selected-provider failures never fall back.
+
+This is a read-only observation, not an execution grant or a lock across later
+work. A subsequent registration change, provider commit or expiry can invalidate
+it. Mutations must still prove their current owner/key/version and commit under
+their existing fences. Inspection does not repair display, renew a lease, change
+provider selection or spend quota.
+
+检查由 TS 统一解释两条来源路径：`lease.status` 是保留记录的状态，顶层 `active`
+还要求租约未到期、Todo 活跃且未关闭、owner 仍满足注册、排除与认领约束。
+归档但仍标为 open 的历史记录不再产生有效执行资格；损坏的 active 到期时间明确
+报错，不再伪装成正常失效。检查前后校验注册来源与晋升 fence，最多重试三次；
+结果只代表一次观察，后续写操作仍须校验当前执行证明，不获得新的授权。
+
 ## Atomically hand over claimed work
 
 When the current canonical `hard_lease` Todo and lease both belong to the sender,
