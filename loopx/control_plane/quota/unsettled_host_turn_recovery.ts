@@ -222,34 +222,40 @@ export async function preflightPriorHostTurnCloseout(
       turns_validated: turnsValidated,
     };
   }
-  const selected = candidates[0]!;
-  const readback = await readQuotaSettlement(
-    settlementReadbackRequest(request, selected),
-  );
-  if (readback.found === true && !bundleFailed(readback, "settlement")) {
-    // The Turn has a validated settlement closeout, so it needs no recovery.
+  let newestSettledTurn: string | null = null;
+  for (const selected of candidates) {
+    const readback = await readQuotaSettlement(
+      settlementReadbackRequest(request, selected),
+    );
+    if (readback.found === true && !bundleFailed(readback, "settlement")) {
+      // A newer settled Turn cannot hide an older missing closeout. Keep
+      // scanning in persisted newest-first order until the first unsettled
+      // candidate is found.
+      newestSettledTurn ??= selected.prior_turn_instance_id;
+      continue;
+    }
+    const missingReceipts: string[] = [];
+    if (readback.found !== true || bundleFailed(readback, "writeback")) {
+      missingReceipts.push(WRITEBACK_RECEIPT);
+    }
+    if (readback.found !== true || bundleFailed(readback, "spend")) {
+      missingReceipts.push(SPEND_RECEIPT);
+    }
     return {
       schema_version: PRIOR_HOST_TURN_CLOSEOUT_PREFLIGHT_RESULT_SCHEMA,
-      status: "none",
-      reason: "prior_turn_settlement_validated",
+      status: "candidate",
       turns_validated: turnsValidated,
-      prior_turn_instance_id: selected.prior_turn_instance_id,
-      accepted_closeout: "validated_writeback_and_quota_spend",
+      candidate: selected,
+      missing_receipts: missingReceipts,
     };
-  }
-  const missingReceipts: string[] = [];
-  if (readback.found !== true || bundleFailed(readback, "writeback")) {
-    missingReceipts.push(WRITEBACK_RECEIPT);
-  }
-  if (readback.found !== true || bundleFailed(readback, "spend")) {
-    missingReceipts.push(SPEND_RECEIPT);
   }
   return {
     schema_version: PRIOR_HOST_TURN_CLOSEOUT_PREFLIGHT_RESULT_SCHEMA,
-    status: "candidate",
+    status: "none",
+    reason: "prior_turn_settlement_validated",
     turns_validated: turnsValidated,
-    candidate: selected,
-    missing_receipts: missingReceipts,
+    prior_turn_instance_id: newestSettledTurn,
+    accepted_closeout: "validated_writeback_and_quota_spend",
   };
 }
 
