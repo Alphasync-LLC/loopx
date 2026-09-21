@@ -15,6 +15,7 @@ from .event_inbox import (
 )
 from .inbox_reactions import complete_lark_event_inbox_reactions
 from .outbound import (
+    DEFAULT_LARK_TEXT_LIMIT,
     LARK_POST_REQUEST_MAX_BYTES,
     expected_lark_mention_identities,
     lark_markdown_post_content,
@@ -280,8 +281,16 @@ def _deliver_lark_inbox_outbound(
     runner: CommandRunner = _default_runner,
     before_send: Callable[[str], Mapping[str, Any]] | None = None,
     delivery_attempt_recorder: Callable[[Mapping[str, str]], None] | None = None,
+    short_message_limit: int | None = DEFAULT_LARK_TEXT_LIMIT,
 ) -> dict[str, Any]:
-    """Deliver through one inbox-configured bot with exact provider readback."""
+    """Deliver through one inbox-configured bot with exact provider readback.
+
+    ``short_message_limit`` owns the compact, self-imposed length a delivery
+    keeps when it has no source message to answer. Only the chat-root
+    notification caller relies on it: 1200 is not a provider bound, so a
+    delivery that answers a captured source message is bounded by the provider's
+    own request limit instead of being cut by our own guess.
+    """
 
     config = load_lark_event_inbox_config(project=project, config_path=config_path)
     if not config["enabled"]:
@@ -313,7 +322,8 @@ def _deliver_lark_inbox_outbound(
     # Structured mentions retain the existing identity-verified text transport.
     markdown = content_format == "markdown" and not expected_lark_mention_identities(text)
     reply_text = normalize_lark_outbound_text(
-        text, limit=None if source_event is not None else 1200,
+        text,
+        limit=None if source_event is not None else short_message_limit,
         preserve_format=markdown,
     )
     # Reject an oversized content lower bound before building a CLI argument.
@@ -696,8 +706,14 @@ def reply_lark_event_inbox(
     runner: CommandRunner = _default_runner,
     before_send: Callable[[str], Mapping[str, Any]] | None = None,
     delivery_attempt_recorder: Callable[[Mapping[str, str]], None] | None = None,
+    short_message_limit: int | None = DEFAULT_LARK_TEXT_LIMIT,
 ) -> dict[str, Any]:
-    """Reply with the explicit inbox-configured bot and placement policy."""
+    """Reply with the explicit inbox-configured bot and placement policy.
+
+    An answer delivery passes ``short_message_limit=None`` to declare that it is
+    bounded by the provider's request limit rather than by the compact
+    notification length.
+    """
 
     result = _deliver_lark_inbox_outbound(
         project=project,
@@ -710,6 +726,7 @@ def reply_lark_event_inbox(
         runner=runner,
         before_send=before_send,
         delivery_attempt_recorder=delivery_attempt_recorder,
+        short_message_limit=short_message_limit,
     )
 
     result.setdefault("content_format", "markdown" if content_format == "markdown"
@@ -894,7 +911,12 @@ def send_lark_inbox_message(
     runner: CommandRunner = _default_runner,
     before_send: Callable[[str], Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Send one verified chat-root message through the configured inbox bot."""
+    """Send one verified chat-root message through the configured inbox bot.
+
+    A chat-root notification keeps the compact self-imposed length: it is a
+    notice on the channel, not an answer, and the reader expects it to stay
+    short.
+    """
 
     result = _deliver_lark_inbox_outbound(
         project=project,
@@ -905,6 +927,7 @@ def send_lark_inbox_message(
         provider_preflight=provider_preflight,
         runner=runner,
         before_send=before_send,
+        short_message_limit=DEFAULT_LARK_TEXT_LIMIT,
     )
     result["schema_version"] = "lark_outbound_message_v0"
     blocker = result.get("blocker")
