@@ -72,6 +72,27 @@ test("capability reevaluation retains ready candidates outside the deferred disp
   );
 });
 
+test("explicit candidate payload wins when the display lane has the same Todo id", () => {
+  const display = fact("todo_shared", { claim: "agent-a" });
+  (display.payload as JsonObject).text = "Compact display copy";
+  const candidate = fact("todo_shared", {
+    claim: "agent-a", ready: true, ready_truthy: true,
+  });
+  (candidate.payload as JsonObject).text = "Lossless candidate copy";
+  (candidate.payload as JsonObject).resume_ready = true;
+  const input = request({ available_capabilities: ["compiler"] });
+  (input.sources as JsonObject).deferred_items = [display];
+  (input.sources as JsonObject).deferred_resume_candidates = [candidate];
+
+  const result = projectTodoResumePlanning(input);
+  const lanes = result.deferred_lanes as JsonObject;
+  const candidates = lanes.current_agent_deferred_resume_candidates as JsonObject[];
+
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].todo_id, "todo_shared");
+  assert.equal(candidates[0].text, "Lossless candidate copy");
+});
+
 test("a large wait source retains total counts independently from the display bound", () => {
   const input = request();
   const rows = Array.from({ length: 257 }, (_, i) => fact(`todo_wait_${i}`));

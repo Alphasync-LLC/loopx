@@ -67,7 +67,12 @@ function ordered(items: readonly Item[]): Item[] {
 }
 
 function itemIdentity(entry: Item): string {
-  return JSON.stringify([entry.id ?? "", entry.payload.text, entry.payload.index]);
+  // A canonical Todo id owns identity across compact/display and lossless
+  // candidate projections. Fall back to the legacy presentation identity only
+  // for rows that predate typed Todo ids.
+  return entry.id
+    ? JSON.stringify(["todo", entry.id])
+    : JSON.stringify(["projection", entry.payload.text, entry.payload.index]);
 }
 
 function unique(items: readonly Item[]): Item[] {
