@@ -37,8 +37,18 @@ MANAGER_REPLY_OVERFLOW_NOTE = (
 PART_DELIVERY_COMPLETE_KEY = "delivery_parts_complete"
 PART_DELIVERY_VERIFIED_KEY = "delivery_parts_verified"
 PART_ATTEMPT_KEY = "delivery_part_attempt"
+PART_STALL_NOTICE_KEY = "delivery_part_stall_notice"
+PART_STALL_COUNT_KEY = "delivery_part_stall_count"
 PART_DELIVERY_INCOMPLETE = "reply_part_delivery_incomplete"
 PART_DELIVERY_COMPLETION_UNVERIFIED = "reply_part_delivery_completion_unverified"
+# The notice is a last resort, not the outcome: the sequence counts how often it
+# stopped mid-answer and only speaks after that happened more than once, so a
+# transient provider hiccup never turns into a message the reader did not need.
+PART_STALL_NOTICE_MIN_STALLS = 3
+MANAGER_REPLY_STALL_NOTICE = (
+    "本条答复超过可发送长度，目前只发出了前面的 {sent}/{count} 段；"
+    "完整答复保存在 LoopX 管家会话中，剩余分段会继续重试。"
+)
 
 
 def plan_manager_reply_parts(reply_text: str) -> tuple[list[str], bool]:
@@ -192,6 +202,35 @@ def reconciled_part_reply(
     return {**dict(verified), "part_reconciled": True}
 
 
+def plan_stalled_part_notice(delivery_state: Mapping[str, Any]) -> str | None:
+    """The bounded notice a stalled sequence posts once, after real retries.
+
+    A reader who received the first parts of an over-limit answer currently
+    learns nothing more: the overflow note that says where the full answer lives
+    only travels with the last part, and the remaining parts are retried in the
+    background. This notice states what was delivered and where the rest is, and
+    it waits for more than one failed attempt so an ordinary hiccup stays quiet.
+    """
+
+    if delivery_state.get(PART_STALL_NOTICE_KEY) is True:
+        return None
+    stalls = delivery_state.get(PART_STALL_COUNT_KEY)
+    if (
+        not isinstance(stalls, int)
+        or isinstance(stalls, bool)
+        or stalls < PART_STALL_NOTICE_MIN_STALLS
+    ):
+        return None
+    sent = delivery_state.get("delivery_parts_sent")
+    count = delivery_state.get("delivery_part_count")
+    for value in (sent, count):
+        if not isinstance(value, int) or isinstance(value, bool):
+            return None
+    if not 0 < sent < count:
+        return None
+    return MANAGER_REPLY_STALL_NOTICE.format(sent=sent, count=count)
+
+
 def deliver_manager_reply_parts(
     *,
     parts: list[str],
@@ -223,6 +262,9 @@ def deliver_manager_reply_parts(
     ):
         # A different split than the one on record cannot be resumed safely.
         sent = 0
+        # The stall count describes this sequence's retries, so it goes with the
+        # split that produced them instead of counting toward a different one.
+        delivery_state.pop(PART_STALL_COUNT_KEY, None)
     elif sent == len(parts):
         # Every part is already on the channel. Settle from the recorded
         # acceptance instead of reporting an incomplete sequence that no retry
@@ -334,9 +376,36 @@ def deliver_manager_reply_after_length_failure(
         message_id=message_id,
         content_format="text",
     )
-    return reply, (
-        None if reply is not None else part_delivery_incomplete_reason(delivery_state)
+    if reply is not None:
+        return reply, None
+    # The answer is only partly on the channel. Tell the reader once, after the
+    # sequence has already failed more than one attempt, instead of leaving the
+    # delivered parts looking like the whole answer.
+    delivery_state[PART_STALL_COUNT_KEY] = (
+        int(delivery_state.get(PART_STALL_COUNT_KEY) or 0) + 1
     )
+    notice = plan_stalled_part_notice(delivery_state)
+    if notice is not None:
+        spoken = reply_lark_event_inbox(
+            project=root,
+            config_path=config_path,
+            message_id=message_id,
+            text=notice,
+            content_format="text",
+            execute=True,
+            runner=reply_runner,
+        )
+        if spoken.get("ok") is True or spoken.get("reply_verified") is True:
+            delivery_state[PART_STALL_NOTICE_KEY] = True
+        delivery_state["last_delivery_notice_status"] = str(
+            spoken.get("status") or "reply_failed"
+        )
+    # The stall count has to survive this attempt either way. A retry reloads the
+    # record from disk, so an unwritten increment would restart at zero and the
+    # notice would never be reached no matter how often the sequence stalled.
+    delivery_state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    write_delivery(delivery_path, delivery_state)
+    return None, part_delivery_incomplete_reason(delivery_state)
 
 
 def manager_part_delivery_pending_result(
@@ -354,6 +423,7 @@ def manager_part_delivery_pending_result(
         "reason": reason,
         "delivery_part_count": delivery_state.get("delivery_part_count"),
         "delivery_parts_sent": delivery_state.get("delivery_parts_sent"),
+        "delivery_notice_sent": delivery_state.get(PART_STALL_NOTICE_KEY) is True,
         "format_degraded": True,
         "goal_id": goal_id,
         "inbox_config_ref": inbox_config_ref,
