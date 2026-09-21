@@ -1630,6 +1630,10 @@ export function registerAuthorityStoreConformance(
       for (const [index, declaration] of [
         {unexpected: "accepted"},
         {...original, validation_command: "true"},
+        {...original, validation_command_argv: '["true"]'},
+        {...original, validation_timeout_seconds: "20"},
+        {...original, validation_label: ""},
+        {...original, validation_command: " true ", validation_command_argv: null},
         {...original, validation_command_argv: []},
         {...original, validation_timeout_seconds: 30},
       ].entries()) {

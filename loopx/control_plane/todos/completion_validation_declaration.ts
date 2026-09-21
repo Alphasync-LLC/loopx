@@ -80,17 +80,25 @@ export function normalizeTodoCompletionValidationDeclaration(
   options: {
     readonly strict_fields?: boolean;
     readonly require_command?: boolean;
+    readonly require_canonical_input?: boolean;
   } = {},
 ): TodoCompletionValidationDeclarationResult {
-  if (
-    options.strict_fields === true &&
-    Object.keys(value).some(
-      (field) => !FIELDS.includes(field as (typeof FIELDS)[number]),
-    )
-  ) {
+  const fields = Object.keys(value);
+  if (options.strict_fields === true &&
+      fields.some((field) => !FIELDS.includes(field as (typeof FIELDS)[number]))) {
     return {
       ok: false,
       summary: "completion validation declaration has unsupported fields",
+    };
+  }
+  if (
+    options.require_canonical_input === true &&
+    (fields.length !== FIELDS.length ||
+      FIELDS.some((field) => !Object.hasOwn(value, field)))
+  ) {
+    return {
+      ok: false,
+      summary: "completion validation declaration must contain all canonical fields",
     };
   }
   const label = value.validation_label;
@@ -98,6 +106,13 @@ export function normalizeTodoCompletionValidationDeclaration(
     label !== null && label !== undefined && label !== "" &&
     typeof label !== "string"
   ) {
+    return {ok: false, summary: "validation_label must be a string or null"};
+  }
+  if (options.require_canonical_input === true && label === "") {
+    return {ok: false, summary: "validation_label must already be canonical"};
+  }
+  if (options.require_canonical_input === true &&
+      label !== null && typeof label !== "string") {
     return {ok: false, summary: "validation_label must be a string or null"};
   }
   const validationLabel = typeof label === "string" && label !== "" ? label : null;
@@ -111,7 +126,28 @@ export function normalizeTodoCompletionValidationDeclaration(
       summary: "validation_command must be a non-empty string when declared",
     };
   }
+  if (options.require_canonical_input === true &&
+      typeof commandRaw === "string" &&
+      (commandRaw === "" || commandRaw.trim() !== commandRaw)) {
+    return {ok: false, summary: "validation_command must already be canonical"};
+  }
+  if (options.require_canonical_input === true &&
+      commandRaw !== null && typeof commandRaw !== "string") {
+    return {
+      ok: false,
+      summary: "validation_command must be a non-empty string or null",
+    };
+  }
   const validationCommand = compactString(commandRaw);
+  if (options.require_canonical_input === true) {
+    const argvRaw = value.validation_command_argv;
+    if (argvRaw !== null && !Array.isArray(argvRaw)) {
+      return {
+        ok: false,
+        summary: "validation_command_argv must be a canonical string array or null",
+      };
+    }
+  }
   const argv = validationArgv(value.validation_command_argv);
   if (!argv.ok) return argv;
   if (validationCommand !== null && argv.value !== null) {
@@ -119,6 +155,15 @@ export function normalizeTodoCompletionValidationDeclaration(
       ok: false,
       summary: "validation_command and validation_command_argv are mutually exclusive",
     };
+  }
+  if (options.require_canonical_input === true) {
+    const timeoutRaw = value.validation_timeout_seconds;
+    if (timeoutRaw !== null && typeof timeoutRaw !== "number") {
+      return {
+        ok: false,
+        summary: "validation_timeout_seconds must be a canonical integer or null",
+      };
+    }
   }
   const timeout = validationTimeoutSeconds(value.validation_timeout_seconds);
   if (!timeout.ok) return timeout;

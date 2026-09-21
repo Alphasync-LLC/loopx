@@ -118,7 +118,11 @@ export function decodeCompletionValidationRevision(
       revision.declaration,
       "completion validation declaration",
     ),
-    {strict_fields: true, require_command: true},
+    {
+      strict_fields: true,
+      require_command: true,
+      require_canonical_input: true,
+    },
   );
   if (!declaration.ok) {
     throw new AuthorityStoreProtocolError(declaration.summary);
