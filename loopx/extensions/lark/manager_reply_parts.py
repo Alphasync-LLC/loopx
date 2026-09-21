@@ -15,6 +15,11 @@ That case settles from the record instead of re-sending nothing forever.
 A send the provider accepted but did not read back leaves its provider locator
 in the same record. The next attempt verifies that locator before sending the
 part again, so an ambiguous send is reconciled instead of repeated.
+
+A partly delivered answer also has to look partly delivered: once the sequence
+has stopped mid-answer three times, one bounded notice tells the reader how much
+went out and where the rest is. That notice records and verifies its own
+locator the same way, so a reader is never told the same thing twice.
 """
 
 from __future__ import annotations
@@ -39,11 +44,13 @@ PART_DELIVERY_VERIFIED_KEY = "delivery_parts_verified"
 PART_ATTEMPT_KEY = "delivery_part_attempt"
 PART_STALL_NOTICE_KEY = "delivery_part_stall_notice"
 PART_STALL_COUNT_KEY = "delivery_part_stall_count"
+PART_STALL_NOTICE_ATTEMPT_KEY = "delivery_part_stall_notice_attempt"
 PART_DELIVERY_INCOMPLETE = "reply_part_delivery_incomplete"
 PART_DELIVERY_COMPLETION_UNVERIFIED = "reply_part_delivery_completion_unverified"
-# The notice is a last resort, not the outcome: the sequence counts how often it
-# stopped mid-answer and only speaks after that happened more than once, so a
-# transient provider hiccup never turns into a message the reader did not need.
+# The notice is a last resort, not the outcome: the sequence counts the attempts
+# that stopped the answer mid-sequence (progress does not reset that count, only
+# a different split does) and only speaks after three of them, so a transient
+# provider hiccup never turns into a message the reader did not need.
 PART_STALL_NOTICE_MIN_STALLS = 3
 MANAGER_REPLY_STALL_NOTICE = (
     "本条答复超过可发送长度，目前只发出了前面的 {sent}/{count} 段；"
@@ -66,13 +73,13 @@ def plan_manager_reply_parts(reply_text: str) -> tuple[list[str], bool]:
     return parts, truncated
 
 
-def _part_verified(reply: Mapping[str, Any]) -> bool:
-    """Whether the provider reported this part present on the channel.
+def _reply_verified(reply: Mapping[str, Any]) -> bool:
+    """Whether the provider reported this reply present on the channel.
 
-    A part can be confirmed either by the readback that follows its own send or
+    A reply can be confirmed either by the readback that follows its own send or
     by the reconciliation of an earlier send the provider accepted but did not
-    read back. Both mean the reader has that text, which is the fact the counter
-    records; a reconciled part has no new write of its own.
+    read back. Both mean the reader has that text, which is the fact the record
+    keeps; a reconciled send has no new write of its own.
     """
 
     return bool(
@@ -81,17 +88,23 @@ def _part_verified(reply: Mapping[str, Any]) -> bool:
     )
 
 
-def _part_accepted(reply: Mapping[str, Any]) -> bool:
-    """Whether this part may be counted as delivered.
+def _reply_on_channel(reply: Mapping[str, Any]) -> bool:
+    """Whether the reader may already have this reply's text.
 
-    ``ok`` also requires the source reaction cleanup to have finished, so a part
-    the provider already verified can come back not-ok with a cleanup still
-    pending. Its text is on the channel either way: counting it is what keeps a
-    retry from sending the reader the same part twice, and the pending cleanup
-    stays the transport's own business.
+    ``ok`` also requires the source reaction cleanup to have finished, so a
+    reply the provider already accepted can come back not-ok with a cleanup
+    still pending. Treating that as delivered is what keeps a retry from sending
+    the reader the same text twice, and the pending cleanup stays the
+    transport's own business.
     """
 
-    return reply.get("ok") is True or _part_verified(reply)
+    return reply.get("ok") is True or _reply_verified(reply)
+
+
+def _part_accepted(reply: Mapping[str, Any]) -> bool:
+    """Whether this part may be counted as delivered."""
+
+    return _reply_on_channel(reply)
 
 
 def _accepted_reply_facts(reply: Mapping[str, Any]) -> dict[str, Any]:
@@ -99,7 +112,7 @@ def _accepted_reply_facts(reply: Mapping[str, Any]) -> dict[str, Any]:
 
     return {
         "reply_idempotency_key": reply.get("idempotency_key"),
-        PART_DELIVERY_VERIFIED_KEY: _part_verified(reply),
+        PART_DELIVERY_VERIFIED_KEY: _reply_verified(reply),
     }
 
 
@@ -156,6 +169,15 @@ def part_delivery_incomplete_reason(delivery_state: Mapping[str, Any]) -> str:
     return PART_DELIVERY_INCOMPLETE
 
 
+def _recorded_attempt(recorded: Any) -> Mapping[str, Any] | None:
+    """The provider locator inside one recorded attempt, when it is well formed."""
+
+    if not isinstance(recorded, Mapping):
+        return None
+    attempt = recorded.get("attempt")
+    return attempt if isinstance(attempt, Mapping) else None
+
+
 def recorded_part_attempt(
     delivery_state: Mapping[str, Any], index: int
 ) -> Mapping[str, Any] | None:
@@ -164,8 +186,15 @@ def recorded_part_attempt(
     recorded = delivery_state.get(PART_ATTEMPT_KEY)
     if not isinstance(recorded, Mapping) or recorded.get("index") != index:
         return None
-    attempt = recorded.get("attempt")
-    return attempt if isinstance(attempt, Mapping) else None
+    return _recorded_attempt(recorded)
+
+
+def recorded_stall_notice_attempt(
+    delivery_state: Mapping[str, Any],
+) -> Mapping[str, Any] | None:
+    """The provider locator of a stall notice that was sent but not confirmed."""
+
+    return _recorded_attempt(delivery_state.get(PART_STALL_NOTICE_ATTEMPT_KEY))
 
 
 def reconciled_part_reply(
@@ -202,6 +231,39 @@ def reconciled_part_reply(
     return {**dict(verified), "part_reconciled": True}
 
 
+def reconciled_stall_notice(
+    *,
+    notice: str,
+    delivery_state: Mapping[str, Any],
+    reply_runner: Any,
+    root: Path,
+    config_path: Path,
+    message_id: str,
+) -> Mapping[str, Any] | None:
+    """Confirm a previously sent stall notice instead of posting it twice.
+
+    The provider can accept the notice and still fail the readback that proves
+    it, and this sequence keeps retrying until the remaining parts go through.
+    The recorded locator is what keeps such a notice from being sent again on
+    every later attempt, exactly as a part is reconciled before it is re-sent.
+    """
+
+    attempt = recorded_stall_notice_attempt(delivery_state)
+    if attempt is None:
+        return None
+    verified = verify_lark_inbox_reply(
+        project=root,
+        config_path=config_path,
+        message_id=message_id,
+        text=notice,
+        attempt=attempt,
+        runner=reply_runner,
+    )
+    if verified.get("reply_verified") is not True:
+        return None
+    return {**dict(verified), "notice_reconciled": True}
+
+
 def plan_stalled_part_notice(delivery_state: Mapping[str, Any]) -> str | None:
     """The bounded notice a stalled sequence posts once, after real retries.
 
@@ -209,7 +271,7 @@ def plan_stalled_part_notice(delivery_state: Mapping[str, Any]) -> str | None:
     learns nothing more: the overflow note that says where the full answer lives
     only travels with the last part, and the remaining parts are retried in the
     background. This notice states what was delivered and where the rest is, and
-    it waits for more than one failed attempt so an ordinary hiccup stays quiet.
+    it waits for three stalled attempts so an ordinary hiccup stays quiet.
     """
 
     if delivery_state.get(PART_STALL_NOTICE_KEY) is True:
@@ -229,6 +291,58 @@ def plan_stalled_part_notice(delivery_state: Mapping[str, Any]) -> str | None:
     if not 0 < sent < count:
         return None
     return MANAGER_REPLY_STALL_NOTICE.format(sent=sent, count=count)
+
+
+def deliver_stall_notice(
+    *,
+    delivery_state: dict[str, Any],
+    delivery_path: Path,
+    write_delivery,
+    reply_runner: Any,
+    root: Path,
+    config_path: Path,
+    message_id: str,
+) -> Mapping[str, Any] | None:
+    """Post the once-per-sequence stall notice, confirming a prior send first.
+
+    Returns the transport result of the send or reconciliation, and ``None``
+    when this sequence has nothing to tell the reader.
+    """
+
+    notice = plan_stalled_part_notice(delivery_state)
+    if notice is None:
+        return None
+    reconciled = reconciled_stall_notice(
+        notice=notice,
+        delivery_state=delivery_state,
+        reply_runner=reply_runner,
+        root=root,
+        config_path=config_path,
+        message_id=message_id,
+    )
+    # The locator of the send being attempted now replaces any older one, so the
+    # record always points at the most recent unconfirmed notice.
+    delivery_state.pop(PART_STALL_NOTICE_ATTEMPT_KEY, None)
+    if reconciled is not None:
+        return reconciled
+
+    def record_attempt(attempt: Mapping[str, Any]) -> None:
+        # The locator has to survive the attempt that produced it: a retry
+        # reloads the record and verifies it instead of posting the notice again.
+        delivery_state[PART_STALL_NOTICE_ATTEMPT_KEY] = {"attempt": dict(attempt)}
+        delivery_state["updated_at"] = datetime.now(timezone.utc).isoformat()
+        write_delivery(delivery_path, delivery_state)
+
+    return reply_lark_event_inbox(
+        project=root,
+        config_path=config_path,
+        message_id=message_id,
+        text=notice,
+        content_format="text",
+        execute=True,
+        runner=reply_runner,
+        delivery_attempt_recorder=record_attempt,
+    )
 
 
 def deliver_manager_reply_parts(
@@ -355,8 +469,10 @@ def deliver_manager_reply_after_length_failure(
     """Deliver one over-limit manager answer as bounded parts.
 
     Returns the last accepted reply, or ``None`` plus the reason to report when
-    a part was rejected. Plain text is the only format a split can promise, so
-    the caller has already degraded presentation before calling this.
+    a part was rejected. A sequence that stops with parts still unsent also tells
+    the reader what went out, once, after enough failed attempts. Plain text is
+    the only format a split can promise, so the caller has already degraded
+    presentation before calling this.
     """
 
     parts, truncated = plan_manager_reply_parts(reply_text)
@@ -384,18 +500,17 @@ def deliver_manager_reply_after_length_failure(
     delivery_state[PART_STALL_COUNT_KEY] = (
         int(delivery_state.get(PART_STALL_COUNT_KEY) or 0) + 1
     )
-    notice = plan_stalled_part_notice(delivery_state)
-    if notice is not None:
-        spoken = reply_lark_event_inbox(
-            project=root,
-            config_path=config_path,
-            message_id=message_id,
-            text=notice,
-            content_format="text",
-            execute=True,
-            runner=reply_runner,
-        )
-        if spoken.get("ok") is True or spoken.get("reply_verified") is True:
+    spoken = deliver_stall_notice(
+        delivery_state=delivery_state,
+        delivery_path=delivery_path,
+        write_delivery=write_delivery,
+        reply_runner=reply_runner,
+        root=root,
+        config_path=config_path,
+        message_id=message_id,
+    )
+    if spoken is not None:
+        if _reply_on_channel(spoken):
             delivery_state[PART_STALL_NOTICE_KEY] = True
         delivery_state["last_delivery_notice_status"] = str(
             spoken.get("status") or "reply_failed"
