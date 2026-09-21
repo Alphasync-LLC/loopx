@@ -5,6 +5,8 @@ import type {AuthorityStoreConformanceFactory} from "./authority_store_conforman
 import {productionScaleSuccessionFixture} from "./production_scale_coordination_fixture.ts";
 import {validateCoordinationTodoReadModel} from "../../loopx/control_plane/coordination/coordination_projection.ts";
 
+const PYTHON = process.env.LOOPX_TEST_PYTHON ?? "python3";
+
 // Exercise the shipped Python consumer → typed policy, not a second test reducer.
 const CONSUMER = `
 import json, sys
@@ -29,7 +31,7 @@ export function registerSuccessionReadConformance(name: string, factory: Authori
       next_projection: projection, events: [], receipts: []})).status, "applied");
     const before = await store.loadAuthority();
     assert.equal(before.status, "loaded");
-    const child = spawnSync("python3", ["-c", CONSUMER], {encoding: "utf8", timeout: 90_000,
+    const child = spawnSync(PYTHON, ["-c", CONSUMER], {encoding: "utf8", timeout: 90_000,
       input: JSON.stringify({todos: before.head.todos, cases})});
     assert.equal(child.status, 0, child.stderr);
     const actual = JSON.parse(child.stdout);

@@ -303,8 +303,8 @@ def list_goal_todos(
         payload["unfiltered_todo_count"] = unfiltered_count
         payload["filter_semantics"] = (
             "agent todos include unclaimed items plus claimed_by=<agent>; "
-            "user todos include global, unscoped legacy, blocks_agent=<agent> gates, "
-            "and bound_agent=<agent> actions"
+            "User gates use global_gate, then blocks_agent, then legacy claimed_by scope; "
+            "User actions use bound_agent, then legacy claimed_by scope; unscoped items remain visible"
         )
     if agent_lane_hot_path:
         payload["returned_todo_count"] = len(todos)

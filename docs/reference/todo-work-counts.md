@@ -59,6 +59,31 @@ retain their old undercount behavior; rollback does not require data migration.
 T1/T2 caller closure, D1 projection recovery, D2 capacity/elapsed soak and D3
 fenced whole-Goal cutover remain separate work.
 
+## Agent-addressed reads
+
+`todo list --agent-id` now composes selection in the same typed summary batch,
+sharing scope rules with quota. For User gates, explicit `global_gate` wins,
+then `blocks_agent`, then the retained `claimed_by` fallback. User actions use
+`bound_agent` first and retained `claimed_by` second. Unscoped records remain
+visible. Gate addressing is independent of executor exclusion: an Agent cannot
+ignore an explicitly addressed human gate because another Agent owns it.
+Agent work still filters by claim and exclusions. A visible row grants no
+mutation or execution permission; quota retains its additional eligibility rules.
+
+This intentionally removes other-Agent, claim-only User records from scoped
+lists; the old Python list rule ignored their claim while quota honored it.
+Unfiltered Goal views retain those records. There is no feature flag or provider
+default change. Existing frontend/Lark manager views use the unfiltered Core
+read and continue to show the whole Goal; no new configuration editor is needed.
+
+Resume and succession are evaluated on the complete source before selection.
+The typed batch filters rows without renumbering their original source indexes,
+then builds lanes/counts, and only then applies display limits. Status/identity
+filters do not recompute dependencies from their smaller view. The v1 internal
+request composes this selection into the existing call; v0 unfiltered callers
+retain their wire contract. Python decodes legacy input and renders results,
+with no independent Agent-addressing rule.
+
 ## 中文说明
 
 `work_counts` 由完整来源计算，随后才裁剪展示。Agent quota 先按原有归属、排除、
@@ -77,3 +102,13 @@ TS 统一批量 lane 分类与计数，Python 保留旧格式解码、时间适�
 这不改变 provider 默认值，不授予执行权限，不写回 Markdown 或 canonical 状态。
 新增计数字段不进入持久化 Todo；回滚无需数据迁移。默认切换、存量迁移、D1–D3 和旧
 Python writer 退出仍有各自的验收条件，不能按本 PR 合并数量推定完成。
+
+Agent 定向列表现与 quota 共用 TS 范围规则：User gate 按 global_gate → blocks_agent →
+旧 claimed_by 依次判定，User action 按 bound_agent → 旧 claimed_by 判定。无作用域的
+旧记录仍可见；显式人类 gate 不会被执行者 claim/exclusion 消除。Agent 工作仍按
+claim/exclusion 筛选，可见不代表获准执行。
+
+这是有意纠正：旧列表忽略仅声明 claimed_by 的 User 记录，导致其他 Agent 的工作混入
+当前列表。未筛选的整 Goal 视图仍显示这些记录。依赖和 succession 先在完整来源求值，
+TS 再筛选并保留原数组位置，最后生成 lanes、计数和有界展示；筛选后的数组位置不是原
+来源位置。无需新增 capability、配置、前端或 Lark 编辑入口，不增加一次筛选 RPC。

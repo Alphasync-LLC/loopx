@@ -614,3 +614,20 @@ export function productionScaleSuccessionFixture(goalId: string, schema: Authori
   readModel.records_sha256 = canonicalAuthoritySha256(todos);
   return {projection, cases};
 }
+
+/** Retained User addressing in the complete graph, including legacy claims.
+ * Selection must not derive completeness from the short display population. */
+export function productionScaleConsumerScopeFixture(goalId: string, schema: AuthorityProjectionSchema = "native") {
+  const fixture = productionScaleSuccessionFixture(goalId, schema);
+  const extra = [
+    {todo_id: "todo_scope_peer_gate", task_class: "user_gate", claimed_by: "agent-b"},
+    {todo_id: "todo_scope_peer_action", task_class: "user_action", claimed_by: "agent-b"},
+    {todo_id: "todo_scope_explicit_gate", task_class: "user_gate", claimed_by: "agent-b", blocks_agent: "agent-a"},
+    {todo_id: "todo_scope_explicit_action", task_class: "user_action", claimed_by: "agent-b", bound_agent: "agent-a"},
+    {todo_id: "todo_scope_global", task_class: "user_gate", claimed_by: "agent-b", global_gate: true},
+  ].map((item, index) => ({role: "user", status: "open", done: false, archive_state: "active",
+    text: "Review a synthetic result", source_section: "User Todo", index: 2000 + index, ...item}));
+  return {...fixture, projection: authorityProjectionFixture(goalId,
+    [...fixture.projection.todos as Record<string, unknown>[], ...extra],
+    fixture.projection.leases as Record<string, unknown>[], schema, {handoff_mode: "legacy"})};
+}
