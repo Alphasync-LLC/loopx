@@ -1,4 +1,5 @@
 """A deferred selection must expose a runnable recovery before settlement."""
+import json
 import shlex
 
 import pytest
@@ -89,6 +90,45 @@ def test_deferred_selection_recovers_same_turn_and_settles_once(tmp_path, bindin
     cli = resumed["interaction_contract"]["cli_channel"]
     assert cli["settlement_plan"]["identity"] == identity
     refresh = next(c for c in cli["next_cli_actions"] if "refresh-state" in c)
+    if "--agent-vision-json" in refresh:
+        # A todo-bound long chain discharges through a projected vision decision
+        # rather than through progress identifiers (the same guidance the
+        # long-chain closeout journey exercises). Author the packet from
+        # observed evidence before running the bound refresh.
+        decision = tmp_path / "decision.json"
+        decision.write_text(
+            json.dumps(
+                {
+                    "schema_version": "goal_vision_replan_contract_v0",
+                    "state": "vision_patch_proposed",
+                    "vision_patch": {
+                        "vision_summary": (
+                            "Validate the existing bounded slices in dependency order."
+                        ),
+                        "acceptance_summary": (
+                            "Each slice has independent validation before "
+                            "dependent work proceeds."
+                        ),
+                        "advancement_policy": "as_needed",
+                    },
+                    "path_delta": {
+                        "schema_version": "goal_path_delta_v0",
+                        "outcome": "replan",
+                        "prior_assumption": "The long chain needed a bounded review.",
+                        "observed_reality": (
+                            "The reviewed chain has a runnable validation slice."
+                        ),
+                        "retained": ["Existing acceptance boundaries"],
+                        "changed": ["Proceed with the first validation slice"],
+                        "evidence_refs": ["evidence:synthetic-chain-review"],
+                    },
+                }
+            )
+        )
+        refresh = refresh.replace(
+            "<path-to-evidence-linked-goal-vision-replan-contract-v0.json>",
+            str(decision),
+        )
     for key, value in {"<advanced|blocked|exploration_exhausted|no_followup>": "advanced",
                        "<surface-id>": "accepted-artifact", "<hypothesis-id>": "adoption",
                        "<probe-kind>": "acceptance", "<evidence-id>": "evidence:readback"}.items():
