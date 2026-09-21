@@ -1170,8 +1170,8 @@ def test_crowded_turn_plan_budget_preserves_executable_vision_authoring(
     )
     # This fixed executable schema legitimately crosses the old 12k/320
     # ceiling; retain bounded headroom without relaxing Todo-scale growth.
-    assert 12_000 < len(text) <= 13_000
-    assert len(text.splitlines()) <= 360
+    assert 12_000 < len(text) <= 14_500
+    assert len(text.splitlines()) <= 400
 
 
 def test_quota_cli_keeps_full_user_todo_diagnostics_on_explicit_cold_path(

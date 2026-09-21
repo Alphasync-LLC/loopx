@@ -171,7 +171,10 @@ CLI_OUTPUT_BUDGET_SPECS: tuple[CliOutputBudgetSpec, ...] = (
             # facts needed to decide whether execution is authorized. The
             # latest-main fixture measures 14,159 chars, so 14,500 retains a
             # narrow 341-char regression margin without relaxing Todo growth.
-            "crowded": {"json": 14_500, "markdown": 300},
+            # The over-target TurnEnvelope diagnostic remains visible instead
+            # of hiding authority overflow; latest main renders it in 542
+            # characters, leaving a narrow 58-character presentation margin.
+            "crowded": {"json": 14_500, "markdown": 600},
             "multi_agent": {"json": 12_000, "markdown": 300},
         },
         max_lines={
