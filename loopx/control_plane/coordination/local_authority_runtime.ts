@@ -10,7 +10,6 @@ import {readFile, realpath} from "node:fs/promises";
 import {createHash} from "node:crypto";
 
 import type { JsonObject } from "../effect_program.ts";
-import {acceptanceWorkGuard, projectGoalAcceptance} from "../goals/acceptance_contract.ts";
 import {decodeMonitorPollObservation} from "../todos/monitor_metadata.ts";
 import {executeCoordinationMonitorPoll, COORDINATION_MONITOR_POLL_REQUEST_SCHEMA, COORDINATION_LEASED_MONITOR_POLL_REQUEST_SCHEMA, COORDINATION_WITNESSED_MONITOR_POLL_REQUEST_SCHEMA,
   COORDINATION_MONITOR_POLL_RESULT_SCHEMA} from "./todo_monitor_poll.ts";
@@ -28,8 +27,6 @@ import {
 } from "./coordination_state_contract.generated.ts";
 import {
   indexCoordinationProjection,
-  indexCoordinationProjectionTodos,
-  validateCoordinationTodoReadModel,
 } from "./coordination_projection.ts";
 import { authorityStoreSourceAuthority, type AuthorityStore, type AuthorityStoreReceiptResult } from "./authority_store.ts";
 import {
@@ -42,6 +39,8 @@ import {
 import { FileAuthorityStore } from "./file_authority_store.ts";
 import {
   openLocalAuthorityStore,
+  openRuntimeAuthorityStore as openRuntimeStore,
+  requireLocalAuthorityRuntimeRoot as runtimeRoot,
   localAuthorityOpenFailure,
   type LocalAuthorityProviderDependencies,
 } from "./local_authority_provider.ts";
@@ -445,28 +444,8 @@ export async function pollLocalCoordinationMonitor(value: unknown,
 }
 
 interface LocalAuthorityRuntimeDependencies extends LocalAuthorityProviderDependencies {
-  createStore?: (directory: string, goalId: string) => AuthorityStore;
   createShadowStore?: (directory: string, goalId: string) => AuthorityStore;
   createCanonicalStore?: (directory: string, goalId: string) => AuthorityStore;
-}
-
-/** One runtime seam owns provider construction for every local command. */
-async function openRuntimeStore(
-  root: string,
-  goalId: string,
-  dependencies: LocalAuthorityRuntimeDependencies,
-): Promise<AuthorityStore> {
-  if (dependencies.createStore !== undefined) {
-    return dependencies.createStore(authorityDirectory(root), goalId);
-  }
-  return await openLocalAuthorityStore(root, goalId, dependencies);
-}
-
-export function runtimeRoot(value: unknown): string {
-  if (typeof value !== "string" || value.trim() !== value || !isAbsolute(value)) {
-    throw new Error("runtime_root must be an absolute path");
-  }
-  return value;
 }
 
 function claimAgentValue(value: unknown, label: string): string {
@@ -1363,131 +1342,6 @@ export async function acknowledgeLocalCoordinationTodoArchive(
       reason_code: error instanceof ShadowManagementError ? error.reason_code :
         "invalid_local_coordination_todo_archive_ack_request",
       reason: error instanceof Error ? error.message : "invalid archive acknowledgement",
-      ...localAuthorityOpenFailure(error),
-    };
-  }
-}
-
-/** Provider-first exact Todo read. Missing/unavailable state never falls back. */
-export async function readLocalCoordinationTodo(
-  value: unknown,
-  dependencies: LocalAuthorityRuntimeDependencies = {},
-): Promise<JsonObject> {
-  let sourceAuthority = "file_v0";
-  try {
-    const input = requireJsonObject(value, "local coordination Todo read request");
-    if (input.schema_version !== LOCAL_COORDINATION_TODO_READ_REQUEST_SCHEMA) {
-      throw new Error("local coordination Todo read request schema mismatch");
-    }
-    const root = runtimeRoot(input.runtime_root);
-    const goalId = requireAuthorityStoreId(input.goal_id, "goal id");
-    const todoId = requireAuthorityStoreId(input.todo_id, "todo id");
-    const store = await openRuntimeStore(root, goalId, dependencies);
-    sourceAuthority = sourceAuthorityFor(store);
-    const head = await store.loadAuthority();
-    if (head.status !== "loaded") {
-      return {
-        schema_version: LOCAL_COORDINATION_TODO_READ_RESULT_SCHEMA,
-        ...head,
-        source_authority: sourceAuthority,
-        decision_read_from_provider: true,
-        legacy_fallback_used: false,
-      };
-    }
-    const projection = indexCoordinationProjectionTodos(head.head, goalId);
-    validateCoordinationTodoReadModel(head.head, goalId);
-    const todo = projection.todos.get(todoId);
-    const acceptance = todo === undefined ? null : acceptanceWorkGuard(head.head, goalId, todoId);
-    return {
-      schema_version: LOCAL_COORDINATION_TODO_READ_RESULT_SCHEMA,
-      status: todo === undefined ? "missing" : "found",
-      todo_id: todoId,
-      ...(todo === undefined ? {} : { todo }),
-      ...(acceptance === null ? {} : {goal_acceptance_guard: acceptance}),
-      todo_ids: projection.todo_ids,
-      provider_revision: head.provider_revision,
-      cursor: head.cursor,
-      source_authority: sourceAuthority,
-      decision_read_from_provider: true,
-      legacy_fallback_used: false,
-    };
-  } catch (error) {
-    return {
-      schema_version: LOCAL_COORDINATION_TODO_READ_RESULT_SCHEMA,
-      status: "failed",
-      reason_code: "invalid_local_coordination_todo_read_request",
-      reason: error instanceof Error ? error.message : "invalid Todo read request",
-      source_authority: sourceAuthority,
-      decision_read_from_provider: true,
-      legacy_fallback_used: false,
-      ...localAuthorityOpenFailure(error),
-    };
-  }
-}
-
-/** Provider-first Todo collection read. Missing/unavailable state never falls back. */
-export async function listLocalCoordinationTodos(
-  value: unknown,
-  dependencies: LocalAuthorityRuntimeDependencies = {},
-): Promise<JsonObject> {
-  let sourceAuthority = "file_v0";
-  try {
-    const input = requireJsonObject(value, "local coordination Todo list request");
-    if (input.schema_version !== LOCAL_COORDINATION_TODO_LIST_REQUEST_SCHEMA) {
-      throw new Error("local coordination Todo list request schema mismatch");
-    }
-    if (input.include_leases !== undefined && typeof input.include_leases !== "boolean") {
-      throw new Error("include_leases must be a boolean");
-    }
-    const root = runtimeRoot(input.runtime_root);
-    const goalId = requireAuthorityStoreId(input.goal_id, "goal id");
-    const store = await openRuntimeStore(root, goalId, dependencies);
-    sourceAuthority = sourceAuthorityFor(store);
-    const head = await store.loadAuthority();
-    if (head.status !== "loaded") {
-      return {
-        schema_version: LOCAL_COORDINATION_TODO_LIST_RESULT_SCHEMA,
-        ...head,
-        source_authority: sourceAuthority,
-        decision_read_from_provider: true,
-        legacy_fallback_used: false,
-      };
-    }
-    const projection = indexCoordinationProjectionTodos(head.head, goalId);
-    const todoReadModel = validateCoordinationTodoReadModel(head.head, goalId);
-    const leaseIndex = input.include_leases === true
-      ? indexCoordinationProjection(head.head, goalId) : null;
-    const acceptance = projectGoalAcceptance(head.head, goalId);
-    return {
-      schema_version: LOCAL_COORDINATION_TODO_LIST_RESULT_SCHEMA,
-      status: "loaded",
-      todos: projection.todo_ids.map((todoId) => projection.todos.get(todoId)!),
-      todo_ids: projection.todo_ids,
-      todo_read_model: todoReadModel,
-      ...(acceptance.enabled !== true ? {} : {goal_acceptance_contract: acceptance,
-        goal_acceptance_work_guards: Object.fromEntries(projection.todo_ids.flatMap(id => {
-          const guard = acceptanceWorkGuard(head.head, goalId, id);
-          return guard === null ? [] : [[id, guard]];
-        }))}),
-      ...(leaseIndex === null ? {} : {
-        leases: leaseIndex.lease_todo_ids.map((id) => leaseIndex.leases.get(id)!),
-        handoff_mode: head.head.handoff_mode ?? "legacy",
-      }),
-      provider_revision: head.provider_revision,
-      cursor: head.cursor,
-      source_authority: sourceAuthority,
-      decision_read_from_provider: true,
-      legacy_fallback_used: false,
-    };
-  } catch (error) {
-    return {
-      schema_version: LOCAL_COORDINATION_TODO_LIST_RESULT_SCHEMA,
-      status: "failed",
-      reason_code: "invalid_local_coordination_todo_list_request",
-      reason: error instanceof Error ? error.message : "invalid Todo list request",
-      source_authority: sourceAuthority,
-      decision_read_from_provider: true,
-      legacy_fallback_used: false,
       ...localAuthorityOpenFailure(error),
     };
   }

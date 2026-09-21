@@ -155,12 +155,11 @@ import {
   createLocalCoordinationTodo,
   updateLocalCoordinationTodo,
   pollLocalCoordinationMonitor,
-  listLocalCoordinationTodos,
   promoteLocalCoordinationAuthority,
   reviewLocalCoordinationAuthorityPromotion,
-  readLocalCoordinationTodo,
   terminalLifecycleLocalCoordinationTodo,
 } from "./coordination/local_authority_runtime.ts";
+import {listLocalCoordinationTodos, readLocalCoordinationTodo} from "./coordination/local_authority_read.ts";
 import { evaluateCoordinationTodoClaimDecision } from "./coordination/todo_claim.ts";
 import {
   evaluateCoordinationTodoTerminalDecision,

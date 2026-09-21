@@ -3089,6 +3089,14 @@ provider conformance cover the consumer family. See [operation and semantic
 changes](../../reference/todo-continuation-readback.md). This closes a bounded
 L5/L7 gap; permanent projection delivery/recovery, D2 and D3 are still open.
 
+D1 delivery confirmation now follows durable Markdown readback with a typed
+canonical revision check. Unpinned settlement retries up to three times using
+the returned complete snapshot; pinned projection never silently retargets.
+Overlap, churn and confirmation outage remain pending without repeating business
+commits. This qualifies the bounded delivery/retry boundary, not permanent
+freshness, a background drainer, all L5 consumers or D2/D3. See the
+[projection contract](../../reference/protocols/active-state-structured-projection-v0.md).
+
 **D2 — qualify exactly one local profile; independent of PostgreSQL deployment.**
 
 - Reconcile the SQLite candidate #4121 with Section 7.2 before adding code.

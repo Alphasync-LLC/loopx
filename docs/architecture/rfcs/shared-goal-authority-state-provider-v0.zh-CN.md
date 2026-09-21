@@ -2437,6 +2437,11 @@ route planner 本身仍不授予权限。CLI 将已提交回执交给既有 jour
 - caller 迁走后才删除旧 projection repair/receipt 路径。退出条件是可复核的
   freshness/readback 和可操作修复路径，不能只证明成功渲染过一次。
 
+D1 交付确认现于 Markdown 耐久读回后核对 canonical revision。未固定版本的结算
+最多追赶三次，复用返回的完整快照；固定版本不擅自换目标。并发、持续变化及确认故障
+保留 pending，不重做业务提交。这闭合有界交付／重试，不代表永久新鲜度、后台 drain、
+全部 L5 或 D2/D3；见[投影合同](../../reference/protocols/active-state-structured-projection-v0.md)。
+
 **D2 — 资格化一个本地 profile，不等待 PostgreSQL 部署。**
 
 - 写代码前对齐 #4121 SQLite 候选与第 7.2 节；资格化及批准前保持 opt-in。
