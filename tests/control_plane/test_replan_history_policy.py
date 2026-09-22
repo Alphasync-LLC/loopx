@@ -128,7 +128,7 @@ def test_future_monitor_expiry_must_cover_the_due_instant() -> None:
 
 def test_codec_keeps_prose_out_of_the_history_decision_request(monkeypatch) -> None:
     import json
-    from loopx.control_plane.work_items import replan_history
+    from loopx.control_plane.work_items import replan_history_codec as replan_history
 
     requests = []
     def capture(method, params):

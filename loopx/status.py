@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 from typing import Any
 
-from .control_plane.work_items.replan_history import (
+from .control_plane.work_items.replan_history_codec import (
     REPLAN_HISTORY_NEUTRAL_CLASSIFICATIONS as AUTONOMOUS_RUN_HISTORY_NEUTRAL_CLASSIFICATIONS,  # noqa: F401 - compatibility export
 )
 

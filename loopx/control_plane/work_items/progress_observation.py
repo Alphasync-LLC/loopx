@@ -194,7 +194,7 @@ def typed_progress_repeat_trigger(
     threshold: int = PROGRESS_REPEAT_THRESHOLD,
 ) -> dict[str, Any] | None:
     """Compatibility entrypoint for the shared TypeScript history window."""
-    from .replan_history import project_replan_history
+    from .replan_history_codec import project_replan_history
 
     return project_replan_history(
         newest_first_runs, operation="progress", agent_id=agent_id,

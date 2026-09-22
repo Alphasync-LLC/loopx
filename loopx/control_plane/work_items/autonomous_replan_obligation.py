@@ -11,7 +11,7 @@ from ..todos.contract import (
     normalize_todo_replan_obligation_id,
 )
 from .progress_observation import replan_writeback_requirements
-from .replan_history import project_replan_history
+from .replan_history_codec import project_replan_history
 from .replan_settlement import (
     project_todo_lifecycle_settlement_reentry as project_todo_lifecycle_reentry_effect,
 )
