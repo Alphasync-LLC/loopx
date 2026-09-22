@@ -21,6 +21,15 @@
 
 ## 当前实现检查点
 
+Canonical command 的 receipt/head 观察顺序统一归属 TS：团队规划、Todo 创建/
+修改/领取/终态/归档、Monitor、lease 维护和 Goal acceptance 在读 head 后复查原
+receipt，再执行新准入。这修复同 operation 并发竞争，不扩展 provider API、不
+自动重试写入，也不在 Python 复制决定。独立 acquire 与原子 claim/acquire 共用
+当前 lease 证明：续租返回新 proof 而保留原 receipt，退役执行或当前 authority
+不可读均不能返回旧成功。它只关闭 L2/L3 的并发和当前证明缺口，不代表全 Goal
+迁移、默认启用、contributor 的 SQLite D2 或 T4 Python 退役完成。见
+[操作和恢复合同](../../reference/canonical-lease-renew.md#commit-retry-and-readback)。
+
 模式切换的旧路径与 canonical 路径现在共用 TS 所有权事实及显式的有效/无效旧模式。
 删除 Python 的阻塞分类、伪造旧模式和整篇文本重写，保留来源投影、锁与 capture IO。
 旧扫描补齐事件独有 claim，canonical 回执复用 command recovery 并严格校验历史决策。
@@ -828,6 +837,12 @@ PostgreSQL 读取使用同一个 repeatable-read snapshot，并发提交在下�
 T3/D1 reader，未完成全部 Todo writer、retention/compaction 或 promotion。
 
 配额准入与结算消费者现在从统一 Todo reader 读取完整来源，在显示压缩前解析显式 Todo 选择。它删除直接追加 Markdown 候选的路径，保留 promote 前的事件适配；promote 后权威为空或不可读都不能复活展示行。结算进度由现有 TS 回执链归约，Python 负责完整身份命令及 JSON/Markdown 展示。现有幂等 writer 可补齐缺失的 spend 回执而不再次扣款。这关闭已复现的 T3 消费者缺口，不代表 D1–D3、provider promotion 或剩余 Python 事务适配已完成。操作语义见[结算进度契约](../../quota-allocation.md#receipt-backed-settlement-progress)。
+
+**恢复边界（2026-09-22）。** [authority archive 命令](../../reference/authority-archive.md)
+由现有 TS coordination owner 负责历史校验、状态 delta 重建和可重入恢复；Python
+只解析 CLI 路径、传递请求并展示紧凑结果。复用 state-log codec，避免各 provider
+分别实现导出格式或在 Python 再写一份状态规则。交付的是 D3/L8 的隔离恢复副本；
+正式接管 authority、执行器围栏和旧 Python writer 退役仍有独立验收条件。
 
 **T4 — durable cutover 后兑现完整 writer 删除。**
 

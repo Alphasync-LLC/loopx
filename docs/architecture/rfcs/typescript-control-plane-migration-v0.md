@@ -22,6 +22,17 @@ Retain T0 caller/parity inventory, T1/T2 transaction/effect convergence, T3 comp
 
 ## Current implementation checkpoint
 
+Canonical command observation now has one typed receipt/head boundary. Team,
+Todo creation/edit/claim/terminal/archive, Monitor, lease maintenance and Goal
+acceptance recheck receipts after the head read before interpreting new state.
+This repairs same-operation races without provider API changes, write retries
+or a Python copy of the decision. Standalone and atomic claim acquisition share
+current lease proof; renewed proof is returned without rewriting history, while
+retired execution and unavailable current authority cannot return stale success.
+This closes a concurrency/current-proof slice of L2/L3, not whole-Goal migration,
+default onboarding, contributor-owned SQLite D2 or T4 Python retirement. The
+[operator contract](../../reference/canonical-lease-renew.md#commit-retry-and-readback)
+distinguishes historical results from present execution.
 Handoff-mode transition now shares typed ownership facts and an explicit
 valid/invalid previous-mode state across legacy and canonical paths. Python's
 blocker classification, artificial previous mode and whole-text rewrite are
@@ -1118,6 +1129,16 @@ The existing idempotent writer repairs a missing spend receipt without a second
 debit. This closes the demonstrated T3 consumer gap, not D1–D3, provider
 promotion, or the remaining Python transaction adapters. See the
 [operating contract](../../quota-allocation.md#receipt-backed-settlement-progress).
+
+**Recovery boundary (2026-09-22).** The
+[authority archive command](../../reference/authority-archive.md) places retained
+history validation, delta reconstruction and resumable restore in the existing
+TS coordination owner. Python only resolves CLI paths and transports compact
+requests/results; it does not reconstruct domain state or duplicate a provider
+migration rule. The state-log codec is reused rather than creating independent
+File/SQLite/PostgreSQL export formats. This enables an independently verified
+recovery copy for D3/L8, while authority adoption, executor fencing and actual
+Python writer retirement remain separate exits.
 
 **T4 — collect full-writer retirement after durability cutover.**
 
