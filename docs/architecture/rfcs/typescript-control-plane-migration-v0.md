@@ -33,6 +33,7 @@ This closes a concurrency/current-proof slice of L2/L3, not whole-Goal migration
 default onboarding, contributor-owned SQLite D2 or T4 Python retirement. The
 [operator contract](../../reference/canonical-lease-renew.md#commit-retry-and-readback)
 distinguishes historical results from present execution.
+
 Handoff-mode transition now shares typed ownership facts and an explicit
 valid/invalid previous-mode state across legacy and canonical paths. Python's
 blocker classification, artificial previous mode and whole-text rewrite are
