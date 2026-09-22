@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Mapping
 from typing import Any
 
 from .todos.contract import normalize_todo_claimed_by
-from .operator_inbox_binding import operator_inbox_binding
 
 
 def reward_memory_host_coverage() -> list[dict[str, str]]:
@@ -108,67 +106,7 @@ def reward_memory_goal_policy(goal: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def reward_memory_goal_policy_summary(goal: Mapping[str, Any]) -> dict[str, Any]:
-    policy = reward_memory_goal_policy(goal)
-    binding_revision = ""
-    if policy["config_path"] and policy["config_digest"]:
-        binding_revision = "sha256:" + hashlib.sha256(
-            (
-                f"{policy['config_path']}\0{policy['config_digest']}\0"
-                + "\0".join(policy["enabled_agents"])
-            ).encode("utf-8")
-        ).hexdigest()
-    binding = operator_inbox_binding(
-        project=str(goal.get("repo") or ""),
-        config_path=policy["config_path"],
-        expected_digest=policy["config_digest"],
-    )
-    recorded_verified_agents = sorted(
-        agent_id
-        for agent_id, receipt in policy["enablement_receipts"].items()
-        if receipt.get("status") == "verified"
-        and receipt.get("writability_verified") is True
-        and receipt.get("exact_readback_verified") is True
-    )
-    # Import at the projection boundary: the capability consumes the policy above.
-    # Reuse its full local validation rather than maintaining a second receipt rule.
-    from ..capabilities.reward_memory.experiment import (
-        resolve_goal_reward_memory_experiment,
-    )
-
-    effective_verified_agents = []
-    for agent_id in recorded_verified_agents:
-        try:
-            status, _ = resolve_goal_reward_memory_experiment(
-                goal=goal, agent_id=agent_id
-            )
-        except ValueError:
-            continue
-        if status.get("available") is True:
-            effective_verified_agents.append(agent_id)
-    effective_available = bool(effective_verified_agents)
-    return {
-        "enabled": policy["enabled"],
-        "binding_status": binding["status"],
-        "effective_available": effective_available,
-        "desired_automation": dict(policy["automation"]),
-        "recorded_verified_agents": recorded_verified_agents,
-        "experimental": policy["experimental"],
-        "config_pointer_registered": bool(policy["config_path"]),
-        "binding_revision": binding_revision,
-        "automatic_ingest": effective_available
-        and policy["automation"].get("automatic_ingest") is True,
-        "automatic_recall": effective_available
-        and policy["automation"].get("automatic_recall") is True,
-        "automation_intent": dict(policy["automation_intent"]),
-        "host_coverage": reward_memory_host_coverage(),
-        "enabled_agents": list(policy["enabled_agents"]),
-        "enablement_verified_agents": effective_verified_agents,
-    }
-
-
 __all__ = [
     "reward_memory_goal_policy",
-    "reward_memory_goal_policy_summary",
     "reward_memory_host_coverage",
 ]

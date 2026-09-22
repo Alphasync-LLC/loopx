@@ -1559,7 +1559,9 @@ def test_enablement_repair_reaches_shared_status_projection() -> None:
 
 
 def test_catalog_distinguishes_cached_receipt_from_live_config(tmp_path: Path) -> None:
-    from loopx.control_plane.reward_memory import reward_memory_goal_policy_summary
+    from loopx.capabilities.reward_memory.configuration import (
+        reward_memory_goal_configuration_summary,
+    )
 
     registry_path, _, _ = _experiment(tmp_path)
     goal = json.loads(registry_path.read_text())["goals"][0]
@@ -1569,9 +1571,11 @@ def test_catalog_distinguishes_cached_receipt_from_live_config(tmp_path: Path) -
     }
     config = Path(goal["repo"]) / goal["control_plane"]["reward_memory"]["config_path"]
     original = config.read_bytes()
-    assert reward_memory_goal_policy_summary(goal)["effective_available"] is True
+    assert (
+        reward_memory_goal_configuration_summary(goal)["effective_available"] is True
+    )
     config.write_bytes(original + b"\n")
-    drifted = reward_memory_goal_policy_summary(goal)
+    drifted = reward_memory_goal_configuration_summary(goal)
     assert drifted["enabled"] is True
     assert drifted["binding_status"] == "drifted"
     assert drifted["recorded_verified_agents"] == ["pilot"]
@@ -1598,12 +1602,15 @@ def test_catalog_distinguishes_cached_receipt_from_live_config(tmp_path: Path) -
     assert current["desired_automation"]["automatic_recall"] is True
     assert current["automatic_recall"] is False
     config.write_bytes(original)
-    restored = reward_memory_goal_policy_summary(goal)
+    restored = reward_memory_goal_configuration_summary(goal)
     assert restored["binding_status"] == "verified"
     assert restored["effective_available"] is True
     assert restored["automatic_recall"] is True
     config.unlink()
-    assert reward_memory_goal_policy_summary(goal)["binding_status"] == "unavailable"
+    assert (
+        reward_memory_goal_configuration_summary(goal)["binding_status"]
+        == "unavailable"
+    )
 
 
 @pytest.mark.parametrize(
@@ -1618,7 +1625,9 @@ def test_catalog_distinguishes_cached_receipt_from_live_config(tmp_path: Path) -
 def test_catalog_availability_uses_runtime_receipt_checks(
     tmp_path: Path, field: str, invalid: str
 ) -> None:
-    from loopx.control_plane.reward_memory import reward_memory_goal_policy_summary
+    from loopx.capabilities.reward_memory.configuration import (
+        reward_memory_goal_configuration_summary,
+    )
 
     registry_path, _, _ = _experiment(tmp_path)
     registry = json.loads(registry_path.read_text())
@@ -1630,7 +1639,7 @@ def test_catalog_availability_uses_runtime_receipt_checks(
     status, _ = resolve_reward_memory_experiment(
         registry_path=registry_path, goal_id=goal["id"], agent_id="pilot"
     )
-    summary = reward_memory_goal_policy_summary(goal)
+    summary = reward_memory_goal_configuration_summary(goal)
     assert status["status"] == "enablement_unverified"
     assert summary["binding_status"] == "verified"
     assert summary["effective_available"] is False
