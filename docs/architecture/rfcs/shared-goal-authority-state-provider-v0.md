@@ -31,6 +31,13 @@
 
 ## Current implementation checkpoint
 
+The terminal caller family now binds review and validation to the canonical
+source and recovers historical receipts independently of private argv. Agent
+completion and Monitor stop share current-head display acknowledgement with
+ordinary edits. [Caller and recovery contract](../../reference/canonical-terminal-review.md).
+This advances L2/L5 without closing executor-held fences, D1–D3 or default
+onboarding; the conditional 5–8-package estimate below remains unchanged.
+
 The local registry witness now spans canonical create/claim/update/Monitor poll
 and terminal mutations through one TS owner. File, SQLite and service-injected
 PostgreSQL execute the same source checks and preserve historical receipts.
