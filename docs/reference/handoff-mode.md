@@ -14,7 +14,7 @@ loopx handoff-mode set --goal-id example-goal --mode soft_claim --format json
 ```
 
 Before promotion, these commands use the existing frontmatter writer and its
-state/lease locks. After promotion, they use the selected canonical provider;
+state/event/lease locks. After promotion, they use the selected canonical provider;
 `show` returns `source=canonical_provider` and its `provider_revision`, even if
 Markdown is stale or missing. `--runtime-root` applies to both show and set.
 Provider errors fail closed. A leftover local lease file cannot override an
@@ -28,9 +28,28 @@ cannot prove quiescence. Concurrent mutations invalidate the CAS snapshot and
 return a conflict without switching the mode. Todos, lease records and their
 read-model digests are preserved by the mode change.
 
-The unpromoted scan retains its older materialized-state scope: it does not
-claim to include event-only Todos. Its quiescence decision and the canonical
-transaction now share one typed policy. No default mode changes.
+The unpromoted scan now includes the same complete event-overlay Todo view as
+Todo listing, without its display limit. This changes the previous behavior:
+an event-only claim now rejects a mode switch. Every configured/fallback event
+candidate must be readable; corrupt input returns `handoff_mode_source_unavailable`
+instead of silently falling back to apparently empty Markdown. The append store
+locks (including absent candidate paths) remain held through the durable mode
+write, followed by the existing per-goal lease mutex. Direct unsupported file
+edits are outside this contract.
+
+Both paths use the same TS claim/lease classifier and mode-transition rule.
+An identical valid mode remains a no-op even with active work. A malformed
+legacy mode can be repaired only when quiescent; the result retains its actual
+`previous_mode` and `previous_mode_valid=false`. Duplicate mode fields reject
+with `handoff_mode_duplicate_field`, and missing frontmatter rejects a changed
+mode with `state_frontmatter_missing`. Canonical malformed state still rejects;
+legacy repair does not grant permission to repair a canonical head.
+
+Only frontmatter and compact ownership facts enter the legacy TS plan. Python
+keeps the source locks, event projection and existing capture/writeback adapter;
+the body never crosses the mode-plan transport. The scalar replacement preserves
+unrelated metadata, CRLF/LF, Unicode separators and the final newline. No default
+mode, provider or capability changes.
 
 ## Preserve claims during authority promotion
 
@@ -97,6 +116,12 @@ A retry's clock may advance; it still recovers the original result. Even an
 accepted unchanged canonical set seals a receipt and advances provider revision,
 while returning `changed=false`. If another mode was selected afterward, replay
 returns the original decision without restoring it. Use `show` for current mode.
+A thrown commit response follows the same durable receipt recovery as other
+canonical commands. If the write may have committed but the receipt cannot be
+read, the result is `ambiguous` with `coordination_receipt_recovery_required`:
+retry the same operation ID. A malformed historical decision is rejected as
+`invalid_coordination_command_receipt`, not coerced into an unchanged success.
+
 Preview writes neither a mode nor an operation receipt. `--operation-id` requires
 canonical authority; the legacy writer does not promise durable operation replay.
 
@@ -120,7 +145,19 @@ provider 失败明确报错，不回退旧文件。现有 Todo-section 投影不
 切换要求完整快照内不存在未完成的已认领活动 Todo、不存在有效 lease。过期时间
 恰好等于观察时间视为已过期；非法有效期或未知 lease schema 不能作为空闲证据。
 并发修改使 CAS 冲突，不能在旧检查结果上继续切换。原 Todo、lease 和摘要不变。
-未晋升路径仍仅扫描物化状态，不宣称覆盖 event-only Todo；两条路径共用 TS 切换规则。
+未晋升路径现在也读取完整事件覆盖视图，包含显示分页之外的 Todo。因此旧行为发生改变：
+仅在事件中存在的 claim 也会阻止切换。所有事件候选源必须可读，损坏源返回
+`handoff_mode_source_unavailable`，不能回退 Markdown 后宣称空闲。事件追加锁从读取
+保持到模式写回完成，再配合已有 lease 锁；直接手改文件仍不在该合同内。
+
+两条路径共用 TS 所有权分类和切换规则。相同合法模式仍是 no-op；非法旧模式以显式
+无效状态进入修复，只允许在无在途工作时修复，不再伪造另一个合法旧模式。
+重复字段拒绝为 `handoff_mode_duplicate_field`，缺少 frontmatter 时拒绝变更。
+只把 frontmatter 和必要事实传给 TS，Python 保留锁、事件投影和 capture 适配；
+正文不进入计划传输，并保留 CRLF、Unicode 分隔符和末尾换行。默认模式和 provider 不变。
+
+canonical 提交响应丢失时复用已有回执恢复；若回执暂时不可读，返回 ambiguous 并要求
+以同一个 operation ID 重试。损坏的历史决策明确拒绝，不能当作“成功但没变化”。
 
 对于无法清空活跃 claim 的 Goal，整 Goal authority 晋升提供一个更窄的显式迁移入口：
 `--handoff-mode-migration preserve` 只切换存储权威并保留 `legacy`／`soft_claim`；

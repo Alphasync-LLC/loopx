@@ -30,6 +30,13 @@ receipt，再执行新准入。这修复同 operation 并发竞争，不扩展 p
 迁移、默认启用、contributor 的 SQLite D2 或 T4 Python 退役完成。见
 [操作和恢复合同](../../reference/canonical-lease-renew.md#commit-retry-and-readback)。
 
+模式切换的旧路径与 canonical 路径现在共用 TS 所有权事实及显式的有效/无效旧模式。
+删除 Python 的阻塞分类、伪造旧模式和整篇文本重写，保留来源投影、锁与 capture IO。
+旧扫描补齐事件独有 claim，canonical 回执复用 command recovery 并严格校验历史决策。
+完整快照和真实 provider 验证覆盖这一 T1/T2 替换；它关闭一处规则/调用差异，
+不代表关闭整项默认切换交付包，条件性的 5–8 包估算不变。
+[行为变化与恢复](../../reference/handoff-mode.md)。
+
 终结审核与验证已收敛到既有 TS terminal owner：Agent 完成、Monitor 停止复用 Chat
 先恢复 canonical 回执再确认显示的路径；v2 把验证 continuation 绑定来源 revision，
 准入/回放之后才请求私有声明。删除 Python 的终结操作审核分流和提前解析声明编排。
