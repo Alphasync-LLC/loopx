@@ -726,6 +726,53 @@ class Delegations:
         )
         return not error and bool(decision) and decision["decision"] == "adopt"
 
+    def _delegation_bootstrap(self, row: dict, binding: dict) -> dict:
+        request_id = row["identity"]["request_id"]
+        return {
+            "request_id": request_id,
+            "brief": _entry(
+                self.root, self.goal_id, binding["agent_id"], request_id
+            )["brief"],
+            "instruction": (
+                "Use the loopx_delegation tools to read_context and call "
+                "assess_request for this request before working. If you adopt "
+                "it, call return_result with the evidence-backed conclusion "
+                "after validation. Final-answer prose alone is not an adoption "
+                "or return receipt."
+            ),
+        }
+
+    def _write_delegation_bootstrap(self, row: dict, binding: dict) -> None:
+        """Expose the compatibility file only while the delegated host runs.
+
+        Some generic hosts still read ``DELEGATION.json`` directly.  It is a
+        host input, not a delivery artifact, so retaining the untracked file
+        after the host exits would make the completion workspace fail its own
+        clean-worktree guard.  Never overwrite an unrelated caller file.
+        """
+
+        path = Path(binding["workspace"]) / "DELEGATION.json"
+        expected = self._delegation_bootstrap(row, binding)
+        if path.exists():
+            if _read(path) != expected:
+                raise ValueError(
+                    "delegation bootstrap path is occupied by another request"
+                )
+            return
+        _write(path, expected)
+
+    def _clear_delegation_bootstrap(self, row: dict, binding: dict) -> None:
+        """Remove only this operation's host input before workspace validation."""
+
+        path = Path(binding["workspace"]) / "DELEGATION.json"
+        if not path.exists():
+            return
+        if _read(path) != self._delegation_bootstrap(row, binding):
+            raise ValueError(
+                "delegation bootstrap changed while the delegated host was running"
+            )
+        path.unlink()
+
     def _acquire_delegation_lease(
         self, path: Path, row: dict, binding: dict
     ) -> dict:
@@ -832,21 +879,12 @@ class Delegations:
         request_id = row["identity"]["request_id"]
         common = ["--goal-id", self.goal_id, "--agent-id", binding["agent_id"]]
         execution = self._execution_arguments(binding, row["identity"]["operation_id"])
-        if row["status"] == "prepared":
-            row["turn_instance_id"] = self._turn_instance_id(row)
-            _write(Path(binding["workspace"]) / "DELEGATION.json", {
-                "request_id": request_id, "brief": _entry(self.root, self.goal_id, binding["agent_id"], request_id)["brief"],
-                "instruction": (
-                    "Use the loopx_delegation tools to read_context and call assess_request "
-                    "for this request before working. If you adopt it, call return_result "
-                    "with the evidence-backed conclusion after validation. Final-answer prose "
-                    "alone is not an adoption or return receipt."
-                ),
-            })
-            self._acquire_delegation_lease(path, row, binding)
-            self._observe(path, row, "running")
         try:
-            todo_completed_for_settlement = False
+            if row["status"] == "prepared":
+                row["turn_instance_id"] = self._turn_instance_id(row)
+                self._write_delegation_bootstrap(row, binding)
+                self._acquire_delegation_lease(path, row, binding)
+                self._observe(path, row, "running")
             if row["status"] == "running":
                 turn_key = self._matching_turn_key(row, binding)
                 selector = (
@@ -862,6 +900,13 @@ class Delegations:
                 result = self._cli(binding, "turn", "run-once", *common, *selector, *execution,
                                    "--execute", timeout=binding["timeout_seconds"] + 60)
                 self._record_turn_result(path, row, result)
+        finally:
+            # The compatibility bootstrap is private host input.  Keeping it
+            # after the host returns (including an exception or timeout) makes
+            # an otherwise clean Git worktree fail canonical validation.
+            self._clear_delegation_bootstrap(row, binding)
+        try:
+            todo_completed_for_settlement = False
             result = row["turn_result"]
             if result.get("status") != "committed" or result.get("result_kind") != "validated_progress":
                 journal = self._validated_turn_journal(row, binding)

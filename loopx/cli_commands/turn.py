@@ -30,6 +30,9 @@ from ..control_plane.quota.settlement import (
     read_heartbeat_settlement,
 )
 from ..control_plane.quota.turn_envelope import build_turn_envelope
+from ..control_plane.work_items.autonomous_replan_obligation import (
+    replan_obligation_id_from_packet,
+)
 from ..control_plane.runtime.status_projection_cache import (
     resolve_status_projection_cache_runtime_root,
 )
@@ -171,6 +174,7 @@ def handle_turn_command(
             args.turn_command == "run-once"
             and args.host == "codex-cli"
             and not resume_requested
+            and not args.resume_turn_key
             and turn_envelope.get("effective_action") != EffectiveAction.GOVERNED_CAPABILITY_INTENT.value
         ):
             session_binding = codex_cli_session_binding(runtime_root, turn_envelope)
@@ -395,6 +399,16 @@ def handle_turn_command(
                 ensure_turn_heartbeat_settlement_receipt(
                     runtime_root,
                     settlement_identity,
+                    semantic_replan_guard_scoped=(
+                        "replan_action_packet" in envelope
+                    ),
+                    semantic_replan_obligation_id=(
+                        replan_obligation_id_from_packet(
+                            envelope.get("replan_action_packet")
+                        )
+                        if "replan_action_packet" in envelope
+                        else None
+                    ),
                 )
 
             def require_effect_ref(
