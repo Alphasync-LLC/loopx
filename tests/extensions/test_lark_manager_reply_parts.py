@@ -249,6 +249,37 @@ ATTEMPT = {
     "provider_receipt": "sha256:" + "b" * 64,
 }
 
+# The provider accepted the write and reported no message id, so the attempt
+# carries its intent instead of a locator nothing could read back.
+LOCATOR_LESS_ATTEMPT = {**ATTEMPT, "message_ref": ""}
+
+
+def test_a_recorded_send_without_a_locator_is_never_sent_again(
+    monkeypatch, delivery,
+):
+    """A write that reported no message id must not be repeated blindly."""
+
+    parts, _ = plan_manager_reply_parts(BODY)
+    delivery["state"].update(
+        delivery_part_count=len(parts),
+        delivery_parts_sent=0,
+        **{PART_ATTEMPT_KEY: {"index": 0, "attempt": LOCATOR_LESS_ATTEMPT}},
+    )
+    monkeypatch.setattr(parts_module, "reply_lark_event_inbox", delivery["install"]())
+
+    assert delivery["deliver"](parts) is None
+
+    # The part stays where it stopped: no second write, and the record is kept
+    # so the reader is told the answer is incomplete rather than duplicated.
+    assert delivery["sends"] == []
+    assert delivery["state"]["delivery_parts_sent"] == 0
+    assert delivery["state"][PART_ATTEMPT_KEY] == {
+        "index": 0,
+        "attempt": LOCATOR_LESS_ATTEMPT,
+    }
+    assert delivery["state"]["last_delivery_status"] == "sent_unverified"
+    assert delivery["state"].get(PART_DELIVERY_COMPLETE_KEY) is not True
+
 
 def test_a_send_without_a_readback_records_its_provider_locator(
     monkeypatch, delivery,
