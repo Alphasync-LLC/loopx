@@ -1,3 +1,4 @@
+import {registerPeriodicReportConformance} from "./periodic_report_conformance.ts";
 import {registerTodoConsumerScopeConformance} from "./todo_consumer_scope_conformance.ts";
 import {registerProjectionConfirmationConformance} from "./projection_confirmation_conformance.ts";
 import {registerUserCompletionFollowthroughConformance} from "./user_completion_followthrough_conformance.ts";
@@ -245,6 +246,7 @@ export function registerAuthorityStoreConformance(
   factory: AuthorityStoreConformanceFactory,
 ): void {
   registerProjectionConfirmationConformance(providerName, factory);
+  registerPeriodicReportConformance(providerName, factory);
   registerLeaseLifecycleConformance(providerName, factory);
   registerClaimTransferConformance(providerName, factory);
   registerLeaseAcquisitionConformance(providerName, factory);

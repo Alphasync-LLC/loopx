@@ -605,6 +605,15 @@ delivery pending；这不代表全部 T2 命令或整 Goal promotion 已完成�
 
 **T3 — 闭合剩余 structured consumer，删除各自旧读路径。**
 
+Periodic-report 的阶段判断、实时编辑输入回退与审批重试现共用 canonical-first
+Todo 来源；frontier 和报告事实复用同一完整已求值快照。展示缺失、过期或损坏不再
+隐藏／复活工作。`capabilities/periodic_report_progress.ts` 拥有报告选择及拒绝重试
+排序，删除 Python 对应循环；时间按带偏移的实际时刻比较并保留微秒，canonical
+归档拒绝记录仍有效，显式 runtime-root 同时约束 intent 和 Todo IO。已冻结的编辑
+请求沿用原始依据，不因重试刷新。见[操作边界](../../../loopx/capabilities/periodic_report/README.md#todo-authority-and-report-retries)。
+这闭合一组 T3/L5 消费者，不代表 D1 永久展示新鲜度、D2 耐久性、D3 整 Goal
+资格或默认 provider 已完成；条件性的 5–8 个后续完整交付批次估算保持不变。
+
 Todo 摘要 lane 与裁剪前工作计数现共用 `todos/summary_lanes.ts`，删除 Python 的
 lane 分类和隐藏任务推断循环。quota 在作用域筛选后重新计数，不完整来源状态贯穿
 压缩与重复投影；公开 canonical Todo 列表保留同版本 acceptance 限制。见

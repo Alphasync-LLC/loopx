@@ -1,3 +1,4 @@
+import {selectPeriodicReportProgress, selectPeriodicReportApprovalRetry} from "./capabilities/periodic_report_progress.ts";
 import {inspectTaskLease} from "./work_items/task_lease_inspection.ts";
 import {evaluateTodoPriority} from "./todos/priority.ts";
 import {evaluateUserCompletion} from "./todos/user_completion.ts";
@@ -423,6 +424,8 @@ export function createEffectRuntimeHandlers(
     ["todo.public_update.plan", planPublicTodoUpdate],
     ["todo.standing_decision.project", evaluateStandingDecisionProjection],
     ["todo.summary_lanes.project", projectTodoSummaryLanes],
+    ["capabilities.periodic_report.progress.select", selectPeriodicReportProgress],
+    ["capabilities.periodic_report.approval_retry.select", selectPeriodicReportApprovalRetry],
     ["todo.succession.project", projectTodoSuccession],
     ["todo.succession.closure", projectTodoClosure],
     ["todo.work_counts.project", projectLegacyTodoWorkCounts],
