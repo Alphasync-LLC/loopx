@@ -6,6 +6,10 @@ from loopx.control_plane.work_items.external_progress_review import (
     EXTERNAL_PROGRESS_REVIEW_TRIGGER_KIND,
     external_progress_review_trigger,
 )
+from loopx.control_plane.work_items.progress_observation import (
+    normalize_progress_observation,
+    semantic_progress_delta,
+)
 from loopx.control_plane.work_items.autonomous_replan_ack import (
     autonomous_replan_ack_recorded,
 )
@@ -94,6 +98,52 @@ def test_two_consecutive_completed_drift_receipts_trigger() -> None:
     assert result["frontier_identity"] == "progress_review:" + _digest("evidence-2")
     assert result["agent_id"] == AGENT
     assert "delta" not in result and "text" not in result
+    assert result["model_authority"] == "none"
+    # The newest counted run's typed observation is bound as the discharge baseline.
+    assert result["progress_baseline"] == normalize_progress_observation(runs[0]["progress_observation"])
+    assert result["progress_fingerprint"] == result["progress_baseline"]["fingerprint"]
+
+
+def test_bound_baseline_rejects_a_repeated_observation_and_accepts_new_evidence() -> None:
+    runs = [run(2, turn="t2"), run(1, turn="t1")]
+    for row in runs:
+        row["progress_observation"]["surface_id"] = "surface-retry"
+        row["progress_observation"]["evidence_ids"] = [f"evidence-{row['generated_at'][-3:-1]}"]
+    result = trigger(runs, [receipt(2, turn="t2"), receipt(1, turn="t1")])
+    assert result is not None
+    baseline = result["progress_baseline"]
+    identical = dict(runs[0]["progress_observation"])
+    assert semantic_progress_delta(identical, baseline=baseline)["accepted"] is False
+    same_hypothesis_new_evidence = {**identical, "evidence_ids": ["evidence-fresh"]}
+    assert semantic_progress_delta(same_hypothesis_new_evidence, baseline=baseline)["accepted"] is False
+    new_hypothesis = {**identical, "hypothesis_id": "hypothesis-next", "evidence_ids": ["evidence-fresh"]}
+    assert semantic_progress_delta(new_hypothesis, baseline=baseline)["accepted"] is True
+    new_blocker = {
+        "schema_version": "typed_progress_observation_v0",
+        "result_class": "blocked",
+        "blocker_id": "blocker-new",
+        "evidence_ids": ["evidence-blocker"],
+    }
+    assert semantic_progress_delta(new_blocker, baseline=baseline)["accepted"] is True
+    # Without a baseline the identical observation would have passed as new work.
+    assert semantic_progress_delta(identical, baseline=None)["accepted"] is True
+
+
+def test_no_typed_observation_on_the_counted_window_raises_nothing() -> None:
+    runs = [run(2, turn="t2"), run(1, turn="t1")]
+    for row in runs:
+        row.pop("progress_observation")
+    assert trigger(runs, [receipt(2, turn="t2"), receipt(1, turn="t1")]) is None
+
+
+def test_neutral_bookkeeping_rows_are_neither_counted_nor_gaps() -> None:
+    void = {"classification": "quota_slot_voided", "generated_at": "2026-09-21T00:00:03Z"}
+    spend = {"classification": "quota_slot_spent", "generated_at": "2026-09-21T00:00:01Z", "agent_id": AGENT}
+    runs = [void, run(2, turn="t2"), spend, run(1, turn="t1")]
+    receipts = [receipt(2, turn="t2"), receipt(1, turn="t1")]
+    assert trigger(runs, receipts) is None
+    result = trigger(runs, receipts, neutral_classifications={"quota_slot_voided", "quota_slot_spent"})
+    assert result is not None and result["run_count"] == 2
 
 
 def test_self_declared_advanced_alone_is_not_enough_without_receipts() -> None:
@@ -243,9 +293,11 @@ def test_assist_policy_turns_receipts_into_the_existing_obligation() -> None:
     assert obligation["triggers"][0]["kind"] == EXTERNAL_PROGRESS_REVIEW_TRIGGER_KIND
     assert obligation["frontier_identity"].startswith("progress_review:")
     assert obligation["external_progress_review"]["run_count"] == 2
-    assert obligation["external_progress_review"]["authority"] == "advisory_evidence_only"
+    assert obligation["external_progress_review"]["model_authority"] == "none"
+    assert obligation["external_progress_review"]["effect"] == "required_obligation_under_goal_policy"
+    assert obligation["progress_baseline"] == normalize_progress_observation(runs[0]["progress_observation"])
     assert any("acceptance criterion" in action["text"] for action in obligation["todo_actions"])
-    assert "off-goal" in obligation["recommended_action"]
+    assert "acceptance criterion" in obligation["recommended_action"]
     assert obligation["stop_condition"]
 
 

@@ -614,10 +614,11 @@ def build_autonomous_replan_obligation(
                 "role": "agent",
                 "priority": "P1",
                 "text": (
-                    "select a slice whose scoped file delta changes observable "
-                    "behavior toward a named acceptance criterion, or record why the "
-                    "current slice is a necessary prerequisite; identifier renames, "
-                    "field reordering and self-declared advancement are not progress"
+                    "select a slice whose next change serves a named acceptance "
+                    "criterion or adds evidence about it, or record with evidence why "
+                    "the current slice is a necessary prerequisite or why the plan "
+                    "stands; renamed, reordered or restated material and self-declared "
+                    "advancement are not progress"
                 ),
             }
         )
@@ -670,9 +671,10 @@ def build_autonomous_replan_obligation(
     elif review_evidence:
         recommended_action = (
             "run a bounded autonomous replan: the last "
-            f"{int(review_evidence.get('run_count') or 0)} observed scoped deltas were "
-            "judged off-goal without new evidence; name the acceptance criterion the "
-            "next slice serves and its validation command before more edits"
+            f"{int(review_evidence.get('run_count') or 0)} observed changes were judged "
+            "not to serve an acceptance criterion or add evidence about one; name the "
+            "criterion the next slice serves and how it will be validated, or keep the "
+            "plan with a typed observation that carries new evidence"
         )
     elif any(item.get("kind") in {"periodic_review", "periodic_review_due"} for item in evidence):
         recommended_action = (
@@ -717,6 +719,11 @@ def build_autonomous_replan_obligation(
     if review_evidence:
         if review_evidence.get("frontier_identity"):
             extra_fields["frontier_identity"] = review_evidence["frontier_identity"]
+        # The evaluated window's typed observation is the discharge baseline:
+        # the writeback semantics accept only a genuinely new surface,
+        # hypothesis, probe family, blocker or terminal coverage against it.
+        if isinstance(review_evidence.get("progress_baseline"), dict):
+            extra_fields["progress_baseline"] = review_evidence["progress_baseline"]
         extra_fields["external_progress_review"] = {
             "schema_version": review_evidence.get("schema_version"),
             "signal": review_evidence.get("signal"),
@@ -724,7 +731,8 @@ def build_autonomous_replan_obligation(
             "threshold": review_evidence.get("threshold"),
             "evidence_ids": list(review_evidence.get("evidence_ids") or []),
             "contract_revision": review_evidence.get("contract_revision"),
-            "authority": "advisory_evidence_only",
+            "model_authority": "none",
+            "effect": "required_obligation_under_goal_policy",
         }
     result = build_autonomous_replan_obligation_payload(
         schema_version=autonomous_replan_schema_version,
@@ -857,6 +865,7 @@ def autonomous_replan_obligation_from_runs(
         ack_recorded=autonomous_replan_ack_recorded,
         build_obligation=build_autonomous_replan_obligation,
         agent_todos=agent_todos,
+        neutral_classifications=neutral_classifications,
     )
     if review_obligation:
         return review_obligation

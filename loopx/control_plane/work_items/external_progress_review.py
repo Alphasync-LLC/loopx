@@ -13,7 +13,10 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
-from .progress_observation import _progress_turn_instance_id
+from .progress_observation import (
+    _progress_turn_instance_id,
+    progress_observation_from_run,
+)
 
 EXTERNAL_PROGRESS_REVIEW_TRIGGER_KIND = "external_progress_review_drift"
 EXTERNAL_PROGRESS_REVIEW_TRIGGER_SCHEMA_VERSION = "external_progress_review_trigger_v0"
@@ -108,6 +111,7 @@ def external_progress_review_trigger(
     signal: str,
     contract_revision: str | None,
     ack_recorded: AckRecorded,
+    neutral_classifications: Iterable[str] = (),
 ) -> dict[str, Any] | None:
     """Return a trigger for consecutive completed drift receipts, else None.
 
@@ -120,11 +124,17 @@ def external_progress_review_trigger(
       receipt, a receipt that is not `completed`, whose drift signal is not
       True, or bound to another contract revision, ends the scan;
     - retries of the same logical turn are one transition;
-    - the same evidence id counts once.
+    - the same evidence id counts once;
+    - neutral bookkeeping rows (quota spend/void records) are neither counted
+      nor gaps, exactly as the existing replan policy treats them;
+    - the newest counted run must carry a typed progress observation, which
+      becomes the obligation's `progress_baseline`: the existing writeback
+      semantics then reject an acknowledgement that merely repeats it.
     """
 
     if signal not in EXTERNAL_PROGRESS_REVIEW_SIGNALS:
         return None
+    neutral = {str(item) for item in neutral_classifications}
     pinned = str(contract_revision or "").strip()
     if not pinned:
         return None
@@ -140,6 +150,8 @@ def external_progress_review_trigger(
             continue
         if ack_recorded(run):
             break
+        if str(run.get("classification") or "").strip() in neutral:
+            continue
         run_agent_id = str(run.get("agent_id") or "").strip()
         if normalized_agent_id and run_agent_id not in {"", normalized_agent_id}:
             continue
@@ -179,6 +191,11 @@ def external_progress_review_trigger(
         return None
     latest_run, latest_receipt = counted[0]
     oldest_run = counted[-1][0]
+    # Without a typed observation to bind, an acknowledgement could not be told
+    # apart from a repeat of the evaluated work, so no obligation is raised.
+    baseline = progress_observation_from_run(latest_run)
+    if baseline is None:
+        return None
     return {
         "kind": EXTERNAL_PROGRESS_REVIEW_TRIGGER_KIND,
         "schema_version": EXTERNAL_PROGRESS_REVIEW_TRIGGER_SCHEMA_VERSION,
@@ -195,9 +212,13 @@ def external_progress_review_trigger(
         "latest_generated_at": str(latest_run.get("generated_at") or ""),
         "oldest_counted_generated_at": str(oldest_run.get("generated_at") or ""),
         "latest_judgments": latest_receipt.get("judgments"),
+        "progress_baseline": baseline,
+        "progress_fingerprint": baseline["fingerprint"],
         "frontier_identity": EXTERNAL_PROGRESS_REVIEW_FRONTIER_PREFIX
         + str(latest_receipt["evidence_id"]),
-        "authority": "advisory_evidence_only",
+        # The model holds no authority; the Goal owner's assist policy does.
+        "model_authority": "none",
+        "effect": "required_obligation_under_goal_policy",
     }
 
 
@@ -209,6 +230,7 @@ def external_progress_review_obligation(
     ack_recorded: AckRecorded,
     build_obligation: Callable[..., dict[str, Any] | None],
     agent_todos: dict[str, Any] | None,
+    neutral_classifications: Iterable[str] = (),
 ) -> dict[str, Any] | None:
     """Raise the existing obligation from receipts only under an `assist` policy."""
 
@@ -228,6 +250,7 @@ def external_progress_review_obligation(
             str(policy["contract_revision"]) if policy.get("contract_revision") else None
         ),
         ack_recorded=ack_recorded,
+        neutral_classifications=neutral_classifications,
     )
     if not trigger:
         return None
