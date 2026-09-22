@@ -6,4 +6,3 @@ quota should-run asks quota.prior_host_turn_closeout.preflight which prior Turn 
 The preflight now declares its own budget (30s) instead of inheriting the single-record default, a runtime timeout is reported as its own typed diagnostic naming the method and the budget, and the quota failure payload publishes that bounded reason instead of the unactionable generic line.
 
 Signed-off-by: huangruiteng <14976749+huangruiteng@users.noreply.github.com>
-

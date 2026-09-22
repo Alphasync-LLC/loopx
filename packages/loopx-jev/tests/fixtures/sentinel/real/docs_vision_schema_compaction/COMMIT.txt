@@ -2,4 +2,3 @@
 docs(quota): explain vision schema compaction boundary
 
 Signed-off-by: huangruiteng <14976749+huangruiteng@users.noreply.github.com>
-

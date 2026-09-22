@@ -142,6 +142,7 @@ def _cosmetic_round(work: Path, config: Path, state: Path, env: dict[str, str], 
         "--goal-id", GOAL_ID, "--format", "json", "--no-global-sync", "--suppress-external-sinks",
         "--agent-id", AGENT_ID, "--progress-result-class", "advanced",
         "--progress-hypothesis-id", f"hypothesis-{number}", "--progress-surface-id", "retry",
+        "--progress-evidence-id", f"evidence-{number}",
     )
     assert diagnostic is not None and diagnostic["status"] == "queued", diagnostic
 
@@ -217,7 +218,38 @@ def test_same_sequence_off_sees_nothing_and_assist_raises_the_obligation(sequenc
     }
     assert EXTERNAL_PROGRESS_REVIEW_TRIGGER_KIND in kinds
 
-    # An acknowledged bounded replan re-arms the trigger; one more drift round is not enough.
+    # Repeating the evaluated observation, or the same hypothesis with fresh
+    # evidence ids, is not a discharge: the obligation binds that window's typed
+    # baseline and the real writeback rejects both.
+    for non_novel in (
+        {"schema_version": "typed_progress_observation_v0", "result_class": "advanced", "surface_id": "retry", "hypothesis_id": "hypothesis-2", "evidence_ids": ["evidence-2"]},
+        {"schema_version": "typed_progress_observation_v0", "result_class": "advanced", "surface_id": "retry", "hypothesis_id": "hypothesis-2", "evidence_ids": ["evidence-fresh"]},
+    ):
+        time.sleep(1.05)
+        with pytest.raises(ValueError, match="typed semantic delta"):
+            refresh_state_run(
+                registry_path=registry,
+                runtime_root_override=str(runtime),
+                goal_id=GOAL_ID,
+                project=project,
+                state_file=None,
+                classification="state_refreshed",
+                recommended_action="Repeat the same slice.",
+                delivery_batch_scale="single_surface",
+                delivery_outcome="surface_only",
+                agent_id=AGENT_ID,
+                autonomous_replan_recorded=True,
+                repair_delta_kinds=["blocker"],
+                progress_observation=non_novel,
+                dry_run=False,
+                sync_global=False,
+            )
+    runs = _newest_first_runs(runtime)
+    assist = external_progress_review_context(_goal(registry), runtime)
+    still_open = autonomous_replan_obligation_from_runs(runs, agent_todos=None, external_progress_review=assist)
+    assert still_open is not None and still_open["progress_baseline"]["hypothesis_id"] == "hypothesis-2"
+
+    # An acknowledged bounded replan with a genuinely new blocker re-arms the trigger; one more drift round is not enough.
     time.sleep(1.05)
     acked = refresh_state_run(
         registry_path=registry,

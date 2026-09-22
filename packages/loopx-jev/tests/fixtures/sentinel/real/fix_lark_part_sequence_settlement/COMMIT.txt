@@ -9,4 +9,3 @@ A manager answer too large for one message is delivered as ordered parts, and th
 A part now counts as sent when the provider readback verified it, and the durable record carries the verified completion plus the last accepted part key, so a later attempt settles the delivery from that record instead of re-sending or reporting a false incomplete.
 
 Signed-off-by: huangruiteng <14976749+huangruiteng@users.noreply.github.com>
-
