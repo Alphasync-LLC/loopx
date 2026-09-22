@@ -137,10 +137,53 @@ wording; the seven real commits were not used to tune anything. See the
 [operation guide](../../../packages/loopx-jev/DRIFT_SHADOW.md) for the full
 table, latency, variance and what remains unproven.
 
-## Boundaries and next step
+## Adoption path
+
+The observer lives in the optional `loopx-jev-pilot` distribution; the policy
+lives in the Goal registry. Adopt it one Goal at a time:
+
+1. **Install the observer** next to the LoopX checkout:
+   `uv pip install -e '.[test]' -e packages/loopx-jev`. Put `TYPESAFE_API_KEY`
+   in the environment; nothing in the repository or registry stores it.
+2. **Bind one Goal.** Write a basis JSON with the Goal's objective, acceptance
+   criteria and optional evidence files, list the files the Agent is expected to
+   change, and run
+   `loopx-jev drift init --state-dir <dir> --config <config> --workspace <repo> --basis <basis> --runtime-root <runtime> --path <file> ...`.
+   Note the printed `contract_revision`.
+3. **Wrap the real refresh.** Where the Agent (or its host) runs
+   `loopx refresh-state`, call
+   `loopx-jev drift refresh --state-dir <dir> --config <config> -- <the same loopx arguments>`
+   instead. The original command, stdout and exit code are unchanged.
+4. **Run the consumer separately**, for example
+   `loopx-jev drift drain --state-dir <dir> --config <config> --watch-seconds 600`.
+   It writes one receipt per evaluated event under the Goal runtime.
+5. **Turn on `shadow`:**
+   `loopx configure-goal --goal-id <goal-id> --progress-review-mode shadow --execute`.
+   `loopx status --format json` now shows `external_progress_review` for the Goal.
+6. **Label what you see.** `loopx-jev drift status --state-dir <dir>` lists
+   receipts; `loopx-jev drift label --state-dir <dir> --event-id <id> --truth drift|on_goal|unknown`
+   records your judgment and the status shows agreement per signal.
+7. **Only then consider `assist`:** pin the revision from step 2 with
+   `--progress-review-contract-revision <sha256>` and set `--progress-review-mode assist`.
+   Consecutive drift receipts now raise the existing replan obligation the Agent
+   must acknowledge. `--clear-progress-review-configuration` returns to `off`.
+
+## Readiness ladder
+
+| Stage | What is allowed | Entry evidence | Owner of the decision |
+| --- | --- | --- | --- |
+| **0 · Default-off preview (this PR)** | Capability registered, `shadow` and pinned `assist` available, nothing on by default | Green CI on the exact head; review findings fixed deterministically; differential reproducible from committed recordings; bilingual docs; no new authority | Maintainer merge; control-plane changes are never self-merged |
+| **1 · Shadow on real Goals** | `shadow` on two or more long-running Goals | At least two weeks or forty receipts per Goal, labelled with `drift label`; the false-flag rate and lead time over the periodic review reported by the Goal owner; at least one real drift labelled before round 20 | Goal owner |
+| **2 · Assist on one pinned Goal** | `assist` with a pinned revision on one Goal | Stage 1 owner judges the false-flag cost acceptable; the Agent's acknowledgements are read: did it change its slice, how many rounds until acknowledgement, how many obligations were wrong | Goal owner plus maintainer |
+| **3 · Broader defaults, escalation, pause** | Not provided by this capability | A separately authorized intervention study showing reduced wasted work against the unchanged workflow | Project decision |
+
+Stage 0 is what this pull request asks for. Stages 1 and 2 are operator
+choices made with the tool; stage 3 is out of scope here. Stopping at any stage,
+or keeping the existing workflow, is a valid outcome.
+
+## Boundaries
 
 Escalation (a user gate after an ignored obligation) and pause remain future
 work and are not granted here. The observer's prediction quality is a separate
-question from this integration; run one Goal in `shadow`, label its receipts
-with `loopx-jev drift label`, and compare first-flag rounds before enabling
-`assist`.
+question from this integration: the committed differential shows what one
+question set does on one frozen matrix, not what it will do on your Goals.

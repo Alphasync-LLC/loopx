@@ -239,17 +239,22 @@ median across recordings and up to 2.9 s p95; input tokens median 1890. The
   into acceptance or `no_new_evidence` into a fuse. Invalidated or failed
   observations do not accumulate a consecutive-anomaly count.
 
-## Conditions before intervention
+## Readiness ladder and merge status
 
-First define Goal relevance, artifact change and new verification evidence
-separately. Freeze a held-out multi-round set with independent labels, including
-legitimate research, waiting, prerequisites, changed intent and missing evidence.
-Compare the existing complete workflow, an independent existing-model judge,
-and Jev with matched material. Measure misses, false alarms, abstention, lead
-time, review effort and full overhead. Only a separately reviewed intervention
-study can establish reduced wasted work or safe replan/pause behavior.
+The capability README's [readiness ladder](../../loopx/capabilities/progress_review/README.md#readiness-ladder)
+is the operative statement. This pull request asks only for **stage 0**: a
+default-off, registered capability whose `shadow` records receipts and whose
+`assist` requires a pinned contract revision. The author-side conditions for
+leaving Draft are met on the current head: green CI, the external review's
+findings fixed deterministically, a differential that replays from committed
+recordings, bilingual documentation and no new authority. Whether to merge a
+control-plane change is the maintainer's decision; it is never self-merged.
+
+Stages 1 and 2 are operator studies made with the tool itself: shadow with
+labels on real Goals, then a single pinned `assist` Goal whose acknowledgements
+are read. Only a separately authorized intervention study can establish reduced
+wasted work or safe escalation and pause, which this capability does not provide.
 
 Stopping or retaining the existing workflow is a valid result. The original M0
 RFC intake remains discussion intake; no research, provider, spend or control
-approval is inferred from that earlier decision. This PR's explicit optional-tool
-scope is for maintainers to accept or reject on its own evidence.
+approval is inferred from that earlier decision.

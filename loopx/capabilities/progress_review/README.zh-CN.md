@@ -85,6 +85,33 @@ loopx-jev sentinel compare \
 
 纯装饰性序列在第 1 轮被标记，混合序列在各自漂移轮被标记；第二次独立 live 复现了全部结果。v2 措辞是在早先录制漏检“实现落地后的改动”之后修订的，因此构造序列对新措辞不再算留出集；7 个真实提交没有用于调参。完整表格、延迟、波动与尚未证明的部分见[操作指南](../../../packages/loopx-jev/DRIFT_SHADOW.zh-CN.md)。
 
-## 边界与下一步
+## 采用路径
 
-升级（义务被忽略后打开 user gate）与暂停仍是未来工作，本能力不授予。观察器的预测质量与本集成是两个独立问题：先让一个 Goal 运行在 `shadow`，用 `loopx-jev drift label` 标注回执，比较首次告警轮次后再开启 `assist`。
+观察器位于可选发行包 `loopx-jev-pilot`，策略位于 Goal 注册表。建议一次只接入一个 Goal：
+
+1. **安装观察器**：在 LoopX 检出旁执行 `uv pip install -e '.[test]' -e packages/loopx-jev`，把 `TYPESAFE_API_KEY` 放进环境变量；仓库和注册表都不保存它。
+2. **绑定一个 Goal**：写一份 basis JSON，包含目标、验收条件和可选证据文件；列出预计会被 Agent 修改的文件；运行
+   `loopx-jev drift init --state-dir <dir> --config <config> --workspace <repo> --basis <basis> --runtime-root <runtime> --path <file> ...`，
+   记下打印出的 `contract_revision`。
+3. **包装真实刷新**：在 Agent 或其宿主运行 `loopx refresh-state` 的位置，改为
+   `loopx-jev drift refresh --state-dir <dir> --config <config> -- <原来的 loopx 参数>`。
+   原命令、stdout 与退出码保持不变。
+4. **单独运行消费者**，例如 `loopx-jev drift drain --state-dir <dir> --config <config> --watch-seconds 600`；它为每个已评估事件在 Goal 运行时下写一条回执。
+5. **开启 `shadow`**：`loopx configure-goal --goal-id <goal-id> --progress-review-mode shadow --execute`。此后 `loopx status --format json` 会显示该 Goal 的 `external_progress_review`。
+6. **标注你看到的结果**：`loopx-jev drift status --state-dir <dir>` 列出回执；`loopx-jev drift label --state-dir <dir> --event-id <id> --truth drift|on_goal|unknown` 记录你的判断，status 按信号显示一致性。
+7. **然后才考虑 `assist`**：用 `--progress-review-contract-revision <sha256>` pin 第 2 步的修订，并设置 `--progress-review-mode assist`。连续的漂移回执会触发 Agent 必须确认的已有重规划义务。`--clear-progress-review-configuration` 回到 `off`。
+
+## 成熟度阶梯
+
+| 阶段 | 允许什么 | 进入证据 | 决定者 |
+| --- | --- | --- | --- |
+| **0 · 默认关闭的预览（本 PR）** | 注册 capability，提供 `shadow` 与需 pin 的 `assist`，默认全部关闭 | 精确 head 上 CI 全绿；评审发现已用确定性方式修复；对照结果可从已提交录制复现；双语文档；不新增权限 | 维护者合并；控制面改动从不自合并 |
+| **1 · 真实 Goal 上 shadow** | 两个以上长期 Goal 开 `shadow` | 每个 Goal 至少两周或四十条回执，并用 `drift label` 标注；Goal 负责人报告误报率与相对周期复审的提前量；至少一次真实漂移在第 20 轮之前被标注出来 | Goal 负责人 |
+| **2 · 单个 pin 过的 Goal 上 assist** | 一个 Goal 开 pin 过的 `assist` | 阶段 1 的负责人认为误报代价可接受；读取 Agent 的 ack：是否换了切片、几轮后确认、有多少义务是错的 | Goal 负责人加维护者 |
+| **3 · 更广默认、升级、暂停** | 本 capability 不提供 | 另行授权的干预实验证明相对原流程减少了无效工作 | 项目决定 |
+
+本 PR 请求的是阶段 0。阶段 1、2 是操作者用这个工具做出的选择；阶段 3 不在本次范围。停在任何阶段或保留原流程都是有效结果。
+
+## 边界
+
+升级（义务被忽略后打开 user gate）与暂停仍是未来工作，本能力不授予。观察器的预测质量与本集成是两个独立问题：已提交的对照展示的是一套问题在一个冻结矩阵上的表现，不是它在你的 Goal 上的表现。
