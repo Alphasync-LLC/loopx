@@ -1,4 +1,4 @@
-"""Source/receipt I/O for the TypeScript-owned checkpoint read-basis contract."""
+"""Source/receipt I/O only; checkpoint_read_context.ts owns decision semantics."""
 from __future__ import annotations
 
 from contextlib import ExitStack, contextmanager

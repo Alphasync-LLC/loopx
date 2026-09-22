@@ -92,7 +92,7 @@ from .control_plane.goals.vision_checkpoint import (
     prepare_vision_refresh,
 )
 from .control_plane.goals.goal_frontier import latest_agent_vision_from_runs
-from .control_plane.goals.checkpoint_read_context import checkpoint_commit_guard
+from .control_plane.goals.checkpoint_context_io import checkpoint_commit_guard
 from .registry import registry_goals, resolve_state_file
 from .runtime import validate_goal_id_path_segment
 from .state_projection import (

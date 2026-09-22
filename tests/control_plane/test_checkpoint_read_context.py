@@ -82,7 +82,7 @@ def test_context_reads_real_canonical_todo_and_owner_acceptance(tmp_path, monkey
     from canonical_authority_fixture import initialize_canonical_authority, isolate_sqlite_runtime
     from loopx.control_plane.coordination.runtime_shadow import build_todo_runtime_shadow_projection
     from loopx.control_plane.coordination.local_authority_shadow_projection import canonical_bytes
-    from loopx.control_plane.goals.checkpoint_read_context import _source_facts, _source_guard
+    from loopx.control_plane.goals.checkpoint_context_io import _source_facts, _source_guard
     from loopx.control_plane.quota.settlement import SettlementIdentity
     import hashlib
 
@@ -114,7 +114,7 @@ def test_context_reads_real_canonical_todo_and_owner_acceptance(tmp_path, monkey
 def test_source_writers_remain_excluded_until_checkpoint_append(tmp_path, monkeypatch):
     from loopx import state_refresh
     from loopx.control_plane.coordination.shadow_management import shadow_maintenance_lock_target
-    from loopx.control_plane.goals.checkpoint_read_context import read_checkpoint_context
+    from loopx.control_plane.goals.checkpoint_context_io import read_checkpoint_context
 
     project, runtime, registry, _, _, original = _missing(tmp_path)
     state = project / f".codex/goals/{GOAL_ID}/ACTIVE_GOAL_STATE.md"

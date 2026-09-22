@@ -387,7 +387,7 @@ def handle_refresh_state_command(
     post_writeback_projection_builder: PostWritebackProjectionBuilder | None = None,
 ) -> int | None:
     if args.command == "checkpoint-context":
-        from ..control_plane.goals.checkpoint_read_context import read_checkpoint_context, render_checkpoint_context
+        from ..control_plane.goals.checkpoint_context_io import read_checkpoint_context, render_checkpoint_context
         try:
             payload = read_checkpoint_context(
                 registry_path=registry_path, runtime_root_override=args.runtime_root,
