@@ -21,7 +21,11 @@ from .runtime import (
     run_standalone_extension,
 )
 from .process_runtime import run_capped_process
-from .readiness import ResolvedRuntimeEntrypoint, runtime_process_environment
+from .readiness import (
+    CORE_VIEW_VALIDATORS,
+    ResolvedRuntimeEntrypoint,
+    runtime_process_environment,
+)
 from .manifest import validate_extension_id
 
 
@@ -76,10 +80,6 @@ _FORBIDDEN_KEY_TOKENS = {
     "secret",
     "token",
 }
-_CORE_VIEW_VALIDATORS = {
-    "loopx.extensions.presentation:validate_opaque_presentation_view",
-}
-
 _ISOLATED_VIEW_VALIDATOR = """\
 import importlib
 import json
@@ -334,7 +334,7 @@ def load_presentation_view_validator(
     if not isinstance(reference, str) or ":" not in reference:
         raise ValueError("presentation surface has no declared view_validator")
     module_name, attribute_name = reference.split(":", 1)
-    if runtime_entrypoint is not None and reference not in _CORE_VIEW_VALIDATORS:
+    if runtime_entrypoint is not None and reference not in CORE_VIEW_VALIDATORS:
         python_executable = runtime_entrypoint.python_executable
         if python_executable is None:
             raise ValueError(

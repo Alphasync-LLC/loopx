@@ -1313,26 +1313,6 @@ def build_scheduler_hint(
             unchanged_spend_policy="no quota spend for terminal loop stop",
         )
 
-    if arbitration.disposition == SchedulerDisposition.PEER_COORDINATION_STOP:
-        cadence_class = "peer_coordination_blocked"
-        return _build_scheduler_stop_hint(
-            execution_context=execution_context,
-            action="return_to_owner_until_material_change",
-            cadence_class=cadence_class,
-            reason_code=arbitration.reason_code,
-            reason=(
-                "explicit peer coordination has no executable peer lane or local "
-                "fallback; recurring polling must stop until its inputs change"
-            ),
-            spend_policy=("no quota spend while explicit peer coordination is blocked"),
-            resume_trigger=(
-                "peer activation capability, peer runtime readiness, coordinator "
-                "configuration, or newly projected local work"
-            ),
-            ssh_goal_runtime_action="return_to_owner",
-            unchanged_spend_policy=("no quota spend for blocked coordination stop"),
-        )
-
     builder = _SchedulerHintBuilder(
         payload=payload,
         execution_context=execution_context,
@@ -1344,6 +1324,21 @@ def build_scheduler_hint(
         codex_app_automation_id=codex_app_automation_id,
         include_detail=include_detail,
     )
+    if arbitration.disposition == SchedulerDisposition.PEER_COORDINATION_WAIT:
+        return builder.build(
+            action="backoff_until_reassigned",
+            cadence_class="peer_coordination_wait",
+            reason=(
+                "explicit peer coordination has no executable peer lane or local "
+                "fallback; keep a bounded no-spend observer because peer readiness, "
+                "configuration, or the local frontier can change asynchronously"
+            ),
+            codex_interval=10,
+            codex_max=60,
+            cli_limit=3,
+            claude_limit=3,
+            cadence_progression_override=[10, 20, 30, 60],
+        )
     if arbitration.disposition == SchedulerDisposition.AGENT_MONITOR_ONLY_WAIT:
         return builder.build(
             action="backoff_agent_monitor_only",

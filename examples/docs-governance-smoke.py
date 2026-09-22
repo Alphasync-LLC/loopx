@@ -467,6 +467,8 @@ def assert_contributor_task_board_is_current() -> None:
         "The scheduler remains outside settlement",
         "M7 parity fixtures plus a read-only journal inspection/`interpret_turn_journal` lens shipped",
         "do not extract a shared executor until two adapters share execution ownership",
+        "Landed: #4659 owns `update` registration and dispatch",
+        "Landed via #4422: the provider-neutral parity fixture",
     ):
         assert required in tasks, required
     for stale in (
@@ -475,6 +477,9 @@ def assert_contributor_task_board_is_current() -> None:
         "Implement the remaining canonical `/loopx-global-risks` command",
         "global risks and goal summary stay host-only",
         "Add one negative fixture proving fail-closed legacy upgrade",
+        "| P2 | Maintainability | CLI ownership and hot-module extraction | GH-C06 / #4803 | In review |",
+        "Claimed: PR #4803 extracts",
+        "Characterize the shipped file-backed `claim_work` executor with a provider-neutral parity fixture (#3700)",
         "| GH-C82 |",
         "| GH-C59 |",
         "| GH-C61 |",

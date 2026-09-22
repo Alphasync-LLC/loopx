@@ -23,6 +23,7 @@ from .capabilities.pr_review_queue import (
     scheduling_tier,
 )
 from .capabilities.pr_review_queue.github_source import (
+    PR_LIST_FIELDS,
     attach_pr_review_details as _attach_pr_review_details,
 )
 from .capabilities.pr_review_queue.github_source import run_gh_json as _run_gh_json
@@ -192,8 +193,8 @@ def _include_pr_in_window(pr: dict[str, Any], *, since: object | None) -> bool:
 
 
 def normalize_pr_state_filter(value: object) -> str:
-    state = str(value or "all").strip().lower()
-    return state if state in {"open", "merged", "all"} else "all"
+    state = str(value or "open").strip().lower()
+    return state if state in {"open", "merged", "all"} else "open"
 
 
 def fetch_github_pull_requests(
@@ -201,7 +202,7 @@ def fetch_github_pull_requests(
     repo: str | None,
     limit: int,
     cwd: Path | None = None,
-    state_filter: str = "all",
+    state_filter: str = "open",
     since: str | None = None,
 ) -> list[dict[str, Any]]:
     scan = scan_github_pull_requests(
@@ -219,7 +220,7 @@ def scan_github_pull_requests(
     repo: str | None,
     limit: int,
     cwd: Path | None = None,
-    state_filter: str = "all",
+    state_filter: str = "open",
     since: str | None = None,
     wait_for_ci: bool = True,
 ) -> dict[str, Any]:
@@ -230,25 +231,6 @@ def scan_github_pull_requests(
     search_date = _github_search_date(since)
     if search_date:
         search_args = ["--search", f"updated:>={search_date}"]
-    list_fields = [
-        "number",
-        "title",
-        "url",
-        "state",
-        "isDraft",
-        "headRefName",
-        "headRefOid",
-        "baseRefName",
-        "author",
-        "createdAt",
-        "updatedAt",
-        "closedAt",
-        "mergedAt",
-        "mergeCommit",
-        "changedFiles",
-        "additions",
-        "deletions",
-    ]
     fetch_limit = max(1, limit)
     if since:
         fetch_limit = max(fetch_limit, min(100, fetch_limit * 3))
@@ -267,7 +249,7 @@ def scan_github_pull_requests(
                 "--limit",
                 str(fetch_limit),
                 "--json",
-                ",".join(list_fields),
+                ",".join(PR_LIST_FIELDS),
                 *search_args,
                 *repo_args,
             ],
@@ -946,6 +928,8 @@ def _normalize_pr(
     generated_at: datetime,
     fresh_audit_exact_heads: set[str],
     wait_for_ci: bool = True,
+    readiness_observations: Mapping[str, Mapping[str, object]] | None = None,
+    repository: str | None = None,
 ) -> dict[str, Any]:
     files = _files(pr)
     checks = _checks(pr)
@@ -993,6 +977,7 @@ def _normalize_pr(
         if merge_commit_oid
         else None,
         "base_ref": _redact_text(pr.get("baseRefName"), limit=80),
+        "base_oid": _redact_text(pr.get("baseRefOid"), limit=80),
         "head_ref": _redact_text(pr.get("headRefName"), limit=120),
         "head_oid": _redact_text(pr.get("headRefOid"), limit=80),
         "is_draft": bool(pr.get("isDraft")),
@@ -1019,7 +1004,11 @@ def _normalize_pr(
     }
     item.update(
         materialize_review_execution(
-            item, fresh_audit_exact_heads=fresh_audit_exact_heads
+            item,
+            fresh_audit_exact_heads=fresh_audit_exact_heads,
+            readiness_observations=readiness_observations or {},
+            repository=repository,
+            review_threads=_as_dict(pr.get("review_thread_summary")),
         )
     )
     item["community_feedback_ready"] = bool(
@@ -1040,19 +1029,22 @@ def build_pr_review_packet(
     repository: str | None,
     limit: int,
     source: str,
-    state_filter: str = "all",
+    state_filter: str = "open",
     since: str | None = None,
     source_scan: Mapping[str, Any] | None = None,
     reviewer_login: str | None = None,
     fresh_audit_exact_heads: Sequence[str] = (),
+    target_exact_heads: Sequence[str] = (),
     review_priority: object = DEFAULT_REVIEW_PRIORITY,
     wait_for_ci: bool = True,
+    readiness_observations: Mapping[str, Mapping[str, object]] | None = None,
 ) -> dict[str, Any]:
     normalized_state_filter = normalize_pr_state_filter(state_filter)
     normalized_priority = normalize_review_priority(review_priority)
     generated_at_text = _now_iso()
     generated_at = _parse_timestamp(generated_at_text) or datetime.now(timezone.utc)
     requested_fresh_audits = normalize_fresh_audit_exact_heads(fresh_audit_exact_heads)
+    requested_targets = normalize_fresh_audit_exact_heads(target_exact_heads)
     normalized_all = [
         _normalize_pr(
             item,
@@ -1061,6 +1053,8 @@ def build_pr_review_packet(
             generated_at=generated_at,
             fresh_audit_exact_heads=requested_fresh_audits,
             wait_for_ci=wait_for_ci,
+            readiness_observations=readiness_observations,
+            repository=repository,
         )
         for item in pull_requests
     ]
@@ -1075,10 +1069,14 @@ def build_pr_review_packet(
             item, review_priority=normalized_priority
         )
     )
-    packet_limit = max(1, limit)
+    packet_limit = len(requested_targets) if requested_targets else max(1, limit)
     unmerged_all = [item for item in normalized_all if str(item.get("state") or "").upper() != "MERGED"]
     merged_all = [item for item in normalized_all if str(item.get("state") or "").upper() == "MERGED"]
-    if normalized_state_filter == "all":
+    if requested_targets:
+        normalized = normalized_all
+        unmerged_items = unmerged_all
+        merged_items = merged_all
+    elif normalized_state_filter == "all":
         unmerged_items = unmerged_all[:packet_limit]
         merged_items = merged_all[:packet_limit]
         normalized = unmerged_items + merged_items
@@ -1089,6 +1087,12 @@ def build_pr_review_packet(
     observed_exact_heads = {
         key for item in normalized if (key := exact_head_key(item))
     }
+    missing_targets = requested_targets - observed_exact_heads
+    if missing_targets:
+        raise ValueError(
+            "target exact head is absent from the current result: "
+            + ", ".join(sorted(missing_targets))
+        )
     missing_fresh_audits = requested_fresh_audits - observed_exact_heads
     if missing_fresh_audits:
         raise ValueError(
@@ -1132,7 +1136,13 @@ def build_pr_review_packet(
         "complete": complete,
         "truncated": not complete,
         "limit": packet_limit,
-        "limit_scope": "per_group" if normalized_state_filter == "all" else "filtered_queue",
+        "limit_scope": (
+            "exact_targets"
+            if requested_targets
+            else "per_group"
+            if normalized_state_filter == "all"
+            else "filtered_queue"
+        ),
         "source_scan_complete": source_scan_complete,
         "observed_count_is_lower_bound": not source_scan_complete,
         "observed_pr_count": len(normalized_all),
@@ -1222,7 +1232,7 @@ def build_pr_review_packet(
         "request": {
             "schema_version": "loopx_pr_review_command_request_v0",
             "command": COMMAND,
-            "cli_command": "loopx pr-review [--repo owner/repo] [--state open|merged|all] [--review-priority other-developers-first|owner-first] [--since ISO]",
+            "cli_command": "loopx pr-review [--repo owner/repo] [--target-exact-head NUMBER@HEAD_OID] [--state open|merged|all] [--review-priority other-developers-first|owner-first] [--since ISO]",
             "repository": repository,
             "limit": max(1, limit),
             "state_filter": normalized_state_filter,
@@ -1235,6 +1245,7 @@ def build_pr_review_packet(
             "reviewer_login": reviewer_login,
             "review_priority": normalized_priority.value,
             "fresh_audit_exact_heads": sorted(requested_fresh_audits),
+            "target_exact_heads": sorted(requested_targets),
             "include": [
                 "pull_request_list",
                 "result_completeness",
@@ -1346,7 +1357,7 @@ def render_pr_review_markdown(payload: dict[str, Any]) -> str:
         "",
         f"- command: `{request.get('command')}`",
         f"- repository: `{request.get('repository') or 'current gh repository'}`",
-        f"- state_filter: `{request.get('state_filter') or 'all'}`",
+        f"- state_filter: `{request.get('state_filter') or 'open'}`",
         f"- since: `{request.get('since') or 'not set'}`",
         f"- headline: {summary.get('headline')}",
         f"- complete: `{completeness.get('complete')}`; truncated=`{completeness.get('truncated')}`; recommended_limit=`{completeness.get('recommended_limit')}`",

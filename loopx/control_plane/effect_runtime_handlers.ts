@@ -1,3 +1,6 @@
+import {selectPeriodicReportProgress, selectPeriodicReportApprovalRetry} from "./capabilities/periodic_report_progress.ts";
+import {planIssueFixMonitorReconciliation} from "./capabilities/issue_fix_monitor_reconciliation.ts";
+import {projectPeerOrchestration} from "./quota/peer_orchestration.ts";
 import {inspectTaskLease} from "./work_items/task_lease_inspection.ts";
 import {evaluateTodoPriority} from "./todos/priority.ts";
 import {evaluateUserCompletion} from "./todos/user_completion.ts";
@@ -159,6 +162,7 @@ import {
   pollLocalCoordinationMonitor,
   promoteLocalCoordinationAuthority,
   reviewLocalCoordinationAuthorityPromotion,
+  executeReviewedCoordinationPromotion,
   terminalLifecycleLocalCoordinationTodo,
 } from "./coordination/local_authority_runtime.ts";
 import {listLocalCoordinationTodos, readLocalCoordinationTodo} from "./coordination/local_authority_read.ts";
@@ -424,6 +428,8 @@ export function createEffectRuntimeHandlers(
     ["todo.public_update.plan", planPublicTodoUpdate],
     ["todo.standing_decision.project", evaluateStandingDecisionProjection],
     ["todo.summary_lanes.project", projectTodoSummaryLanes],
+    ["capabilities.periodic_report.progress.select", selectPeriodicReportProgress],
+    ["capabilities.periodic_report.approval_retry.select", selectPeriodicReportApprovalRetry],
     ["todo.succession.project", projectTodoSuccession],
     ["todo.succession.closure", projectTodoClosure],
     ["todo.work_counts.project", projectLegacyTodoWorkCounts],
@@ -529,6 +535,7 @@ export function createEffectRuntimeHandlers(
     ["coordination.runtime_shadow.rollback", rollbackCoordinationRuntimeShadow],
     ["coordination.local_authority.promote", promoteLocalCoordinationAuthority],
     ["coordination.local_authority.promotion_review", reviewLocalCoordinationAuthorityPromotion],
+    ["coordination.local_authority.promotion_reviewed", executeReviewedCoordinationPromotion],
     ["coordination.local_authority.todo_continuation", continueLocalTodo],
     ["coordination.local_authority.todo_claim", claimLocalCoordinationTodo],
     ["coordination.local_authority.todo_create", createLocalCoordinationTodo],
@@ -561,6 +568,7 @@ export function createEffectRuntimeHandlers(
       compileActionReviewPlan(params.proposal)],
     ["scheduler.monitor_successor.plan", planMonitorSuccessor],
     ["scheduler.monitor_target.select", selectMonitorTodoRequest],
+    ["capabilities.issue_fix.monitor_reconciliation.plan", planIssueFixMonitorReconciliation],
     ["coordination.local_authority_shadow.record", recordLocalAuthorityShadow],
     ["coordination.runtime_shadow.commit_entry", commitLocalAuthorityShadowEntry],
     ["coordination.runtime_shadow.outbox_read", readLocalAuthorityShadow],
@@ -619,6 +627,10 @@ export function createEffectRuntimeHandlers(
     [
       "governed_capability.settlement_status",
       (params) => governedCapabilitySettlementStatus(params.failure),
+    ],
+    [
+      "quota.peer_orchestration.project",
+      (params) => projectPeerOrchestration(params),
     ],
     [
       "capability_hook.agent_context.describe",

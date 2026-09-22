@@ -424,6 +424,16 @@ sessions, generic Agent creation, dynamic governed work derivation, complete
 inbox/queue/steer, authenticated remote authority and packaged frontend/Lark
 companion work remain R2/R3/R4/R6 boundaries. Existing Goals are not promoted.
 
+The disposable example now also accepts `--team-size LUNA DSH ARK`: independent
+Luna max Turns consume the initial filing, DSH consumes accepted analysis and
+the correction, and Ark consumes accepted corrected evidence. Preparation
+reuses machine credentials and creates only Goal-owned bindings; the DSH lead
+uses the same delegation service and must adopt every configured result. This
+removes hand-edited roster setup for the synthetic qualification route. It does
+not close the release frontier: actual public-source research, a visual launch
+control, original-conversation result return and member stop/recovery must be
+qualified together before advertising the one-action research showcase.
+
 An existing shell-capable coordinator uses `delegation list/operations/start/read/wait/resume` without replacing its session. Requester-scoped `operations` recovers durable work after context loss, independently rechecks accepted results and preserves unavailable branches and pagination; enabled MCP and newly tool-equipped Goal Chat use the same read model. Existing native threads retain their tool schema on resume. It starts no work and does not infer overall readiness from a display list. The example's `prepare` still only provisions isolated operator bindings. A Codex binding can now pass an exact model/reasoning effort into an independent resumable Turn Session and expose the same profile through preflight and planning; this remains separate from a native temporary child profile inside the parent execution. Next, feed actual execution/acceptance facts into existing R2 readiness, extend registration/runtime configuration for approved identity provisioning, and qualify original-request return/lead continuation. Unattended wake, full cross-host inbox/queue/steer and Lark parity remain separate requirements; an exact profile parameter does not promote G1/G3.
 
 The local Goal conversation now exposes that inventory on demand, with per-binding
@@ -485,6 +495,11 @@ a parallel team-orchestration program.
 - **Rollback:** disable the commit class, retain effect-free proposals; do not restore old revisions or relax fences.
 
 ### R5: TS Convergence and Local Persistence
+
+L2/L5 terminal checkpoint: Agent completion and Monitor stop now use source-bound
+TS validation and canonical receipt/display recovery. Real-provider mixed-graph
+counterexamples cover concurrent changes and lost responses. [Scope and remaining
+boundaries](../../reference/canonical-terminal-review.md); this does not settle R5 or D1–D3.
 
 L3 checkpoint: standalone acquisition/takeover, atomic claim admission and maintenance share typed lease facts/rules and provider opening. Exact acquisition retry verifies current execution proof; real CLI completion can recover missing Markdown display. Full-state scope conflicts, process interruption and File/SQLite/PostgreSQL read-only rehearsal are covered. [Remaining executor and integration boundaries](../../reference/canonical-lease-renew.md); R5, D2/D3 and default qualification remain open.
 

@@ -61,6 +61,7 @@ _LEGACY_REFLECTION_FIELDS = {
     "evidence_refs",
 }
 _REFLECTION_FIELDS = _LEGACY_REFLECTION_FIELDS | {"experience"}
+_MAX_REFLECTION_BYTES = 16 * 1024
 
 
 def _base(
@@ -230,7 +231,12 @@ def _reflection(value: object) -> dict[str, Any] | None:
     text = str(value or "").strip()
     if not text:
         return None
-    if len(text) > 2_400:
+    # The v1 reflection embeds a bounded procedural-experience contract. Its
+    # independently bounded fields can legitimately exceed the legacy 2,400
+    # character envelope, especially for multi-byte text. Keep a whole-packet
+    # denial-of-service guard, but measure the serialized transport in bytes
+    # and leave semantic compaction to the field-level validators below.
+    if len(text.encode("utf-8")) > _MAX_REFLECTION_BYTES:
         raise ValueError("reward memory reflection exceeds its bounded contract")
     try:
         raw = json.loads(text)

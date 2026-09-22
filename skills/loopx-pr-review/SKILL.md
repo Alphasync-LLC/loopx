@@ -17,14 +17,14 @@ state or time window. Route approval, merge, self-merge, and admin bypass to
 `loopx-pr-merge` (optional repo-kept workflow, not installed by default) after
 the evidence review is complete; it never replaces this skill's exact-head gate.
 
-Run `loopx --format json pr-review --state all` before ad hoc GitHub reads.
+For named PRs, resolve heads and run repeatable `--target-exact-head NUMBER@HEAD_OID`. An omitted `--state` keeps ordinary queue discovery open-only while exact targets remain lifecycle-neutral; use explicit `--state merged|all` only for deliberate history or post-merge audit.
 
 Translate only explicit filters:
 
 - `--repo owner/repo`
 - `--since ISO`
 - `--state open|merged|all`
-- `--limit N`
+- `--limit N`; `--target-exact-head NUMBER@HEAD_OID` (repeatable direct read)
 - `--review-priority other-developers-first|owner-first` (default `other-developers-first`; use `owner-first` to opt into owner priority)
 When omitted, the CLI resolves `pull_request_review` from the standard machine
 capability editor; an absent namespace keeps the default `other-developers-first`.
@@ -43,9 +43,9 @@ paths named by `agent_response_contract.required_packet_fields_to_preserve`:
 - `pull_requests[review_action_kind!=null].review_template`
 - `pull_requests[review_action_kind!=null].evidence_commands`
 
-Do not pipe the only copy through `jq`. When an exhaustive request has
+Do not pipe the only copy through `jq`. When an exhaustive queue request has
 `result_completeness.complete=false`, rerun with its `recommended_limit` before
-reviewing.
+reviewing; `limit_scope=exact_targets` is already complete for the named targets.
 
 Require the revision the installed capability declares, not a literal this file pins: read
 `review_execution_contract.policy_revision` from the packet and require the result's `review_policy_revision` to equal it.
@@ -115,10 +115,10 @@ review back, verify its state and rendered body, and return its URL. Merge
 still routes through `loopx-pr-merge`; an `APPROVE` is not merge authority.
 Do not leave a public blocker only in chat.
 
-Immediately before every merge, run `loopx --format json pr-review --repo
-OWNER/REPO --check-merge-readiness NUMBER@HEAD_OID`; merge only when it returns
-`ready=true` for that unchanged head. A rebase/update restarts review, admin
-bypass never overrides this gate, and author-owned fallback needs user authority.
+Immediately before every merge, run `loopx --format json pr-review --goal-id GOAL
+--repo OWNER/REPO --check-merge-readiness NUMBER@HEAD_OID`; require `ready=true`.
+Its compact Goal observation suppresses only unchanged requalification; material
+change reopens it, admin bypass never overrides this gate, and author fallback needs user authority.
 
 ## Full PR Review And Bilingual Format
 

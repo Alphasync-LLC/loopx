@@ -283,6 +283,7 @@ def canonical_todo_summary_fields(
     todos: list[dict[str, Any]],
     *,
     rollout_events: list[dict[str, Any]] | None = None,
+    available_capabilities: Any = None,
     goal_acceptance_contract: dict[str, Any] | None = None,
     goal_acceptance_work_guards: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -302,23 +303,7 @@ def canonical_todo_summary_fields(
         for item in todos
         if item.get("archive_state") == "archive"
     }
-    # Native provider records have no Markdown address. Allocate display
-    # positions from stable provider order; never read legacy Markdown here.
-    todos = [
-        {
-            **item,
-            "schema_version": TODO_ITEM_SCHEMA_VERSION,
-            "source_section": (
-                "Completed Work Archive"
-                if item["archive_state"] == "archive"
-                else TODO_SECTION_HEADINGS[item["role"]]
-            ),
-            "index": index,
-        }
-        if item.get("schema_version") == TODO_DOMAIN_ITEM_SCHEMA_VERSION
-        else item
-        for index, item in enumerate(todos, 1)
-    ]
+    todos = canonical_todo_items(todos)
     # These are native authority decisions, not persisted Todo fields. Keep the
     # records visible while every summary/selection uses the same work guard.
     if goal_acceptance_contract and goal_acceptance_contract.get("enabled") is True:
@@ -340,6 +325,7 @@ def canonical_todo_summary_fields(
             include_empty_source=True,
             resume_source_items=todos,
             rollout_events=rollout_events,
+            available_capabilities=available_capabilities,
             item_limit=None,
         )
         if summary:
@@ -364,3 +350,36 @@ def canonical_todo_summary_fields(
             if standing_authority:
                 fields["standing_decision_authority"] = standing_authority
     return fields
+
+
+def canonical_todo_items(todos: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Adapt every canonical Todo, including retained archive history."""
+
+    from ..todos.active_state_editing import TODO_SECTION_HEADINGS
+
+    # Native provider records have no Markdown address. Allocate display
+    # positions from stable provider order; never read legacy Markdown here.
+    return [
+        {
+            **item,
+            **(
+                {"schema_version": TODO_ITEM_SCHEMA_VERSION}
+                if item.get("schema_version") == TODO_DOMAIN_ITEM_SCHEMA_VERSION
+                else {}
+            ),
+            "source_section": "Completed Work Archive",
+            "index": index,
+        }
+        if item.get("archive_state") == "archive"
+        else (
+            {
+                **item,
+                "schema_version": TODO_ITEM_SCHEMA_VERSION,
+                "source_section": TODO_SECTION_HEADINGS[item["role"]],
+                "index": index,
+            }
+            if item.get("schema_version") == TODO_DOMAIN_ITEM_SCHEMA_VERSION
+            else item
+        )
+        for index, item in enumerate(todos, 1)
+    ]

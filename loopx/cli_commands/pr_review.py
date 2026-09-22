@@ -3,7 +3,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from pathlib import Path
 
@@ -18,6 +19,14 @@ from ..capabilities.machine_configuration.builtins import (
 )
 from ..capabilities.machine_configuration.store import read_machine_configuration
 from ..capabilities.pr_review_queue.result_check import check_review_result
+from ..capabilities.pr_review_queue.readiness_observation import (
+    observation_key,
+    read_readiness_observations,
+    record_readiness_observation,
+)
+from ..capabilities.pr_review_queue.github_source import (
+    scan_github_pull_request_targets,
+)
 from ..file_lock import exclusive_file_lock
 from ..pr_review import (
     build_pr_review_packet,
@@ -94,7 +103,7 @@ def register_pr_review_command(
 ) -> None:
     parser = subparsers.add_parser(
         "pr-review",
-        help="Build a public-safe /loopx-pr-review queue for the current project's open and merged pull requests.",
+        help="Build a public-safe /loopx-pr-review queue for the current project's pull requests.",
     )
     add_subcommand_format(parser)
     parser.add_argument("--goal-id", help="Use this Goal PR review configuration; otherwise use machine defaults.")
@@ -107,7 +116,8 @@ def register_pr_review_command(
         metavar="NUMBER@HEAD_OID",
         help=(
             "Re-read one open PR and fail closed unless this exact reviewed head, "
-            "its configured CI policy, approval, and review threads are ready immediately before merge."
+            "its configured CI policy, approval, and review threads are ready immediately before merge; "
+            "requires --goal-id and records a compact local Goal readiness observation."
         ),
     )
     parser.add_argument(
@@ -127,8 +137,11 @@ def register_pr_review_command(
     parser.add_argument(
         "--state",
         choices=("open", "merged", "all"),
-        default="all",
-        help="PR lifecycle state to include. Defaults to all so merged PRs remain reviewable.",
+        default=None,
+        help=(
+            "PR lifecycle state to include. Ordinary queues default to open; "
+            "use merged/all explicitly for lifecycle or post-merge audits."
+        ),
     )
     parser.add_argument(
         "--review-priority",
@@ -147,6 +160,16 @@ def register_pr_review_command(
     parser.add_argument(
         "--fixture",
         help="Read public-safe PR metadata from a JSON fixture instead of live gh output.",
+    )
+    parser.add_argument(
+        "--target-exact-head",
+        action="append",
+        default=[],
+        metavar="NUMBER@HEAD_OID",
+        help=(
+            "Read only this exact PR head instead of scanning a lifecycle queue. "
+            "Repeatable for a small explicit review batch."
+        ),
     )
     parser.add_argument(
         "--fresh-audit-exact-head",
@@ -196,6 +219,16 @@ def register_pr_review_command(
     )
 
 
+def _resolve_pr_review_state_filter(
+    raw_state: object,
+    *,
+    target_exact_heads: Sequence[str],
+) -> str:
+    if raw_state is None and target_exact_heads:
+        return "all"
+    return normalize_pr_state_filter(raw_state)
+
+
 def handle_pr_review_command(
     args: argparse.Namespace,
     *,
@@ -208,6 +241,12 @@ def handle_pr_review_command(
         return None
     checkpoint_path: Path | None = None
     resolved_review_priority = DEFAULT_REVIEW_PRIORITY
+    target_exact_heads = list(getattr(args, "target_exact_head", []) or [])
+    readiness_observations: dict[str, dict[str, object]] = {}
+    resolved_state_filter = _resolve_pr_review_state_filter(
+        getattr(args, "state", None),
+        target_exact_heads=target_exact_heads,
+    )
     try:
         machine_configuration = (read_machine_configuration(runtime_root, registry=build_builtin_machine_configuration_registry()) if runtime_root is not None else None)
         goal = None
@@ -220,6 +259,13 @@ def handle_pr_review_command(
                 raise ValueError("PR review Goal was not found: " + goal_id)
         review_configuration = resolve_configuration(goal, machine_configuration)
         wait_for_ci = review_configuration["wait_for_ci"]
+        if goal_id:
+            if runtime_root is None:
+                raise ValueError("--goal-id requires an available runtime root")
+            readiness_observations = read_readiness_observations(
+                runtime_root=runtime_root,
+                goal_id=goal_id,
+            )
         if args.check_result or args.packet:
             if not (args.check_result and args.packet):
                 raise ValueError("--check-result and --packet must be used together")
@@ -233,6 +279,7 @@ def handle_pr_review_command(
                 or args.repo
                 or args.since
                 or args.fresh_audit_exact_head
+                or target_exact_heads
                 or args.check_merge_readiness
             ):
                 raise ValueError(
@@ -255,6 +302,8 @@ def handle_pr_review_command(
             )
             return 0 if payload["ok"] else 1
         if args.check_merge_readiness:
+            if not goal_id:
+                raise ValueError("merge readiness requires --goal-id")
             if (
                 args.autonomous_observation
                 or args.observation_state_file
@@ -263,6 +312,7 @@ def handle_pr_review_command(
                 or args.projected_exact_head
                 or args.since
                 or args.fresh_audit_exact_head
+                or target_exact_heads
             ):
                 raise ValueError(
                     "merge readiness cannot be combined with queue or observation options"
@@ -326,6 +376,25 @@ def handle_pr_review_command(
                 source=source,
                 wait_for_ci=wait_for_ci,
             )
+            observation = record_readiness_observation(
+                runtime_root=runtime_root,
+                goal_id=goal_id,
+                readiness=payload,
+            )
+            payload["readiness_observation"] = {
+                key: observation[key]
+                for key in (
+                    "schema_version",
+                    "goal_id",
+                    "repository",
+                    "exact_head",
+                    "material_fingerprint",
+                    "ready",
+                    "blocking_reasons",
+                    "observed_at",
+                )
+            }
+            payload["local_goal_observation_write_performed"] = True
             print_payload(
                 payload,
                 output_format(args),
@@ -348,6 +417,15 @@ def handle_pr_review_command(
             raise ValueError(
                 "--observation-state-file cannot be combined with "
                 "--previous-observation-json"
+            )
+        if target_exact_heads and args.autonomous_observation:
+            raise ValueError(
+                "--target-exact-head cannot be combined with --autonomous-observation"
+            )
+        if target_exact_heads and args.since:
+            raise ValueError(
+                "--target-exact-head already defines the review window and "
+                "cannot be combined with --since"
             )
         explicit_review_priority = getattr(args, "review_priority", None)
         if explicit_review_priority is not None:
@@ -372,6 +450,19 @@ def handle_pr_review_command(
                 Path(args.fixture).expanduser()
             )
             repository = repository or repository_from_fixture
+            if target_exact_heads:
+                requested_targets = normalize_fresh_audit_exact_heads(
+                    target_exact_heads
+                )
+                pull_requests = [
+                    item
+                    for item in pull_requests
+                    if (
+                        f"{item.get('number')}@"
+                        f"{str(item.get('headRefOid') or '').lower()}"
+                        in requested_targets
+                    )
+                ]
             source = "fixture"
             source_scan = None
         else:
@@ -382,14 +473,59 @@ def handle_pr_review_command(
                     "authenticated GitHub reviewer identity is required for "
                     "autonomous author-owned scheduling"
                 )
-            source_scan = scan_github_pull_requests(
-                repo=repository,
-                limit=max(1, args.limit) + 1,
-                state_filter=normalize_pr_state_filter(args.state),
-                since=args.since,
-                **({"wait_for_ci": False} if not wait_for_ci else {}),
-            )
+            if target_exact_heads:
+                if not repository:
+                    raise RuntimeError("GitHub repository could not be resolved")
+                source_scan = scan_github_pull_request_targets(
+                    repository=repository,
+                    exact_heads=target_exact_heads,
+                    **({"wait_for_ci": False} if not wait_for_ci else {}),
+                )
+                source = "github_cli_exact_targets"
+            else:
+                source_scan = scan_github_pull_requests(
+                    repo=repository,
+                    limit=max(1, args.limit) + 1,
+                    state_filter=resolved_state_filter,
+                    since=args.since,
+                    **({"wait_for_ci": False} if not wait_for_ci else {}),
+                )
             pull_requests = source_scan["pull_requests"]
+        if readiness_observations:
+            observed_rows = []
+            for row in pull_requests:
+                number = row.get("number")
+                head_oid = str(row.get("headRefOid") or "").strip().casefold()
+                exact_head = (
+                    f"{number}@{head_oid}"
+                    if isinstance(number, int) and head_oid
+                    else ""
+                )
+                if observation_key(str(repository or ""), exact_head) not in readiness_observations:
+                    continue
+                if args.fixture:
+                    raw_threads = row.get("review_thread_summary")
+                    if not isinstance(raw_threads, dict):
+                        row["review_thread_summary"] = {
+                            "schema_version": "github_review_thread_summary_v0",
+                            "complete": False,
+                            "total_count": 0,
+                            "unresolved_count": 0,
+                            "failure_code": "fixture_review_thread_summary_missing",
+                        }
+                else:
+                    observed_rows.append(row)
+            if observed_rows:
+                with ThreadPoolExecutor(max_workers=min(8, len(observed_rows))) as pool:
+                    summaries = pool.map(
+                        lambda row: fetch_github_review_thread_summary(
+                            repo=str(repository or ""),
+                            number=row["number"],
+                        ),
+                        observed_rows,
+                    )
+                    for row, summary in zip(observed_rows, summaries, strict=True):
+                        row["review_thread_summary"] = summary
         if checkpoint_path is not None and previous_observation:
             checkpoint_repository = str(
                 previous_observation.get("repository") or ""
@@ -406,16 +542,21 @@ def handle_pr_review_command(
             repository=repository,
             limit=max(1, args.limit),
             source=source,
-            state_filter=normalize_pr_state_filter(args.state),
+            state_filter=resolved_state_filter,
             since=args.since,
             source_scan=source_scan,
             reviewer_login=reviewer_login,
             fresh_audit_exact_heads=args.fresh_audit_exact_head,
+            target_exact_heads=target_exact_heads,
             review_priority=resolved_review_priority,
             wait_for_ci=wait_for_ci,
+            readiness_observations=readiness_observations,
         )
         payload["request"]["goal_id"] = goal_id
         payload["request"]["review_configuration"] = review_configuration
+        payload["request"]["readiness_observation_count"] = len(
+            readiness_observations
+        )
         if args.autonomous_observation:
             autonomous_review = build_pull_request_review_queue_observation(
                 repository=repository,
@@ -465,13 +606,14 @@ def handle_pr_review_command(
             "request": {
                 "schema_version": "loopx_pr_review_command_request_v0",
                 "command": "/loopx-pr-review",
-                "cli_command": "loopx pr-review [--repo owner/repo] [--state open|merged|all] [--review-priority other-developers-first|owner-first] [--since ISO]",
+                "cli_command": "loopx pr-review [--repo owner/repo] [--target-exact-head NUMBER@HEAD_OID] [--state open|merged|all] [--review-priority other-developers-first|owner-first] [--since ISO]",
                 "repository": args.repo,
                 "limit": max(1, args.limit),
-                "state_filter": normalize_pr_state_filter(args.state),
+                "state_filter": resolved_state_filter,
                 "since": args.since,
                 "review_priority": resolved_review_priority.value,
                 "fresh_audit_exact_heads": list(args.fresh_audit_exact_head),
+                "target_exact_heads": target_exact_heads,
                 "source": "fixture" if args.fixture else "github_cli",
                 "privacy_mode": "public_safe_github_metadata",
                 "dry_run": True,

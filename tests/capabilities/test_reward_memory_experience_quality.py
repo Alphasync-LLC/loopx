@@ -10,7 +10,11 @@ from loopx.capabilities.context_providers.base import (
     ContextProviderItem,
     ContextProviderRetrieval,
 )
-from loopx.capabilities.reward_memory.application import _active_item
+from loopx.capabilities.reward_memory.application import (
+    _active_item,
+    build_reward_memory_recall_request,
+    execute_reward_memory_recall,
+)
 from loopx.capabilities.reward_memory.scoped_feedback import (
     build_scoped_feedback_reward_memory_candidate,
     ingest_scoped_feedback_reward_memory_event,
@@ -184,6 +188,45 @@ def binding() -> dict[str, Any]:
     }
 
 
+def recall_request() -> dict[str, Any]:
+    return build_reward_memory_recall_request(
+        corpus(),
+        {
+            "workspace_ref": WORKSPACE,
+            "project_ref": PROJECT,
+            "peer_ref": "agent:finance-research-explorer",
+            "surface_id": SURFACE,
+            "revision_ref": "revision:near-postmortem-v1",
+            "mode": "function_boundary",
+            "queries": [
+                {
+                    "query": "What bounded lesson applies to this trade review?",
+                    "query_summary": "current trade review lesson",
+                }
+            ],
+            "limit": 5,
+            "observed_at": OBSERVED_AT,
+            "freshness_context": {
+                "source_truth_current": True,
+                "source_revision": "revision:near-postmortem-v1",
+                "age_seconds": 0,
+            },
+            "conflict_state": "clear",
+            "raw_content_captured": False,
+        },
+        read_authority_checkpoint={
+            "verified": True,
+            "corpus_id": "finance_trade_outcome",
+            "workspace_ref": WORKSPACE,
+            "project_ref": PROJECT,
+            "peer_ref": "agent:finance-research-explorer",
+            "surface_id": SURFACE,
+            "read_authority": "module_scoped",
+            "source_ref": "policy:finance:reward-memory",
+        },
+    )
+
+
 def test_fact_only_summary_is_blocked_before_provider_write() -> None:
     fact_only = event()
     fact_only.pop("experience")
@@ -338,6 +381,68 @@ def test_legacy_fact_only_procedural_record_is_not_recalled() -> None:
             observed_at=OBSERVED_AT,
         )
         is None
+    )
+
+    provider.resources[target] = json.dumps(legacy)
+    session = execute_reward_memory_recall(
+        recall_request(),
+        provider_binding=binding(),
+        provider=provider,
+    )
+
+    assert session.public_packet["status"] == "empty"
+    assert session.public_packet["reason_code"] == "no_active_exact_corpus_results"
+    assert session.public_packet["empty_cause"] == "all_provider_items_filtered"
+    assert session.public_packet["provider_item_count"] == 1
+    assert session.public_packet["filtered_item_count"] == 1
+    assert session.public_packet["filtered_reason_counts"] == {
+        "legacy_contract_missing": 1
+    }
+    maintenance = session.public_packet["legacy_record_maintenance"]
+    assert maintenance["status"] == "owner_action_required"
+    assert maintenance["record_count"] == 1
+    assert len(maintenance["record_refs"]) == 1
+    assert maintenance["record_refs"][0].startswith("provider-")
+    assert SCOPE_REF not in maintenance["record_refs"][0]
+    assert maintenance["allowed_actions"] == ["migrate", "retire"]
+    assert maintenance["migration_path"] == (
+        "ingest_validated_replacement_then_retire_legacy"
+    )
+    assert maintenance["retirement_path"] == (
+        "declared_retirement_authority_write_then_exact_readback"
+    )
+    assert maintenance["provider_write_performed"] is False
+    assert maintenance["exact_readback_verified"] is False
+
+
+def test_malformed_procedural_experience_reports_quality_filter() -> None:
+    provider = FakeProvider()
+    receipt = ingest_scoped_feedback_reward_memory_event(
+        event(),
+        corpus=corpus(),
+        standing_policy=policy(),
+        provider_binding=binding(),
+        observed_at=OBSERVED_AT,
+        execute=True,
+        provider=provider,
+    )
+    target, serialized = next(iter(provider.resources.items()))
+    malformed = json.loads(serialized)
+    del malformed["experience"]["future_behavior"]["action"]
+    provider.resources[target] = json.dumps(malformed)
+
+    session = execute_reward_memory_recall(
+        recall_request(),
+        provider_binding=binding(),
+        provider=provider,
+    )
+
+    assert receipt["status"] == "activated"
+    assert session.public_packet["status"] == "empty"
+    assert session.public_packet["empty_cause"] == "all_provider_items_filtered"
+    assert session.public_packet["filtered_reason_counts"] == {"quality_filtered": 1}
+    assert session.public_packet["legacy_record_maintenance"]["status"] == (
+        "not_required"
     )
 
 

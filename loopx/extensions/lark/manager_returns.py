@@ -117,6 +117,9 @@ def send_return(
         execute=True,
         before_send=before_send,
         delivery_attempt_recorder=delivery_attempt_recorder,
+        # A returned manager answer keeps the provider bound, not the compact
+        # notification length.
+        short_message_limit=None,
         **({"runner": runner} if runner else {}),
     )
 

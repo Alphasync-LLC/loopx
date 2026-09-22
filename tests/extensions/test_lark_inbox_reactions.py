@@ -1439,6 +1439,42 @@ def test_top_level_send_rejects_overlong_text_instead_of_truncating_mention(
     assert runner.calls == []
 
 
+def test_an_answer_delivery_is_bounded_by_the_provider_not_by_the_notice_length(
+    tmp_path: Path,
+) -> None:
+    """The compact notification length must not cut an answer delivery.
+
+    The same over-limit body the chat-root notification rejects is accepted on
+    the answer path, because the 1200 characters are a notification shape and
+    not a provider bound: the provider request limit is what actually bounds it.
+    """
+
+    config, _, project = _fixture(tmp_path, lifecycle=False)
+    runner = ReplyRunner()
+    text = "x" * 1160 + '<at open_id="ou_public_reviewer">Public Reviewer</at> please review'
+
+    with pytest.raises(ValueError, match="exceeds the 1200-character"):
+        send_lark_inbox_message(
+            project=project,
+            config_path=config,
+            text=text,
+            execute=True,
+            runner=runner,
+        )
+
+    accepted = reply_lark_event_inbox(
+        project=project,
+        config_path=config,
+        message_id=None,
+        text=text,
+        execute=False,
+        short_message_limit=None,
+    )
+
+    assert accepted["ok"] is True
+    assert accepted["status"] == "preview_ready"
+
+
 def test_unverified_reply_preserves_processing_reaction(tmp_path: Path) -> None:
     config, inbox, project = _fixture(tmp_path)
     record_lark_inbox_reaction(

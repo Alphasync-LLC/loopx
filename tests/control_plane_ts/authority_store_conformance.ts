@@ -1,8 +1,12 @@
+import {registerPeriodicReportConformance} from "./periodic_report_conformance.ts";
+import {registerIssueFixMonitorReconciliationConformance} from "./issue_fix_monitor_reconciliation_conformance.ts";
+import {registerPromotionRecoveryConformance} from "./promotion_recovery_conformance.ts";
 import {registerTodoConsumerScopeConformance} from "./todo_consumer_scope_conformance.ts";
 import {registerProjectionConfirmationConformance} from "./projection_confirmation_conformance.ts";
 import {registerUserCompletionFollowthroughConformance} from "./user_completion_followthrough_conformance.ts";
 import {registerSuccessionReadConformance} from "./succession_read_conformance.ts";
 import {registerUserCompletionUpdateConformance} from "./user_completion_update_conformance.ts";
+import {registerTerminalSourceConformance} from "./terminal_source_conformance.ts";
 import {registerLeaseAcquisitionConformance} from "./lease_acquisition_conformance.ts";
 import {registerClaimTransferConformance} from "./claim_transfer_conformance.ts";
 import {registerLeasedMonitorConformance} from "./monitor_poll_lease_conformance.ts";
@@ -244,6 +248,7 @@ export function registerAuthorityStoreConformance(
   factory: AuthorityStoreConformanceFactory,
 ): void {
   registerProjectionConfirmationConformance(providerName, factory);
+  registerPeriodicReportConformance(providerName, factory);
   registerLeaseLifecycleConformance(providerName, factory);
   registerClaimTransferConformance(providerName, factory);
   registerLeaseAcquisitionConformance(providerName, factory);
@@ -253,13 +258,16 @@ export function registerAuthorityStoreConformance(
   registerTodoConsumerScopeConformance(providerName, factory);
   registerNativePlanningUpdateConformance(providerName, factory);
   registerUserCompletionUpdateConformance(providerName, factory);
+  registerTerminalSourceConformance(providerName, factory);
   registerUserCompletionFollowthroughConformance(providerName, factory);
   registerMonitorConfigurationConformance(providerName, factory);
   registerLeasedMonitorConformance(providerName, factory);
   registerMonitorObservationUpdateConformance(providerName, factory);
+  registerIssueFixMonitorReconciliationConformance(providerName, factory);
   registerCoordinationReceiptConformance(providerName, factory);
   registerAuthoritySourceConformance(providerName, factory);
   registerHandoffModeConformance(providerName, factory);
+  registerPromotionRecoveryConformance(providerName, factory);
   for (const native of [false, true]) test(`${providerName} conformance: standing revocation survives canonical ordering and archive (${native ? "native" : "legacy"})`, async (t) => {
     const {store} = await factory(t);
     const goal = "goal-standing";

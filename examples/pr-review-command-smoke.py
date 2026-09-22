@@ -59,12 +59,40 @@ def assert_public_safe(payload: dict[str, object]) -> None:
             )
 
 
+# `--check-merge-readiness` now mandates a Goal id. Every authoritative
+# invocation an agent may read has to carry it, or the canonical self-merge
+# gate fails deterministically before it can record its observation.
+MERGE_READINESS_GUIDANCE_PATHS = (
+    REPO_ROOT / "AGENTS.md",
+    REPO_ROOT / "loopx" / "capabilities" / "pr_review_queue" / "README.md",
+    REPO_ROOT / "loopx" / "capabilities" / "pr_review_queue" / "catalog_entry.py",
+    PR_REVIEW_SKILL,
+    PR_MERGE_SKILL,
+)
+
+
+def assert_merge_readiness_invocations_require_goal_id() -> None:
+    for path in MERGE_READINESS_GUIDANCE_PATHS:
+        source = path.read_text(encoding="utf-8")
+        for span in re.findall(r"`[^`]*--check-merge-readiness[^`]*`", source):
+            assert "--goal-id" in span, (
+                f"{path.name} must pass --goal-id to --check-merge-readiness: {span}"
+            )
+        for line in source.splitlines():
+            if "--check-merge-readiness" in line and "`" not in line:
+                assert "--goal-id" in line, (
+                    f"{path.name} must pass --goal-id to --check-merge-readiness: "
+                    f"{line.strip()}"
+                )
+
+
 def main() -> int:
     skill_source = PR_REVIEW_SKILL.read_text(encoding="utf-8")
     skill_text = " ".join(skill_source.split())
     for phrase in (
         "This skill is a thin host adapter",
-        "loopx --format json pr-review --state all",
+        "keeps ordinary queue discovery open-only",
+        "explicit `--state merged|all`",
         "agent_response_contract.review_execution_contract",
         "pull_requests[review_action_kind!=null].review_plan",
         "pull_requests[review_action_kind!=null].review_template",
@@ -90,6 +118,7 @@ def main() -> int:
         "Never send the projection ACK before the Todo exists",
         "Generic `re-review`, `重新review`, and `复审` wording selects the named PR; it is not a force-refresh token.",
         "the row stays in `pull_requests` inventory but must not appear in `review_sequence`",
+        "--target-exact-head NUMBER@HEAD_OID",
     ):
         assert phrase in skill_text, phrase
     assert len(skill_source.splitlines()) <= 180, len(skill_source.splitlines())
@@ -147,6 +176,7 @@ def main() -> int:
         "A merge decision without this evidence is not authorized",
     ):
         assert phrase in merge_text, phrase
+    assert_merge_readiness_invocations_require_goal_id()
 
     assert _github_search_date("2026-06-28T00:00:00+08:00") == "2026-06-27"
     assert _github_search_date("2026-06-28T00:00:00Z") == "2026-06-28"
@@ -221,7 +251,8 @@ def main() -> int:
 
     payload = json.loads(
         run_cli(
-            "--format", "json", "pr-review", "--fixture", str(FIXTURE), "--limit", "5"
+            "--format", "json", "pr-review", "--fixture", str(FIXTURE),
+            "--state", "all", "--limit", "5"
         ).stdout
     )
     assert payload["schema_version"] == "loopx_pr_review_command_response_v0", payload
@@ -229,7 +260,7 @@ def main() -> int:
     assert request["command"] == "/loopx-pr-review", request
     assert (
         request["cli_command"]
-        == "loopx pr-review [--repo owner/repo] [--state open|merged|all] [--review-priority other-developers-first|owner-first] [--since ISO]"
+        == "loopx pr-review [--repo owner/repo] [--target-exact-head NUMBER@HEAD_OID] [--state open|merged|all] [--review-priority other-developers-first|owner-first] [--since ISO]"
     ), request
     assert request["privacy_mode"] == "public_safe_github_metadata", request
     assert request["dry_run"] is True, request
@@ -253,6 +284,27 @@ def main() -> int:
     assert payload["summary"]["total_pr_count"] == 4, payload["summary"]
     assert payload["summary"]["open_pr_count"] == 3, payload["summary"]
     assert payload["summary"]["merged_pr_count"] == 1, payload["summary"]
+    default_open = json.loads(
+        run_cli(
+            "--format", "json", "pr-review", "--fixture", str(FIXTURE), "--limit", "5"
+        ).stdout
+    )
+    assert default_open["request"]["state_filter"] == "open", default_open["request"]
+    assert default_open["summary"]["total_pr_count"] == 3, default_open["summary"]
+    assert default_open["summary"]["merged_pr_count"] == 0, default_open["summary"]
+    target = next(item for item in payload["pull_requests"] if item["number"] == 770)
+    exact_target = f"{target['number']}@{target['head_oid']}"
+    targeted = json.loads(
+        run_cli(
+            "--format", "json", "pr-review", "--fixture", str(FIXTURE),
+            "--target-exact-head", exact_target,
+        ).stdout
+    )
+    assert targeted["request"]["target_exact_heads"] == [exact_target], targeted
+    assert targeted["request"]["state_filter"] == "all", targeted["request"]
+    assert targeted["result_completeness"]["complete"] is True, targeted
+    assert targeted["result_completeness"]["limit_scope"] == "exact_targets", targeted
+    assert [item["number"] for item in targeted["pull_requests"]] == [target["number"]]
     assert payload["summary"]["post_merge_review_count"] == 1, payload["summary"]
     assert payload["summary"]["review_attention_count"] == 3, payload["summary"]
     assert payload["summary"]["draft_count"] == 1, payload["summary"]
@@ -292,6 +344,12 @@ def main() -> int:
 
     merge_head = "e" * 40
     with tempfile.TemporaryDirectory() as temp_dir:
+        runtime_root = Path(temp_dir) / "runtime"
+        registry_path = Path(temp_dir) / "registry.json"
+        registry_path.write_text(
+            json.dumps({"goals": [{"id": "test-goal", "repo": temp_dir}]}),
+            encoding="utf-8",
+        )
         merge_fixture_path = Path(temp_dir) / "merge-readiness.json"
         merge_fixture = {
             "repository": "owner/repo",
@@ -348,9 +406,15 @@ def main() -> int:
         merge_fixture_path.write_text(json.dumps(merge_fixture), encoding="utf-8")
         ready = json.loads(
             run_cli(
+                "--runtime-root",
+                str(runtime_root),
+                "--registry",
+                str(registry_path),
                 "--format",
                 "json",
                 "pr-review",
+                "--goal-id",
+                "test-goal",
                 "--fixture",
                 str(merge_fixture_path),
                 "--check-merge-readiness",
@@ -359,6 +423,29 @@ def main() -> int:
         )
         assert ready["ready"] is True, ready
         assert ready["blocking_reasons"] == [], ready
+        unchanged_queue = json.loads(
+            run_cli(
+                "--runtime-root",
+                str(runtime_root),
+                "--registry",
+                str(registry_path),
+                "--format",
+                "json",
+                "pr-review",
+                "--goal-id",
+                "test-goal",
+                "--fixture",
+                str(merge_fixture_path),
+                "--state",
+                "open",
+            ).stdout
+        )
+        unchanged_item = unchanged_queue["pull_requests"][0]
+        assert unchanged_item["review_action_kind"] is None, unchanged_item
+        assert (
+            unchanged_item["merge_readiness_observation"]["observation_state"]
+            == "observed_unchanged"
+        ), unchanged_item
 
         merge_fixture["pull_requests"][0]["reviews"][0]["body"] = merge_fixture[
             "pull_requests"
@@ -368,9 +455,15 @@ def main() -> int:
         )
         merge_fixture_path.write_text(json.dumps(merge_fixture), encoding="utf-8")
         blocked_run = run_cli(
+            "--runtime-root",
+            str(runtime_root),
+            "--registry",
+            str(registry_path),
             "--format",
             "json",
             "pr-review",
+            "--goal-id",
+            "test-goal",
             "--fixture",
             str(merge_fixture_path),
             "--check-merge-readiness",
@@ -447,6 +540,12 @@ def main() -> int:
         }
 
     with tempfile.TemporaryDirectory() as temp_dir:
+        runtime_root = Path(temp_dir) / "runtime"
+        registry_path = Path(temp_dir) / "registry.json"
+        registry_path.write_text(
+            json.dumps({"goals": [{"id": "test-goal", "repo": temp_dir}]}),
+            encoding="utf-8",
+        )
         approval_fixture_path = Path(temp_dir) / "approved-open-heads.json"
         approval_fixture = {
             "repository": "owner/repo",
@@ -498,9 +597,15 @@ def main() -> int:
         ):
             readiness = json.loads(
                 run_cli(
+                    "--runtime-root",
+                    str(runtime_root),
+                    "--registry",
+                    str(registry_path),
                     "--format",
                     "json",
                     "pr-review",
+                    "--goal-id",
+                    "test-goal",
                     "--fixture",
                     str(approval_fixture_path),
                     "--check-merge-readiness",
@@ -1139,7 +1244,8 @@ def main() -> int:
 
     group_limited = json.loads(
         run_cli(
-            "--format", "json", "pr-review", "--fixture", str(FIXTURE), "--limit", "1"
+            "--format", "json", "pr-review", "--fixture", str(FIXTURE),
+            "--state", "all", "--limit", "1"
         ).stdout
     )
     assert group_limited["summary"]["total_pr_count"] == 2, group_limited["summary"]
@@ -1179,6 +1285,8 @@ def main() -> int:
             "pr-review",
             "--fixture",
             str(FIXTURE),
+            "--state",
+            "all",
             "--since",
             "2026-06-27T12:20:00Z",
             "--limit",
@@ -1193,7 +1301,14 @@ def main() -> int:
         "review_sequence"
     ]
 
-    markdown = run_cli("pr-review", "--fixture", str(FIXTURE), "--limit", "1").stdout
+    default_markdown = run_cli(
+        "pr-review", "--fixture", str(FIXTURE), "--limit", "1"
+    ).stdout
+    assert "state_filter: `open`" in default_markdown, default_markdown
+    assert "#770" not in default_markdown, default_markdown
+    markdown = run_cli(
+        "pr-review", "--fixture", str(FIXTURE), "--state", "all", "--limit", "1"
+    ).stdout
     assert "# Project PR Review Queue" in markdown, markdown
     assert "current gh repository" not in markdown, markdown
     assert "state_filter: `all`" in markdown, markdown

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import re
 import subprocess
 import threading
 from collections.abc import Mapping
@@ -2913,3 +2914,314 @@ def test_a_fully_sent_part_sequence_settles_after_an_interrupted_receipt_write(
     pending = inspect_lark_event_inbox(project=kwargs["runtime_root"],
                                       config_path=config_path)
     assert pending["items"] == []
+
+
+def test_a_part_whose_readback_failed_is_reconciled_instead_of_sent_twice(
+    tmp_path, monkeypatch,
+):
+    """An ambiguous part send must be confirmed, not repeated.
+
+    The provider accepted the first part and returned a message id, but its
+    readback could not confirm it. Re-sending that part would show the reader the
+    same text twice, so the retry verifies the recorded provider locator first.
+    """
+
+    from loopx.extensions.lark import goal_topic_runtime as runtime
+    from loopx.extensions.lark.manager_reply_delivery import delivery_path
+    from loopx.extensions.lark.manager_reply_parts import PART_ATTEMPT_KEY
+
+    target_path, binding_path = tmp_path / "targets.json", tmp_path / "bindings.json"
+    _seed_legacy_topic(target_path, binding_path)
+    original_decide = runtime.decide_lark_topic_event
+    body = "测" * 60000
+
+    def manager_decision(**kwargs):
+        result = original_decide(**kwargs)
+        result["route"].update(
+            conversation_kind="manager", ingress_mode="session_queue",
+            authority_mode="turn_authorized",
+            event_id=kwargs["event"]["event_id"],
+            connector={"response_policy": "topic_reply"},
+        )
+        return result
+
+    monkeypatch.setattr(runtime, "decide_lark_topic_event", manager_decision)
+    monkeypatch.setattr(
+        runtime,
+        "ensure_lark_event_inbox_received_reaction",
+        lambda **kw: {"ok": True, "status": "already_received"},
+    )
+    state: dict[str, Any] = {}
+    answered: list[str] = []
+
+    def answer(route, text):
+        answered.append(text)
+        return {
+            "response_text": body,
+            "effect_receipt": runtime._session_turn_effect(route),
+        }
+
+    working_runner = _reply_runner(state)
+    missing_readbacks: list[str] = []
+
+    def ambiguous_runner(args: list[str]) -> dict[str, Any]:
+        if "+messages-mget" in args and not missing_readbacks:
+            missing_readbacks.append("om_reply_fixture")
+            return {
+                "returncode": 0,
+                "stdout": json.dumps({"data": {"items": []}}),
+                "stderr": "",
+            }
+        return working_runner(args)
+
+    kwargs = {
+        "target_payload": read_goal_channel_targets(target_path),
+        "binding_payloads": {"goal-alpha": read_goal_channel_binding(binding_path)},
+        "event": {
+            "event_id": "evt_incoming",
+            "message_id": "om_incoming",
+            "chat_id": "oc_public_fixture",
+            "root_id": "om_topic_alpha",
+            "create_time": "2026-08-14T21:00:00Z",
+            "content": "@linkmacbot report",
+            "mentioned": True,
+            "sender_type": "user",
+        },
+        "runtime_root": tmp_path / "runtime",
+        "answer": answer,
+        "reply_runner": ambiguous_runner,
+    }
+    first = runtime.process_lark_goal_topic_event(**kwargs)
+
+    assert first["status"] == "reply_delivery_pending"
+    config_path = Path(first["inbox_config_ref"])
+    state_path = delivery_path(
+        project=kwargs["runtime_root"], config_path=config_path,
+        message_id="om_incoming",
+    )
+    saved = json.loads(state_path.read_text())
+    assert saved["delivery_parts_sent"] == 0
+    assert saved[PART_ATTEMPT_KEY]["index"] == 0
+    sent_once = [
+        call[call.index("--text") + 1]
+        for call in state["calls"]
+        if "+messages-reply" in call and "--dry-run" not in call
+    ]
+    assert len(sent_once) == 1
+
+    kwargs["reply_runner"] = working_runner
+    second = runtime.process_lark_goal_topic_event(**kwargs)
+
+    assert second["ok"] is True
+    assert second["status"] == "replied_and_acknowledged"
+    assert len(answered) == 1
+    sent_total = [
+        call[call.index("--text") + 1]
+        for call in state["calls"]
+        if "+messages-reply" in call and "--dry-run" not in call
+    ]
+    assert sent_total.count(sent_once[0]) == 1
+    assert len(sent_total) == MANAGER_REPLY_MAX_PARTS
+    settled = json.loads(state_path.read_text())
+    assert settled["status"] == "acknowledged"
+    assert settled["delivery_parts_sent"] == MANAGER_REPLY_MAX_PARTS
+    assert PART_ATTEMPT_KEY not in settled
+
+
+def test_a_long_manager_answer_is_delivered_as_one_message(
+    tmp_path, monkeypatch,
+):
+    """A 3000-character steward answer is one message, not a bounded sequence.
+
+    The self-imposed 1200-character cap is not a provider limit: the transport
+    already accepts up to the 150 KB provider bound, and every reader-visible
+    split costs an extra message plus a part-sequence record. This pins the
+    single-message outcome so a later change cannot silently reintroduce the
+    split for an ordinary long answer.
+    """
+
+    from loopx.extensions.lark import goal_topic_runtime as runtime
+
+    target_path, binding_path = tmp_path / "targets.json", tmp_path / "bindings.json"
+    _seed_legacy_topic(target_path, binding_path)
+    original_decide = runtime.decide_lark_topic_event
+    state: dict[str, Any] = {}
+    body = "测" * 3000
+
+    def manager_decision(**kwargs):
+        result = original_decide(**kwargs)
+        result["route"].update(
+            conversation_kind="manager", ingress_mode="session_queue",
+            authority_mode="turn_authorized",
+            event_id=kwargs["event"]["event_id"],
+            connector={"response_policy": "topic_reply"},
+        )
+        return result
+
+    monkeypatch.setattr(runtime, "decide_lark_topic_event", manager_decision)
+    monkeypatch.setattr(
+        runtime,
+        "ensure_lark_event_inbox_received_reaction",
+        lambda **kw: {"ok": True, "status": "already_received"},
+    )
+
+    kwargs = {
+        "target_payload": read_goal_channel_targets(target_path),
+        "binding_payloads": {"goal-alpha": read_goal_channel_binding(binding_path)},
+        "event": {
+            "event_id": "evt_long_answer",
+            "message_id": "om_long_answer",
+            "chat_id": "oc_public_fixture",
+            "root_id": "om_topic_alpha",
+            "create_time": "2026-09-21T15:20:00Z",
+            "content": "@linkmacbot report",
+            "mentioned": True,
+            "sender_type": "user",
+        },
+        "runtime_root": tmp_path / "runtime",
+        "answer": lambda route, text: {
+            "response_text": body,
+            "effect_receipt": runtime._session_turn_effect(route),
+        },
+        "reply_runner": _reply_runner(state),
+    }
+
+    result = runtime.process_lark_goal_topic_event(**kwargs)
+
+    sent = [
+        call[call.index("--text") + 1]
+        if "--text" in call
+        else call[call.index("--content") + 1]
+        for call in state["calls"]
+        if "+messages-reply" in call and "--dry-run" not in call
+    ]
+    assert result["status"] in {"replied_and_acknowledged", "acknowledged"}
+    assert len(sent) == 1, sent
+    # One message: the whole body in the rich-text envelope, with no part
+    # marker and no part record.
+    payload = json.loads(sent[0])
+    delivered = payload["zh_cn"]["content"][0][0]["text"]
+    assert delivered == body
+    from loopx.extensions.lark.manager_reply_delivery import delivery_path
+
+    saved = json.loads(
+        delivery_path(
+            project=kwargs["runtime_root"],
+            config_path=Path(result["inbox_config_ref"]),
+            message_id="om_long_answer",
+        ).read_text()
+    )
+    assert "delivery_part_count" not in saved
+
+
+def test_a_stalled_part_sequence_tells_the_reader_what_was_delivered(
+    tmp_path, monkeypatch,
+):
+    """A partly delivered answer must not look like a complete one.
+
+    Two parts reach the channel and the third cannot be delivered. The reader
+    currently learns nothing more, so after the sequence has already failed more
+    than one attempt it is told how many parts went and where the rest is.
+    """
+
+    from loopx.extensions.lark import goal_topic_runtime as runtime
+    from loopx.extensions.lark.manager_reply_parts import PART_STALL_NOTICE_KEY
+
+    target_path, binding_path = tmp_path / "targets.json", tmp_path / "bindings.json"
+    _seed_legacy_topic(target_path, binding_path)
+    original_decide = runtime.decide_lark_topic_event
+    body = "测" * 60000
+
+    def manager_decision(**kwargs):
+        result = original_decide(**kwargs)
+        result["route"].update(
+            conversation_kind="manager", ingress_mode="session_queue",
+            authority_mode="turn_authorized",
+            event_id=kwargs["event"]["event_id"],
+            connector={"response_policy": "topic_reply"},
+        )
+        return result
+
+    monkeypatch.setattr(runtime, "decide_lark_topic_event", manager_decision)
+    monkeypatch.setattr(
+        runtime,
+        "ensure_lark_event_inbox_received_reaction",
+        lambda **kw: {"ok": True, "status": "already_received"},
+    )
+    state: dict[str, Any] = {}
+    working_runner = _reply_runner(state)
+
+    def part_index(text: str) -> int | None:
+        match = re.match(r"\((\d+)/(\d+)\) ", text)
+        return int(match.group(1)) if match else None
+
+    def stalling_runner(args: list[str]) -> dict[str, Any]:
+        if "+messages-reply" in args and "--dry-run" not in args:
+            text = args[args.index("--text") + 1]
+            index = part_index(text)
+            if index is not None and index >= 3:
+                return {"returncode": 1}
+        return working_runner(args)
+
+    kwargs = {
+        "target_payload": read_goal_channel_targets(target_path),
+        "binding_payloads": {"goal-alpha": read_goal_channel_binding(binding_path)},
+        "event": {
+            "event_id": "evt_incoming",
+            "message_id": "om_incoming",
+            "chat_id": "oc_public_fixture",
+            "root_id": "om_topic_alpha",
+            "create_time": "2026-08-14T21:00:00Z",
+            "content": "@linkmacbot report",
+            "mentioned": True,
+            "sender_type": "user",
+        },
+        "runtime_root": tmp_path / "runtime",
+        "answer": lambda route, text: {
+            "response_text": body,
+            "effect_receipt": runtime._session_turn_effect(route),
+        },
+        "reply_runner": stalling_runner,
+    }
+
+    def delivered_texts() -> list[str]:
+        return [
+            call[call.index("--text") + 1]
+            for call in state["calls"]
+            if "+messages-reply" in call and "--dry-run" not in call
+        ]
+
+    first = runtime.process_lark_goal_topic_event(**kwargs)
+    second = runtime.process_lark_goal_topic_event(**kwargs)
+
+    # Two real retries failed: still quiet, and the delivered parts are recorded.
+    assert first["status"] == "reply_delivery_pending"
+    assert first["delivery_parts_sent"] == 2
+    assert first["delivery_notice_sent"] is False
+    assert second["delivery_parts_sent"] == 2
+    assert second["delivery_notice_sent"] is False
+    assert not [text for text in delivered_texts() if text.startswith("本条答复")]
+
+    third = runtime.process_lark_goal_topic_event(**kwargs)
+
+    assert third["status"] == "reply_delivery_pending"
+    assert third["delivery_notice_sent"] is True
+    notices = [text for text in delivered_texts() if text.startswith("本条答复")]
+    assert len(notices) == 1
+    assert "2/8" in notices[0]
+
+    fourth = runtime.process_lark_goal_topic_event(**kwargs)
+
+    assert fourth["delivery_notice_sent"] is True
+    assert len([text for text in delivered_texts() if text.startswith("本条答复")]) == 1
+    config_path = Path(fourth["inbox_config_ref"])
+    from loopx.extensions.lark.manager_reply_delivery import delivery_path
+
+    saved = json.loads(
+        delivery_path(
+            project=kwargs["runtime_root"], config_path=config_path,
+            message_id="om_incoming",
+        ).read_text()
+    )
+    assert saved[PART_STALL_NOTICE_KEY] is True
+    assert saved["status"] == "pending"
