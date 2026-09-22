@@ -12,9 +12,9 @@ test("latency has explicit nearest-rank tails and rejects absent or invalid samp
   for (const samples of [[], [NaN], [Infinity], [-1]]) assert.throws(() => latency(samples));
 });
 
-function axis(count: number): CapacityAxis {
+function axis(count: number, payloadBytes = 65536): CapacityAxis {
   const sample = (n: number) => ({n, p50_ms: 1, p95_ms: 2, p99_ms: 3});
-  return {target_commits: count, completed_commits: count, projection_json_bytes: 65536,
+  return {target_commits: count, completed_commits: count, projection_json_bytes: payloadBytes,
     sample_window: 1000, status: "passed", cleanup_verified: true,
     warm: {commit: sample(1000), head: sample(3000), receipt: sample(2000), scan_100: sample(200)},
     cold_node: sample(20), cold_cli: {mutation: sample(20), status: sample(20), quota: sample(20)},
@@ -27,7 +27,7 @@ function axis(count: number): CapacityAxis {
       page_size_bytes: 4096, frame_bytes: 4120, wal_bytes: 41200000, frames: 10000,
       wal_bytes_per_commit: 41200},
     logical_writes: {commits_rows_sampled: 1000, commits_row_bytes_mean: 4096,
-      checkpoints: Math.ceil(count / 64), checkpoint_row_bytes_mean: 65536, head_projection_bytes: 65536,
+      checkpoints: Math.ceil(count / 64), checkpoint_row_bytes_mean: 65536, head_projection_bytes: payloadBytes,
       per_commit_logical_bytes: 73728, cumulative_logical_bytes: 73728 * count, formula: "fixture"},
     lock_wait: {status: "measured", samples: 12, held_write_lock_ms: 200,
       uncontended_commit_p50_ms: 1, observed_wait: sample(12)},
@@ -83,6 +83,47 @@ test("split storage-write rows cannot stand in for each other or hide per-commit
     uncontended_commit_p50_ms: 1, observed_wait: {n: 11, p50_ms: 1, p95_ms: 2, p99_ms: 3}};
   assert.equal(capacityLedger([axis(10000), shortProbe], true)
     .find(row => row.id === "lock_wait_observed")?.status, "missing");
+});
+
+test("headroom profiles carry prefixed rows with their own depth ratio and payload axis", () => {
+  // matched-1m: same budgets on the 1 MiB payload axis; a 64 KiB fixture is
+  // the wrong axis and stays missing even when every number is healthy.
+  const oneMib = [axis(10000, 1048576), axis(100000, 1048576)];
+  const prefixed = capacityLedger(oneMib, true, {prefix: "one_mib_", payloadBytes: 1048576, coversOneMib: true});
+  assert.equal(prefixed.find(row => row.id === "one_mib_matched_profile_execution")?.status, "passed");
+  assert.equal(prefixed.find(row => row.id === "one_mib_wal_traffic_growth")?.status, "passed");
+  assert.equal(prefixed.find(row => row.id === "one_mib_commit_p95")?.status, "passed");
+  assert.equal(prefixed.find(row => row.id === "matched_profile_execution"), undefined);
+  assert.equal(prefixed.find(row => row.id === "payload_one_mib"), undefined);
+  assert.equal(prefixed.find(row => row.id === "headroom_300k")?.status, "missing");
+  const wrongPayload = capacityLedger([axis(10000), axis(100000)], true,
+    {prefix: "one_mib_", payloadBytes: 1048576, coversOneMib: true});
+  assert.equal(wrongPayload.find(row => row.id === "one_mib_matched_profile_execution")?.status, "missing");
+  // headroom-64k: depth ratio is 3, so per-commit traffic may grow up to 5x
+  // before the cumulative budget fails.
+  const headroom = [axis(100000), axis(300000)];
+  const flat = capacityLedger(headroom, true,
+    {prefix: "headroom_300k_", payloadBytes: 65536, growthFactor: 3, coversHeadroom: true});
+  assert.equal(flat.find(row => row.id === "headroom_300k_matched_profile_execution")?.status, "passed");
+  const flatGrowth = flat.find(row => row.id === "headroom_300k_wal_traffic_growth");
+  assert.equal(flatGrowth?.status, "passed");
+  assert.equal(flatGrowth?.observed, 3);
+  assert.equal(flat.find(row => row.id === "headroom_300k"), undefined);
+  assert.equal(flat.find(row => row.id === "payload_one_mib")?.status, "missing");
+  const amplified = axis(300000);
+  const measured = headroom[0]!.wal_traffic_window;
+  assert(measured?.status === "measured");
+  amplified.wal_traffic_window = {...measured, wal_bytes_per_commit: measured.wal_bytes_per_commit * 6};
+  assert.equal(capacityLedger([headroom[0]!, amplified], true,
+    {prefix: "headroom_300k_", payloadBytes: 65536, growthFactor: 3, coversHeadroom: true})
+    .find(row => row.id === "headroom_300k_wal_traffic_growth")?.status, "failed");
+});
+
+test("a default report keeps both dedicated headroom axes as explicit missing evidence", () => {
+  const rows = capacityLedger([axis(10000), axis(100000)], true);
+  assert.equal(rows.find(row => row.id === "payload_one_mib")?.status, "missing");
+  assert.equal(rows.find(row => row.id === "headroom_300k")?.status, "missing");
+  assert.equal(rows.find(row => row.id === "burst_60s")?.status, "missing");
 });
 
 test("incomplete, wrong-size or malformed evidence cannot satisfy matched budgets", () => {
