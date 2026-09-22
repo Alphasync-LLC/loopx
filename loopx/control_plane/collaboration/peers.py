@@ -285,22 +285,32 @@ def _request_id(value):
     return value
 
 
-def input_readiness(registry, goal_id, brief, *, workspace=None):
+def input_readiness(
+    registry,
+    goal_id,
+    brief,
+    *,
+    workspace=None,
+    configured_workspace: bool = False,
+):
     """Check local input versions, without fetching or claiming agent comprehension."""
     goal = _goal(registry, goal_id)
     goal_workspace = Path(goal["repo"]).resolve()
     selected = goal_workspace
     if workspace is not None and Path(workspace).resolve() != goal_workspace:
-        from ...project_alias import resolve_canonical_project_alias
-
-        alias = resolve_canonical_project_alias(
-            Path(workspace), goal_id=goal_id, global_registry=registry
-        )
-        if (
-            alias.get("applied")
-            and Path(alias["canonical_project"]).resolve() == goal_workspace
-        ):
+        if configured_workspace:
             selected = Path(workspace).resolve()
+        else:
+            from ...project_alias import resolve_canonical_project_alias
+
+            alias = resolve_canonical_project_alias(
+                Path(workspace), goal_id=goal_id, global_registry=registry
+            )
+            if (
+                alias.get("applied")
+                and Path(alias["canonical_project"]).resolve() == goal_workspace
+            ):
+                selected = Path(workspace).resolve()
     workspace = selected
     result = []
     for item in brief.get("inputs", []):

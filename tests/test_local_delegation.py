@@ -2,6 +2,7 @@
 import json
 import asyncio
 from pathlib import Path
+import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
@@ -167,6 +168,7 @@ def test_detached_result_reconnects_without_duplicate_execution(service):
     result = wait(reconnected)
     assert result["status"] == "accepted", result
     assert (root / "analyst" / "initial" / "host-invocations").read_text() == "1"
+    assert not (root / "analyst" / "initial" / "DELEGATION.json").exists()
     assert demo.canonical_tasks(root)["todo_analyst-initial"]["done"]
     returned = returns(original.root, original.goal_id, "lead")["items"]
     assert len(returned) == 1
@@ -191,6 +193,22 @@ def test_detached_result_reconnects_without_duplicate_execution(service):
     output.write_text("{}")
     with pytest.raises(ValueError, match="acceptance rejected"):
         reconnected.read("analysis-1")
+
+
+def test_host_timeout_removes_private_delegation_bootstrap(service, monkeypatch):
+    root, runner = service
+    monkeypatch.setattr(runner, "_spawn", lambda _operation_id: None)
+    runner.start("analysis", "analysis-timeout", brief())
+
+    def timeout(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired("loopx turn", 1)
+
+    monkeypatch.setattr(runner, "_cli", timeout)
+    runner.execute("analysis-timeout")
+
+    workspace = root / "analyst" / "initial"
+    assert not (workspace / "DELEGATION.json").exists()
+    assert runner.read("analysis-timeout")["error"] == "TimeoutExpired"
 
 
 def test_model_success_without_receiver_adoption_cannot_complete(service):

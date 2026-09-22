@@ -7,7 +7,7 @@ import {evaluateTodoPriority} from "./todos/priority.ts";
 import {evaluateUserCompletion} from "./todos/user_completion.ts";
 import {projectTodoSuccession, projectTodoClosure} from "./todos/succession.ts";
 import {projectTodoSummaryLanes, projectLegacyTodoWorkCounts} from "./todos/summary_lanes.ts";
-import {recordDelegationAdoption, delegationInventoryItem, delegationInventoryQuery, delegationPreflight, delegationTurnPlanDecision, selectDelegationBinding, transitionDelegationObservation} from "./collaboration/delegation.ts";
+import {recordDelegationAdoption, delegationInventoryItem, delegationInventoryQuery, delegationPreflight, delegationTurnPlanDecision, recoverValidatedDelegationSettlement, selectDelegationBinding, transitionDelegationObservation} from "./collaboration/delegation.ts";
 import {planChatMode} from "./collaboration/chat_mode.ts";
 import {resolveConversationScope} from "./collaboration/conversation_scope.ts";
 import {previewTeamPlan, planTeamTransaction, teamTransactionIdentity} from "./work_items/team_plan.ts";
@@ -676,6 +676,7 @@ export function createEffectRuntimeHandlers(
     ["collaboration.chat_mode", planChatMode],
     ["collaboration.conversation.scope", resolveConversationScope],
     ["collaboration.delegation.observe", transitionDelegationObservation],
+    ["collaboration.delegation.recover_validated_settlement", recoverValidatedDelegationSettlement],
     ["collaboration.delegation.adoption", recordDelegationAdoption],
     [
       "collaboration.request.normalize",
