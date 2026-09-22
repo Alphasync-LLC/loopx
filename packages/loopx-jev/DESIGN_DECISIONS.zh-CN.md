@@ -106,6 +106,8 @@ Claude 记录中的模型为 `claude-haiku-4-5-20251001`、`claude-sonnet-5`、`
 | `noul` 规则以行为变化为门槛，无关新功能被放过、负实验被误报 | 规则 v1 以 `serves_acceptance` 与 `evidence_increment` 为门槛，两者都针对检查点之间的变化；核心重算布尔值并拒绝不一致回执 |
 | 只要求回执彼此版本一致，未要求与当前 Goal 契约一致 | `assist` 必须 pin `contract_revision`；其他修订为过期，永不计数 |
 | 按 turn id 找到的回执未核对 Agent/Todo；最新一条未评估记录会使连续段消失 | 要求身份一致，歧义回退不做归属，pending 回执在上限内被跳过 |
+| （维护者精确 head 评审）义务不带 `progress_baseline`，原样重提被评估的观察会被判为 `new_surface`/`new_hypothesis` 并解除义务 | trigger 把最新被计数 run 的类型化观察绑定为 `progress_baseline`，且仅在其存在时触发；真实 writeback 现在拒绝原样观察和同 hypothesis 换新 evidence id，接受新 hypothesis 或新 blocker（闭环回归） |
+| （维护者设计评论）neutral 记账行打断连续段 | 与现有重规划策略一致地跳过 neutral 分类 |
 
 `packages/loopx-jev/tests/test_closed_loop.py` 用同一段真实 `refresh-state` 序列跑四种方式：默认 `off` 无信号；`shadow` 显示回执但无义务；未 pin 的 `assist` 被阻断并报告 `contract_revision_unpinned`；pin 后的 `assist` 触发义务，`loopx status` 显示它，一次真实的已确认重规划使其重新武装，之后单轮漂移不足以再触发。
 

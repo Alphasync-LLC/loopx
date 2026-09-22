@@ -95,7 +95,7 @@ loopx configure-goal --goal-id <goal-id> --progress-review-mode assist \
 
 绑定到其他修订的回执是过期历史，永不计数。按 `turn_instance_id` 找到的回执，在双方都给出 Agent 与 Todo 时必须一致；按 `(generated_at, agent_id)` 回退匹配到两条不同回执视为歧义，不做归属。最新的至多两条 pending 回执会被跳过，使已有连续段在消费者仍在运行时既不增长也不消失；其他未完成、不匹配或缺失的回执都会终止连续段。
 
-`assist` 会改变 Agent 的工作契约：它产生带 stop condition 与 ack 要求的 `required` 义务。它不授予暂停、gate 或验收权限，但不是被动建议。观察器自身的 `off/shadow` 开关控制模型调用与出站；Goal 的 `off/shadow/assist` 策略控制核心如何使用已经存在的回执。关闭观察器不会撤回已写出的回执；清除 Goal 策略才会。
+`assist` 会改变 Agent 的工作契约：它产生带 stop condition 与 ack 要求的 `required` 义务。义务会把被评估窗口的类型化进展观察绑定为基线，现有 writeback 据此拒绝原样重提该观察或仅在同一 hypothesis 下更换 evidence id 的 ack；只有存在这样的观察时才会触发。它不授予暂停、gate 或验收权限，但不是被动建议。观察器自身的 `off/shadow` 开关控制模型调用与出站；Goal 的 `off/shadow/assist` 策略控制核心如何使用已经存在的回执。关闭观察器不会撤回已写出的回执；清除 Goal 策略才会。
 
 `drift label --state-dir <dir> --event-id <id> --truth drift|on_goal|unknown` 记录私有的人工真值；随后 `drift status` 按信号给出混淆表。标注不会离开私有目录，也不会进入回执。
 

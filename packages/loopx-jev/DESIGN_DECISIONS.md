@@ -194,6 +194,8 @@ defects that this revision fixes deterministically rather than by model tuning:
 | The `noul` rule gated on behaviour change, so an unrelated feature passed and a negative experiment was flagged | Rule v1 gates on `serves_acceptance` and `evidence_increment`, both asked about the change between checkpoints; the core recomputes the booleans and rejects inconsistent receipts |
 | Receipts were required to agree with each other, not with the current goal contract | `assist` requires a pinned `contract_revision`; other revisions are stale and never counted |
 | A receipt found by turn id was not checked against Agent/Todo; an unevaluated newest run dissolved the streak | Identity agreement is required, ambiguous fallbacks are unattributed, pending receipts are skipped within a bound |
+| (maintainer exact-head review) The obligation carried no `progress_baseline`, so re-submitting the evaluated observation was accepted as `new_surface`/`new_hypothesis` and discharged it | The trigger binds the newest counted run's typed observation as `progress_baseline` and fires only when one exists; the real writeback now rejects the identical observation and the same hypothesis with fresh evidence ids, and accepts a new hypothesis or blocker (closed-loop regression) |
+| (maintainer design review) Neutral bookkeeping rows broke the streak | Neutral classifications are skipped exactly as in the existing replan policy |
 
 `packages/loopx-jev/tests/test_closed_loop.py` runs one real `refresh-state`
 sequence four ways: default `off` produces no signal; `shadow` shows receipts

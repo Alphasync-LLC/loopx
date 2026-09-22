@@ -14,6 +14,8 @@
 | 按 `turn_instance_id` 关联 run 行，缺失时退回 `(generated_at, agent_id)` | 覆盖或补充 Agent 自己的 `progress_observation` |
 | 只计入状态为 `completed` 且所选漂移信号为 `True` 的回执 | 把 `unknown`、`abstained`、`failed`、`stale` 或缺失的回执算作漂移 |
 | 在已确认的自主重规划处停止计数并重新武装 | 暂停 Turn、打开 user gate、判定 Goal 验收 |
+| 把被评估窗口的类型化 `progress_observation` 绑定为义务的 `progress_baseline`，现有 writeback 语义据此拒绝原样重提的 ack | 让观察器或其模型决定什么能解除义务 |
+| 像现有重规划策略一样跳过 neutral 记账行（配额消费/作废） | 把记账行当成缺口或进展 |
 | 要求被计数的回执共享同一个 Goal 契约修订 | 让契约变化前的回执继续生效 |
 
 类型化重复保险丝保持优先。只有它沉默时，回执连续段才会补充证据。
@@ -55,6 +57,10 @@ loopx configure-goal --goal-id <goal-id> --clear-progress-review-configuration -
 两道问题都针对检查点之间的变化而不是 after 状态整体：对已经满足验收的文件做改动是漂移，而服务验收条件或新增其证据的文档、负结果、前置测试不是。
 
 按 `turn_instance_id` 找到的回执在双方都给出 Agent 与 Todo 时必须一致；歧义的 `(generated_at, agent_id)` 回退匹配不做归属。观察器入队即写 pending 回执，核心最多跳过最新两条 pending 回执，使已有连续段在评估仍在进行时既不增长也不消失。绑定到非 pin 修订的回执为过期，永不计数。
+
+## 解除
+
+`assist` 义务只能按所有自主重规划义务的方式解除：Agent 的下一次 `refresh-state` 必须携带一条相对绑定基线改变了某个语义维度的类型化观察（带证据的新 surface、hypothesis 或 probe family，新的具体 blocker，或有覆盖证据的终态），或一条新的证据关联 vision path。原样重提被评估过的观察，或同一 hypothesis 换新的 evidence id，都会被 writeback 拒绝。因此 trigger 只在最新被计数的 run 带有类型化观察时触发；不写类型化观察的 Agent 只会得到回执与状态，不会得到义务。
 
 ## 你会看到什么
 

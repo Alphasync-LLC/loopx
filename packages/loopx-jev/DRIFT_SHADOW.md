@@ -195,7 +195,11 @@ consumer is still running; any other non-completed, mismatched or missing
 receipt ends the streak.
 
 `assist` changes the Agent's work contract: it raises a `required` obligation
-with a stop condition and an acknowledgement requirement. It grants no pause,
+with a stop condition and an acknowledgement requirement. The obligation binds
+the evaluated window's typed progress observation as its baseline, so the
+existing writeback rejects an acknowledgement that repeats that observation or
+only swaps evidence ids under the same hypothesis; it fires only when such an
+observation exists. It grants no pause,
 gate or acceptance authority, but it is not a passive recommendation. The
 observer's own `off/shadow` switch controls provider calls and egress; the
 Goal's `off/shadow/assist` policy controls what the core does with receipts

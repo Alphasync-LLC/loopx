@@ -22,6 +22,8 @@ periodic review after 20 durable runs.
 | Joins receipts to run rows by `turn_instance_id`, else by `(generated_at, agent_id)` | Overwrites or supplements the Agent's own `progress_observation` |
 | Counts only `completed` receipts whose selected drift signal is `True` | Counts `unknown`, `abstained`, `failed`, `stale` or missing receipts |
 | Stops the streak at an acknowledged autonomous replan and re-arms | Pauses turns, opens user gates, or settles Goal acceptance |
+| Binds the evaluated window's typed `progress_observation` as the obligation's `progress_baseline`, so the existing writeback semantics reject an acknowledgement that repeats it | Lets the observer or its model decide what discharges the obligation |
+| Skips neutral bookkeeping rows (quota spend/void) like the existing replan policy | Treats a bookkeeping row as a gap or as progress |
 | Requires one goal contract revision across the counted receipts | Keeps receipts alive across an acceptance-contract change |
 
 The typed repeat fuse keeps precedence. A receipt streak only adds evidence
@@ -86,6 +88,19 @@ attributed. The observer writes a pending receipt when it queues an event; the
 core skips at most two newest pending receipts so an existing streak neither
 grows nor dissolves while evaluation is still running. Receipts bound to a
 revision other than the pinned one are stale and never counted.
+
+## Discharge
+
+An `assist` obligation is discharged only the way every autonomous replan
+obligation is: the Agent's next `refresh-state` must carry a typed progress
+observation that changes an accepted semantic dimension against the bound
+baseline (a new surface, hypothesis or probe family with evidence, a new
+concrete blocker, or coverage-backed terminal state), or a fresh
+evidence-linked vision path. Re-submitting the observation that was evaluated,
+or the same hypothesis with new evidence ids, is rejected by the writeback. For
+that reason the trigger only fires when the newest counted run carries a typed
+observation; Agents that do not write typed observations get receipts and
+status, never an obligation.
 
 ## What you see
 
