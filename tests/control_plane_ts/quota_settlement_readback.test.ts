@@ -396,7 +396,9 @@ test("names the unbound same-turn receipt and the repair instead of a mismatch",
   const result = await readQuotaSettlement(request(runtimeRoot));
 
   const failure = (result.settlement as any).result.failure;
-  assert.equal(failure.kind, "identity_mismatch");
+  // The receipt exists and is well-formed, so the missing binding has its own
+  // kind instead of reading as a mismatch against a second record.
+  assert.equal(failure.kind, "receipt_unbound");
   assert.match(failure.reason, /carries no settlement binding yet/);
   assert.match(
     failure.reason,
@@ -422,7 +424,9 @@ test("names the argument-less guard reentry for a deferred explicit selection", 
   const result = await readQuotaSettlement(request(runtimeRoot));
 
   const failure = (result.settlement as any).result.failure;
-  assert.equal(failure.kind, "identity_mismatch");
+  // Both unbound states share the receipt's own failure kind; the deferred
+  // selection is told apart by the repair text and the retained selection.
+  assert.equal(failure.kind, "receipt_unbound");
   assert.match(failure.reason, /carries no settlement binding yet/);
   assert.match(
     failure.reason,
