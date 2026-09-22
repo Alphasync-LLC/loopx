@@ -63,6 +63,47 @@ def _plan(*, registry_path: Path, goal_id: str, project: Path,
     return plan, (source.get("authority_read") or {}).get("source_authority")
 
 
+def _attempt_prefix(*, goal_id: str, todo_id: str, owner: str,
+                    target_key: str) -> str:
+    """The stable identity of one recoverable Monitor execution attempt.
+
+    A retry of the same bounded work is a new invocation: it observes a later
+    time and may see a re-ordered ledger, so neither the observation clock nor
+    the raw rows may identify the attempt. What identifies it is the
+    reconciliation subject this actor executes against - the Goal, the Monitor
+    Todo and the bucket it watches - which is what lets an execution that
+    stopped after acquiring its own lease recognize that lease again instead of
+    colliding with it. A key minted for a different subject, or by another
+    actor, never matches this prefix.
+    """
+
+    identity = json.dumps(
+        [goal_id, todo_id, owner, target_key],
+        separators=(",", ":"),
+    )
+    return "issue-fix-monitor:" + hashlib.sha256(identity.encode()).hexdigest() + ":"
+
+
+def _decision_signature(step: dict[str, Any]) -> tuple[Any, ...]:
+    """The business decision a planned step carries, without the observation clock.
+
+    ``generated_at`` and the schedule it derives are properties of one
+    observation, not of the decision: a retry that observes the same bounded
+    work later plans the same operation and must be allowed to execute it. A
+    changed operation, membership digest, material-change verdict or write scope
+    still stops the stale step, and the revalidated step is the one written, so
+    the durable observation carries the time this execution actually observed.
+    """
+
+    observation = step.get("observation")
+    if isinstance(observation, dict):
+        return (step.get("operation"), step.get("todo_id"),
+                tuple(step.get("write_scopes") or ()), observation.get("target_key"),
+                observation.get("result_hash"), observation.get("material_change"))
+    return (step.get("operation"), step.get("todo_id"),
+            tuple(step.get("write_scopes") or ()), step.get("evidence"))
+
+
 def _release_attempt(*, registry_path: Path, runtime_root: Path, goal_id: str,
                      todo_id: str, owner: str, prefix: str,
                      proof: dict[str, Any] | None = None) -> None:
@@ -94,9 +135,8 @@ def materialize_issue_fix_grouped_monitors(
     writes: list[dict[str, Any]] = []
     for step in plan["steps"]:
         operation, target = step["operation"], step["target_key"]
-        identity = json.dumps([goal_id, step.get("todo_id"), claimed_by, generated_at, cadence, rows],
-                              sort_keys=True, separators=(",", ":"))
-        prefix = "issue-fix-monitor:" + hashlib.sha256(identity.encode()).hexdigest() + ":"
+        prefix = _attempt_prefix(goal_id=goal_id, todo_id=str(step.get("todo_id") or ""),
+            owner=claimed_by, target_key=target)
         if operation == "unchanged":
             _release_attempt(registry_path=registry_path, runtime_root=runtime_root,
                 goal_id=goal_id, todo_id=step["todo_id"], owner=claimed_by, prefix=prefix)
@@ -148,8 +188,13 @@ def materialize_issue_fix_grouped_monitors(
                 if not matching or matching[0]["operation"] == "unchanged":
                     writes.append({"operation": "unchanged", "target_key": target, "write_performed": False})
                     continue
-                if matching[0] != step:
+                if _decision_signature(matching[0]) != _decision_signature(step):
                     raise ValueError("Monitor source changed before execution; retry reconciliation")
+                # Execute the decision revalidated under our own execution: the
+                # recovered step carries this invocation's observation, while the
+                # stable attempt prefix keeps this execution's lease its own.
+                step = matching[0]
+                operation = step["operation"]
             if operation in {"observe", "reactivate"}:
                 result = update_goal_todo(registry_path=registry_path, goal_id=goal_id,
                     todo_id=todo_id, role="agent", agent_id=claimed_by, project=project, runtime_root_arg=str(runtime_root),

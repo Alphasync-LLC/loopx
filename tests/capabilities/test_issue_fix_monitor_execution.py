@@ -65,12 +65,70 @@ def test_retry_after_interrupted_acquisition_recovers_its_own_attempt(tmp_path, 
     lease_before = inspect_task_lease(registry_path=args["registry_path"], runtime_root=tmp_path,
         goal_id=GOAL_ID, todo_id=monitor["todo_id"])["lease"]
     monkeypatch.setattr(materialization, "acquire_task_lease", original)
-    assert materialization.materialize_issue_fix_grouped_monitors(**args, generated_at="2030-01-01T01:00:00Z")["write_performed"]
+    # A real retry is a new invocation: the observation time moves on while the
+    # intended work is unchanged, so the recovery must not depend on it.
+    assert materialization.materialize_issue_fix_grouped_monitors(**args, generated_at="2030-01-01T01:00:01Z")["write_performed"]
     lease_after = inspect_task_lease(registry_path=args["registry_path"], runtime_root=tmp_path,
         goal_id=GOAL_ID, todo_id=monitor["todo_id"])["lease"]
     assert lease_after["idempotency_key"] == lease_before["idempotency_key"]
     assert lease_after["lease_epoch"] == lease_before["lease_epoch"]
     assert lease_after["status"] == "released"
+
+
+@pytest.mark.parametrize("provider", ["legacy", "file", "sqlite"])
+def test_retry_recovers_its_own_attempt_despite_reordered_ledger(tmp_path, monkeypatch, provider):
+    """The attempt identity is the reconciliation subject, not the row order."""
+    args, monitor, _ = scenario(tmp_path, monkeypatch, provider)
+    original = materialization.acquire_task_lease
+    def interrupt(**kwargs):
+        original(**kwargs)
+        raise SystemExit("simulated process exit after durable acquire")
+    monkeypatch.setattr(materialization, "acquire_task_lease", interrupt)
+    with pytest.raises(SystemExit):
+        materialization.materialize_issue_fix_grouped_monitors(**args, generated_at="2030-01-01T01:00:00Z")
+    lease_before = inspect_task_lease(registry_path=args["registry_path"], runtime_root=tmp_path,
+        goal_id=GOAL_ID, todo_id=monitor["todo_id"])["lease"]
+    monkeypatch.setattr(materialization, "acquire_task_lease", original)
+    lines = args["ledger_path"].read_text(encoding="utf-8").splitlines()
+    assert len(lines) > 1
+    args["ledger_path"].write_text("\n".join(reversed(lines)) + "\n", encoding="utf-8")
+    assert materialization.materialize_issue_fix_grouped_monitors(**args, generated_at="2030-01-01T01:00:02Z")["write_performed"]
+    lease_after = inspect_task_lease(registry_path=args["registry_path"], runtime_root=tmp_path,
+        goal_id=GOAL_ID, todo_id=monitor["todo_id"])["lease"]
+    assert lease_after["idempotency_key"] == lease_before["idempotency_key"]
+    assert lease_after["lease_epoch"] == lease_before["lease_epoch"]
+    assert lease_after["status"] == "released"
+
+
+def test_attempt_prefix_identifies_the_subject_not_the_observation():
+    """Only the reconciliation subject identifies a recoverable attempt."""
+    subject = dict(goal_id=GOAL_ID, todo_id="todo_1", owner=AGENT_ID, target_key="github-pr-state-x")
+    prefix = materialization._attempt_prefix(**subject)
+    assert prefix == materialization._attempt_prefix(**subject)
+    assert prefix.startswith("issue-fix-monitor:")
+    for field, other in (("goal_id", "other-goal"), ("todo_id", "todo_2"),
+                         ("owner", "other-agent"), ("target_key", "github-pr-state-y")):
+        assert materialization._attempt_prefix(**(subject | {field: other})) != prefix
+
+
+def test_attempt_decision_ignores_only_the_observation_clock():
+    """A later observation may repeat the decision; a changed one may not."""
+    step = {"operation": "observe", "todo_id": "todo_1", "write_scopes": [],
+        "observation": {"target_key": "github-pr-state-x", "result_hash": "digest",
+            "material_change": True, "generated_at": "2030-01-01T00:00:00Z",
+            "next_due_at": "2030-01-01T00:30:00Z"}}
+    later = json.loads(json.dumps(step))
+    later["observation"].update(generated_at="2030-01-01T01:00:00Z", next_due_at="2030-01-01T01:30:00Z")
+    assert materialization._decision_signature(step) == materialization._decision_signature(later)
+    for mutate in (
+        lambda candidate: candidate.update(operation="complete"),
+        lambda candidate: candidate["observation"].update(result_hash="other-digest"),
+        lambda candidate: candidate["observation"].update(material_change=False),
+        lambda candidate: candidate.update(write_scopes=["tasks.write"]),
+    ):
+        changed = json.loads(json.dumps(step))
+        mutate(changed)
+        assert materialization._decision_signature(changed) != materialization._decision_signature(step)
 
 
 @pytest.mark.parametrize("provider", ["legacy", "file", "sqlite"])
@@ -163,7 +221,8 @@ m.materialize_issue_fix_grouped_monitors(**args,generated_at='2030-01-01T01:00:0
     held = inspect_task_lease(registry_path=args["registry_path"], runtime_root=tmp_path,
                              goal_id=GOAL_ID, todo_id=monitor["todo_id"])["lease"]
     assert held["status"] == "active"
-    retried = materialization.materialize_issue_fix_grouped_monitors(**args, generated_at="2030-01-01T01:00:00Z")
+    # The retry is a fresh invocation with its own observation time.
+    retried = materialization.materialize_issue_fix_grouped_monitors(**args, generated_at="2030-01-01T01:00:01Z")
     assert retried["write_performed"] is False
     after = _monitor_todos(args["registry_path"], args["project"])[0]
     assert after == before
