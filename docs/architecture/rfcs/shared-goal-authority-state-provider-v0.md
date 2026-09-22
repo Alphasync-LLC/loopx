@@ -31,6 +31,15 @@
 
 ## Current implementation checkpoint
 
+Handoff-mode changes now share one TS ownership-fact classifier before and
+after promotion. Legacy event-only claims reject rather than disappear at a
+Markdown boundary; event append locks protect the observation through writeback.
+Canonical changes reuse durable command receipt recovery. This is an L2/L3
+compatibility correction with Python decision deletion, not cohort migration,
+SQLite D2 completion or a default flip. The remaining 5–8 packages still depend
+on executor/consumer closure, qualification, integrated migration and onboarding.
+[Operation, repair and recovery](../../reference/handoff-mode.md).
+
 The terminal caller family now binds review and validation to the canonical
 source and recovers historical receipts independently of private argv. Agent
 completion and Monitor stop share current-head display acknowledgement with

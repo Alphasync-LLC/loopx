@@ -22,6 +22,16 @@ Retain T0 caller/parity inventory, T1/T2 transaction/effect convergence, T3 comp
 
 ## Current implementation checkpoint
 
+Handoff-mode transition now shares typed ownership facts and an explicit
+valid/invalid previous-mode state across legacy and canonical paths. Python's
+blocker classification, artificial previous mode and whole-text rewrite are
+removed; its retained boundary is source projection/locking and capture IO.
+The legacy scan includes event-only claims, and canonical mode receipts reuse
+command recovery with strict historical decisions. Full-source snapshot and
+real-provider validation guard this T1/T2 replacement. This closes a rule and
+caller discrepancy, not a whole default-cutover package; the conditional 5–8
+package estimate remains. [Changed behavior and recovery](../../reference/handoff-mode.md).
+
 Terminal review and validation now converge in the existing TS terminal owner.
 Agent completion and Monitor stop reuse Chat's canonical receipt-first recovery
 and display acknowledgement; v2 binds validation continuation to its source
