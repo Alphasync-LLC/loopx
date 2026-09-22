@@ -187,6 +187,33 @@ export function transitionDelegationObservation(params: JsonObject): JsonObject 
   return {status: to};
 }
 
+/** Repair only a false terminal observation after the exact Turn validated.
+ *
+ * This does not retry model work.  The host boundary must prove that the
+ * caller-stable settlement identity resolved one canonical journal and that
+ * the journal already completed independent validation.  Recovery returns to
+ * ``turn_returned`` so the existing settlement path can complete durably.
+ */
+export function recoverValidatedDelegationSettlement(params: JsonObject): JsonObject {
+  requireThat(params.from === "rejected", "delegation recovery requires a rejected observation");
+  requireThat(params.identity_matched === true, "delegation recovery requires the exact Turn identity");
+  requireThat(params.journal_status === "in_progress",
+    "delegation recovery requires an unsettled Turn journal");
+  requireThat(params.result_kind === "validated_progress",
+    "delegation recovery requires validated progress");
+  requireThat(params.task_validation_passed === true,
+    "delegation recovery requires independent task validation");
+  requireThat(Array.isArray(params.completed_phases)
+    && JSON.stringify(params.completed_phases) === JSON.stringify([
+      "host_execute", "typed_result", "validation",
+    ]), "delegation recovery requires the validated settlement boundary");
+  return {
+    status: "turn_returned",
+    recovery_kind: "settlement_only",
+    host_reexecution_allowed: false,
+  };
+}
+
 /** Explicit requester decision backed by two current accepted executions. */
 export function recordDelegationAdoption(params: JsonObject): JsonObject {
   const source = requireJsonObject(params.source, "source execution");

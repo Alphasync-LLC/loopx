@@ -112,6 +112,7 @@ def handle_turn_command(
             args, registry_path=registry_path, runtime_root_arg=runtime_root_arg,
             output_format=output_format, print_payload=print_payload,
         )
+    payload: dict[str, Any] = {}
     try:
         if getattr(args, "todo_id", None) is not None and (
             getattr(args, "resume_turn_key", None)
@@ -1066,6 +1067,12 @@ def handle_turn_command(
         else:
             raise ValueError("turn requires the `plan` or `run-once` subcommand")
     except Exception as exc:  # noqa: BLE001 - CLI boundary renders typed JSON failure
+        planned_transaction = (
+            payload.get("transaction")
+            if isinstance(payload.get("transaction"), Mapping)
+            else {}
+        )
+        planned_turn_key = str(planned_transaction.get("turn_key") or "")
         payload = {
             **({"error_code": exc.code, **getattr(exc, "payload", {})} if isinstance(getattr(exc, "code", None), str) else {}),
             "ok": False,
@@ -1082,6 +1089,16 @@ def handle_turn_command(
                 "scheduler_acknowledged": False,
                 "quota_spent": False,
             },
+            **(
+                {
+                    "resume_turn_key": planned_turn_key,
+                    "journal_ref": (
+                        f"turn:{planned_turn_key.removeprefix('sha256:')[:16]}"
+                    ),
+                }
+                if args.turn_command == "run-once" and planned_turn_key
+                else {}
+            ),
             **(
                 {"recovery_decision": exc.decision}
                 if isinstance(exc, TurnRecoveryBlockedError)

@@ -8,6 +8,11 @@ from pathlib import Path
 
 import pytest
 
+from loopx.control_plane.turn_driver import build_loopx_turn_plan
+from loopx.control_plane.turn_driver.executor import (
+    LOOPX_TURN_JOURNAL_SCHEMA_VERSION,
+)
+from loopx.control_plane.turn_driver.journal_store import turn_journal_path
 from test_delegation_cli import cli
 from test_local_delegation import service as delegation_service
 
@@ -111,7 +116,7 @@ def test_preflight_projects_unavailable_authority_without_turn_or_provider(
     assert not (root / "host-started").exists()
 
 
-def test_dispatch_preserves_turn_plan_rejection_before_transaction_read(
+def test_dispatch_preserves_run_once_rejection_before_host_launch(
     service, monkeypatch
 ):
     root, runner = service
@@ -127,28 +132,175 @@ def test_dispatch_preserves_turn_plan_rejection_before_transaction_read(
     })
     calls = []
 
-    def rejected_plan(_binding, *args, **_kwargs):
+    def rejected_turn(_binding, *args, **_kwargs):
         calls.append(args)
         return {
             "ok": False,
-            "schema_version": "loopx_turn_plan_v0",
-            "mode": "plan",
+            "schema_version": "loopx_turn_execution_v0",
+            "mode": "run_once",
             "error": "Requested Turn Todo is not accepted by canonical authority",
             "effects": {"host_invoked": False, "state_written": False,
                         "scheduler_acknowledged": False, "quota_spent": False},
         }
 
-    monkeypatch.setattr(runner, "_cli", rejected_plan)
+    monkeypatch.setattr(runner, "_cli", rejected_turn)
     runner.execute("rejected-plan")
     result = runner.read("rejected-plan")
     assert result["status"] == "rejected"
     assert result["error"] == (
-        "delegation Turn plan rejected: "
         "Requested Turn Todo is not accepted by canonical authority"
     )
-    assert len(calls) == 1 and calls[0][:2] == ("turn", "plan")
+    assert len(calls) == 1 and calls[0][:2] == ("turn", "run-once")
+    assert "--execute" in calls[0]
     assert "turn_key" not in result
     assert not (root / "host-started").exists()
+
+
+def test_hard_lease_delegation_claims_before_host_launch(service, monkeypatch):
+    from loopx import collaboration_mcp as delegation
+
+    _, runner = service
+    monkeypatch.setattr(runner, "_spawn", lambda _: None)
+    monkeypatch.setattr(
+        delegation,
+        "show_goal_handoff_mode",
+        lambda **_kwargs: {"handoff_mode": "hard_lease"},
+    )
+    runner.start("analysis", "leased-dispatch", brief={
+        "schema_version": "collaboration_brief_v0",
+        "purpose": "Exercise an atomic hard-lease dispatch",
+        "context": "The lease must precede the managed host.",
+        "constraints": ["No external actions"],
+        "inputs": [],
+        "acceptance": ["Preserve canonical lease identity"],
+        "return_requirement": "Return no model result",
+    })
+    calls = []
+
+    def canonical(_binding, *args, **_kwargs):
+        calls.append(args)
+        if args[:2] == ("todo", "claim"):
+            key = args[args.index("--task-lease-idempotency-key") + 1]
+            return {
+                "ok": True,
+                "lease": {
+                    "owner": "analyst",
+                    "idempotency_key": key,
+                    "status": "active",
+                    "version": 7,
+                },
+            }
+        return {
+            "ok": False,
+            "schema_version": "loopx_turn_execution_v0",
+            "mode": "run_once",
+            "error": "stop after lease evidence",
+            "effects": {
+                "host_invoked": False,
+                "state_written": False,
+                "scheduler_acknowledged": False,
+                "quota_spent": False,
+            },
+        }
+
+    monkeypatch.setattr(runner, "_cli", canonical)
+    runner.execute("leased-dispatch")
+    result = runner.read("leased-dispatch")
+    row = json.loads(runner.path("leased-dispatch").read_text())
+
+    assert [call[:2] for call in calls] == [("todo", "claim"), ("turn", "run-once")]
+    assert row["task_lease"] == {
+        "required": True,
+        "handoff_mode": "hard_lease",
+        "idempotency_key": row["turn_instance_id"],
+        "version": 7,
+    }
+    assert result["status"] == "rejected"
+    assert result["error"] == "stop after lease evidence"
+
+
+def test_exact_validated_turn_can_reopen_a_false_terminal_observation(
+    service, monkeypatch
+):
+    _, runner = service
+    monkeypatch.setattr(runner, "_spawn", lambda _: None)
+    runner.start("analysis", "recover-settlement", {
+        "schema_version": "collaboration_brief_v0",
+        "purpose": "Recover one validated settlement",
+        "context": "The model result and independent validation already exist.",
+        "constraints": ["Never rerun model work"],
+        "inputs": [],
+        "acceptance": ["Resume only the exact Turn"],
+        "return_requirement": "Return the validated artifact",
+    })
+    path = runner.path("recover-settlement")
+    row = json.loads(path.read_text())
+    turn_instance_id = "delegation-" + row["identity"]["request_id"][:32]
+    row.update(
+        status="rejected",
+        turn_instance_id=turn_instance_id,
+        error="legacy false terminal observation",
+    )
+    path.write_text(json.dumps(row))
+    plan = build_loopx_turn_plan(
+        {
+            "ok": True,
+            "schema_version": "loopx_turn_envelope_v0",
+            "goal_id": runner.goal_id,
+            "agent_id": "analyst",
+            "should_run": True,
+            "effective_action": "normal_run",
+            "action": {
+                "must_attempt": True,
+                "delivery_allowed": True,
+                "quiet_noop_allowed": False,
+                "selected_todo": {"todo_id": "todo_analyst-initial"},
+            },
+            "user": {"action_required": False, "open_count": 0},
+            "writeback": {"spend_after_validation": True},
+            "scheduler": {"action": "run_now"},
+            "action_signature": {
+                "matches": True,
+                "source_hash": "sha256:fixture",
+                "envelope_hash": "sha256:fixture",
+            },
+            "compaction": {"within_budget": True},
+        },
+        host="generic-cli",
+        execution_mode="isolated-headless",
+        turn_instance_id=turn_instance_id,
+        iteration_context_policy="fresh",
+    )
+    transaction = plan["transaction"]
+    turn_key = transaction["turn_key"]
+    journal_path = turn_journal_path(
+        runner.root, goal_id=runner.goal_id, turn_key=turn_key
+    )
+    journal_path.parent.mkdir(parents=True, exist_ok=True)
+    host_result = {
+        "schema_version": "loopx_turn_result_v0",
+        "turn_key": turn_key,
+        "result_kind": "validated_progress",
+        "completed_phases": ["host_execute", "typed_result"],
+    }
+    journal_path.write_text(json.dumps({
+        "schema_version": LOOPX_TURN_JOURNAL_SCHEMA_VERSION,
+        "goal_id": runner.goal_id,
+        "turn_key": turn_key,
+        "status": "in_progress",
+        "result_kind": "validated_progress",
+        "completed_phases": ["host_execute", "typed_result", "validation"],
+        "plan": plan,
+        "host_result": host_result,
+        "task_validation": {"ok": True, "status": "passed"},
+    }))
+
+    binding = runner.binding("analysis", require_active=True)
+    assert runner._recover_validated_settlement(path, row, binding) is True
+    recovered = json.loads(path.read_text())
+    assert recovered["status"] == "turn_returned"
+    assert recovered["turn_key"] == turn_key
+    assert recovered["turn_result"]["resume_turn_key"] == turn_key
 
 
 def test_selected_dsh_profile_is_not_replaced_by_the_default(service):
@@ -215,6 +367,11 @@ def test_selected_codex_managed_agent_profile_is_projected_exactly(service):
     assert command[command.index("--workspace") + 1] == binding["workspace"]
     assert command[command.index("--execution-config") + 1] == str(runner.config)
     assert "lead" not in command
+
+    validator = json.loads(execution[execution.index("--validation-command-json") + 1])
+    assert validator[:3] == [sys.executable, "-P", "-c"]
+    assert "loopx.collaboration_mcp" in validator
+    assert str(Path(__file__).resolve().parents[1]) in validator
 
     shadow = Path(binding["workspace"]) / "loopx"
     shadow.mkdir()
