@@ -48,6 +48,8 @@ def receipt(
     choice: bool | None = True,
     evidence: str | None = None,
     contract: str = "contract-1",
+    reason: str | None = None,
+    todo: str | None = None,
 ) -> dict[str, object]:
     return {
         "receipt_id": _digest(f"event-{sequence}"),
@@ -56,10 +58,12 @@ def receipt(
         "contract_revision": _digest(contract),
         "sequence": sequence,
         "status": status,
+        "reason": reason,
         "run": {
             "turn_instance_id": turn,
             "generated_at": f"2026-09-21T00:00:{sequence:02d}Z",
             "agent_id": agent,
+            "todo_id": todo,
         },
         "judgments": {"choice": None, "noul": None},
         "drift_signal": {"noul": noul, "choice": choice},
@@ -72,6 +76,7 @@ def trigger(runs, receipts, **overrides):
         "agent_id": AGENT,
         "threshold": 2,
         "signal": "noul",
+        "contract_revision": _digest("contract-1"),
         "ack_recorded": autonomous_replan_ack_recorded,
     }
     options.update(overrides)
@@ -133,6 +138,54 @@ def test_contract_revision_change_invalidates_earlier_receipts() -> None:
     runs = [run(2, turn="t2"), run(1, turn="t1")]
     receipts = [receipt(2, turn="t2", contract="contract-2"), receipt(1, turn="t1")]
     assert trigger(runs, receipts) is None
+    # Receipts that agree with each other but not with the pinned goal contract
+    # are history, never current evidence.
+    old = [receipt(2, turn="t2", contract="contract-0"), receipt(1, turn="t1", contract="contract-0")]
+    assert trigger(runs, old) is None
+    assert trigger(runs, old, contract_revision=_digest("contract-0")) is not None
+
+
+def test_assist_without_a_pinned_contract_never_triggers() -> None:
+    runs = [run(2, turn="t2"), run(1, turn="t1")]
+    receipts = [receipt(2, turn="t2"), receipt(1, turn="t1")]
+    assert trigger(runs, receipts, contract_revision=None) is None
+    assert trigger(runs, receipts, contract_revision="") is None
+
+
+def test_turn_match_still_requires_matching_agent_and_todo() -> None:
+    runs = [run(2, turn="t2"), run(1, turn="t1")]
+    assert trigger(runs, [receipt(2, turn="t2", agent="someone-else"), receipt(1, turn="t1")]) is None
+    runs_with_todo = [dict(run(2, turn="t2"), todo_id="todo-a"), run(1, turn="t1")]
+    assert trigger(runs_with_todo, [receipt(2, turn="t2", todo="todo-b"), receipt(1, turn="t1")]) is None
+    assert trigger(runs_with_todo, [receipt(2, turn="t2", todo="todo-a"), receipt(1, turn="t1")]) is not None
+    # A receipt that names no todo does not conflict with a run that does.
+    assert trigger(runs_with_todo, [receipt(2, turn="t2"), receipt(1, turn="t1")]) is not None
+
+
+def test_ambiguous_fallback_identity_is_never_attributed() -> None:
+    runs = [run(2), run(1)]
+    two_for_one = [receipt(3, evidence="other"), receipt(2), receipt(1)]
+    # receipt 3 and 2 have no turn id and share (generated_at, agent) of run 2.
+    two_for_one[0]["run"]["generated_at"] = two_for_one[1]["run"]["generated_at"]
+    assert trigger(runs, two_for_one) is None
+
+
+def pending(n: int, turn: str) -> dict[str, object]:
+    return receipt(n, turn=turn, status="not_evaluated", noul=None, choice=None, reason="pending_evaluation")
+
+
+def test_pending_newest_evaluations_are_skipped_but_bounded() -> None:
+    runs = [run(3, turn="t3"), run(2, turn="t2"), run(1, turn="t1")]
+    result = trigger(runs, [pending(3, "t3"), receipt(2, turn="t2"), receipt(1, turn="t1")])
+    assert result is not None and result["run_count"] == 2 and result["pending_skipped"] == 1
+    runs = [run(5, turn="t5"), run(4, turn="t4"), run(3, turn="t3"), run(2, turn="t2"), run(1, turn="t1")]
+    receipts = [pending(5, "t5"), pending(4, "t4"), pending(3, "t3"), receipt(2, turn="t2"), receipt(1, turn="t1")]
+    assert trigger(runs, receipts) is None
+    # A pending receipt in the middle of a streak is still a gap.
+    runs = [run(3, turn="t3"), run(2, turn="t2"), run(1, turn="t1")]
+    assert trigger(runs, [receipt(3, turn="t3"), pending(2, "t2"), receipt(1, turn="t1")]) is None
+    # Other non-completed newest receipts break rather than skip.
+    assert trigger(runs, [receipt(3, turn="t3", status="failed", noul=None, choice=None, reason="deadline_exceeded"), receipt(2, turn="t2"), receipt(1, turn="t1")]) is None
 
 
 def test_signal_selection_and_agent_scoping() -> None:
@@ -171,9 +224,9 @@ from loopx.status import (  # noqa: E402
 )
 
 
-def _context(mode: str, receipts: list[dict[str, object]], *, signal: str = "noul", threshold: int = 2) -> dict[str, object]:
+def _context(mode: str, receipts: list[dict[str, object]], *, signal: str = "noul", threshold: int = 2, pin: str | None = _digest("contract-1")) -> dict[str, object]:
     return {
-        "policy": {"mode": mode, "signal": signal, "drift_threshold": threshold},
+        "policy": {"mode": mode, "signal": signal, "drift_threshold": threshold, "contract_revision": pin},
         "receipts": receipts,
         "summary": {"schema_version": "progress_review_status_v0", "mode": mode, "receipt_count": len(receipts)},
     }
@@ -199,6 +252,12 @@ def test_assist_policy_turns_receipts_into_the_existing_obligation() -> None:
 def test_shadow_and_off_policies_never_raise_an_obligation() -> None:
     runs = [run(2, turn="t2"), run(1, turn="t1")]
     receipts = [receipt(2, turn="t2"), receipt(1, turn="t1")]
+    assert (
+        autonomous_replan_obligation_from_runs(
+            runs, agent_todos=None, external_progress_review=_context("assist", receipts, pin=None)
+        )
+        is None
+    )
     for mode in ("shadow", "off"):
         assert (
             autonomous_replan_obligation_from_runs(
@@ -258,19 +317,28 @@ def test_context_loader_is_silent_for_off_and_reads_receipts_when_on(tmp_path) -
     assert external_progress_review_context(goal, None) is None
     loaded = external_progress_review_context(goal, tmp_path)
     assert loaded is not None and loaded["receipts"] == [] and loaded["summary"]["receipt_count"] == 0
-    write_progress_review_receipt(
-        tmp_path,
-        "ctx-goal",
-        {
-            **receipt(1, turn="t1"),
-            "schema_version": "progress_review_receipt_v0",
-            "goal_id": "ctx-goal",
-            "question_version": "scoped-progress-sentinel-v1",
-            "model": "fixture-v1",
-            "label_probability_threshold": 0.6,
-            "recorded_at": 1.0,
+    stored = {
+        **receipt(1, turn="t1"),
+        "schema_version": "progress_review_receipt_v0",
+        "signal_rule_version": "progress_review_signal_rule_v1",
+        "goal_id": "ctx-goal",
+        "question_version": "scoped-progress-sentinel-v2",
+        "model": "fixture-v1",
+        "judgments": {
+            "choice": {"relation": "off_goal", "increment": "no_new_evidence"},
+            "noul": {"behavior_change": 0.05, "serves_acceptance": 0.04, "evidence_increment": 0.1},
         },
-    )
+        "label_probability_threshold": 0.6,
+        "recorded_at": 1.0,
+    }
+    write_progress_review_receipt(tmp_path, "ctx-goal", stored)
     loaded = external_progress_review_context(goal, tmp_path)
     assert loaded is not None and loaded["summary"]["receipt_count"] == 1
     assert loaded["summary"]["latest"]["drift_signal"] == {"noul": True, "choice": True}
+    # A pinned revision partitions receipts into current and stale.
+    pinned = {"id": "ctx-goal", "control_plane": {"progress_review": {"mode": "assist", "contract_revision": _digest("contract-2")}}}
+    loaded = external_progress_review_context(pinned, tmp_path)
+    assert loaded is not None and loaded["receipts"] == [] and loaded["summary"]["stale_receipts"] == 1
+    unpinned = {"id": "ctx-goal", "control_plane": {"progress_review": {"mode": "assist"}}}
+    loaded = external_progress_review_context(unpinned, tmp_path)
+    assert loaded is not None and loaded["summary"]["assist_blocked_reason"] == "contract_revision_unpinned"

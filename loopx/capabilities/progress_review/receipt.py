@@ -35,6 +35,8 @@ PROGRESS_REVIEW_NOUL_QUESTIONS: tuple[str, ...] = (
     "evidence_increment",
 )
 PROGRESS_REVIEW_SIGNAL_KEYS: tuple[str, ...] = ("noul", "choice")
+PROGRESS_REVIEW_SIGNAL_RULE_VERSION = "progress_review_signal_rule_v1"
+PROGRESS_REVIEW_PENDING_REASON = "pending_evaluation"
 MAX_RECEIPT_BYTES = 65536
 MAX_LOADED_RECEIPTS = 256
 _HEX64 = re.compile(r"^[a-f0-9]{64}$")
@@ -97,8 +99,71 @@ def _non_negative_int(value: Any, *, field: str) -> int:
     return int(value)
 
 
+def noul_drift_signal(
+    serves_acceptance: float | None,
+    evidence_increment: float | None,
+    minimum: float,
+) -> bool | None:
+    """Drift when the delta neither serves acceptance nor adds goal evidence.
+
+    Whether the delta changes runtime behaviour is recorded but not gating: a
+    behaviour change that serves nothing is still drift, and documentation or a
+    negative finding that serves acceptance or adds evidence is not.
+    """
+
+    if serves_acceptance is None or evidence_increment is None:
+        return None
+    ceiling = 1.0 - minimum
+    if serves_acceptance <= ceiling and evidence_increment <= ceiling:
+        return True
+    if serves_acceptance >= minimum or evidence_increment >= minimum:
+        return False
+    return None
+
+
+def choice_drift_signal(relation: str | None, increment: str | None) -> bool | None:
+    if relation == "off_goal" and increment == "no_new_evidence":
+        return True
+    if relation in {"on_goal", "necessary_prerequisite"} or increment == "new_evidence":
+        return False
+    return None
+
+
+def derive_drift_signals(
+    judgments: Mapping[str, Any],
+    *,
+    threshold: float,
+    status: str,
+) -> dict[str, bool | None]:
+    """The only place the receipt boolean signals are defined."""
+
+    if status != "completed":
+        return {"noul": None, "choice": None}
+    noul = judgments.get("noul")
+    choice = judgments.get("choice")
+    return {
+        "noul": (
+            noul_drift_signal(
+                noul.get("serves_acceptance"), noul.get("evidence_increment"), threshold
+            )
+            if isinstance(noul, Mapping)
+            else None
+        ),
+        "choice": (
+            choice_drift_signal(choice.get("relation"), choice.get("increment"))
+            if isinstance(choice, Mapping)
+            else None
+        ),
+    }
+
+
 def normalize_progress_review_receipt(value: Any) -> dict[str, Any]:
-    """Validate one receipt; every field is typed and bounded."""
+    """Validate one receipt; every field is typed and bounded.
+
+    The drift booleans are recomputed from the typed judgments with the
+    receipt's own threshold; a receipt whose booleans disagree with its
+    judgments is rejected, so a writer cannot assert drift without evidence.
+    """
 
     if not isinstance(value, Mapping):
         raise TypeError("receipt must be an object")
@@ -106,7 +171,14 @@ def normalize_progress_review_receipt(value: Any) -> dict[str, Any]:
         raise ValueError(
             f"receipt must use {PROGRESS_REVIEW_RECEIPT_SCHEMA_VERSION}"
         )
+    if value.get("signal_rule_version") != PROGRESS_REVIEW_SIGNAL_RULE_VERSION:
+        raise ValueError(
+            f"receipt must use {PROGRESS_REVIEW_SIGNAL_RULE_VERSION}"
+        )
     status = _text(value.get("status"), field="status")
+    reason = _text(value.get("reason"), field="reason", required=False)
+    if reason is not None and not re.fullmatch(r"[a-z0-9_]{1,80}", reason):
+        raise ValueError("receipt.reason must be a bounded lowercase token")
     if status not in PROGRESS_REVIEW_RECEIPT_STATUSES:
         raise ValueError("receipt.status is not a known status")
     raw_run = value.get("run")
@@ -156,8 +228,6 @@ def normalize_progress_review_receipt(value: Any) -> dict[str, Any]:
         key: _optional_bool(raw_signal.get(key), field=f"drift_signal.{key}")
         for key in PROGRESS_REVIEW_SIGNAL_KEYS
     }
-    if status != "completed" and any(flag is True for flag in drift_signal.values()):
-        raise ValueError("only a completed receipt may carry a drift signal")
     raw_timing = value.get("timing_ns")
     timing: dict[str, int] = {}
     if raw_timing is not None:
@@ -184,6 +254,11 @@ def normalize_progress_review_receipt(value: Any) -> dict[str, Any]:
     )
     if threshold is None or threshold < 0.5:
         raise ValueError("receipt.label_probability_threshold must be at least 0.5")
+    expected_signal = derive_drift_signals(
+        {"choice": choice, "noul": noul}, threshold=threshold, status=status
+    )
+    if drift_signal != expected_signal:
+        raise ValueError("receipt.drift_signal disagrees with its typed judgments")
     recorded_at = value.get("recorded_at")
     if (
         isinstance(recorded_at, bool)
@@ -205,6 +280,8 @@ def normalize_progress_review_receipt(value: Any) -> dict[str, Any]:
         "sequence": _non_negative_int(value.get("sequence"), field="sequence"),
         "run": run,
         "status": status,
+        "reason": reason,
+        "signal_rule_version": PROGRESS_REVIEW_SIGNAL_RULE_VERSION,
         "question_version": _text(value.get("question_version"), field="question_version"),
         "model": _text(value.get("model"), field="model"),
         "judgments": {"choice": choice, "noul": noul},
@@ -295,6 +372,7 @@ def progress_review_receipt_summary(
     *,
     policy: Mapping[str, Any],
     rejected: int = 0,
+    stale: int = 0,
 ) -> dict[str, Any]:
     """Compact, prose-free projection for status surfaces."""
 
@@ -302,9 +380,12 @@ def progress_review_receipt_summary(
     latest: dict[str, Any] | None = None
     drift_counts = {key: 0 for key in PROGRESS_REVIEW_SIGNAL_KEYS}
     total = 0
+    pending = 0
     for receipt in receipts:
         total += 1
         counts[receipt["status"]] = counts.get(receipt["status"], 0) + 1
+        if receipt.get("reason") == PROGRESS_REVIEW_PENDING_REASON:
+            pending += 1
         for key in PROGRESS_REVIEW_SIGNAL_KEYS:
             if receipt["drift_signal"].get(key) is True:
                 drift_counts[key] += 1
@@ -319,23 +400,36 @@ def progress_review_receipt_summary(
                 "model": receipt["model"],
                 "question_version": receipt["question_version"],
             }
-    return {
+    summary: dict[str, Any] = {
         "schema_version": "progress_review_status_v0",
         "mode": policy.get("mode"),
         "signal": policy.get("signal"),
         "drift_threshold": policy.get("drift_threshold"),
+        "contract_revision": policy.get("contract_revision"),
         "receipt_count": total,
+        "pending_receipts": pending,
+        "stale_receipts": stale,
         "rejected_receipts": rejected,
         "status_counts": counts,
         "drift_counts": drift_counts,
         "latest": latest,
         "authority": "none",
     }
+    if policy.get("mode") == "assist" and not policy.get("contract_revision"):
+        # assist may only raise an obligation for receipts bound to a pinned
+        # goal contract; without the pin the receipts stay observations.
+        summary["assist_blocked_reason"] = "contract_revision_unpinned"
+    return summary
 
 
 __all__ = [
     "MAX_LOADED_RECEIPTS",
     "MAX_RECEIPT_BYTES",
+    "PROGRESS_REVIEW_PENDING_REASON",
+    "PROGRESS_REVIEW_SIGNAL_RULE_VERSION",
+    "choice_drift_signal",
+    "derive_drift_signals",
+    "noul_drift_signal",
     "PROGRESS_REVIEW_CHOICE_QUESTIONS",
     "PROGRESS_REVIEW_NOUL_QUESTIONS",
     "PROGRESS_REVIEW_RECEIPT_SCHEMA_VERSION",

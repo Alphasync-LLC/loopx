@@ -5,6 +5,7 @@ from typing import Any
 
 from .policy import (
     PROGRESS_REVIEW_POLICY_SCHEMA_VERSION,
+    normalize_progress_review_contract_revision,
     normalize_progress_review_drift_threshold,
     normalize_progress_review_mode,
     normalize_progress_review_signal,
@@ -12,7 +13,7 @@ from .policy import (
     progress_review_goal_policy_summary,
 )
 
-GoalProgressReviewChange = tuple[bool, str | None, str | None, int | None]
+GoalProgressReviewChange = tuple[bool, str | None, str | None, int | None, str | None]
 
 
 def configuration_summary(goal: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -28,10 +29,12 @@ def normalize_change(
     mode: str | None,
     signal: str | None,
     drift_threshold: int | None,
+    contract_revision: str | None = None,
     *,
     clear: bool,
 ) -> GoalProgressReviewChange:
-    if clear and any(value is not None for value in (mode, signal, drift_threshold)):
+    values = (mode, signal, drift_threshold, contract_revision)
+    if clear and any(value is not None for value in values):
         raise ValueError(
             "--clear-progress-review-configuration cannot be combined with "
             "progress-review settings"
@@ -45,12 +48,19 @@ def normalize_change(
         if drift_threshold is not None
         else None
     )
-    return clear, normalized_mode, normalized_signal, normalized_threshold
+    normalized_revision = (
+        normalize_progress_review_contract_revision(contract_revision)
+        if contract_revision is not None
+        else None
+    )
+    return clear, normalized_mode, normalized_signal, normalized_threshold, normalized_revision
 
 
 def apply_change(goal: dict[str, Any], change: GoalProgressReviewChange) -> None:
-    clear, mode, signal, drift_threshold = change
-    if not clear and all(value is None for value in (mode, signal, drift_threshold)):
+    clear, mode, signal, drift_threshold, contract_revision = change
+    if not clear and all(
+        value is None for value in (mode, signal, drift_threshold, contract_revision)
+    ):
         return
     raw_control_plane = goal.get("control_plane")
     control_plane: dict[str, Any] = (
@@ -72,6 +82,12 @@ def apply_change(goal: dict[str, Any], change: GoalProgressReviewChange) -> None
             drift_threshold
             if drift_threshold is not None
             else current["drift_threshold"]
+        ),
+        # An empty string explicitly clears a pin; None keeps the current one.
+        "contract_revision": (
+            (contract_revision or None)
+            if contract_revision is not None
+            else current["contract_revision"]
         ),
     }
     goal["control_plane"] = control_plane

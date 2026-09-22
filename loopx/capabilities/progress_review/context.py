@@ -30,14 +30,21 @@ def external_progress_review_context(
     if policy["mode"] == "off" or runtime_root is None or not goal_id:
         return None
     try:
-        receipts, rejected = load_progress_review_receipts(Path(runtime_root), goal_id)
+        loaded, rejected = load_progress_review_receipts(Path(runtime_root), goal_id)
     except (OSError, ValueError):
-        receipts, rejected = [], 0
+        loaded, rejected = [], 0
+    pinned = policy.get("contract_revision")
+    if pinned:
+        # Receipts bound to another goal contract are history, never current evidence.
+        receipts = [item for item in loaded if item["contract_revision"] == pinned]
+        stale = len(loaded) - len(receipts)
+    else:
+        receipts, stale = loaded, 0
     return {
         "policy": policy,
         "receipts": receipts,
         "summary": progress_review_receipt_summary(
-            receipts, policy=policy, rejected=rejected
+            receipts, policy=policy, rejected=rejected, stale=stale
         ),
     }
 

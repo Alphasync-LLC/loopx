@@ -16,7 +16,7 @@ from ..todos.contract import (
 from ..todos.resume_planning import project_todo_resume_planning
 from .external_progress_review import (
     EXTERNAL_PROGRESS_REVIEW_TRIGGER_KIND,
-    external_progress_review_trigger,
+    external_progress_review_obligation,
 )
 from .progress_observation import replan_writeback_requirements, typed_progress_repeat_trigger
 from .replan_settlement import (
@@ -848,26 +848,18 @@ def autonomous_replan_obligation_from_runs(
             agent_todos=agent_todos,
         )
 
-    # Typed external review receipts are a sibling evidence source. They only
-    # become an obligation under an explicit per-goal `assist` policy, and the
-    # typed fuse above keeps precedence. The core never reads their raw delta.
-    if isinstance(external_progress_review, Mapping):
-        review_policy = external_progress_review.get("policy")
-        if isinstance(review_policy, Mapping) and review_policy.get("mode") == "assist":
-            raw_receipts = external_progress_review.get("receipts")
-            review_trigger = external_progress_review_trigger(
-                scoped_latest_runs,
-                receipts=raw_receipts if isinstance(raw_receipts, list) else [],
-                agent_id=agent_id,
-                threshold=int(review_policy.get("drift_threshold") or 2),
-                signal=str(review_policy.get("signal") or "noul"),
-                ack_recorded=autonomous_replan_ack_recorded,
-            )
-            if review_trigger:
-                return build_autonomous_replan_obligation(
-                    [review_trigger],
-                    agent_todos=agent_todos,
-                )
+    # Typed external review receipts are a sibling evidence source; the typed
+    # fuse above keeps precedence and the core never reads their raw delta.
+    review_obligation = external_progress_review_obligation(
+        scoped_latest_runs,
+        external_progress_review=external_progress_review,
+        agent_id=agent_id,
+        ack_recorded=autonomous_replan_ack_recorded,
+        build_obligation=build_autonomous_replan_obligation,
+        agent_todos=agent_todos,
+    )
+    if review_obligation:
+        return review_obligation
 
     # Monitor rows already carry a typed monitor target. Keep this explicit
     # state-machine input; do not infer monitor/stall state from prose fields.
