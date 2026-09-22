@@ -16,6 +16,9 @@ from loopx.control_plane.turn_driver import (
     run_loopx_turn_once,
     validate_loopx_turn_host_result,
 )
+from loopx.control_plane.turn_driver.journal_store import (
+    find_loopx_turn_key_by_settlement_identity,
+)
 from loopx.control_plane.turn_driver.subagent_execution_topology import (
     OPAQUE_REF_PATTERN,
     child_execution_receipts_json_schema,
@@ -96,6 +99,52 @@ def _managed_plan(*, runtime_available: bool) -> dict[str, object]:
         module_probe=lambda _module: runtime_available,
     )
     return managed
+
+
+def test_turn_journal_resolves_only_from_exact_settlement_identity(
+    tmp_path: Path,
+) -> None:
+    plan = _plan()
+    transaction = plan["transaction"]
+    assert isinstance(transaction, dict)
+    turn_key = str(transaction["turn_key"])
+    settlement = transaction["settlement_plan"]
+    assert isinstance(settlement, dict)
+    identity = settlement["identity"]
+    assert isinstance(identity, dict)
+    runtime_root = tmp_path / "runtime"
+    path = turn_journal_path(
+        runtime_root, goal_id="fixture-goal", turn_key=turn_key
+    )
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": LOOPX_TURN_JOURNAL_SCHEMA_VERSION,
+                "goal_id": "fixture-goal",
+                "turn_key": turn_key,
+                "status": "in_progress",
+                "completed_phases": [],
+                "plan": plan,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert find_loopx_turn_key_by_settlement_identity(
+        runtime_root,
+        goal_id="fixture-goal",
+        agent_id="codex-fixture",
+        todo_id="todo_fixture0001",
+        turn_instance_id=str(identity["turn_instance_id"]),
+    ) == turn_key
+    assert find_loopx_turn_key_by_settlement_identity(
+        runtime_root,
+        goal_id="fixture-goal",
+        agent_id="other-agent",
+        todo_id="todo_fixture0001",
+        turn_instance_id=str(identity["turn_instance_id"]),
+    ) is None
 
 
 def _adaptive_observation_plan(
