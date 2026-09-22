@@ -292,6 +292,14 @@ returned `basis`, judge the direction again, and add
 `--checkpoint-read-context <read_context_id>` to the checkpoint-only refresh.
 The agent echoes this opaque receipt; LoopX retains the version manifest.
 
+MCP hosts use the same protocol through `review_task_vision`: call with only
+`todo_id` and `agent_id` to read, then submit the returned `read_context_id`
+with one newly judged `agent_vision` or `vision_unchanged_reason`. Reading never
+automatically submits a decision. Missing receipts fail closed; stale receipts
+require another read and judgment, while lost replies use the exact original
+receipt and decision. The Python `checkpoint_context_io` adapter gathers and
+locks sources; TypeScript `checkpoint_read_context` alone compares the basis.
+
 The basis covers the selected Todo, its dependency closure and recorded results,
 shared Goal prose and User Todos, the owner acceptance document/revision when
 configured, the current agent vision, and the local source binding. A replan
