@@ -92,6 +92,14 @@ test("one retried monitor poll never becomes six observations", () => {
   assert.equal(trigger(many(6, n => poll(n, { todo_id: null }))), null);
 });
 
+test("legacy missing attribution retains turn identity within a scoped lane", () => {
+  const attributed = run(1, { progress: observation });
+  const goalLevel = { ...attributed, agent_id: null, public_agent_id: null, monitor_agent_id: null };
+  assert.equal(trigger([attributed, goalLevel]), null);
+  assert.equal(trigger(many(20, n => ({ ...attributed, ...(n % 2 ? goalLevel : {}) })),
+    { operation: "periodic" }), null);
+});
+
 test("blocked successor compares typed target and frontier; ordinary work ends the monitor prefix", () => {
   const blocked = (n: number, frontier = "frontier-a") => poll(n, {
     mode: "blocked_successor_wait_without_material_transition", frontier,

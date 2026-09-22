@@ -174,8 +174,11 @@ function historyWindow(request: Request): Run[] {
  */
 function* distinctTurns(runs: readonly Run[], counts: (run: Run) => boolean = () => true): Generator<Run, void, unknown> {
   const seen = new Set<string>();
+  // Historical goal-level rows can omit attribution. Within a single scoped
+  // lane, keep the original turn identity across an attributed/unattributed retry.
+  const lane = sole(runs.map(run => run.agent));
   for (const run of runs) {
-    const key = run.turn ? JSON.stringify([run.agent, run.turn]) : null;
+    const key = run.turn ? JSON.stringify([run.agent ?? lane, run.turn]) : null;
     if (key && seen.has(key)) continue;
     if (key && counts(run)) seen.add(key);
     yield run;
