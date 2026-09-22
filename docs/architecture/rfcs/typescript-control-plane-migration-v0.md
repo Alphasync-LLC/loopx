@@ -783,8 +783,24 @@ all T2 commands or authorize whole-Goal promotion.
   must be acquired explicitly. `todo_monitor_cycle.ts` owns shared update/poll
   admission, removing their duplicate actor/lease branches and correcting their
   soft-claim disagreement. No new Python transition owner or RPC is introduced.
-  Other lifecycle callers, executor acquisition for grouped reconciliation,
-  legacy persistence/capture and whole-Goal qualification remain separate.
+  Grouped reconciliation now plans the complete bucket set in
+  `capabilities/issue_fix_monitor_reconciliation.ts`; Python retains ledger IO,
+  public writer calls and display delivery. The caller acquires its own bounded
+  execution for hard-lease observations/stops, rechecks the plan after acquisition,
+  and releases only that attempt. Retry after an observation commit can clean up
+  a surviving lease without repeating the business mutation. Reactivation remains
+  a non-execution transition through the existing TS owner.
+  Missing/malformed ledger evidence, duplicate active targets and older empty
+  observations now reject instead of silently dropping or completing a target.
+  Membership hashes preserve the original Python Unicode/ASCII encoding contract.
+  Explicit runtime-root routing reaches every affected writer and readback.
+  This is a complete issue-fix caller closure, not an atomic transaction over all
+  buckets: earlier committed buckets survive a later failure. Unchanged retries
+  may release their own interrupted execution and drain display. The remaining
+  Python adapter is a real caller, not a removable compatibility wrapper.
+  See the [operator contract](../../../loopx/capabilities/issue_fix/README.md#pr-lifecycle-monitor).
+  Other lifecycle callers, external-effect execution fences, legacy
+  persistence/capture and whole-Goal qualification remain separate.
 - Preserve unchanged polling/reschedule behavior, generation fences,
   material-change successor deduplication and accountable settlement.
   A monitor remains non-executable delivery context; its independent
