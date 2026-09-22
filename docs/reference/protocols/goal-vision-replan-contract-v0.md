@@ -265,10 +265,66 @@ Valid checkpoint decisions are:
 A material closeout should carry its own vision patch or evidence-backed unchanged
 reason. If omitted, `refresh-state` still records the outcome and returns the
 checkpoint repair action. Follow that action in the same turn with the original
-settlement identity, removing already executed state mutations. The supplement
+settlement identity: first read `checkpoint-context`, then echo its
+`read_context_id` as `--checkpoint-read-context` with a newly judged vision
+decision, removing already executed state mutations. The supplement
 must satisfy the checkpoint before terminal closeout; it neither re-authors the
 outcome nor spends a second time. Never invent an unchanged reason to clear a gap.
 Typed in-flight continuations keep their existing exemption.
+
+### Read basis for checkpoint-only recovery
+
+Missing-checkpoint supplementation now requires an explicit read receipt. This is
+a default admission change for both legacy and newly committed Turn writebacks;
+normal first writebacks and non-Turn vision authoring retain their existing rules.
+From the original working directory and with the original registry/runtime/project/
+state-file options, read the basis for the exact settlement:
+
+```sh
+loopx checkpoint-context --goal-id example --agent-id agent-a \
+  --todo-id todo_page --turn-instance-id turn-1 --format json
+```
+
+Use `--replan-obligation-id` instead of `--todo-id` for an obligation-bound Turn.
+Declared Todo dependencies are included; repeat `--dependency-todo-id` for any
+additional upstream Todo results actually used in the judgment. Inspect the
+returned `basis`, judge the direction again, and add
+`--checkpoint-read-context <read_context_id>` to the checkpoint-only refresh.
+The agent echoes this opaque receipt; LoopX retains the version manifest.
+
+The basis covers the selected Todo, its dependency closure and recorded results,
+shared Goal prose and User Todos, the owner acceptance document/revision when
+configured, the current agent vision, and the local source binding. A replan
+obligation covers the full Todo frontier. Archived dependencies remain inputs.
+Todo display positions, source headings, and the Goal's global `updated_at` are
+excluded; an unrelated Agent Todo or run-history append does not invalidate an
+otherwise unchanged Todo-bound basis. Shared prose is deliberately conservative:
+editing it requires another judgment even if the edit was only editorial.
+
+The local file/SQLite path holds the existing Goal run-index lock and the shared
+maintenance, legacy-Todo, and state-source writer locks through the final reread,
+version comparison, and checkpoint index append. A participating Todo/acceptance/
+prose writer cannot change that basis between comparison and append. Provider
+failures stay closed; this does not activate a PostgreSQL service authority or
+introduce a distributed transaction across runtimes.
+
+Receipts are bound to the exact Goal/Agent/Todo or obligation/Turn. A new read for
+that Turn replaces its previous receipt, so its confirmation operations must be
+serial; other work may remain parallel. A missing, replaced, or stale receipt
+rejects the supplement without appending delivery or spending quota. Rerun
+`checkpoint-context`, reread, and rejudge. Never attach a new receipt to an old
+judgment. The committed decision includes the receipt identity in its replay
+digest: an exact retry returns the original result even if state changed after
+commit. Acquiring a receipt for an already satisfied checkpoint is rejected.
+
+Versions are content revisions of the declared decision inputs, including native
+revision fields where present. They cannot detect an unobserved change-and-revert
+in legacy Markdown, raw writes bypassing the writer locks, or changed bytes behind
+an unversioned external link. Upstream deliveries must be represented by their
+recorded Todo results/references. The receipt verifies the declared basis, not
+whether the model actually understood or used it. It grants no new permissions,
+task-completion authority, or evidence of acceptance. Older binaries do not enforce
+this admission rule; rolling back loses its freshness protection.
 
 `missing_required` is not a chat reminder. Status keeps it in compact run
 history, quota filters it by current `agent_id`, and goal-frontier projection
