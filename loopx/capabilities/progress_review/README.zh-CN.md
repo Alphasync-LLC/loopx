@@ -32,6 +32,7 @@ loopx configure-goal --goal-id <goal-id> --clear-progress-review-configuration -
 | `mode` | `off`、`shadow`、`assist` | `off` 不加载任何内容；`shadow` 记录并展示；`assist` 可以触发义务 |
 | `signal` | `noul`、`choice` | 哪一组判断算作漂移 |
 | `drift_threshold` | 2–20 | 触发义务前需要的连续已完成漂移回执数 |
+| `contract_revision` | sha256 或空 | 回执必须绑定的观察器 basis 修订，由 `loopx-jev drift init` 打印；`assist` 必需，其他修订视为过期 |
 
 策略保存在 Goal 注册表的 `control_plane.progress_review`，可在 `loopx configure-goal --goal-id <goal-id>` 输出的 `feature_summary` 和 Dashboard 能力编辑器中看到。格式错误的配置块会安全地退回 `off`。
 
@@ -46,12 +47,14 @@ loopx configure-goal --goal-id <goal-id> --clear-progress-review-configuration -
 - `drift_signal.noul`、`drift_signal.choice`：`true`、`false` 或 null；
 - `timing_ns`、`usage`、`label_probability_threshold`、`recorded_at`。
 
-漂移信号由观察器按其配置的标签阈值 `t` 推导：
+漂移信号遵循规则 `progress_review_signal_rule_v1`，按标签阈值 `t` 推导；核心读取回执时会从类型化判断重新计算，并拒绝布尔值不一致的回执：
 
-- `noul`：`P(behavior_change) ≤ 1−t` **且** `P(serves_acceptance) ≤ 1−t` 为漂移；任一概率 `≥ t` 为非漂移；其余为 null。
+- `noul`：`P(serves_acceptance) ≤ 1−t` **且** `P(evidence_increment) ≤ 1−t` 为漂移；任一概率 `≥ t` 为非漂移；其余为 null。`behavior_change` 只记录、不参与判定。
 - `choice`：`relation = off_goal` **且** `increment = no_new_evidence` 为漂移；`on_goal`、`necessary_prerequisite` 或 `new_evidence` 为非漂移；其余为 null。
 
-因此，服务于验收条件的纯文档或纯测试工作在两种信号下都不算漂移。
+两道问题都针对检查点之间的变化而不是 after 状态整体：对已经满足验收的文件做改动是漂移，而服务验收条件或新增其证据的文档、负结果、前置测试不是。
+
+按 `turn_instance_id` 找到的回执在双方都给出 Agent 与 Todo 时必须一致；歧义的 `(generated_at, agent_id)` 回退匹配不做归属。观察器入队即写 pending 回执，核心最多跳过最新两条 pending 回执，使已有连续段在评估仍在进行时既不增长也不消失。绑定到非 pin 修订的回执为过期，永不计数。
 
 ## 你会看到什么
 
@@ -72,15 +75,15 @@ loopx-jev sentinel compare \
 
 ## 录制对照结果
 
-16 序列矩阵的已提交 live 录制（`jev-1.13.0`，35 轮，每轮自报 `advanced`）：
+16 序列矩阵的已提交 live 录制（问题集 `scoped-progress-sentinel-v2`，`jev-1.13.0`，35 轮，每轮自报 `advanced`；1 个回答被严格解码器拒绝）：
 
 | | 类型化重复保险丝 | `noul` 回执 | `choice` 回执 |
 | --- | --- | --- | --- |
-| 在 gold 轮或之后标记的漂移序列 | 0/9 | 6/9 | 4/9 |
-| 阈值 2 下达到 `assist` 义务 | 0/9 | 6/9 | 1/9 |
+| 在 gold 轮被标记的漂移序列 | 0/9 | 9/9 | 5/9 |
+| 阈值 2 下达到 `assist` 义务 | 0/9 | 9/9 | 2/9 |
 | 真实 on-goal 上游提交被误报 | 0/7 | 0/7 | 0/7 |
 
-6 个纯装饰性序列全部在第 1 轮被标记、第 2 轮即可触发义务，而周期复审要等 20 条 durable run。真实实现落地后对同一文件的装饰性改动未被标记；一次已执行的负结果探测在三次 live 中有两次被标记。完整表格、延迟与波动见[操作指南](../../../packages/loopx-jev/DRIFT_SHADOW.zh-CN.md)。
+纯装饰性序列在第 1 轮被标记，混合序列在各自漂移轮被标记；第二次独立 live 复现了全部结果。v2 措辞是在早先录制漏检“实现落地后的改动”之后修订的，因此构造序列对新措辞不再算留出集；7 个真实提交没有用于调参。完整表格、延迟、波动与尚未证明的部分见[操作指南](../../../packages/loopx-jev/DRIFT_SHADOW.zh-CN.md)。
 
 ## 边界与下一步
 

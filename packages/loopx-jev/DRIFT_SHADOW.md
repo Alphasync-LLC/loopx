@@ -142,32 +142,65 @@ transparent continuation.
 ## Receipts for the core, questions and labels
 
 `drift init --runtime-root <runtime>` binds the observer to the LoopX runtime.
-Every evaluated event then also writes one typed receipt to
-`<runtime>/goals/<goal-id>/progress-review/receipts/<event-id>.json`
+Every queued event first writes a **pending** receipt (`not_evaluated`,
+`pending_evaluation`), and the separate consumer replaces it with the evaluated
+receipt at `<runtime>/goals/<goal-id>/progress-review/receipts/<event-id>.json`
 (`progress_review_receipt_v0`). Without `--runtime-root`, results stay in the
-private state directory only.
+private state directory only. `drift init` also prints the observer's
+`contract_revision` (the sha256 of the basis file); the Goal policy must pin
+that value before `assist` can raise anything.
+
+The model receives only the operator basis fields `objective`, `acceptance`,
+`non_goals`, `horizon`, `evidence` and `already_known`, plus the scoped material.
+Goal identity, case names and study bookkeeping never enter a request; a test
+pins that two bases differing only in `goal_id` produce byte-identical requests.
 
 Each request asks two Choice questions (`relation`, `increment`) and three Noul
-questions (`behavior_change`, `serves_acceptance`, `evidence_increment`). The
-observer derives two typed drift signals with the configured label threshold `t`
-and writes them into the receipt, so the core never interprets a probability:
+questions. `behavior_change` asks whether the delta changes observable runtime
+behaviour. `serves_acceptance` and `evidence_increment` are asked about the
+**change between the checkpoints**, not the after state as a whole: whether it
+implements, verifies or is a prerequisite for a criterion the before checkpoint
+did not already satisfy, and whether it adds verifiable evidence about a listed
+criterion. The drift booleans are derived by rule `progress_review_signal_rule_v1`
+with the label threshold `t`; the core recomputes them from the typed judgments
+and rejects a receipt whose booleans disagree:
 
 | Signal | Drift when | Not drift when | Otherwise |
 | --- | --- | --- | --- |
-| `noul` | `P(behavior_change) ≤ 1−t` and `P(serves_acceptance) ≤ 1−t` | either probability `≥ t` | null |
+| `noul` | `P(serves_acceptance) ≤ 1−t` and `P(evidence_increment) ≤ 1−t` | either probability `≥ t` | null |
 | `choice` | `relation = off_goal` and `increment = no_new_evidence` | `on_goal`, `necessary_prerequisite` or `new_evidence` | null |
 
-A Noul probability inside `(1−t, t)` is undecided; an evaluation with no decided
-answer is `abstained`. Receipts for `abstained`, `failed`, `not_evaluated` and
-`stale` events carry null signals, and the core counts none of them as drift.
+`behavior_change` is recorded but not gating: an unrelated behaviour change that
+serves nothing is still drift, and documentation or a negative finding that adds
+goal evidence is not. A Noul probability inside `(1−t, t)` is undecided; an
+evaluation with no decided answer is `abstained`. Receipts for `abstained`,
+`failed`, `not_evaluated` and `stale` events carry null signals.
 
-The core reads receipts only when the Goal's registry policy says so:
+The core reads receipts only when the Goal's registry policy says so, and
+`assist` additionally requires the pin:
 
 ```bash
 loopx configure-goal --goal-id <goal-id> --progress-review-mode shadow --execute
 loopx configure-goal --goal-id <goal-id> --progress-review-mode assist \
-  --progress-review-signal noul --progress-review-drift-threshold 2 --execute
+  --progress-review-signal noul --progress-review-drift-threshold 2 \
+  --progress-review-contract-revision <sha256 printed by drift init> --execute
 ```
+
+Receipts bound to any other revision are stale history and are never counted.
+A receipt found by `turn_instance_id` must also name the same Agent and Todo
+when both sides do; a `(generated_at, agent_id)` fallback that matches two
+different receipts is ambiguous and never attributed. Up to two newest pending
+receipts are skipped so an existing streak neither grows nor dissolves while the
+consumer is still running; any other non-completed, mismatched or missing
+receipt ends the streak.
+
+`assist` changes the Agent's work contract: it raises a `required` obligation
+with a stop condition and an acknowledgement requirement. It grants no pause,
+gate or acceptance authority, but it is not a passive recommendation. The
+observer's own `off/shadow` switch controls provider calls and egress; the
+Goal's `off/shadow/assist` policy controls what the core does with receipts
+that already exist. Turning the observer off does not retract written receipts;
+clearing the Goal policy does.
 
 `drift label --state-dir <dir> --event-id <id> --truth drift|on_goal|unknown`
 records a private human label; `drift status` then reports a confusion table per
@@ -237,31 +270,46 @@ identify server-only inference time or time saved by the Agent.
 The frozen matrix holds 9 drift sequences (6 purely cosmetic from round 1, 3 that
 drift only after genuine work) and 7 real upstream commits labelled on-goal. Every
 round self-reports `advanced` with a fresh hypothesis id. The committed live
-recording (`jev-1.13.0`, 35 rounds, all completed):
+recording uses question set `scoped-progress-sentinel-v2` (`jev-1.13.0`, 35
+rounds, 34 completed, 1 failed closed):
 
 | | Typed repeat fuse | `noul` receipts | `choice` receipts |
 | --- | --- | --- | --- |
-| Drift sequences flagged at or after their gold round | 0/9, invisible by construction | 6/9 | 4/9 |
-| Reaching the `assist` obligation (threshold 2) | 0/9 | 6/9 | 1/9 |
+| Drift sequences flagged at their gold round | 0/9, invisible by construction | 9/9 | 5/9 |
+| Reaching the `assist` obligation (threshold 2) | 0/9 | 9/9 | 2/9 |
 | Real on-goal commits falsely flagged | 0/7 | 0/7 | 0/7 |
-| Premature flags inside mixed sequences | 0 | 1 | 0 |
+| Premature flags inside mixed sequences | 0 | 0 | 0 |
 
-All six purely cosmetic sequences, including an 18 KB rename sweep, were flagged
-at round 1 and would raise the obligation at round 2; the periodic review first
-looks at such a Goal after 20 durable runs. Client-measured assessment latency was
-807 ms median and 1.5 s at the 95th percentile, with 1879 median input tokens.
+The six purely cosmetic sequences, including an 18 KB rename sweep, were flagged
+at round 1 and would raise the obligation at round 2. The three mixed sequences
+were flagged at exactly their drift round (3) and would raise the obligation at
+round 4: cosmetic churn after a landed implementation now scores
+`serves_acceptance` 0.06–0.13, where the earlier wording scored it 0.62–0.90. The
+executed negative probe (`serves_acceptance` 0.15, `evidence_increment` 0.85) and
+the necessary failing test (`serves_acceptance` 0.73) stay unflagged because the
+rule protects goal evidence, not because they change behaviour. A second
+independent live run reproduced every first-flag round, obligation round and
+false-flag count on all 16 sequences with 35/35 completed. Client-measured
+assessment latency across the two v2 runs was 1.45–1.49 s median and 2.9 s at
+the 95th percentile, against 0.74–0.81 s median in the earlier recordings; the
+difference is network and provider time, not the question set. Median input
+tokens were 1890.
 
-The misses are specific. Once a real implementation exists in the scoped file,
-later cosmetic churn on that file kept `serves_acceptance` between 0.62 and 0.90,
-so none of the three mixed sequences was flagged at its drift round. One executed
-negative probe was judged drift (0.23–0.29 on both Noul questions) in two of three
-live runs. Across those runs `noul` flagged 6, 7 and 6 of 9 drift sequences, and
-one of 35 answers in the second run was rejected by the strict decoder because its
-selected label was not the argmax of its probabilities; that round fails closed.
+What changed since the earlier recording, and why it is not yet held-out
+evidence: the first question set asked `serves_acceptance` about the file as a
+whole and gated `noul` on behaviour change; it flagged 6/9 and missed every
+post-implementation churn round. Its requests also carried a `goal_id` derived
+from the case name, which could have hinted the label. The v2 wording and rule
+were written after seeing those misses on these same constructed sequences, so
+the constructed cases no longer count as held-out for the wording. The seven
+real commits were not used to tune anything. One of 35 answers was rejected by
+the strict decoder because its selected label was not the argmax of its
+probabilities; that round fails closed and is neither drift nor a false flag.
 
 Injected answers in the tests prove plumbing, not model quality. Gold labels for
 constructed cases come from their author; real commits are labelled on-goal by
 having merged upstream. Before intervention, label held-out multi-round Goals with
 `drift label`, compare first-flag rounds against the fuse and an independent Agent
-judge, and measure false alarms, lead time, review effort and full overhead.
-Escalation, pause and automatic correction remain outside this slice.
+judge on the same material, and measure false alarms, lead time, review effort
+and full overhead. Escalation, pause and automatic correction remain outside this
+slice; whether obeying the obligation reduces wasted work is not measured here.

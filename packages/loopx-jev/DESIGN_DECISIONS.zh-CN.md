@@ -94,13 +94,22 @@ Claude 记录中的模型为 `claude-haiku-4-5-20251001`、`claude-sonnet-5`、`
 
 当前实现没有采用该 Noul 计分规则，也没有启动 Claude/Codex 复核阶段。直接使用“无运行时行为变化就告警”的规则，还可能误伤有效测试、文档或前置工作。选择前应在当前材料及独立标签上比较候选方法，再测完整复核成本和错误打断。
 
-## 闭环与录制对照结果（2026-09-21）
+## 闭环与录制对照结果（2026-09-21，2026-09-22 修订）
 
-闭环现在完全通过 LoopX 已有契约完成。观察器在 Goal 运行时下为每个已评估事件写一条类型化回执；核心 capability [`progress_review`](../../loopx/capabilities/progress_review/README.zh-CN.md) 通过一个严格 schema 读取回执，按 turn 身份关联 run 行，`assist` 模式下把连续 N 条已完成的漂移回执变成已有的 `autonomous_replan_obligation`（`kind: external_progress_review_drift`）。refresh-state 的 writeback 用同一个义务判断 ack，因此被接受的重规划会重新武装 trigger。`loopx status` 同时公布回执与义务；类型化重复保险丝保持优先；unknown、abstained、failed 与缺失回执打断连续段；Goal 契约变化使早先回执失效。
+闭环完全通过 LoopX 已有契约完成。观察器为每个入队事件写类型化回执（先 pending、评估后覆盖）到 Goal 运行时；核心 capability [`progress_review`](../../loopx/capabilities/progress_review/README.zh-CN.md) 通过一个严格 schema 读取回执，从类型化判断重新计算漂移布尔值，按 turn 身份并校验 Agent/Todo 一致后关联 run 行，`assist` 模式下把连续 N 条绑定到**已 pin** 的 Goal 契约修订的已完成漂移回执变成已有的 `autonomous_replan_obligation`（`kind: external_progress_review_drift`）。refresh-state 的 writeback 用同一个义务判断 ack，被接受的重规划使 trigger 重新武装。类型化重复保险丝保持优先；unknown、abstained、failed、歧义与缺失回执打断连续段；最新至多两条 pending 回执被跳过；未 pin 的 `assist` 不触发任何义务并在 status 中说明原因。
 
-`packages/loopx-jev/tests/test_closed_loop.py` 用同一段真实 `refresh-state` 序列跑三种方式：默认 `off` 没有任何信号，类型化保险丝对自报 `advanced` 无法触发；`shadow` 显示两条回执但无义务；`assist` 触发义务，`loopx status` 显示它，一次真实的已确认重规划使其重新武装，之后单轮漂移不足以再触发。
+对第一版闭环（2026-09-21）的外部评审指出四个缺陷，本次修订用确定性方式而非模型调参修复：
 
-对照 harness（`loopx-jev sentinel compare`）回放一个冻结的 16 序列矩阵：6 个构造的装饰性漂移序列、3 个先真实工作后漂移的混合序列、7 个标注为 on-goal 的真实上游提交。在已提交的 live 录制上，类型化保险丝在 0/16 序列触发；`noul` 信号在第 1 轮标记了 6/9 漂移序列并全部在第 2 轮达到义务，真实提交 0/7 误报，一次已执行的负结果探测被提前标记；`choice` 信号标记 4/9。漏检集中在“真实实现落地后对同一文件的装饰性改动”（`serves_acceptance` 0.62–0.90）。三次 live 中 `noul` 分别标记 6、7、6 个；其中一次有 1/35 个回答被严格解码器拒绝。延迟中位 807 ms、P95 1.5 s，输入 token 中位 1879。[操作指南](DRIFT_SHADOW.zh-CN.md)列出了完整结果与限制。
+| 发现 | 修复 |
+| --- | --- |
+| harness 把由样例名派生的 `goal_id` 放进模型状态，标签可能泄露到输入 | 模型只收到操作者 basis 字段；测试固定“不同 goal 身份生成字节相同请求”；harness 使用哈希 goal id |
+| `noul` 规则以行为变化为门槛，无关新功能被放过、负实验被误报 | 规则 v1 以 `serves_acceptance` 与 `evidence_increment` 为门槛，两者都针对检查点之间的变化；核心重算布尔值并拒绝不一致回执 |
+| 只要求回执彼此版本一致，未要求与当前 Goal 契约一致 | `assist` 必须 pin `contract_revision`；其他修订为过期，永不计数 |
+| 按 turn id 找到的回执未核对 Agent/Todo；最新一条未评估记录会使连续段消失 | 要求身份一致，歧义回退不做归属，pending 回执在上限内被跳过 |
+
+`packages/loopx-jev/tests/test_closed_loop.py` 用同一段真实 `refresh-state` 序列跑四种方式：默认 `off` 无信号；`shadow` 显示回执但无义务；未 pin 的 `assist` 被阻断并报告 `contract_revision_unpinned`；pin 后的 `assist` 触发义务，`loopx status` 显示它，一次真实的已确认重规划使其重新武装，之后单轮漂移不足以再触发。
+
+对照 harness 回放冻结的 16 序列矩阵。在已提交的 v2 录制上，类型化保险丝在 0/16 序列触发；`noul` 信号在 gold 轮标记了 9/9 漂移序列并全部达到义务，真实上游提交 0/7 误报、无提前告警；`choice` 标记 5/9。第二次独立 live 复现了全部结果。早先的 v1 录制只标记 6/9 并漏掉实现落地后的改动；v2 措辞是在看到这些构造用例上的漏检后修订的，因此构造用例不是新措辞的留出证据。多次录制的客户端延迟中位 0.74–1.49 s、P95 最高 2.9 s；输入 token 中位 1890。[操作指南](DRIFT_SHADOW.zh-CN.md)列出了完整结果与限制。
 
 ## 工程取舍与替代方案
 

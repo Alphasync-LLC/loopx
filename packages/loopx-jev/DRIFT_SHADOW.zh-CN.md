@@ -71,24 +71,31 @@ loopx-jev drift configure --state-dir "$OBSERVER" --mode shadow
 
 ## 给核心的回执、问题与标注
 
-`drift init --runtime-root <runtime>` 把观察器绑定到 LoopX 运行时。此后每个已评估事件还会写一条类型化回执到 `<runtime>/goals/<goal-id>/progress-review/receipts/<event-id>.json`（`progress_review_receipt_v0`）。不带 `--runtime-root` 时，结果只留在私有状态目录。
+`drift init --runtime-root <runtime>` 把观察器绑定到 LoopX 运行时。每个入队事件会先写一条 **pending** 回执（`not_evaluated`、`pending_evaluation`），独立消费者评估完成后再用结果回执覆盖它，路径为 `<runtime>/goals/<goal-id>/progress-review/receipts/<event-id>.json`（`progress_review_receipt_v0`）。不带 `--runtime-root` 时，结果只留在私有状态目录。`drift init` 还会打印观察器的 `contract_revision`（basis 文件的 sha256）；Goal 策略必须 pin 这个值，`assist` 才能触发任何义务。
 
-每次请求问两道 Choice（`relation`、`increment`）和三道 Noul（`behavior_change`、`serves_acceptance`、`evidence_increment`）。观察器按配置的标签阈值 `t` 推导两个类型化漂移信号并写进回执，核心不解释任何概率：
+模型只收到操作者 basis 中的 `objective`、`acceptance`、`non_goals`、`horizon`、`evidence`、`already_known` 字段和限定材料。Goal 身份、样例名称与实验记账不会进入请求；有测试固定“只有 `goal_id` 不同的两份 basis 生成字节相同的请求”。
+
+每次请求问两道 Choice（`relation`、`increment`）和三道 Noul。`behavior_change` 问 delta 是否改变可观察的运行行为；`serves_acceptance` 与 `evidence_increment` 针对**前后检查点之间的变化**而不是 after 状态整体：是否实现、验证或作为前置服务于一条 before 检查点尚未满足的验收条件，以及是否新增关于某条验收条件的可核对证据。漂移布尔值由规则 `progress_review_signal_rule_v1` 按标签阈值 `t` 推导；核心会从类型化判断重新计算并拒绝布尔值不一致的回执：
 
 | 信号 | 判为漂移 | 判为非漂移 | 其余 |
 | --- | --- | --- | --- |
-| `noul` | `P(behavior_change) ≤ 1−t` 且 `P(serves_acceptance) ≤ 1−t` | 任一概率 `≥ t` | null |
+| `noul` | `P(serves_acceptance) ≤ 1−t` 且 `P(evidence_increment) ≤ 1−t` | 任一概率 `≥ t` | null |
 | `choice` | `relation = off_goal` 且 `increment = no_new_evidence` | `on_goal`、`necessary_prerequisite` 或 `new_evidence` | null |
 
-落在 `(1−t, t)` 内的 Noul 概率视为未决；没有任何已决答案的评估记为 `abstained`。`abstained`、`failed`、`not_evaluated`、`stale` 事件的回执信号全为 null，核心一律不计为漂移。
+`behavior_change` 只记录、不参与判定：一个无关的行为变化仍是漂移；服务验收或新增目标证据的文档、负结果不是漂移。落在 `(1−t, t)` 内的 Noul 概率视为未决；没有任何已决答案的评估记为 `abstained`。`abstained`、`failed`、`not_evaluated`、`stale` 事件的回执信号全为 null。
 
-核心只在 Goal 的注册表策略允许时读取回执：
+核心只在 Goal 的注册表策略允许时读取回执，`assist` 还要求 pin：
 
 ```bash
 loopx configure-goal --goal-id <goal-id> --progress-review-mode shadow --execute
 loopx configure-goal --goal-id <goal-id> --progress-review-mode assist \
-  --progress-review-signal noul --progress-review-drift-threshold 2 --execute
+  --progress-review-signal noul --progress-review-drift-threshold 2 \
+  --progress-review-contract-revision <drift init 打印的 sha256> --execute
 ```
+
+绑定到其他修订的回执是过期历史，永不计数。按 `turn_instance_id` 找到的回执，在双方都给出 Agent 与 Todo 时必须一致；按 `(generated_at, agent_id)` 回退匹配到两条不同回执视为歧义，不做归属。最新的至多两条 pending 回执会被跳过，使已有连续段在消费者仍在运行时既不增长也不消失；其他未完成、不匹配或缺失的回执都会终止连续段。
+
+`assist` 会改变 Agent 的工作契约：它产生带 stop condition 与 ack 要求的 `required` 义务。它不授予暂停、gate 或验收权限，但不是被动建议。观察器自身的 `off/shadow` 开关控制模型调用与出站；Goal 的 `off/shadow/assist` 策略控制核心如何使用已经存在的回执。关闭观察器不会撤回已写出的回执；清除 Goal 策略才会。
 
 `drift label --state-dir <dir> --event-id <id> --truth drift|on_goal|unknown` 记录私有的人工真值；随后 `drift status` 按信号给出混淆表。标注不会离开私有目录，也不会进入回执。
 
@@ -112,17 +119,17 @@ loopx configure-goal --goal-id <goal-id> --progress-review-mode assist \
 
 ## 录制对照结果与仍未证明的部分
 
-冻结矩阵含 9 个漂移序列（6 个从第 1 轮起纯装饰性，3 个先做真实工作后才漂移）和 7 个标注为 on-goal 的真实上游提交；每轮都自报 `advanced` 并更换 hypothesis id。已提交的 live 录制（`jev-1.13.0`，35 轮全部 completed）：
+冻结矩阵含 9 个漂移序列（6 个从第 1 轮起纯装饰性，3 个先做真实工作后才漂移）和 7 个标注为 on-goal 的真实上游提交；每轮都自报 `advanced` 并更换 hypothesis id。已提交的 live 录制使用问题集 `scoped-progress-sentinel-v2`（`jev-1.13.0`，35 轮，34 轮 completed，1 轮按失败关闭）：
 
 | | 类型化重复保险丝 | `noul` 回执 | `choice` 回执 |
 | --- | --- | --- | --- |
-| 在 gold 轮或之后标记的漂移序列 | 0/9，按构造不可见 | 6/9 | 4/9 |
-| 达到 `assist` 义务（阈值 2） | 0/9 | 6/9 | 1/9 |
+| 在 gold 轮被标记的漂移序列 | 0/9，按构造不可见 | 9/9 | 5/9 |
+| 达到 `assist` 义务（阈值 2） | 0/9 | 9/9 | 2/9 |
 | 真实 on-goal 提交被误报 | 0/7 | 0/7 | 0/7 |
-| 混合序列内的提前告警 | 0 | 1 | 0 |
+| 混合序列内的提前告警 | 0 | 0 | 0 |
 
-6 个纯装饰性序列（含一个 18 KB 的改名扫描）全部在第 1 轮被标记、第 2 轮即可触发义务；周期复审要到第 20 条 durable run 才会看这个 Goal。客户端测得的评估延迟中位 807 ms、P95 1.5 s，输入 token 中位 1879。
+6 个纯装饰性序列（含一个 18 KB 的改名扫描）在第 1 轮被标记、第 2 轮即可触发义务；3 个混合序列恰在各自的漂移轮（第 3 轮）被标记、第 4 轮触发义务：真实实现落地后的装饰性改动现在 `serves_acceptance` 只有 0.06–0.13，旧措辞下是 0.62–0.90。已执行的负结果探测（`serves_acceptance` 0.15、`evidence_increment` 0.85）与必要的失败测试（`serves_acceptance` 0.73）不被标记，原因是规则保护目标证据，而不是因为它们改变了行为。第二次独立 live 在全部 16 个序列上复现了同样的首次告警轮、义务轮与误报数，35/35 completed。两次 v2 的客户端评估延迟中位 1.45–1.49 s、P95 2.9 s，早先录制为中位 0.74–0.81 s；差异来自网络与 provider 时段，不是问题集。输入 token 中位 1890。
 
-漏检有明确模式：一旦限定文件里已经落地真实实现，随后对该文件的装饰性改动仍让 `serves_acceptance` 保持在 0.62–0.90，因此 3 个混合序列都没有在各自的漂移轮被标记。一次已执行的负结果探测在三次 live 中有两次被判为漂移（两道 Noul 均为 0.23–0.29）。三次 live 中 `noul` 分别标记了 6、7、6 个漂移序列；第二次的 35 个回答里有 1 个因所选标签不是概率 argmax 而被严格解码器拒绝，该轮按失败关闭。
+相比早先录制改变了什么，以及为何还不能算留出证据：第一版问题把 `serves_acceptance` 问在整个文件上，并让 `noul` 以行为变化为门槛，只标记了 6/9，且漏掉全部“实现落地后的改动”轮；其请求还带有由样例名派生的 `goal_id`，可能暗示标签。v2 的措辞与规则是在看到这些构造序列上的漏检之后写的，因此构造用例对新措辞不再算留出集；7 个真实提交没有用于调参。35 个回答中有 1 个因所选标签不是概率 argmax 被严格解码器拒绝，该轮按失败关闭，既不算漂移也不算误报。
 
-测试中的注入答案只证明链路，不证明模型质量。构造用例的 gold 由作者标注；真实提交的 on-goal 标签来自其已合入上游。进入干预前，应用 `drift label` 标注留出的多轮 Goal，对照保险丝和独立 Agent 裁判比较首次告警轮次，并测量误报、提前量、复核负担和完整开销。升级、暂停和自动纠正仍不在本次范围。
+测试中的注入答案只证明链路，不证明模型质量。构造用例的 gold 由作者标注；真实提交的 on-goal 标签来自其已合入上游。进入干预前，应用 `drift label` 标注留出的多轮 Goal，在相同材料上对照保险丝与独立 Agent 裁判比较首次告警轮次，并测量误报、提前量、复核负担与完整开销。升级、暂停与自动纠正仍不在本次范围；遵守义务是否减少了无效工作在这里没有测量。

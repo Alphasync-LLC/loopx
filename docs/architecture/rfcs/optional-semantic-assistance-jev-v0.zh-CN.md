@@ -386,8 +386,6 @@ M0 不默认批准 D1 实施、自动 worker 采纳或隐藏的必需模型阶�
 | E4 | PR #4749 及链接的维护者评审 | 公开请求和请求修改理由，不是研究/采用已获接受 |
 | E5 | A/B/C 与 F01–F12 | 拟议实验/义务，该功能尚未执行 |
 | E6 | [Jev 外部证据补充 v0](../../research/agent-workflow-audits/jev-external-evidence-supplement-v0.zh-CN.md) | 截至 2026-09-21 的第三方质量与实现证据，不改变 Q1-Q7、研究或采用状态 |
-| E7 | [D1 实现决策记录](../../../packages/loopx-jev/DESIGN_DECISIONS.zh-CN.md) | 公开论证摘要和作者报告的 fork 观察，不是上游独立资格、完整 A/B/C 或自动纠正证据 |
-| E7 | [D1 实现决策记录](../../../packages/loopx-jev/DESIGN_DECISIONS.zh-CN.md) | 公开论证摘要和当前实现的观察，不是独立资格、完整 A/B/C 或自动纠正证据 |
 | E7 | [任务进展观察决策记录](../../../packages/loopx-jev/DESIGN_DECISIONS.zh-CN.md) | 公开论证摘要和当前实现的观察，不是独立资格、完整 A/B/C 或自动纠正证据 |
 
 ## 附录 D：延后机制与排除的捷径

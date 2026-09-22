@@ -168,37 +168,49 @@ tests, documentation or prerequisites that do not change runtime behavior.
 Before choosing it, compare candidate methods on the current evidence and
 independent labels, then measure end-to-end review cost and false interruptions.
 
-## Closed loop and recorded differential (2026-09-21)
+## Closed loop and recorded differential (2026-09-21, revised 2026-09-22)
 
-The loop now closes through existing LoopX contracts. The observer writes one
-typed receipt per evaluated event under the Goal runtime; the core capability
+The loop closes through existing LoopX contracts. The observer writes one typed
+receipt per queued event (pending first, evaluated later) under the Goal
+runtime; the core capability
 [`progress_review`](../../loopx/capabilities/progress_review/README.md) reads
-receipts through one strict schema, joins them to run rows by turn identity, and
-in `assist` turns N consecutive completed drift receipts into the existing
+receipts through one strict schema, recomputes their drift booleans from the
+typed judgments, joins them to run rows by turn identity with Agent/Todo
+agreement, and in `assist` turns N consecutive completed drift receipts bound to
+the **pinned** goal contract revision into the existing
 `autonomous_replan_obligation` (`kind: external_progress_review_drift`). The
 refresh-state writeback judges an acknowledgement against the same obligation,
-so an accepted replan re-arms the trigger. `loopx status` publishes receipts and
-the obligation; the typed repeat fuse keeps precedence; unknown, abstained,
-failed and missing receipts break a streak; a changed goal contract invalidates
-earlier receipts.
+so an accepted replan re-arms the trigger. The typed repeat fuse keeps
+precedence; unknown, abstained, failed, ambiguous or missing receipts break a
+streak; at most two newest pending receipts are skipped; unpinned `assist`
+raises nothing and says so in status.
 
-`packages/loopx-jev/tests/test_closed_loop.py` runs the same real
-`refresh-state` sequence three ways: default `off` produces no signal and the
-typed fuse cannot fire on self-declared `advanced`; `shadow` shows two receipts
-and no obligation; `assist` raises the obligation, `loopx status` shows it, a
-real acknowledged replan re-arms it, and one more drift round is not enough.
+An external review of the first closed-loop version (2026-09-21) found four
+defects that this revision fixes deterministically rather than by model tuning:
 
-The comparison harness (`loopx-jev sentinel compare`) replays a frozen matrix of
-16 sequences: 6 constructed cosmetic-drift sequences, 3 mixed sequences that
-drift after genuine work, and 7 real upstream commits labelled on-goal. On the
-committed live recording the typed fuse fired on 0/16 sequences; the `noul`
-signal flagged 6/9 drift sequences at round 1, all reaching the obligation at
-round 2, with 0/7 false flags on real commits and one premature flag on an
-executed negative probe; the `choice` signal flagged 4/9. Misses concentrate on
-cosmetic churn after a real implementation landed in the same file
-(`serves_acceptance` 0.62–0.90). Across three live runs `noul` flagged 6, 7 and 6
-of 9, and one of 35 answers was rejected by the strict decoder in one run.
-Latency was 807 ms median and 1.5 s p95 with 1879 median input tokens. The
+| Finding | Fix |
+| --- | --- |
+| The harness passed a `goal_id` derived from the case name into the model state, so a label could leak into the input | The model receives only operator basis fields; a test pins byte-identical requests across goal identities; the harness uses hashed goal ids |
+| The `noul` rule gated on behaviour change, so an unrelated feature passed and a negative experiment was flagged | Rule v1 gates on `serves_acceptance` and `evidence_increment`, both asked about the change between checkpoints; the core recomputes the booleans and rejects inconsistent receipts |
+| Receipts were required to agree with each other, not with the current goal contract | `assist` requires a pinned `contract_revision`; other revisions are stale and never counted |
+| A receipt found by turn id was not checked against Agent/Todo; an unevaluated newest run dissolved the streak | Identity agreement is required, ambiguous fallbacks are unattributed, pending receipts are skipped within a bound |
+
+`packages/loopx-jev/tests/test_closed_loop.py` runs one real `refresh-state`
+sequence four ways: default `off` produces no signal; `shadow` shows receipts
+and no obligation; `assist` without a pin is blocked and reports
+`contract_revision_unpinned`; pinned `assist` raises the obligation, `loopx
+status` shows it, a real acknowledged replan re-arms it, and one more drift
+round is not enough.
+
+The comparison harness replays a frozen matrix of 16 sequences. On the
+committed v2 recording the typed fuse fired on 0/16 sequences; the `noul` signal
+flagged 9/9 drift sequences at their gold round and reached the obligation on
+all nine, with 0/7 false flags on real upstream commits and no premature flags;
+`choice` flagged 5/9. A second independent live run reproduced every outcome.
+The earlier v1 recording flagged 6/9 and missed post-implementation churn; the
+v2 wording was revised after seeing those misses on these constructed cases, so
+they are not held-out evidence for the wording. Client latency was 0.74–1.49 s
+median across recordings and up to 2.9 s p95; input tokens median 1890. The
 [operation guide](DRIFT_SHADOW.md) tabulates these results and their limits.
 
 ## Engineering choices and alternatives

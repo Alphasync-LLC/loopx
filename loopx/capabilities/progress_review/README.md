@@ -41,6 +41,7 @@ loopx configure-goal --goal-id <goal-id> --clear-progress-review-configuration -
 | `mode` | `off`, `shadow`, `assist` | `off` loads nothing; `shadow` records and displays; `assist` may raise the obligation |
 | `signal` | `noul`, `choice` | Which receipt judgment pair counts as drift |
 | `drift_threshold` | 2–20 | Consecutive completed drift receipts before an obligation |
+| `contract_revision` | sha256 or empty | The observer basis revision receipts must be bound to; printed by `loopx-jev drift init`. Required for `assist`; other revisions are stale |
 
 The policy lives at `control_plane.progress_review` in the goal registry and is
 visible in `loopx configure-goal --goal-id <goal-id>` under `feature_summary`
@@ -63,17 +64,28 @@ Each receipt carries only typed fields:
 - `drift_signal.noul` and `drift_signal.choice`: `true`, `false` or null;
 - `timing_ns`, `usage`, `label_probability_threshold`, `recorded_at`.
 
-The drift signals are derived by the observer with its configured label
-threshold `t`:
+The drift signals follow rule `progress_review_signal_rule_v1` with the label
+threshold `t`; the core recomputes them from the typed judgments when it reads a
+receipt and rejects any receipt whose booleans disagree:
 
-- `noul`: `P(behavior_change) ≤ 1−t` **and** `P(serves_acceptance) ≤ 1−t` is
+- `noul`: `P(serves_acceptance) ≤ 1−t` **and** `P(evidence_increment) ≤ 1−t` is
   drift; either probability `≥ t` is not drift; anything else is null.
+  `behavior_change` is recorded but not gating.
 - `choice`: `relation = off_goal` **and** `increment = no_new_evidence` is
   drift; `on_goal`, `necessary_prerequisite` or `new_evidence` is not drift;
   anything else is null.
 
-Documentation-only or test-only work that serves an acceptance criterion is
-therefore not drift under either signal.
+Both questions are asked about the change between checkpoints, not the after
+state as a whole, so churn on a file that already satisfies acceptance is drift,
+while documentation, a negative finding or a prerequisite test that serves a
+criterion or adds evidence about it is not.
+
+Receipts found by `turn_instance_id` must also agree on Agent and Todo when both
+sides name them; an ambiguous `(generated_at, agent_id)` fallback is never
+attributed. The observer writes a pending receipt when it queues an event; the
+core skips at most two newest pending receipts so an existing streak neither
+grows nor dissolves while evaluation is still running. Receipts bound to a
+revision other than the pinned one are stale and never counted.
 
 ## What you see
 
@@ -107,21 +119,23 @@ key. `python3 examples/progress-review-sentinel-smoke.py` runs the same replay.
 
 ## Recorded differential
 
-The committed live recording of the 16-sequence matrix (`jev-1.13.0`, 35 rounds,
-every round self-reporting `advanced`):
+The committed live recording of the 16-sequence matrix (question set
+`scoped-progress-sentinel-v2`, `jev-1.13.0`, 35 rounds, every round
+self-reporting `advanced`; one answer rejected by the strict decoder):
 
 | | Typed repeat fuse | `noul` receipts | `choice` receipts |
 | --- | --- | --- | --- |
-| Drift sequences flagged at or after their gold round | 0/9 | 6/9 | 4/9 |
-| Reaching the `assist` obligation at threshold 2 | 0/9 | 6/9 | 1/9 |
+| Drift sequences flagged at their gold round | 0/9 | 9/9 | 5/9 |
+| Reaching the `assist` obligation at threshold 2 | 0/9 | 9/9 | 2/9 |
 | Real on-goal upstream commits falsely flagged | 0/7 | 0/7 | 0/7 |
 
-All six purely cosmetic sequences were flagged at round 1 and would raise the
-obligation at round 2, against a periodic review that waits for 20 durable runs.
-Cosmetic churn after a real implementation in the same file was not flagged, and
-one executed negative probe was flagged in two of three live runs. See the
-[operation guide](../../../packages/loopx-jev/DRIFT_SHADOW.md) for the full table,
-latency and variance.
+Purely cosmetic sequences were flagged at round 1, mixed sequences at their
+drift round; a second independent live run reproduced every outcome. The v2
+wording was revised after the earlier recording missed post-implementation
+churn on these constructed sequences, so they are no longer held-out for the
+wording; the seven real commits were not used to tune anything. See the
+[operation guide](../../../packages/loopx-jev/DRIFT_SHADOW.md) for the full
+table, latency, variance and what remains unproven.
 
 ## Boundaries and next step
 
