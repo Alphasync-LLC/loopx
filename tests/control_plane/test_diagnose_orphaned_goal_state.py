@@ -82,7 +82,7 @@ def test_diagnose_blocks_an_explicit_goal_with_orphaned_state(
     quota = selected["quota_signals"]
     assert quota["should_run"] is False
     assert quota["state"] == "orphaned_goal_state"
-    assert quota["effective_action"] == "resolve_orphaned_goal_state"
+    assert "effective_action" not in quota
     assert quota["action_required"] is True
     assert selected["agent_commands"] == [
         route["command"] for route in gate["resolution_routes"]

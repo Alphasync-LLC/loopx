@@ -521,7 +521,6 @@ def _apply_orphaned_goal_state_diagnosis(
                 "decision": "skip",
                 "should_run": False,
                 "state": ORPHANED_GOAL_STATE_CONNECTION,
-                "effective_action": "resolve_orphaned_goal_state",
                 "action_required": True,
                 "requires_user_action": True,
                 "open_count": 0,
