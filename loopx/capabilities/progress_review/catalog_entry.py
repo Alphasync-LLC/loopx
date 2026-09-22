@@ -38,11 +38,12 @@ PROGRESS_REVIEW_CATALOG_ENTRY: dict[str, Any] = {
         {
             "command": (
                 "loopx configure-goal --goal-id <goal-id> --progress-review-mode "
-                "assist --progress-review-drift-threshold 2 --execute"
+                "assist --progress-review-drift-threshold 2 "
+                "--progress-review-contract-revision <basis-sha256> --execute"
             ),
             "purpose": (
-                "Let consecutive completed drift receipts become the existing "
-                "autonomous replan obligation."
+                "Let consecutive completed drift receipts bound to the pinned goal "
+                "contract become the existing autonomous replan obligation."
             ),
             "write_boundary": "goal registry policy only; no pause or gate authority",
         },
@@ -94,8 +95,10 @@ PROGRESS_REVIEW_CATALOG_ENTRY: dict[str, Any] = {
         "Default-off. shadow records receipts only; assist may raise the existing autonomous replan obligation and nothing else.",
         "The core never calls a model, never reads a raw delta and never imports the optional observer package; it consumes typed receipts through one schema.",
         "Receipts never overwrite or supplement the Agent's own typed progress_observation; they are a sibling record keyed by turn identity.",
-        "unknown, abstained, failed and missing receipts break a drift streak; they are never counted as drift or as progress.",
-        "An acknowledged autonomous replan re-arms the trigger; a changed goal contract revision invalidates earlier receipts.",
+        "unknown, abstained, failed, ambiguous, identity-conflicting and missing receipts break a drift streak; only the newest still-pending evaluations are skipped, and never counted.",
+        "assist requires the goal policy to pin the observer basis revision; receipts bound to any other revision are stale history, never current evidence, and an acknowledged autonomous replan re-arms the trigger.",
+        "The core recomputes each receipt's drift booleans from its typed judgments and rejects a receipt whose booleans disagree; a writer cannot assert drift without evidence.",
+        "assist changes the Agent's work contract (a required obligation with an acknowledgement); it is not a passive recommendation, even though it grants no new authority.",
         "No user gate, quota pause, Turn settlement or Goal acceptance authority is granted; escalation legs remain future work.",
         "Model inference runs in the observer's separate consumer process, outside every core write lock and transaction.",
     ],

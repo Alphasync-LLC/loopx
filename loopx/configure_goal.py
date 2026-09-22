@@ -445,6 +445,7 @@ def configure_goal(
     progress_review_mode: str | None = None,
     progress_review_signal: str | None = None,
     progress_review_drift_threshold: int | None = None,
+    progress_review_contract_revision: str | None = None,
     clear_progress_review_configuration: bool = False,
     multi_subagent_feature: str | None = None,
     orchestration_mode: str | None = None,
@@ -700,6 +701,7 @@ def configure_goal(
         progress_review_mode,
         progress_review_signal,
         progress_review_drift_threshold,
+        progress_review_contract_revision,
         clear=clear_progress_review_configuration,
     )
     payload = read_json(registry_path)

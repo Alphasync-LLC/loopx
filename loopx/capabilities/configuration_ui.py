@@ -328,6 +328,17 @@ def capability_configuration_editor(
                     minimum=PROGRESS_REVIEW_MIN_DRIFT_THRESHOLD,
                     maximum=PROGRESS_REVIEW_MAX_DRIFT_THRESHOLD,
                 ),
+                _field(
+                    "contract_revision",
+                    "Pinned goal contract revision",
+                    "text",
+                    nullable=True,
+                    description=(
+                        "sha256 of the observer basis the receipts must be bound to; "
+                        "printed by `loopx-jev drift init`. assist raises nothing "
+                        "without it, and receipts for other revisions are stale."
+                    ),
+                ),
             ],
         },
         "pull_request_review": {

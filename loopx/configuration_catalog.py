@@ -409,11 +409,17 @@ def build_goal_configuration_catalog(
                 "feature_id": "progress_review",
                 "display_name": "Progress-review sentinel",
                 "availability": "supported_opt_in",
-                "default": {"mode": "off", "signal": "noul", "drift_threshold": 2},
+                "default": {
+                    "mode": "off",
+                    "signal": "noul",
+                    "drift_threshold": 2,
+                    "contract_revision": None,
+                },
                 "current": {
                     "mode": str(progress_review.get("mode") or "off"),
                     "signal": str(progress_review.get("signal") or "noul"),
                     "drift_threshold": int(progress_review.get("drift_threshold") or 2),
+                    "contract_revision": progress_review.get("contract_revision") or None,
                 },
                 "consider_when": (
                     "Long-running work keeps declaring advancement while the typed "
@@ -422,8 +428,9 @@ def build_goal_configuration_catalog(
                 ),
                 "effect": (
                     "shadow records typed drift receipts per refresh; assist lets "
-                    "consecutive completed drift receipts raise the existing "
-                    "autonomous replan obligation."
+                    "consecutive completed drift receipts bound to the pinned goal "
+                    "contract revision raise the existing autonomous replan "
+                    "obligation, which the Agent must acknowledge."
                 ),
                 "does_not": [
                     "call a model from the control plane or read raw file deltas",
@@ -452,6 +459,11 @@ def build_goal_configuration_catalog(
                         "--progress-review-drift-threshold",
                         "2",
                         execute=True,
+                    ),
+                    "preview_pin": _configure_command(
+                        goal_id,
+                        "--progress-review-contract-revision",
+                        "<basis-sha256>",
                     ),
                     "preview_disable": _configure_command(
                         goal_id, "--clear-progress-review-configuration"

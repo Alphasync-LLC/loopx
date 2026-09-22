@@ -490,6 +490,7 @@ def handle_registry_admin_command(
                 progress_review_mode=args.progress_review_mode,
                 progress_review_signal=args.progress_review_signal,
                 progress_review_drift_threshold=args.progress_review_drift_threshold,
+                progress_review_contract_revision=args.progress_review_contract_revision,
                 clear_progress_review_configuration=bool(
                     args.clear_progress_review_configuration
                 ),

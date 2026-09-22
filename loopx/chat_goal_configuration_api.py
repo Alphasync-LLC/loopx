@@ -142,6 +142,7 @@ def _change_quality_options(config: Mapping[str, Any]) -> dict[str, Any]:
 
 def _progress_review_options(config: Mapping[str, Any]) -> dict[str, Any]:
     from .capabilities.progress_review.policy import (
+        normalize_progress_review_contract_revision,
         normalize_progress_review_drift_threshold,
         normalize_progress_review_mode,
         normalize_progress_review_signal,
@@ -151,6 +152,11 @@ def _progress_review_options(config: Mapping[str, Any]) -> dict[str, Any]:
     signal = config.get("signal")
     threshold = config.get("drift_threshold")
     return {
+        "progress_review_contract_revision": (
+            normalize_progress_review_contract_revision(config.get("contract_revision"))
+            if "contract_revision" in config
+            else None
+        ),
         "progress_review_mode": (
             normalize_progress_review_mode(mode) if mode is not None else None
         ),
@@ -213,7 +219,7 @@ def _goal_capability_options(
         "explore_harness": {"enabled", "profile"},
         "pull_request_review": {"wait_for_ci", "review_priority"},
         "change_quality_qualification": {"enabled", "safe_fix", "strict_receipt"},
-        "progress_review": {"mode", "signal", "drift_threshold"},
+        "progress_review": {"mode", "signal", "drift_threshold", "contract_revision"},
         "local_authority_shadow": {"enabled"},
         "coordination_runtime_shadow": {"enabled"},
         "lark_kanban_heartbeat_sync": {"enabled"},

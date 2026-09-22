@@ -43,7 +43,9 @@ def receipt(**overrides: object) -> dict[str, object]:
             "todo_id": None,
         },
         "status": "completed",
-        "question_version": "scoped-progress-sentinel-v1",
+        "reason": None,
+        "signal_rule_version": "progress_review_signal_rule_v1",
+        "question_version": "scoped-progress-sentinel-v2",
         "model": "fixture-v1",
         "judgments": {
             "choice": {"relation": "off_goal", "increment": "no_new_evidence"},
@@ -69,7 +71,11 @@ def test_policy_defaults_to_off_and_fails_closed_on_malformed_blocks() -> None:
         "mode": "off",
         "signal": "noul",
         "drift_threshold": 2,
+        "contract_revision": None,
     }
+    pinned = {"control_plane": {"progress_review": {"mode": "assist", "contract_revision": _digest("c").upper()}}}
+    assert progress_review_goal_policy(pinned)["contract_revision"] == _digest("c")
+    assert progress_review_goal_policy({"control_plane": {"progress_review": {"contract_revision": "not-a-digest"}}})["mode"] == "off"
     broken = {"control_plane": {"progress_review": {"mode": "assist", "signal": "prose"}}}
     policy = progress_review_goal_policy(broken)
     assert policy["mode"] == "off"
@@ -87,7 +93,18 @@ def test_goal_configuration_round_trips_and_clears() -> None:
         "mode": "shadow",
         "signal": "noul",
         "drift_threshold": 2,
+        "contract_revision": None,
     }
+    goal_configuration.apply_change(
+        goal, goal_configuration.normalize_change(None, None, None, _digest("basis"), clear=False)
+    )
+    assert progress_review_goal_policy(goal)["contract_revision"] == _digest("basis")
+    goal_configuration.apply_change(
+        goal, goal_configuration.normalize_change(None, None, None, "", clear=False)
+    )
+    assert progress_review_goal_policy(goal)["contract_revision"] is None
+    with pytest.raises(ValueError):
+        goal_configuration.normalize_change(None, None, None, "abc", clear=False)
     goal_configuration.apply_change(
         goal, goal_configuration.normalize_change("assist", "choice", 3, clear=False)
     )
@@ -122,6 +139,11 @@ def test_receipt_normalization_is_strict() -> None:
         receipt(label_probability_threshold=0.3),
         receipt(recorded_at="yesterday"),
         receipt(run={"generated_at": ""}),
+        receipt(signal_rule_version="progress_review_signal_rule_v0"),
+        receipt(reason="Deadline Exceeded!"),
+        # A writer cannot assert drift its own judgments do not support.
+        receipt(judgments={"choice": None, "noul": None}),
+        receipt(judgments={"choice": {"relation": "on_goal", "increment": "new_evidence"}, "noul": {"behavior_change": 0.9, "serves_acceptance": 0.9, "evidence_increment": 0.9}}),
     ):
         with pytest.raises((ValueError, TypeError)):
             normalize_progress_review_receipt(bad)
@@ -129,6 +151,20 @@ def test_receipt_normalization_is_strict() -> None:
         receipt(status="abstained", drift_signal={"noul": None, "choice": None})
     )
     assert abstained["drift_signal"] == {"noul": None, "choice": None}
+    pending = normalize_progress_review_receipt(
+        receipt(status="not_evaluated", reason="pending_evaluation", judgments={"choice": None, "noul": None}, drift_signal={"noul": None, "choice": None})
+    )
+    assert pending["reason"] == "pending_evaluation"
+    # Behaviour change alone is not drift protection: an unrelated feature is drift.
+    unrelated = normalize_progress_review_receipt(
+        receipt(judgments={"choice": {"relation": "off_goal", "increment": "no_new_evidence"}, "noul": {"behavior_change": 0.95, "serves_acceptance": 0.05, "evidence_increment": 0.08}})
+    )
+    assert unrelated["drift_signal"]["noul"] is True
+    # A negative finding that adds goal evidence is not drift.
+    probe = normalize_progress_review_receipt(
+        receipt(judgments={"choice": {"relation": "unknown", "increment": "new_evidence"}, "noul": {"behavior_change": 0.1, "serves_acceptance": 0.2, "evidence_increment": 0.9}}, drift_signal={"noul": False, "choice": False})
+    )
+    assert probe["drift_signal"] == {"noul": False, "choice": False}
 
 
 def test_receipts_write_load_newest_first_and_reject_tampered_files(tmp_path: Path) -> None:
@@ -158,6 +194,7 @@ def test_receipts_write_load_newest_first_and_reject_tampered_files(tmp_path: Pa
     assert summary["drift_counts"] == {"noul": 2, "choice": 2}
     assert summary["latest"]["event_id"] == _digest("event-2")
     assert summary["rejected_receipts"] == 2
+    assert summary["contract_revision"] is None and summary["pending_receipts"] == 0
     assert "delta" not in json.dumps(summary)
 
 
@@ -215,6 +252,7 @@ def test_configure_goal_round_trips_the_policy_and_exposes_it(tmp_path: Path) ->
         "mode": "shadow",
         "signal": "noul",
         "drift_threshold": 2,
+        "contract_revision": None,
     }
     stored = json.loads(registry.read_text(encoding="utf-8"))["goals"][0]
     assert "progress_review" not in stored.get("control_plane", {}), "dry run must not write"
@@ -224,6 +262,7 @@ def test_configure_goal_round_trips_the_policy_and_exposes_it(tmp_path: Path) ->
         progress_review_mode="assist",
         progress_review_signal="choice",
         progress_review_drift_threshold=3,
+        progress_review_contract_revision=_digest("basis"),
         execute=True,
     )
     stored = json.loads(registry.read_text(encoding="utf-8"))["goals"][0]
@@ -232,10 +271,14 @@ def test_configure_goal_round_trips_the_policy_and_exposes_it(tmp_path: Path) ->
         "mode": "assist",
         "signal": "choice",
         "drift_threshold": 3,
+        "contract_revision": _digest("basis"),
     }
     catalog = configure_goal(registry_path=registry, goal_id=GOAL_ID)["configuration_catalog"]
     feature = next(f for f in catalog["features"] if f["feature_id"] == "progress_review")
-    assert feature["current"] == {"mode": "assist", "signal": "choice", "drift_threshold": 3}
+    assert feature["current"] == {"mode": "assist", "signal": "choice", "drift_threshold": 3, "contract_revision": _digest("basis")}
+    assert "--progress-review-contract-revision" in feature["commands"]["preview_pin"]
+    with pytest.raises(ValueError):
+        configure_goal(registry_path=registry, goal_id=GOAL_ID, progress_review_contract_revision="nope")
     assert feature["availability"] == "supported_opt_in"
     assert "--progress-review-mode assist" in feature["commands"]["apply_assist"]
     with pytest.raises(ValueError):
@@ -261,7 +304,7 @@ def test_catalog_editor_and_chat_api_agree_on_fields() -> None:
         explore_harness_profiles=("generic",),
     )
     feature = next(f for f in catalog["features"] if f["feature_id"] == "progress_review")
-    assert feature["default"] == {"mode": "off", "signal": "noul", "drift_threshold": 2}
+    assert feature["default"] == {"mode": "off", "signal": "noul", "drift_threshold": 2, "contract_revision": None}
     shared = next(
         item
         for item in catalog["capability_catalog"]["capabilities"]
@@ -270,7 +313,7 @@ def test_catalog_editor_and_chat_api_agree_on_fields() -> None:
     assert shared["available_scopes"] == ["goal"]
     editor = capability_configuration_editor("progress_review")
     assert editor["editable"] is True
-    assert [field["key"] for field in editor["fields"]] == ["mode", "signal", "drift_threshold"]
+    assert [field["key"] for field in editor["fields"]] == ["mode", "signal", "drift_threshold", "contract_revision"]
     assert _goal_capability_options("progress_review", None) == {
         "clear_progress_review_configuration": True
     }
@@ -280,7 +323,10 @@ def test_catalog_editor_and_chat_api_agree_on_fields() -> None:
         "progress_review_mode": "assist",
         "progress_review_signal": None,
         "progress_review_drift_threshold": 4,
+        "progress_review_contract_revision": None,
     }
+    assert _goal_capability_options("progress_review", {"contract_revision": _digest("b")})["progress_review_contract_revision"] == _digest("b")
+    assert _goal_capability_options("progress_review", {"contract_revision": ""})["progress_review_contract_revision"] == ""
     with pytest.raises(ValueError):
         _goal_capability_options("progress_review", {"mode": "steer"})
     with pytest.raises(ValueError):
@@ -314,4 +360,5 @@ def test_cli_flags_reach_configure_goal(tmp_path: Path) -> None:
         "mode": "shadow",
         "signal": "noul",
         "drift_threshold": 5,
+        "contract_revision": None,
     }

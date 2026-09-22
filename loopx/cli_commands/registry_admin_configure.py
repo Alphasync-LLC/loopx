@@ -127,6 +127,14 @@ def register_configure_goal_command(subparsers: argparse._SubParsersAction) -> N
         help="Consecutive completed drift receipts required before an obligation (2-20).",
     )
     configure_goal_parser.add_argument(
+        "--progress-review-contract-revision",
+        help=(
+            "sha256 of the observer basis that receipts must be bound to, as printed "
+            "by `loopx-jev drift init`; assist raises nothing without it. Pass an "
+            "empty string to remove the pin."
+        ),
+    )
+    configure_goal_parser.add_argument(
         "--clear-progress-review-configuration",
         action="store_true",
         help="Remove the Goal progress-review policy and return to the default off.",
