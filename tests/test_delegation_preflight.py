@@ -1,6 +1,8 @@
 """A binding inspection must use the actual Turn without launching or spending."""
 
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -206,11 +208,34 @@ def test_selected_codex_managed_agent_profile_is_projected_exactly(service):
     assert native["schema_version"] == "codex_stdio_mcp_server_v0"
     assert native["name"] == "loopx_delegation"
     command = native["command"]
-    assert command[:4] == [sys.executable, "-P", "-m", "loopx.collaboration_mcp"]
+    assert command[:3] == [sys.executable, "-P", "-c"]
+    assert "loopx.collaboration_mcp" in command
+    assert str(Path(__file__).resolve().parents[1]) in command
     assert command[command.index("--agent-id") + 1] == "analyst"
     assert command[command.index("--workspace") + 1] == binding["workspace"]
     assert command[command.index("--execution-config") + 1] == str(runner.config)
     assert "lead" not in command
+
+    shadow = Path(binding["workspace"]) / "loopx"
+    shadow.mkdir()
+    (shadow / "__init__.py").write_text("", encoding="utf-8")
+    (shadow / "collaboration_mcp.py").write_text(
+        "raise RuntimeError('stale workspace MCP must not be imported')\n",
+        encoding="utf-8",
+    )
+    clean_environment = os.environ.copy()
+    clean_environment.pop("PYTHONPATH", None)
+    completed = subprocess.run(
+        command,
+        cwd=binding["workspace"],
+        input="",
+        text=True,
+        capture_output=True,
+        env=clean_environment,
+        timeout=10,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "stale workspace MCP" not in completed.stderr
 
 
 def test_preflight_ignores_stale_loopx_checkout_in_worker_workspace(service):

@@ -18,6 +18,7 @@ import stat
 import subprocess
 import sys
 import time
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -44,6 +45,19 @@ from .control_plane.collaboration.peers import (
 )
 
 
+_PINNED_MODULE_LAUNCHER = (
+    "import runpy,sys;"
+    "release_root,module=sys.argv[1:3];"
+    "sys.path.insert(0,release_root);"
+    "sys.argv=[module,*sys.argv[3:]];"
+    "runpy.run_module(module,run_name='__main__')"
+)
+
+
+def _release_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
 def _pinned_release_environment() -> dict[str, str]:
     """Keep managed children on the release that admitted the delegation.
 
@@ -55,7 +69,7 @@ def _pinned_release_environment() -> dict[str, str]:
     """
 
     environment = os.environ.copy()
-    release_root = str(Path(__file__).resolve().parent.parent)
+    release_root = str(_release_root())
     inherited = [
         entry
         for entry in environment.get("PYTHONPATH", "").split(os.pathsep)
@@ -68,6 +82,79 @@ def _pinned_release_environment() -> dict[str, str]:
 
 def _python_module_command(module: str) -> list[str]:
     return [sys.executable, "-P", "-m", module]
+
+
+def _mcp_python_candidates() -> tuple[Path, ...]:
+    configured = os.environ.get("LOOPX_MCP_PYTHON")
+    managed = (
+        Path.home()
+        / ".local"
+        / "share"
+        / "loopx"
+        / "mcp-venv"
+        / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    )
+    values: list[Path] = []
+    if configured:
+        selected = Path(configured).expanduser()
+        if not selected.is_absolute():
+            raise ValueError("LOOPX_MCP_PYTHON must be an absolute path")
+        values.append(selected)
+    values.extend([Path(sys.executable), managed])
+    # Do not resolve interpreter symlinks: a venv's ``python`` commonly points
+    # at the base executable, but its original path is what selects the venv
+    # site-packages containing FastMCP.
+    return tuple(dict.fromkeys(values))
+
+
+@lru_cache(maxsize=1)
+def _mcp_python_executable() -> str:
+    """Resolve a Python that can actually serve the required stdio MCP.
+
+    LoopX itself intentionally has no mandatory third-party dependencies.  Its
+    installers provision the shared MCP venv separately, so a managed Codex
+    child must not assume that the control-plane interpreter also has FastMCP.
+    """
+
+    for candidate in _mcp_python_candidates():
+        if not candidate.is_file():
+            continue
+        try:
+            probe = subprocess.run(
+                [
+                    str(candidate),
+                    "-P",
+                    "-c",
+                    "from mcp.server.fastmcp import FastMCP",
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=_pinned_release_environment(),
+                timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if probe.returncode == 0:
+            return str(candidate)
+    raise ValueError(
+        "LoopX collaboration MCP runtime is unavailable; provision the shared "
+        "LoopX MCP venv or set LOOPX_MCP_PYTHON to a compatible interpreter"
+    )
+
+
+def _mcp_module_command() -> list[str]:
+    # Codex intentionally sanitizes PYTHONPATH for stdio MCP children.  Carry
+    # the admitted release root in argv and rebuild sys.path inside the child
+    # rather than trusting ambient process state.
+    return [
+        _mcp_python_executable(),
+        "-P",
+        "-c",
+        _PINNED_MODULE_LAUNCHER,
+        str(_release_root()),
+        "loopx.collaboration_mcp",
+    ]
 
 
 def create_server(
@@ -461,7 +548,7 @@ class Delegations:
             mcp_server = {
                 "schema_version": "codex_stdio_mcp_server_v0",
                 "name": "loopx_delegation",
-                "command": [*_python_module_command("loopx.collaboration_mcp"),
+                "command": [*_mcp_module_command(),
                     "--runtime-root",
                     str(self.root),
                     "--registry",
