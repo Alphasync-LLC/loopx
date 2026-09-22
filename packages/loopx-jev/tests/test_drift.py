@@ -155,7 +155,8 @@ def test_real_delta_without_self_report_and_restart_dedup(study):
     assert "-TIMEOUT = 1" in text and "+RENAMED_TIMEOUT = 1" in text
     assert "progress_observation" not in text and "turn_instance_id" not in text
     report = drift.status(root)
-    assert report["authority"] == "none" and report["worker_influence"] == "none"
+    assert report["authority"] == "none" and report["observer_influence"] == "none"
+    assert report["core_consumption"] == "goal_progress_review_policy"
     assert report["events"][0]["judgments"]["relation"] == "off_goal"
     assert not list((root / "jobs").iterdir())
 

@@ -11,7 +11,9 @@ from typing import Any, Callable
 import re
 
 from loopx.capabilities.progress_review.receipt import (
+    PROGRESS_REVIEW_PENDING_REASON,
     PROGRESS_REVIEW_RECEIPT_SCHEMA_VERSION,
+    PROGRESS_REVIEW_SIGNAL_RULE_VERSION,
     write_progress_review_receipt,
 )
 from loopx.file_lock import exclusive_file_lock
@@ -125,6 +127,9 @@ def initialize(
         "goal_id": basis["goal_id"],
         "scope_file_count": len(paths),
         "receipts": "goal_runtime" if runtime_root is not None else "private_only",
+        # Pin this in the Goal policy (`--progress-review-contract-revision`) so
+        # the core only counts receipts bound to this exact basis.
+        "contract_revision": revision,
         "authority": "none",
     }
 
@@ -147,6 +152,7 @@ def prepare(root: Path, config_path: Path) -> dict[str, Any]:
     return {
         "snapshot": snapshot,
         "basis": basis,
+        "config": config,
         "contract_revision": revision,
         "config_generation": config.generation,
         "baseline_digest": digest(current["baseline"]),
@@ -294,6 +300,19 @@ def enqueue(
             }
             atomic_json(root / "jobs" / f"{event_id}.json", job)
             current["seen_evidence"].append(evidence_id)
+            if current.get("runtime_root"):
+                # A pending receipt tells the core this transition is being
+                # evaluated, so an existing streak is neither counted up nor
+                # dissolved while the separate consumer is still running.
+                _emit_receipt(
+                    Path(current["runtime_root"]),
+                    current["goal_id"],
+                    job,
+                    len(current["events"]),
+                    {"status": "not_evaluated", "reason": PROGRESS_REVIEW_PENDING_REASON},
+                    prepared["config"],
+                    evaluation_ns=0,
+                )
         current["baseline"] = captured
         current["contract_revision"] = prepared["contract_revision"]
         current["events"][event_id] = {
@@ -382,7 +401,8 @@ def drain(
                 "evidence_id": job["evidence_id"],
                 "mode": "shadow",
                 "authority": "none",
-                "worker_influence": "none",
+                "observer_influence": "none",
+                "core_consumption": "goal_progress_review_policy",
                 "historical_only": True,
                 "assessment": result,
                 "evaluation_ns": evaluation_ns,
@@ -413,6 +433,10 @@ def _emit_receipt(
 
     assessment = result.get("assessment") if isinstance(result.get("assessment"), dict) else None
     completed = result.get("status") == "completed" and assessment is not None
+    reason = result.get("reason")
+    reason_token = (
+        reason if isinstance(reason, str) and re.fullmatch(r"[a-z0-9_]{1,80}", reason) else None
+    )
     timing: dict[str, int] = {"evaluation": int(evaluation_ns)}
     total = result.get("assessment_total_ns")
     if isinstance(total, int) and not isinstance(total, bool) and total >= 0:
@@ -431,6 +455,8 @@ def _emit_receipt(
         "sequence": sequence,
         "run": job.get("run") or {},
         "status": result.get("status"),
+        "reason": reason_token,
+        "signal_rule_version": PROGRESS_REVIEW_SIGNAL_RULE_VERSION,
         "question_version": QUESTION_VERSION,
         "model": config.model,
         "judgments": {
@@ -565,9 +591,13 @@ def status(root: Path) -> dict[str, Any]:
         "goal_id": current["goal_id"],
         "mode": configured.mode,
         "authority": "none",
-        "worker_influence": "none",
+        # The observer never steers. Whether the core turns these receipts into
+        # an obligation is decided by the Goal's registry `progress_review` policy.
+        "observer_influence": "none",
+        "core_consumption": "goal_progress_review_policy",
         "historical_only": True,
         "runtime_root": current.get("runtime_root"),
+        "contract_revision": current.get("contract_revision"),
         "receipts_written": receipts_written,
         "label_counts": label_counts,
         "label_agreement": _agreement(rows),

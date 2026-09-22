@@ -63,6 +63,7 @@ def test_noul_validation_and_drift_signal_derivation() -> None:
     for bad in ({"type": "choice"}, {"type": "noul", "noul": 1.5}, {"type": "noul", "noul": True}, {"type": "noul"}):
         with pytest.raises(ValueError):
             validate_noul(bad)
+    # Rule v1 gates on serves_acceptance and evidence_increment; behaviour change is recorded only.
     assert noul_drift_signal(0.05, 0.1, 0.6) is True
     assert noul_drift_signal(0.9, 0.1, 0.6) is False
     assert noul_drift_signal(0.05, 0.7, 0.6) is False
@@ -93,7 +94,9 @@ def test_completed_drift_evaluation_writes_a_normalized_goal_receipt(runtime_stu
     assert receipt["judgments"]["noul"]["behavior_change"] == 0.05
     assert receipt["run"]["turn_instance_id"] == "turn-1"
     assert receipt["run"]["agent_id"] == "worker"
-    assert receipt["question_version"] == "scoped-progress-sentinel-v1"
+    assert receipt["question_version"] == "scoped-progress-sentinel-v2"
+    assert receipt["signal_rule_version"] == "progress_review_signal_rule_v1"
+    assert receipt["reason"] is None
     assert receipt["model"] == "fixture-v1"
     assert receipt["timing_ns"]["evaluation"] >= 0
     raw = (runtime / "goals" / "drift-test" / "progress-review" / "receipts").glob("*.json")
@@ -129,6 +132,36 @@ def test_on_goal_and_abstained_evaluations_never_carry_a_drift_flag(runtime_stud
         normalize_progress_review_receipt(receipt)
 
 
+def test_queued_event_writes_a_pending_receipt_that_evaluation_replaces(runtime_study):
+    root, repo, basis, config, runtime = runtime_study
+    created = drift.state(root)
+    assert created["runtime_root"] == str(runtime.resolve())
+    change_and_queue((root, repo, basis, config), 1)
+    receipts, rejected = load_progress_review_receipts(runtime, "drift-test")
+    assert rejected == 0 and len(receipts) == 1
+    assert receipts[0]["status"] == "not_evaluated"
+    assert receipts[0]["reason"] == "pending_evaluation"
+    assert receipts[0]["drift_signal"] == {"noul": None, "choice": None}
+    pending_id = receipts[0]["event_id"]
+
+    def send(request, config, key):
+        return {"response": response(request, ["off_goal", "no_new_evidence"], nouls=DRIFT_NOULS)}
+
+    drift.drain(root, config, transport=send, credential=lambda: "fixture")
+    receipts, rejected = load_progress_review_receipts(runtime, "drift-test")
+    assert rejected == 0 and len(receipts) == 1
+    assert receipts[0]["event_id"] == pending_id and receipts[0]["status"] == "completed"
+
+
+def test_initialize_reports_the_contract_revision_to_pin(runtime_study):
+    root, repo, basis, config, runtime = runtime_study
+    import hashlib
+
+    expected = hashlib.sha256(basis.read_bytes()).hexdigest()
+    assert drift.state(root)["contract_revision"] == expected
+    assert drift.status(root)["contract_revision"] == expected
+
+
 def test_failed_evaluation_writes_a_failed_receipt_without_judgments(runtime_study):
     root, repo, basis, config, runtime = runtime_study
     change_and_queue((root, repo, basis, config), 1)
@@ -140,6 +173,7 @@ def test_failed_evaluation_writes_a_failed_receipt_without_judgments(runtime_stu
     drift.drain(root, config, transport=boom, credential=lambda: "fixture")
     receipts, _ = load_progress_review_receipts(runtime, "drift-test")
     assert receipts[0]["status"] == "failed"
+    assert receipts[0]["reason"] == "deadline_exceeded"
     assert receipts[0]["judgments"] == {"choice": None, "noul": None}
     assert receipts[0]["drift_signal"] == {"noul": None, "choice": None}
 

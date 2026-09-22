@@ -127,7 +127,8 @@ def sequence(tmp_path):
         "--path", "retry.py",
     )
     assert created["receipts"] == "goal_runtime"
-    return project, runtime, registry, work, config, state, env
+    assert len(created["contract_revision"]) == 64
+    return project, runtime, registry, work, config, state, env, created["contract_revision"]
 
 
 def _cosmetic_round(work: Path, config: Path, state: Path, env: dict[str, str], registry: Path, runtime: Path, project: Path, number: int) -> None:
@@ -153,7 +154,7 @@ def _drain_with_drift(state: Path, config: Path) -> None:
 
 
 def test_same_sequence_off_sees_nothing_and_assist_raises_the_obligation(sequence):
-    project, runtime, registry, work, config, state, env = sequence
+    project, runtime, registry, work, config, state, env, revision = sequence
     for number in (1, 2):
         _cosmetic_round(work, config, state, env, registry, runtime, project, number)
     _drain_with_drift(state, config)
@@ -174,12 +175,21 @@ def test_same_sequence_off_sees_nothing_and_assist_raises_the_obligation(sequenc
     assert shadow is not None and shadow["summary"]["receipt_count"] == 2
     assert autonomous_replan_obligation_from_runs(runs, agent_todos=None, external_progress_review=shadow) is None
 
-    # Assist: the same two receipts become the existing obligation contract.
+    # Assist without a pinned goal contract is blocked and says so.
     configure_goal(
         registry_path=registry, goal_id=GOAL_ID, progress_review_mode="assist",
         progress_review_drift_threshold=2, execute=True,
     )
+    unpinned = external_progress_review_context(_goal(registry), runtime)
+    assert unpinned is not None and unpinned["summary"]["assist_blocked_reason"] == "contract_revision_unpinned"
+    assert autonomous_replan_obligation_from_runs(runs, agent_todos=None, external_progress_review=unpinned) is None
+
+    # Assist pinned to this observer's basis: the same two receipts become the existing obligation contract.
+    configure_goal(
+        registry_path=registry, goal_id=GOAL_ID, progress_review_contract_revision=revision, execute=True,
+    )
     assist = external_progress_review_context(_goal(registry), runtime)
+    assert assist is not None and assist["summary"]["stale_receipts"] == 0
     obligation = autonomous_replan_obligation_from_runs(runs, agent_todos=None, external_progress_review=assist)
     assert obligation is not None
     assert obligation["required"] is True
@@ -245,7 +255,7 @@ def test_same_sequence_off_sees_nothing_and_assist_raises_the_obligation(sequenc
 
 
 def test_on_goal_receipts_never_raise_an_obligation_in_assist(sequence):
-    project, runtime, registry, work, config, state, env = sequence
+    project, runtime, registry, work, config, state, env, revision = sequence
     for number in (1, 2):
         _cosmetic_round(work, config, state, env, registry, runtime, project, number)
 
@@ -253,7 +263,10 @@ def test_on_goal_receipts_never_raise_an_obligation_in_assist(sequence):
         return {"response": response(request, ["on_goal", "new_evidence"])}
 
     drift.drain(state, config, transport=send, credential=lambda: "fixture")
-    configure_goal(registry_path=registry, goal_id=GOAL_ID, progress_review_mode="assist", execute=True)
+    configure_goal(
+        registry_path=registry, goal_id=GOAL_ID, progress_review_mode="assist",
+        progress_review_contract_revision=revision, execute=True,
+    )
     runs = _newest_first_runs(runtime)
     context = external_progress_review_context(_goal(registry), runtime)
     assert context is not None and context["summary"]["drift_counts"] == {"noul": 0, "choice": 0}

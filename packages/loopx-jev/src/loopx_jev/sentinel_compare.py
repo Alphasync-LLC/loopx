@@ -110,9 +110,15 @@ def recording_transport(
     return transport
 
 
+def _goal_id(case_id: str) -> str:
+    """Stable, label-free identity: the case name never reaches the run or the model."""
+
+    return "sentinel-" + hashlib.sha256(case_id.encode("utf-8")).hexdigest()[:16]
+
+
 def _run_record(case_id: str, round_number: int) -> dict[str, Any]:
     return {
-        "goal_id": f"sentinel-{case_id}",
+        "goal_id": _goal_id(case_id),
         "classification": "bounded_delivery",
         "generated_at": f"2026-09-21T00:{round_number // 60:02d}:{round_number % 60:02d}Z",
         "turn_instance_id": f"{case_id}-r{round_number}",
@@ -140,6 +146,7 @@ def _receipt_like(case: dict[str, Any], round_item: dict[str, Any], event: dict[
         "contract_revision": "matrix",
         "sequence": sequence,
         "status": event.get("status"),
+        "reason": event.get("reason"),
         "run": {
             "turn_instance_id": f"{case['case_id']}-r{round_item['round']}",
             "generated_at": _run_record(case["case_id"], round_item["round"])["generated_at"],
@@ -186,7 +193,7 @@ def run_case(
     atomic_json(
         basis_path,
         {
-            "goal_id": f"sentinel-{case['case_id']}",
+            "goal_id": _goal_id(case["case_id"]),
             "objective": case["basis"]["objective"],
             "acceptance": case["basis"]["acceptance"],
             "non_goals": case["basis"]["non_goals"],
@@ -270,6 +277,7 @@ def run_case(
                     agent_id=AGENT_ID,
                     threshold=drift_threshold,
                     signal=signal,
+                    contract_revision="matrix",
                     ack_recorded=autonomous_replan_ack_recorded,
                 )
                 if trigger:
