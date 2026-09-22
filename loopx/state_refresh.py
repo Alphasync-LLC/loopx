@@ -92,6 +92,7 @@ from .control_plane.goals.vision_checkpoint import (
     prepare_vision_refresh,
 )
 from .control_plane.goals.goal_frontier import latest_agent_vision_from_runs
+from .control_plane.goals.checkpoint_read_context import checkpoint_commit_guard
 from .registry import registry_goals, resolve_state_file
 from .runtime import validate_goal_id_path_segment
 from .state_projection import (
@@ -796,6 +797,7 @@ def refresh_state_run(
     agent_vision_packet: dict[str, Any] | None = None,
     merge_agent_vision_patch: bool = False,
     vision_unchanged_reason: str | None = None,
+    checkpoint_read_context_id: str | None = None,
     progress_observation: dict[str, Any] | None = None,
     completion_todo_id: str | None = None,
     completion_turn_key: str | None = None,
@@ -806,6 +808,8 @@ def refresh_state_run(
     external_delivery: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     safe_goal_id = validate_goal_id_path_segment(goal_id)
+    if checkpoint_read_context_id and not turn_instance_id:
+        raise ValueError("--checkpoint-read-context requires the original Turn identity")
     validate_public_safe_text("classification", classification)
     if usage_measurement is not None and usage_codex_session is not None:
         raise ValueError("--usage-json cannot be combined with --usage-codex-session")
@@ -900,6 +904,7 @@ def refresh_state_run(
                 turn_instance_id=turn_instance_id,
                 replan_obligation_id=normalized_replan_obligation_id,
                 refresh_retry={
+                    "checkpoint_read_context_id": checkpoint_read_context_id,
                     "external_delivery": external_delivery,
                     "vision": agent_vision_packet,
                     "unchanged_reason": vision_unchanged_reason,
@@ -942,6 +947,8 @@ def refresh_state_run(
             )
             if recovery_payload is not None:
                 return recovery_payload
+            if checkpoint_read_context_id and not checkpoint_supplement:
+                raise ValueError("--checkpoint-read-context applies only to a missing-checkpoint supplement")
             settlement_workspace_requirement = resolve_settlement_workspace_requirement(
                 delivery_workspace_causality, settlement_binding_kind=settlement_identity.binding_kind.value
             )
@@ -1334,6 +1341,17 @@ def refresh_state_run(
         # spans ledger-basis read + row append so concurrent refreshes cannot fund
         # two deltas from one stale basis; the appended row advances the basis.
         with ExitStack() as usage_booking_guard:
+            if checkpoint_supplement:
+                assert settlement_identity is not None
+                context = usage_booking_guard.enter_context(checkpoint_commit_guard(
+                    runtime_root=runtime_root, registry_path=registry_path,
+                    state_file=resolved_state_file, identity=settlement_identity,
+                    read_context_id=checkpoint_read_context_id,
+                ))
+                for projection in (record, index_record, payload):
+                    projection["vision_checkpoint"] = {
+                        **projection["vision_checkpoint"], "read_context": context,
+                    }
             if usage_codex_session is not None:
                 if not dry_run:
                     runs_dir.mkdir(parents=True, exist_ok=True)

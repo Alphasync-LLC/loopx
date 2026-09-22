@@ -105,6 +105,7 @@ import {
   writeSchedulerState,
 } from "./scheduler/state_store.ts";
 import { buildVisionCheckpoint } from "./goals/vision_checkpoint.ts";
+import {evaluateCheckpointReadContext} from "./goals/checkpoint_read_context.ts";
 import { projectVisionWaitCoverage } from "./goals/vision_wait_coverage.ts";
 import { admitGoalAmendmentProposal } from "./goals/goal_amendment_proposal.ts";
 import { projectSharedGoalAlignment } from "./goals/shared_goal_alignment.ts";
@@ -486,6 +487,7 @@ export function createEffectRuntimeHandlers(
     ["work_item.delivery_response.project", projectDeliveryResponse],
     ["work_item.delivery_claim.validate", validateDeliveryClaim],
     ["goal.vision_checkpoint.evaluate", buildVisionCheckpoint],
+    ["goal.checkpoint_read_context.evaluate", evaluateCheckpointReadContext],
     ["goal.vision_wait.coverage", projectVisionWaitCoverage],
     ["goal.shared_goal_alignment.project", projectSharedGoalAlignment],
     ["goal.operator_actions.project", projectGoalOperatorActions],
