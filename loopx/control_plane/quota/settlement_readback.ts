@@ -616,16 +616,35 @@ function resolveIdentity(
     // binder rather than two -- which means the caller has to be told the state
     // and the exact repair instead of being handed a binding mismatch it cannot
     // act on.
+    //
+    // A Turn whose explicit choice the guard already deferred is a different
+    // state with a different repair: rebinding through `--todo-id` re-enters the
+    // same preemption and defers again, while the guard's argument-less reentry
+    // binds the preemption it is actually holding. Naming the wrong command
+    // costs the caller a turn, so the repair is chosen from the retained
+    // selection the guard recorded.
+    const deferredSelectionTodoId = normalizeTodoId(
+      receiptDetails.pending_action_selection_todo_id,
+    );
+    const repair = deferredSelectionTodoId === null
+      ? "rebind it through the guard's same-turn reconciliation, then settle: " +
+        "quota should-run --turn-instance-id " +
+        `${turnInstanceId} --todo-id ${identity.todo_id ?? "<todo_id>"}`
+      : "the guard deferred this turn's explicit selection instead of binding " +
+        "it, so rerun the guard for the same turn without --todo-id (which " +
+        "binds the preemption it is holding), then settle with the identity it " +
+        `returns: quota should-run --turn-instance-id ${turnInstanceId}`;
     return failedIdentity(
       "the quota should-run receipt for this turn carries no settlement binding " +
-        `yet (turn_instance_id ${turnInstanceId}); rebind it through the guard's ` +
-        "same-turn reconciliation, then settle: quota should-run --turn-instance-id " +
-        `${turnInstanceId} --todo-id ${identity.todo_id ?? "<todo_id>"}`,
+        `yet (turn_instance_id ${turnInstanceId}); ${repair}`,
       "identity_mismatch",
       {
         binding_kind: "unbound",
         requested_binding_kind: identity.binding_kind,
         turn_instance_id: turnInstanceId,
+        ...(deferredSelectionTodoId === null
+          ? {}
+          : { deferred_selection_todo_id: deferredSelectionTodoId }),
       },
     );
   }
