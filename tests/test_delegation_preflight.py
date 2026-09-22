@@ -2,6 +2,7 @@
 
 import json
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -205,11 +206,29 @@ def test_selected_codex_managed_agent_profile_is_projected_exactly(service):
     assert native["schema_version"] == "codex_stdio_mcp_server_v0"
     assert native["name"] == "loopx_delegation"
     command = native["command"]
-    assert command[:3] == [sys.executable, "-m", "loopx.collaboration_mcp"]
+    assert command[:4] == [sys.executable, "-P", "-m", "loopx.collaboration_mcp"]
     assert command[command.index("--agent-id") + 1] == "analyst"
     assert command[command.index("--workspace") + 1] == binding["workspace"]
     assert command[command.index("--execution-config") + 1] == str(runner.config)
     assert "lead" not in command
+
+
+def test_preflight_ignores_stale_loopx_checkout_in_worker_workspace(service):
+    root, runner = service
+    workspace = Path(runner.binding("analysis", require_active=True)["workspace"])
+    shadow = workspace / "loopx"
+    shadow.mkdir()
+    (shadow / "__init__.py").write_text("", encoding="utf-8")
+    (shadow / "cli.py").write_text(
+        "raise RuntimeError('stale workspace LoopX must not be imported')\n",
+        encoding="utf-8",
+    )
+
+    status, result = cli(runner, "inspect", "--binding-id", "analysis")
+
+    assert status == 0, result
+    assert result["turn_eligible"] is True
+    assert not any(result["effects"].values())
 
 
 def test_preflight_does_not_call_an_invalidated_acceptance_ready(service):

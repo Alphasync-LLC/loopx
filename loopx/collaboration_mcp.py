@@ -44,6 +44,32 @@ from .control_plane.collaboration.peers import (
 )
 
 
+def _pinned_release_environment() -> dict[str, str]:
+    """Keep managed children on the release that admitted the delegation.
+
+    A delegated workspace may itself be a LoopX checkout.  Plain
+    ``python -m loopx...`` prepends that workspace to ``sys.path`` and can
+    silently run an older control plane than the parent process.  Safe-path
+    mode removes the current directory while an explicit release-root
+    ``PYTHONPATH`` keeps source checkouts and installed releases deterministic.
+    """
+
+    environment = os.environ.copy()
+    release_root = str(Path(__file__).resolve().parent.parent)
+    inherited = [
+        entry
+        for entry in environment.get("PYTHONPATH", "").split(os.pathsep)
+        if entry and Path(entry).resolve(strict=False) != Path(release_root)
+    ]
+    environment["PYTHONPATH"] = os.pathsep.join([release_root, *inherited])
+    environment["PYTHONSAFEPATH"] = "1"
+    return environment
+
+
+def _python_module_command(module: str) -> list[str]:
+    return [sys.executable, "-P", "-m", module]
+
+
 def create_server(
     root: Path, registry: Path, goal_id: str, agent_id: str, workspace: Path,
     execution_config: Path | None = None,
@@ -276,12 +302,12 @@ class Delegations:
         # No inherited stdio pipes: closing the conversation cannot cancel or
         # hang this bounded execution. The worker owns a kernel single-flight lock.
         operation_id = require_operation_id(operation_id)
-        subprocess.Popen([
-            sys.executable, "-m", "loopx.collaboration_mcp", "--delegation-action", "worker", "--runtime-root", str(self.root),
+        subprocess.Popen([*_python_module_command("loopx.collaboration_mcp"),
+            "--delegation-action", "worker", "--runtime-root", str(self.root),
             "--registry", str(self.registry), "--goal-id", self.goal_id,
             "--agent-id", self.agent_id, "--execution-config", str(self.config), "--operation-id=" + operation_id,
         ], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True, close_fds=True)
+            start_new_session=True, close_fds=True, env=_pinned_release_environment())
 
     def resume(self, operation_id: str) -> dict:
         row = _read(self.path(operation_id))
@@ -349,10 +375,11 @@ class Delegations:
         _write(path, row)
 
     def _cli(self, binding: dict, *args: str, timeout: int = 60) -> dict:
-        completed = subprocess.run([
-            sys.executable, "-m", "loopx.cli", "--registry", str(self.registry),
+        completed = subprocess.run([*_python_module_command("loopx.cli"),
+            "--registry", str(self.registry),
             "--runtime-root", str(self.root), "--format", "json", *args,
-        ], cwd=binding["workspace"], capture_output=True, text=True, encoding="utf-8", timeout=timeout)
+        ], cwd=binding["workspace"], capture_output=True, text=True, encoding="utf-8",
+            timeout=timeout, env=_pinned_release_environment())
         try:
             value = json.loads(completed.stdout)
         except ValueError as exc:
@@ -424,7 +451,8 @@ class Delegations:
     def _execution_arguments(self, binding: dict, operation_id: str) -> list[str]:
         """Exactly the same profile, workspace and validation arguments for preview/run."""
         # Preserve the journaled validator argv so existing Turns retain their resume identity.
-        validator = [sys.executable, "-m", "loopx.collaboration_mcp", "--delegation-action", "validate", "--runtime-root", str(self.root),
+        validator = [*_python_module_command("loopx.collaboration_mcp"),
+                     "--delegation-action", "validate", "--runtime-root", str(self.root),
                      "--registry", str(self.registry), "--goal-id", self.goal_id,
                      "--agent-id", self.agent_id, "--execution-config", str(self.config),
                      "--workspace", binding["workspace"], "--operation-id", operation_id]
@@ -433,10 +461,7 @@ class Delegations:
             mcp_server = {
                 "schema_version": "codex_stdio_mcp_server_v0",
                 "name": "loopx_delegation",
-                "command": [
-                    sys.executable,
-                    "-m",
-                    "loopx.collaboration_mcp",
+                "command": [*_python_module_command("loopx.collaboration_mcp"),
                     "--runtime-root",
                     str(self.root),
                     "--registry",
