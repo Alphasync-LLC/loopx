@@ -1,5 +1,6 @@
 import {selectPeriodicReportProgress, selectPeriodicReportApprovalRetry} from "./capabilities/periodic_report_progress.ts";
 import {planIssueFixMonitorReconciliation} from "./capabilities/issue_fix_monitor_reconciliation.ts";
+import {projectPeerOrchestration} from "./quota/peer_orchestration.ts";
 import {inspectTaskLease} from "./work_items/task_lease_inspection.ts";
 import {evaluateTodoPriority} from "./todos/priority.ts";
 import {evaluateUserCompletion} from "./todos/user_completion.ts";
@@ -622,6 +623,10 @@ export function createEffectRuntimeHandlers(
     [
       "governed_capability.settlement_status",
       (params) => governedCapabilitySettlementStatus(params.failure),
+    ],
+    [
+      "quota.peer_orchestration.project",
+      (params) => projectPeerOrchestration(params),
     ],
     [
       "capability_hook.agent_context.describe",
