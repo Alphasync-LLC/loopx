@@ -243,8 +243,8 @@ def test_downlevel_runtime_cannot_acknowledge_delivery(
     args, state, first, _ = canonical_projection
     invoke = local_authority.effect_runtime_result
 
-    def without_confirmation(method, payload):
-        result = invoke(method, payload)
+    def without_confirmation(method, payload, **kwargs):
+        result = invoke(method, payload, **kwargs)
         if payload.get("projection_readback") is not None:
             result.pop("projection_readback", None)
         return result
