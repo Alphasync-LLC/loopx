@@ -170,8 +170,26 @@ def find_heartbeat_receipt(
 def ensure_turn_heartbeat_settlement_receipt(
     runtime_root: Path,
     identity: SettlementIdentity,
+    *,
+    semantic_replan_guard_scoped: bool,
+    semantic_replan_obligation_id: str | None,
 ) -> dict[str, object]:
-    """Idempotently bind a Turn-created quota guard to its settlement identity."""
+    """Idempotently bind a Turn-created quota guard to its settlement identity.
+
+    Current Turn envelopes always carry ``replan_action_packet`` even when no
+    obligation was selected.  Persist that explicit empty selection so an
+    obligation opened while the host is running cannot retroactively reject
+    the admitted Turn.  Old envelopes without the field stay legacy-unscoped.
+    """
+
+    normalized_semantic_replan_obligation_id = (
+        normalize_todo_replan_obligation_id(semantic_replan_obligation_id)
+    )
+    if (
+        semantic_replan_obligation_id is not None
+        and normalized_semantic_replan_obligation_id is None
+    ):
+        raise ValueError("Turn semantic replan obligation id is malformed")
 
     log_path = rollout_event_log_path(runtime_root, identity.goal_id)
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -196,7 +214,33 @@ def ensure_turn_heartbeat_settlement_receipt(
                     raise HeartbeatReceiptIdentityConflictError(
                         "Turn heartbeat receipt belongs to another settlement identity"
                     )
-                return effective
+                effective_details = effective.get("details")
+                effective_details = (
+                    effective_details
+                    if isinstance(effective_details, Mapping)
+                    else {}
+                )
+                if not semantic_replan_guard_scoped:
+                    return effective
+                if "semantic_replan_obligation_id" in effective_details:
+                    raw_existing_guard = effective_details.get(
+                        "semantic_replan_obligation_id"
+                    )
+                    existing_guard = normalize_todo_replan_obligation_id(
+                        raw_existing_guard
+                    )
+                    if (
+                        str(raw_existing_guard or "").strip()
+                        and existing_guard is None
+                    ):
+                        raise HeartbeatReceiptIdentityConflictError(
+                            "Turn heartbeat receipt has a malformed semantic replan guard"
+                        )
+                    if existing_guard != normalized_semantic_replan_obligation_id:
+                        raise HeartbeatReceiptIdentityConflictError(
+                            "Turn heartbeat receipt belongs to another semantic replan guard"
+                        )
+                    return effective
 
         details = {
             "turn_instance_id": identity.turn_instance_id,
@@ -206,6 +250,10 @@ def ensure_turn_heartbeat_settlement_receipt(
             "stall_observation": "not_applicable",
             "source": "loopx_turn_run_once",
         }
+        if semantic_replan_guard_scoped:
+            details["semantic_replan_obligation_id"] = (
+                normalized_semantic_replan_obligation_id or ""
+            )
         source_event_id = (
             str(effective.get("event_id") or "").strip()
             if effective is not None

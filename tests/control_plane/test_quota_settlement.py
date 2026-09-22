@@ -20,6 +20,7 @@ from loopx.control_plane.effect_program import (
 from loopx.control_plane.quota import effect_program as quota_effect_program
 from loopx.control_plane.quota import settlement as quota_settlement
 from loopx.control_plane.quota.heartbeat_receipt import (
+    ensure_turn_heartbeat_settlement_receipt,
     heartbeat_receipt_settlement_replan_obligation_id,
     heartbeat_receipt_settlement_todo_id,
 )
@@ -31,6 +32,9 @@ from loopx.control_plane.quota.settlement import (
 from loopx.control_plane.quota.settlement_cli import (
     quota_rollout_replan_obligation_id,
     quota_rollout_todo_id,
+)
+from loopx.control_plane.quota.error_codes import (
+    HeartbeatReceiptIdentityConflictError,
 )
 from loopx.control_plane.quota.turn_envelope import quota_action_signature_document
 from loopx.control_plane.scheduler.execution_context import (
@@ -239,6 +243,85 @@ def _append_run_index_record(runtime_root: Path, record: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record) + "\n")
+
+
+def test_turn_guard_upgrades_matching_legacy_receipt_to_explicit_empty_scope(
+    tmp_path: Path,
+) -> None:
+    runtime_root = tmp_path / "runtime"
+    identity = SettlementIdentity(GOAL_ID, AGENT_ID, TODO_ID, TURN_ID)
+
+    ensure_turn_heartbeat_settlement_receipt(
+        runtime_root,
+        identity,
+        semantic_replan_guard_scoped=False,
+        semantic_replan_obligation_id=None,
+    )
+    upgraded = ensure_turn_heartbeat_settlement_receipt(
+        runtime_root,
+        identity,
+        semantic_replan_guard_scoped=True,
+        semantic_replan_obligation_id=None,
+    )
+    replayed = ensure_turn_heartbeat_settlement_receipt(
+        runtime_root,
+        identity,
+        semantic_replan_guard_scoped=True,
+        semantic_replan_obligation_id=None,
+    )
+
+    assert upgraded["details"]["semantic_replan_obligation_id"] is None
+    assert replayed == upgraded
+    events = [
+        json.loads(line)
+        for line in rollout_event_log_path(runtime_root, GOAL_ID)
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert len(events) == 2
+    assert events[1]["causality"] == {
+        "caused_by": events[0]["event_id"],
+        "source_event_id": events[0]["event_id"],
+    }
+
+    readback = read_heartbeat_settlement(
+        runtime_root,
+        goal_id=GOAL_ID,
+        agent_id=AGENT_ID,
+        todo_id=TODO_ID,
+        turn_instance_id=TURN_ID,
+    )
+    assert readback is not None
+    assert readback.semantic_replan_guard == {
+        "schema_version": "semantic_replan_guard_v0",
+        "scope": "turn_guard",
+        "selected_obligation_id": None,
+    }
+
+
+def test_turn_guard_refuses_to_change_an_existing_semantic_selection(
+    tmp_path: Path,
+) -> None:
+    runtime_root = tmp_path / "runtime"
+    identity = SettlementIdentity(GOAL_ID, AGENT_ID, TODO_ID, TURN_ID)
+    obligation_id = "replan-0000000000000001"
+    ensure_turn_heartbeat_settlement_receipt(
+        runtime_root,
+        identity,
+        semantic_replan_guard_scoped=True,
+        semantic_replan_obligation_id=obligation_id,
+    )
+
+    with pytest.raises(
+        HeartbeatReceiptIdentityConflictError,
+        match="another semantic replan guard",
+    ):
+        ensure_turn_heartbeat_settlement_receipt(
+            runtime_root,
+            identity,
+            semantic_replan_guard_scoped=True,
+            semantic_replan_obligation_id=None,
+        )
 
 
 def test_quota_settlement_readback_returns_the_complete_typed_chain(
