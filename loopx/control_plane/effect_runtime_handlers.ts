@@ -121,6 +121,7 @@ import {
 import { reduceTurnSettlementTransaction } from "./turn_driver/settlement.ts";
 import { evaluateHostTodoCompletion } from "./turn_driver/host_todo_completion.ts";
 import { projectReplanHistory } from "./work_items/replan_history.ts";
+import { projectReplanHistorySnapshot } from "./work_items/replan_history_snapshot.ts";
 import { projectReplanSemantics } from "./work_items/replan_semantics.ts";
 import {
   projectReplanSettlementContract,
@@ -792,6 +793,7 @@ export function createEffectRuntimeHandlers(
     ["work_item.replan_settlement.project", projectReplanSettlementContract],
     ["work_item.replan_semantics.project", projectReplanSemantics],
   ["work_item.replan_history.project", projectReplanHistory],
+  ["work_item.replan_history.project_snapshot", projectReplanHistorySnapshot],
     [
       "work_item.replan_settlement.reentry",
       projectTodoLifecycleSettlementReentry,
