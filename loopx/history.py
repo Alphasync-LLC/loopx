@@ -10,7 +10,7 @@ from itertools import islice
 from pathlib import Path
 from typing import Any
 
-from .file_lock import exclusive_file_lock
+from .file_lock import exclusive_run_index_lock
 from .authority import goal_authority_registry_summary
 from .control_plane import compact_control_plane_policy
 from .control_plane.goals.activation import (
@@ -22,6 +22,10 @@ from .control_plane.quota.monitor_poll import QUOTA_MONITOR_POLL_CLASSIFICATION
 from .control_plane.quota.slot_accounting import (
     QUOTA_SLOT_SPENT_CLASSIFICATION,
     QUOTA_SLOT_VOIDED_CLASSIFICATION,
+)
+from .control_plane.projects.registry_codec import (
+    decode_registry_snapshot as decode_registry_snapshot,
+    load_registry,
 )
 from .control_plane.runtime.run_artifacts import (
     next_run_artifact_paths,
@@ -54,7 +58,7 @@ from .presentation.markdown import (
     markdown_table_separator,
 )
 from .quota import goal_quota_with_spend_ledger
-from .registry import read_json, registry_goals
+from .registry import registry_goals
 
 STATUS_NEUTRAL_CLASSIFICATIONS = {
     QUOTA_SLOT_SPENT_CLASSIFICATION,
@@ -175,7 +179,7 @@ def write_reserved_run_artifacts(
     ingest_usage_into_run_record(record, index_record=index_record)
     # GH-C07: one lock per goal history index, shared with the repair path.
     index_path = runs_dir / "index.jsonl"
-    with exclusive_file_lock(index_path, operation="history_run_append"):
+    with exclusive_run_index_lock(index_path, operation="history_run_append"):
         json_path, markdown_path = reserve_unique_run_paths(runs_dir, generated_at)
         index_record["json_path"] = str(json_path)
         index_record["markdown_path"] = str(markdown_path)
@@ -202,12 +206,6 @@ def validate_goal_id_path_segment(goal_id: str) -> str:
     if Path(value).name != value:
         raise ValueError("goal id must not include path traversal")
     return value
-
-
-def load_registry(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    return read_json(path)
 
 
 def discover_goal_ids(
@@ -683,7 +681,7 @@ def repair_index_duplicates(
         # GH-C07: read and rewrite the index under the same lock the append
         # path takes. A dry run only reports, so it must not block writers.
         lock = (
-            exclusive_file_lock(index_path, operation="history_index_repair")
+            exclusive_run_index_lock(index_path, operation="history_index_repair")
             if execute
             else nullcontext()
         )

@@ -1,3 +1,4 @@
+import {manageAutomationCadence, projectCadenceSchedule} from "./quota/automation_cadence.ts";
 import {manageLocalAuthorityArchive} from "./coordination/local_authority_archive.ts";
 import {selectPeriodicReportProgress, selectPeriodicReportApprovalRetry} from "./capabilities/periodic_report_progress.ts";
 import {planIssueFixMonitorReconciliation} from "./capabilities/issue_fix_monitor_reconciliation.ts";
@@ -110,6 +111,9 @@ import {
   writeSchedulerState,
 } from "./scheduler/state_store.ts";
 import { buildVisionCheckpoint } from "./goals/vision_checkpoint.ts";
+import {evaluateCheckpointReadContext} from "./goals/checkpoint_read_context.ts";
+import {readCheckpointAuthority} from "./goals/checkpoint_authority.ts";
+import {commitCheckpoint, inspectCheckpointReplay} from "./goals/checkpoint_commit.ts";
 import { projectVisionWaitCoverage } from "./goals/vision_wait_coverage.ts";
 import { admitGoalAmendmentProposal } from "./goals/goal_amendment_proposal.ts";
 import { projectSharedGoalAlignment } from "./goals/shared_goal_alignment.ts";
@@ -119,6 +123,8 @@ import {
 } from "./turn_driver/delivery_continuity.ts";
 import { reduceTurnSettlementTransaction } from "./turn_driver/settlement.ts";
 import { evaluateHostTodoCompletion } from "./turn_driver/host_todo_completion.ts";
+import { projectReplanHistory } from "./work_items/replan_history.ts";
+import { projectReplanHistorySnapshot } from "./work_items/replan_history_snapshot.ts";
 import { projectReplanSemantics } from "./work_items/replan_semantics.ts";
 import {
   projectReplanSettlementContract,
@@ -475,6 +481,8 @@ export function createEffectRuntimeHandlers(
     ["goal.long_todo_chain.evaluate", evaluateLongTodoChain],
     ["todo.external_wait.plan", planTodoExternalWaitTransition],
     ["scheduler.state_transition.evaluate", evaluateSchedulerStateTransition],
+    ["quota.automation_cadence.manage", manageAutomationCadence],
+    ["quota.automation_cadence.schedule", projectCadenceSchedule],
     ["scheduler.state.evaluate", evaluateSchedulerStateOperation],
     ["scheduler.state.load", loadSchedulerState],
     ["scheduler.state.write", writeSchedulerState],
@@ -494,6 +502,10 @@ export function createEffectRuntimeHandlers(
     ["work_item.delivery_response.project", projectDeliveryResponse],
     ["work_item.delivery_claim.validate", validateDeliveryClaim],
     ["goal.vision_checkpoint.evaluate", buildVisionCheckpoint],
+    ["goal.checkpoint_read_context.evaluate", evaluateCheckpointReadContext],
+    ["goal.checkpoint_read_context.source", readCheckpointAuthority],
+    ["goal.checkpoint_read_context.commit", commitCheckpoint],
+    ["goal.checkpoint_read_context.inspect_replay", inspectCheckpointReplay],
     ["goal.vision_wait.coverage", projectVisionWaitCoverage],
     ["goal.shared_goal_alignment.project", projectSharedGoalAlignment],
     ["goal.operator_actions.project", projectGoalOperatorActions],
@@ -787,6 +799,8 @@ export function createEffectRuntimeHandlers(
     ["turn.host_todo_completion.evaluate", evaluateHostTodoCompletion],
     ["work_item.replan_settlement.project", projectReplanSettlementContract],
     ["work_item.replan_semantics.project", projectReplanSemantics],
+  ["work_item.replan_history.project", projectReplanHistory],
+  ["work_item.replan_history.project_snapshot", projectReplanHistorySnapshot],
     [
       "work_item.replan_settlement.reentry",
       projectTodoLifecycleSettlementReentry,
