@@ -53,6 +53,7 @@ from .control_plane.work_items.progress_observation import (
 from .control_plane.work_items.semantic_replan_writeback import (
     qualify_refresh_replan_writeback,
 )
+from .capabilities.progress_review.context import external_progress_review_context
 from .control_plane.work_items.refresh_recommendation import (
     DEFAULT_REFRESH_ACTION as DEFAULT_REFRESH_ACTION,
     RECOMMENDED_ACTION_SOURCE_ACTIVE_NEXT_ACTION as RECOMMENDED_ACTION_SOURCE_ACTIVE_NEXT_ACTION,
@@ -1133,6 +1134,11 @@ def refresh_state_run(
             goal_id=safe_goal_id,
             progress_observation=normalized_progress_observation,
             registry_goal=registry_goal,
+            # The acknowledgement is judged against the same sentinel-derived
+            # obligation that status shows; `off` loads nothing.
+            external_progress_review=external_progress_review_context(
+                registry_goal or {"id": safe_goal_id}, runtime_root
+            ),
             completion_todo_id=completion_todo_id,
             completion_turn_key=completion_turn_key,
             classification=classification,
