@@ -222,7 +222,7 @@ def main() -> int:
         # The shipped writeback sentence moved to the mixed-language form in the
         # same change that updated examples/control_plane/heartbeat-prompt-smoke.py;
         # this assertion keeps the blocker-runtime path pinned to the same text.
-        assert "如实--vision-unchanged-reason" in compact_prompt, prompt
+        assert "unchanged→真实--vision-unchanged-reason" in compact_prompt, prompt
 
     print("blocker-push-runtime-smoke ok")
     return 0

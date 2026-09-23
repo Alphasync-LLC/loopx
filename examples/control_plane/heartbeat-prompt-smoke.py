@@ -88,7 +88,7 @@ def assert_sole_notification_authority(task_body: str, *, mode: str) -> None:
     assert "material=outcome+vision" in body, mode
     assert "缺则同轮checkpoint-context重判" in body, mode
     assert "按凭据仅补vision；过期重读" in body, mode
-    assert "如实--vision-unchanged-reason" in body, mode
+    assert "unchanged→真实--vision-unchanged-reason" in body, mode
 
     if mode == "full":
         assert (
@@ -599,7 +599,7 @@ def main() -> int:
         "host_action=pause_or_delete_current_heartbeat->automation_update stop(no-spend)",
         "else RRULE/projected-fallback_hint/ack/fail",
         "no-change=surface_only/no spend",
-        "如实--vision-unchanged-reason",
+        "unchanged→真实--vision-unchanged-reason",
         "guard; 2 stalls->replan",
         "`agent_read_required`",
         "drain/read/triage before work; settle/ACK",
@@ -701,7 +701,7 @@ def main() -> int:
         "host_action=pause_or_delete_current_heartbeat->automation_update stop(no-spend)",
         "else RRULE/projected-fallback_hint/ack/fail",
         "no-change=surface_only/no spend",
-        "如实--vision-unchanged-reason",
+        "unchanged→真实--vision-unchanged-reason",
         "guard; 2 stalls->replan",
         "P0 blocked: safe P1/P2",
         "monitor quiet/no-spend",
