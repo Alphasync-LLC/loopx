@@ -4,7 +4,6 @@ import json
 from contextlib import nullcontext
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from heapq import merge
 from itertools import islice
 from pathlib import Path
@@ -47,7 +46,7 @@ from .control_plane.runtime.run_index_rebuild import (
     collision_review_groups,
     validate_reviewed_collision_plan,
 )
-from .control_plane.runtime.time import now_local_iso, parse_timestamp
+from .control_plane.runtime.time import chronology_key, now_local_iso
 from .doctor import PROMOTION_READINESS_CLASSIFICATIONS
 from .execution_profile import compact_execution_profile
 from .explore_graph import compact_explore_graph_policy
@@ -129,22 +128,7 @@ def now_local() -> str:
     return now_local_iso()
 
 
-_MIN_TIMESTAMP = datetime.min.replace(tzinfo=timezone.utc)
-
-
-def _chronology_key(value: Any) -> tuple[int, datetime, str]:
-    """Return a UTC-aware ordering key while keeping legacy rows deterministic."""
-
-    raw = str(value or "")
-    try:
-        parsed = parse_timestamp(value)
-    except OverflowError:
-        # UTC conversion can overflow at datetime's representable boundaries.
-        parsed = None
-    if parsed is None:
-        # Malformed or missing legacy rows must never outrank valid timestamps.
-        return (0, _MIN_TIMESTAMP, raw)
-    return (1, parsed, raw)
+_chronology_key = chronology_key
 
 
 def unique_run_paths(runs_dir: Path, generated_at: str) -> tuple[Path, Path]:

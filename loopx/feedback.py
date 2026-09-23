@@ -12,7 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .history import _chronology_key, load_index, load_registry
+from .control_plane.runtime.time import chronology_key
+from .history import load_index, load_registry
 from .paths import resolve_runtime_root
 from .public_safe_text import (
     PRIVATE_TEXT_PATTERNS as SHARED_PRIVATE_TEXT_PATTERNS,
@@ -215,7 +216,7 @@ def select_run(runs: list[dict[str, Any]], run_generated_at: str | None) -> dict
     return max(
         enumerate(runs),
         key=lambda item: (
-            *_chronology_key(item[1].get("generated_at")),
+            *chronology_key(item[1].get("generated_at")),
             item[0],
         ),
     )[1]
