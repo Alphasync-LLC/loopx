@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 from ...agents.agent_scope import (
@@ -402,12 +404,17 @@ def acceptance_gaps_from_stale_goal_binding(
         ):
             continue
         todo_id = str(item["todo_id"])
+        frontier_revision = hashlib.sha256(json.dumps(
+            [todo_id, item.get("updated_at"), contract.get("digest")],
+            ensure_ascii=True, separators=(",", ":"), default=str,
+        ).encode("utf-8")).hexdigest()
         gap = {
             "kind": GOAL_ACCEPTANCE_STALE_TRIGGER,
             "source": "goal_acceptance_contract",
             "agent_id": agent_id,
             "reason_code": GOAL_ACCEPTANCE_STALE_TRIGGER,
             "vision_todo_ids": [todo_id],
+            "frontier_revision": frontier_revision,
             "replan_trigger_summary": f"The acceptance association for {todo_id} is stale after a work change.",
             "acceptance_summary": "Preserve the owner-confirmed criteria and the original Turn identity.",
             "resolution_hint": (
@@ -996,6 +1003,21 @@ def _vision_gap_acknowledged(
             and isinstance(semantic_delta.get("satisfying_outcomes"), list)
             else []
         )
+        recorded_checkpoints = (
+            semantic_delta.get("trigger_checkpoints")
+            if isinstance(semantic_delta, dict)
+            and isinstance(semantic_delta.get("trigger_checkpoints"), list)
+            else []
+        )
+        exact_stale_checkpoints = all(
+            any(
+                isinstance(checkpoint, dict)
+                and checkpoint.get("kind") == GOAL_ACCEPTANCE_STALE_TRIGGER
+                and checkpoint.get("frontier_revision") == gap.get("frontier_revision")
+                for checkpoint in recorded_checkpoints
+            )
+            for gap in stale_bindings
+        )
         if (
             not _replan_evidence_acknowledged(
                 stale_bindings, latest_replan_ack, time_key="generated_at",
@@ -1004,6 +1026,7 @@ def _vision_gap_acknowledged(
             or latest_replan_ack.get("recorded") is not True
             or semantic_delta.get("accepted") is not True
             or GOAL_ACCEPTANCE_STALE_TRIGGER not in (semantic_delta.get("trigger_kinds") or [])
+            or not exact_stale_checkpoints
             or not any(
                 outcome in {"new_runnable_successor", "new_concrete_blocker"}
                 for outcome in satisfying_outcomes if isinstance(outcome, str)
@@ -1272,6 +1295,7 @@ def derive_goal_frontier_replan_obligation_from_summaries(
                             "completed_todo_threshold",
                             "completed_todo_ids",
                             "vision_todo_ids",
+                            "frontier_revision",
                             "reason_code",
                             "component_checks",
                             "resolution_hint",

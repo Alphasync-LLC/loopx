@@ -45,6 +45,7 @@ def test_stale_binding_routes_to_bounded_replan_only_when_frontier_is_empty():
     gaps = acceptance_gaps_from_stale_goal_binding(summary, _source(), agent_id="agent-a")
     assert [gap["vision_todo_ids"] for gap in gaps] == [["todo_stale"]]
     assert gaps[0]["generated_at"] == "2026-09-23T08:02:52Z"
+    assert len(gaps[0]["frontier_revision"]) == 64
     assert "todo_unbound" not in gaps[0]["resolution_hint"]
     obligation = derive_goal_frontier_replan_obligation_from_summaries(
         user_todo_summary={"open_count": 0}, agent_todo_summary=summary,
@@ -86,6 +87,7 @@ def test_stale_binding_reaches_quota_frontier_projection():
     assert obligation is not None
     assert obligation["triggers"][0]["kind"] == "goal_acceptance_stale"
     assert obligation["triggers"][0]["vision_todo_ids"] == ["todo_stale"]
+    assert obligation["triggers"][0]["frontier_revision"]
 
 
 def test_older_vision_ack_cannot_suppress_newer_stale_binding():
@@ -97,6 +99,10 @@ def test_older_vision_ack_cannot_suppress_newer_stale_binding():
         "semantic_delta": {
             "accepted": True,
             "trigger_kinds": ["goal_acceptance_stale"],
+            "trigger_checkpoints": [{
+                "kind": "goal_acceptance_stale",
+                "frontier_revision": gaps[0]["frontier_revision"],
+            }],
             "satisfying_outcomes": ["new_runnable_successor"],
         },
     }
@@ -113,4 +119,8 @@ def test_older_vision_ack_cannot_suppress_newer_stale_binding():
     assert derive({**old_ack, "generated_at": "2026-09-23T08:03:00Z",
                    "semantic_delta": {**old_ack["semantic_delta"],
                                       "trigger_kinds": ["vision_acceptance_gap"]}}) is not None
+    assert derive({**old_ack, "generated_at": "2026-09-23T08:03:00Z",
+                   "semantic_delta": {**old_ack["semantic_delta"],
+                                      "trigger_checkpoints": [{"kind": "goal_acceptance_stale",
+                                                               "frontier_revision": "other-todo"}]}}) is not None
     assert derive({**old_ack, "generated_at": "2026-09-23T08:03:00Z"}) is None

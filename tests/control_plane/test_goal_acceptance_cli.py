@@ -369,6 +369,7 @@ def test_real_cli_stale_binding_is_projected_for_agent_replan(acceptance_goal):
     obligation = projected["autonomous_replan_obligation"]
     assert obligation["triggers"][0]["kind"] == "goal_acceptance_stale"
     assert obligation["triggers"][0]["vision_todo_ids"] == ["todo_export"]
+    assert len(obligation["triggers"][0]["frontier_revision"]) == 64
 
 
 def test_preview_discloses_the_criteria_the_real_call_will_run(acceptance_goal):

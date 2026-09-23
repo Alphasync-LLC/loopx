@@ -152,8 +152,9 @@ existing `resume_when` is not reconstructible from the latest Todo and remains
 `stale`. When the agent's applicable Todo is genuinely stale, the existing
 Goal frontier projects its exact Todo ID as an agent-scoped replan trigger if
 no advancement Todo is selectable. The agent inspects the binding and work
-delta, restores an unintended edit or records an evidence-linked path change,
-and continues through the original Turn/Todo identity. It cannot rebind
+delta, restores an unintended edit or records an evidence-linked path change.
+The original Turn/Todo identity remains intact; a successor has its own identity.
+The agent cannot rebind
 owner-confirmed criteria, complete held work, or settle a different Todo under
 the old Turn; a true change to owner-owned criteria or scope still needs owner
 review. Only an evidence-linked runnable successor or concrete blocker receipt
@@ -306,7 +307,7 @@ claim、lease/fence、权限和后续工作要求。既有验证回执或已确�
 过期；未知的新工作字段默认按实质变化处理。已有 `resume_when` 被替换时，当前 Todo
 无法证明旧值，仍保持 `stale`。适用的 Agent Todo 确实过期、且无可选推进任务时，现有
 Goal frontier 以原 Todo ID 产生 Agent 范围的重规划触发。Agent 核查关联与工作变化，
-恢复误改或记录有依据的路径变化，并沿原 Turn/Todo 身份继续；它不能自行重绑所有者确认
+恢复误改或记录有依据的路径变化。原 Turn/Todo 身份保持不变，后继有独立身份；Agent 不能自行重绑所有者确认
 的条件、完成受阻任务，或用原 Turn 结算另一条 Todo。真正改变所有者验收条件或范围的
 情况仍交所有者审阅。只有绑定该过期触发项、发生于 Todo 更新之后，并证明有依据的可运行
 后继或具体阻塞的回执，才会消解重复唤醒，直到再次出现实质变化。
