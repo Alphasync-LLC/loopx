@@ -6,9 +6,14 @@ import {join} from "node:path";
 import test from "node:test";
 import {FileAuthorityStore} from "../../loopx/control_plane/coordination/file_authority_store.ts";
 import {SqliteAuthorityStore} from "../../loopx/control_plane/coordination/sqlite_authority_store.ts";
+import {sqliteRuntimeIdentity} from "../../loopx/control_plane/coordination/sqlite_runtime.ts";
+
+const sqliteSkip = sqliteRuntimeIdentity().sqlite_authority_qualified
+  ? false : "requires the qualified SQLite runtime";
 
 for (const [name, Store] of [["File", FileAuthorityStore], ["SQLite", SqliteAuthorityStore]] as const) {
-  test(`${name} checkpoint fence releases on failure without advancing provider revision`, async t => {
+  test(`${name} checkpoint fence releases on failure without advancing provider revision`,
+    {skip: name === "SQLite" && sqliteSkip}, async t => {
     const directory = await mkdtemp(join(tmpdir(), "checkpoint-fence-"));
     t.after(() => rm(directory, {recursive: true, force: true}));
     const store = new Store(directory, "goal");
@@ -26,7 +31,8 @@ for (const [name, Store] of [["File", FileAuthorityStore], ["SQLite", SqliteAuth
   });
 }
 
-test("SQLite concurrent requests in one runtime do not busy-wait on an awaiting checkpoint holder", async t => {
+test("SQLite concurrent requests in one runtime do not busy-wait on an awaiting checkpoint holder",
+  {skip: sqliteSkip}, async t => {
   const directory = await mkdtemp(join(tmpdir(), "checkpoint-sqlite-loop-"));
   t.after(() => rm(directory, {recursive: true, force: true}));
   const a = new SqliteAuthorityStore(directory, "goal");

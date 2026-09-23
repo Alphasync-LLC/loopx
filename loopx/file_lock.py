@@ -995,10 +995,14 @@ def exclusive_cross_runtime_file_lock(
     operation: str | None = None,
 ) -> Iterator[Path]:
     """Source writers retain their existing order: mutation marker, then kernel."""
-    options = dict(policy=policy, timeout_seconds=timeout_seconds,
-                   poll_interval_seconds=poll_interval_seconds, agent_id=agent_id, operation=operation)
-    with exclusive_mutation_file_lock(path, **options):
-        with exclusive_file_lock(path, **options) as lock_path:
+    with exclusive_mutation_file_lock(
+        path, policy=policy, timeout_seconds=timeout_seconds,
+        poll_interval_seconds=poll_interval_seconds, agent_id=agent_id, operation=operation,
+    ):
+        with exclusive_file_lock(
+            path, policy=policy, timeout_seconds=timeout_seconds,
+            poll_interval_seconds=poll_interval_seconds, agent_id=agent_id, operation=operation,
+        ) as lock_path:
             yield lock_path
 
 
