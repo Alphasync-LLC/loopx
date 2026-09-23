@@ -123,6 +123,21 @@ for (const provider of ["file", "sqlite"] as const) {
     }
   });
 
+  test(`${provider}: an unclaimed deferred Todo stays unclaimed; excluded actors cannot reopen it`, async () => {
+    const unclaimed = await seeded(provider, {claimed_by: null});
+    const applied = await executeCoordinationTodoUpdate(unclaimed, resume("unclaimed-resume"));
+    assert.equal(applied.status, "applied", JSON.stringify(applied));
+    const head = await read(unclaimed);
+    assert.equal((head.head.todos as JsonObject[])[0]!.status, "open");
+    assert.equal((head.head.todos as JsonObject[])[0]!.claimed_by, undefined);
+
+    const excluded = await seeded(provider, {excluded_agents: [OWNER]});
+    const before = await read(excluded);
+    const rejected = await executeCoordinationTodoUpdate(excluded, resume("excluded-resume"));
+    assert.equal(rejected.reason_code, "actor_excluded", JSON.stringify(rejected));
+    assert.deepEqual(await read(excluded), before);
+  });
+
   test(`${provider}: deferred supersede closes one Todo and retires expired lease lineage`, async () => {
     const store = await seeded(provider, {}, oldLease("active", "2026-09-05T22:30:00Z"));
     const input = supersede("supersede-once");
