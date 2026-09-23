@@ -60,6 +60,13 @@ changes.
 
 ## Control-Plane Kernel, State, And Migration
 
+- [Automatic Execution Admission v0](automatic-execution-admission-v0.md)
+  ([中文版](automatic-execution-admission-v0.zh-CN.md))
+  - **RFC status:** Draft.
+  - **Delivery on `main`:** Proposal; local implementation candidate under review.
+  - **Current boundary:** S7 quota-owned minimum interval, S2 atomic local admission,
+    S4 App recommendation floor first; managed Turn admission, App hook coverage and settings remain unqualified.
+
 - [Human-confirmed domain operations v0](human-confirmed-domain-operations-v0.md)
   ([中文版](human-confirmed-domain-operations-v0.zh-CN.md))
   - **RFC status:** Draft.
