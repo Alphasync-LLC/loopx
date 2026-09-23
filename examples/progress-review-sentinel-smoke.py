@@ -60,6 +60,7 @@ def main() -> int:
     assert comparison["execution"] == "recorded_replay"
     assert comparison["aggregate"]["cases"] == 16
     assert comparison["aggregate"]["baseline"]["typed_repeat_fired_cases"] == 0
+    assert comparison["aggregate"]["signals"] == expected["live_aggregate"]["signals"]
     for case in comparison["cases"]:
         assert all(row["status"] != "not_captured" for row in case["rounds"]), case["case_id"]
         assert all(

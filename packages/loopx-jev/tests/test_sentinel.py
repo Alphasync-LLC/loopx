@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from loopx_jev.sentinel_compare import COMPARISON_SCHEMA, compare, recording_key
+from loopx_jev.sentinel_compare import COMPARISON_SCHEMA, _aggregate, compare, recording_key
 from loopx_jev.sentinel_matrix import MAX_CASES, load_sentinel_matrix
 from loopx_jev.transport import TransportFailure
 
@@ -93,7 +93,12 @@ def test_replay_reproduces_the_committed_live_summary(tmp_path: Path) -> None:
     assert view == expected["deterministic_view"]
     aggregate = comparison["aggregate"]
     assert aggregate["baseline"]["typed_repeat_fired_cases"] == 0
-    assert aggregate["signals"]["noul"]["on_goal_cases_with_false_flag"] == "0/7"
+    for signal in ("noul", "choice"):
+        results = aggregate["signals"][signal]
+        assert results["on_goal_cases_with_false_flag"] == "0/6"
+        assert results["on_goal_cases_without_full_verdict"] == 1
+        assert results["on_goal_cases_without_full_verdict_with_flag"] == 0
+    assert aggregate["signals"] == expected["live_aggregate"]["signals"]
     assert all(
         row["execution_kind"] == "recorded_replay"
         for case in comparison["cases"]
@@ -106,6 +111,44 @@ def test_replay_reproduces_the_committed_live_summary(tmp_path: Path) -> None:
     replay = recording_transport(tmp_path / "empty", live=False)
     with pytest.raises(TransportFailure, match="no_recorded_response"):
         replay({"model": "x", "state": {}, "questions": {}}, None, "key")
+
+
+def test_on_goal_summary_separates_failed_and_partial_evaluations() -> None:
+    def case(statuses: list[str], signals: list[bool | None]) -> dict:
+        rounds = [
+            {
+                "status": status,
+                "drift_signal": {"noul": signal, "choice": signal},
+                "latency_ms": {"assessment_total": None},
+                "input_tokens": None,
+                "execution_kind": "recorded_replay",
+            }
+            for status, signal in zip(statuses, signals, strict=True)
+        ]
+        return {
+            "gold": {"drift_from_round": None},
+            "rounds": rounds,
+            "false_flag_rounds": {
+                signal: [index for index, value in enumerate(signals, start=1) if value is True]
+                for signal in ("noul", "choice")
+            },
+            "baseline": {"typed_repeat_first_round": None},
+        }
+
+    aggregate = _aggregate(
+        [
+            case(["completed"], [False]),
+            case(["failed"], [None]),
+            case(["completed", "failed"], [True, None]),
+        ],
+        drift_threshold=2,
+    )
+    assert aggregate["on_goal_cases"] == 3
+    for signal in ("noul", "choice"):
+        results = aggregate["signals"][signal]
+        assert results["on_goal_cases_with_false_flag"] == "0/1"
+        assert results["on_goal_cases_without_full_verdict"] == 2
+        assert results["on_goal_cases_without_full_verdict_with_flag"] == 1
 
 
 def test_recording_key_ignores_nothing_but_the_request() -> None:

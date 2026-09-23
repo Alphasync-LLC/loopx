@@ -337,6 +337,24 @@ def _aggregate(cases: list[dict[str, Any]], *, drift_threshold: int) -> dict[str
     per_signal: dict[str, Any] = {}
     for signal in SIGNALS:
         detected = [case for case in drift_cases if case["detected"][signal]]
+        evaluated_on_goal = [
+            case
+            for case in on_goal_cases
+            if all(
+                row["status"] == "completed"
+                and isinstance(row["drift_signal"].get(signal), bool)
+                for row in case["rounds"]
+            )
+        ]
+        incomplete_on_goal = [
+            case
+            for case in on_goal_cases
+            if any(
+                row["status"] != "completed"
+                or not isinstance(row["drift_signal"].get(signal), bool)
+                for row in case["rounds"]
+            )
+        ]
         delays = [
             case["first_flag_round"][signal] - case["gold"]["drift_from_round"] for case in detected
         ]
@@ -346,7 +364,11 @@ def _aggregate(cases: list[dict[str, Any]], *, drift_threshold: int) -> dict[str
             "drift_cases_reaching_obligation": f"{len(obligations)}/{len(drift_cases)}",
             "median_rounds_after_drift_start_to_first_flag": _median([float(d) for d in delays]),
             "on_goal_cases_with_false_flag": (
-                f"{sum(1 for case in on_goal_cases if case['false_flag_rounds'][signal])}/{len(on_goal_cases)}"
+                f"{sum(1 for case in evaluated_on_goal if case['false_flag_rounds'][signal])}/{len(evaluated_on_goal)}"
+            ),
+            "on_goal_cases_without_full_verdict": len(incomplete_on_goal),
+            "on_goal_cases_without_full_verdict_with_flag": sum(
+                1 for case in incomplete_on_goal if case["false_flag_rounds"][signal]
             ),
             "premature_flags_in_mixed_cases": sum(
                 len(case["false_flag_rounds"][signal]) for case in drift_cases
