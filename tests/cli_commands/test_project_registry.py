@@ -10,6 +10,7 @@ from loopx.cli import main
 from loopx.control_plane.goals.active_state_metadata import active_state_section_text
 from loopx.control_plane.todos.active_state_todo_parser import parse_todo_source
 from loopx.control_plane.projects import registry as project_registry
+from loopx.control_plane.projects import registry_codec
 
 
 @pytest.mark.parametrize("objective", [
@@ -592,12 +593,19 @@ def test_project_register_removes_new_state_when_registry_write_fails(
         "--stop-condition",
         "Stop while Atlas is unavailable.",
     ]
-    original_write = project_registry.atomic_write_json
+    original_write = registry_codec.ProjectRegistryTransaction.commit
 
-    def fail_write(_path: Path, _payload: dict[str, object]) -> None:
+    def fail_write(
+        _transaction: registry_codec.ProjectRegistryTransaction,
+        _payload: dict[str, object],
+    ) -> bool:
         raise OSError("simulated registry write failure")
 
-    monkeypatch.setattr(project_registry, "atomic_write_json", fail_write)
+    monkeypatch.setattr(
+        registry_codec.ProjectRegistryTransaction,
+        "commit",
+        fail_write,
+    )
 
     assert main(arguments) == 1
     payload = json.loads(capsys.readouterr().out)
@@ -606,7 +614,11 @@ def test_project_register_removes_new_state_when_registry_write_fails(
     assert not registry_path.exists()
     assert not state_file.exists()
 
-    monkeypatch.setattr(project_registry, "atomic_write_json", original_write)
+    monkeypatch.setattr(
+        registry_codec.ProjectRegistryTransaction,
+        "commit",
+        original_write,
+    )
     assert main(arguments) == 0
     capsys.readouterr()
     assert registry_path.exists()
@@ -703,28 +715,46 @@ def test_project_register_recovers_exact_state_after_interruption(
         "--stop-condition",
         "Stop while Atlas is unavailable.",
     ]
-    original_write = project_registry.atomic_write_json
+    original_write = registry_codec.ProjectRegistryTransaction.commit
 
-    def interrupt_after_state(_path: Path, _payload: dict[str, object]) -> None:
+    def interrupt_after_state(
+        _transaction: registry_codec.ProjectRegistryTransaction,
+        _payload: dict[str, object],
+    ) -> bool:
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(project_registry, "atomic_write_json", interrupt_after_state)
+    monkeypatch.setattr(
+        registry_codec.ProjectRegistryTransaction,
+        "commit",
+        interrupt_after_state,
+    )
     with pytest.raises(KeyboardInterrupt):
         main(arguments)
 
     assert state_file.exists()
     assert not registry_path.exists()
 
-    def fail_retry(_path: Path, _payload: dict[str, object]) -> None:
+    def fail_retry(
+        _transaction: registry_codec.ProjectRegistryTransaction,
+        _payload: dict[str, object],
+    ) -> bool:
         raise OSError("simulated retry failure")
 
-    monkeypatch.setattr(project_registry, "atomic_write_json", fail_retry)
+    monkeypatch.setattr(
+        registry_codec.ProjectRegistryTransaction,
+        "commit",
+        fail_retry,
+    )
     assert main(arguments) == 1
     retry_payload = json.loads(capsys.readouterr().out)
     assert "simulated retry failure" in retry_payload["error"]
     assert state_file.exists()
 
-    monkeypatch.setattr(project_registry, "atomic_write_json", original_write)
+    monkeypatch.setattr(
+        registry_codec.ProjectRegistryTransaction,
+        "commit",
+        original_write,
+    )
     assert main(arguments) == 0
     payload = json.loads(capsys.readouterr().out)
 
