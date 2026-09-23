@@ -298,7 +298,9 @@ with one newly judged `agent_vision` or `vision_unchanged_reason`. Reading never
 automatically submits a decision. Missing receipts fail closed; stale receipts
 require another read and judgment, while lost replies use the exact original
 receipt and decision. The Python `checkpoint_context_io` adapter gathers and
-locks sources; TypeScript `checkpoint_read_context` alone compares the basis.
+locks local sources. TypeScript derives canonical Todos and the complete owner
+acceptance document from one authority head; `checkpoint_read_context` compares
+the basis and `checkpoint_commit` owns the final append.
 
 The basis covers the selected Todo, its dependency closure and recorded results,
 shared Goal prose and User Todos, the owner acceptance document/revision when
@@ -309,12 +311,32 @@ excluded; an unrelated Agent Todo or run-history append does not invalidate an
 otherwise unchanged Todo-bound basis. Shared prose is deliberately conservative:
 editing it requires another judgment even if the edit was only editorial.
 
-The local file/SQLite path holds the existing Goal run-index lock and the shared
-maintenance, legacy-Todo, and state-source writer locks through the final reread,
-version comparison, and checkpoint index append. A participating Todo/acceptance/
-prose writer cannot change that basis between comparison and append. Provider
-failures stay closed; this does not activate a PostgreSQL service authority or
-introduce a distributed transaction across runtimes.
+The File/SQLite path retains the Goal index and local source protection, then
+enters the real provider's writer fence: File uses the same mutation lock as
+`commitAuthority`; SQLite uses one connection's `BEGIN IMMEDIATE`. Final head
+read, version comparison and checkpoint append complete before release. SQLite
+performs this short section synchronously, with no `await` while holding the
+transaction. Model reasoning and projection sync remain outside it. The provider
+revision is returned for diagnostics, but only relevant component changes or a
+different store identity invalidate the basis. Old v0 receipts require a new read.
+
+The ordinary local Todo command wrapper already takes the maintenance lock
+before committing. The provider fence additionally covers transactions through
+the exported provider boundary that do not take that outer lock; these are
+distinct concurrency tests. Provider failures stay closed. This adds no
+PostgreSQL or cross-Goal transaction support and does not move checkpoint
+authority into the Todo provider. SQLite cannot roll back the external run files.
+
+Index lock order is kernel then mutation marker for Python writers; existing
+quota adapters retain their kernel lock around the native marker owner. Native
+writers never wait for the kernel lock. Source writers retain marker then kernel,
+in maintenance/Todo/state order. History append/repair, refresh, feedback,
+operator-gate, project-map and runtime projection use this shared index boundary;
+feedback takes the index before state. The checkpoint effect claims the caller's
+index/source markers and owns their release through the durable append. Caller
+exit or timeout does not release an in-flight effect's claims. Runtime death
+allows the existing conservative PID/token reclaim; a live stalled owner times
+out contenders rather than losing its lock. No model or Agent holds a store lock.
 
 Receipts are bound to the exact Goal/Agent/Todo or obligation/Turn. A new read for
 that Turn replaces its previous receipt, so its confirmation operations must be
@@ -324,6 +346,9 @@ rejects the supplement without appending delivery or spending quota. Rerun
 judgment. The committed decision includes the receipt identity in its replay
 digest: an exact retry returns the original result even if state changed after
 commit. Acquiring a receipt for an already satisfied checkpoint is rejected.
+Replay also verifies the committed artifact references. A malformed/torn index,
+conflicting checkpoint rows, or inconsistent artifacts returns an explicit
+unknown/error; prepared JSON/Markdown alone never authorizes a blind append.
 
 Versions are content revisions of the declared decision inputs, including native
 revision fields where present. They cannot detect an unobserved change-and-revert
