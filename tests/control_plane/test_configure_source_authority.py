@@ -283,6 +283,48 @@ def test_chat_agent_binding_rejects_stale_source_agents(tmp_path, mirrored_goal)
     assert (source.read_bytes(), mirror.read_bytes()) == before
 
 
+def test_chat_agent_binding_rejects_equal_peer_set_after_source_route_change(
+    tmp_path, mirrored_goal
+):
+    source_a, mirror, _runtime = mirrored_goal
+    service, proposal = preview_agent_binding(tmp_path, mirror)
+    source_b = tmp_path / "project-b" / ".loopx" / "registry.json"
+    source_b.parent.mkdir(parents=True)
+    source_b.write_bytes(source_a.read_bytes())
+    mirror_payload = json.loads(mirror.read_text())
+    mirror_payload["goals"][0]["source_registry"] = str(source_b)
+    mirror.write_text(json.dumps(mirror_payload))
+    before = source_a.read_bytes(), source_b.read_bytes(), mirror.read_bytes()
+
+    stale = service.apply(proposal["proposal_id"])["proposal"]
+
+    assert stale["status"] == "stale"
+    assert stale["receipt"] is None
+    assert (source_a.read_bytes(), source_b.read_bytes(), mirror.read_bytes()) == before
+
+
+def test_chat_agent_binding_does_not_recover_across_source_route_change(
+    tmp_path, mirrored_goal
+):
+    source_a, mirror, _runtime = mirrored_goal
+    service, proposal = preview_agent_binding(tmp_path, mirror)
+    source_b = tmp_path / "project-b" / ".loopx" / "registry.json"
+    source_b.parent.mkdir(parents=True)
+    source_b_payload = json.loads(source_a.read_text())
+    source_b_payload["goals"][0]["coordination"]["registered_agents"].append("agent-b")
+    source_b.write_text(json.dumps(source_b_payload))
+    mirror_payload = json.loads(mirror.read_text())
+    mirror_payload["goals"][0]["source_registry"] = str(source_b)
+    mirror.write_text(json.dumps(mirror_payload))
+    before = source_a.read_bytes(), source_b.read_bytes(), mirror.read_bytes()
+
+    stale = service.apply(proposal["proposal_id"])["proposal"]
+
+    assert stale["status"] == "stale"
+    assert stale["receipt"] is None
+    assert (source_a.read_bytes(), source_b.read_bytes(), mirror.read_bytes()) == before
+
+
 def test_chat_agent_binding_recovers_after_receipt_loss(
     tmp_path, mirrored_goal, monkeypatch
 ):

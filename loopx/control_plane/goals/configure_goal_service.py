@@ -102,14 +102,33 @@ def read_goal_configuration_with_source_route(
     )
 
 
-def goal_agent_binding_revision(goal_id: str, goal: dict[str, Any]) -> str:
-    """Revision the source-owned peer set used by an Agent binding preview."""
-
+def _goal_agent_binding_revision(
+    *,
+    goal_id: str,
+    source_registry: Path,
+    registered_agents: list[str],
+) -> str:
     return configuration_payload_revision(
         {
             "goal_id": goal_id,
-            "registered_agents": registered_agent_ids_for_goal(goal),
+            "source_registry": str(source_registry.expanduser().resolve()),
+            "registered_agents": registered_agents,
         }
+    )
+
+
+def goal_agent_binding_revision(
+    goal_id: str,
+    goal: dict[str, Any],
+    *,
+    source_registry: Path,
+) -> str:
+    """Revision the canonical source identity and its Agent peer set."""
+
+    return _goal_agent_binding_revision(
+        goal_id=goal_id,
+        source_registry=source_registry,
+        registered_agents=registered_agent_ids_for_goal(goal),
     )
 
 
@@ -129,7 +148,11 @@ def read_goal_agent_binding_with_source_route(
         "ok": True,
         "goal_id": goal_id,
         "registered_agents": registered_agent_ids_for_goal(source_goal),
-        "revision": goal_agent_binding_revision(goal_id, source_goal),
+        "revision": goal_agent_binding_revision(
+            goal_id,
+            source_goal,
+            source_registry=source_registry_path,
+        ),
     }
 
 
@@ -714,10 +737,23 @@ def bind_goal_agent_with_global_sync(
         if source_goal is None:
             raise ValueError(f"goal id not found in source registry: {goal_id}")
         registered_agents = registered_agent_ids_for_goal(source_goal)
-        actual_revision = goal_agent_binding_revision(goal_id, source_goal)
+        actual_revision = goal_agent_binding_revision(
+            goal_id,
+            source_goal,
+            source_registry=source_registry_path,
+        )
         already_bound = agent_id in registered_agents
         if expected_revision is not None and actual_revision != expected_revision:
-            if not already_bound:
+            retry_revision = _goal_agent_binding_revision(
+                goal_id=goal_id,
+                source_registry=source_registry_path,
+                registered_agents=[
+                    registered_agent
+                    for registered_agent in registered_agents
+                    if registered_agent != agent_id
+                ],
+            )
+            if not already_bound or retry_revision != expected_revision:
                 return {
                     "ok": False,
                     "status": "stale",
@@ -765,7 +801,11 @@ def bind_goal_agent_with_global_sync(
             "agent_id": agent_id,
             "source_revision_before": actual_revision,
             "source_revision_after": (
-                goal_agent_binding_revision(goal_id, source_after)
+                goal_agent_binding_revision(
+                    goal_id,
+                    source_after,
+                    source_registry=source_registry_path,
+                )
                 if source_after is not None
                 else None
             ),
