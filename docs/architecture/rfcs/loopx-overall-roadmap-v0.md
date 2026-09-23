@@ -509,6 +509,13 @@ L3 checkpoint: standalone acquisition/takeover, atomic claim admission and maint
 - **Exit:** affected real CLI/backend, immutable baseline versus candidate comparison, negative/mutation coverage, three-arm rehearsal and applicable D2 soak of at least ten days. D3 retains explicit cutover approval. This audit runs no new soak and promotes no provider.
 - **Rollback:** reviewed fenced export/import and schema-aware downgrade; replacing a binary cannot restore old write authority.
 
+The [Goal instance/recovery proposal](goal-instance-identity-and-orphan-recovery-v0.md)
+adds a bounded R5 dependency for R2/R3 retirement and late-result safety. Its M0
+codec is shipped; lifetime admission, commit fencing and recovery are not. Reuse
+TS transaction and existing provider owners, qualify the local path first, and
+keep R6 service identity and D1–D3 promotion separate. This checkpoint does not
+activate identity or require every R1–R4 change to wait for the full lifecycle.
+
 ### R6: Local/Cloud Convergence
 
 - **Owner:** shared-authority provider/service, session host adapters and collaboration. Extend existing PostgreSQL admission/identity-rotation foundations; do not rebuild the store.
