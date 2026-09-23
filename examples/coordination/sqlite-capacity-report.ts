@@ -94,41 +94,38 @@ export interface QualificationRow {
 }
 
 /**
- * Per-profile ledger options. The budget matrix is unchanged across profiles;
- * only the axis they apply to differs: `prefix` names the report's rows,
- * `payloadBytes` pins the live-projection axis the rows speak for,
- * `growthFactor` is the baseline->final depth ratio (10 for 10k->100k, 3 for
- * 100k->300k) and the coverage flags declare which dedicated headroom axes
- * this report itself ran.
+ * The runner and ledger share one profile definition. A report can only claim
+ * an axis after its measured payload and both commit depths match this shape.
  */
-export interface LedgerProfileOptions {
-  prefix?: string;
-  payloadBytes?: number;
-  growthFactor?: number;
-  coversOneMib?: boolean;
-  coversHeadroom?: boolean;
-}
+export const CAPACITY_PROFILES = {
+  rehearsal: {payload: 65536, counts: [100, 1000], formal: false, prefix: ""},
+  "matched-64k": {payload: 65536, counts: [10000, 100000], formal: true, prefix: ""},
+  "matched-1m": {payload: 1048576, counts: [10000, 100000], formal: true, prefix: "one_mib_"},
+  "headroom-64k": {payload: 65536, counts: [100000, 300000], formal: true, prefix: "headroom_300k_"},
+} as const;
+export type CapacityProfileId = keyof typeof CAPACITY_PROFILES;
 
 /** Thresholds come from RFC 7.2; a rehearsal cannot qualify the full profile. */
-export function capacityLedger(axes: readonly CapacityAxis[], formal: boolean,
-  options: LedgerProfileOptions = {}): QualificationRow[] {
+export function capacityLedger(axes: readonly CapacityAxis[], profileId: CapacityProfileId = "matched-64k"): QualificationRow[] {
   const rows: QualificationRow[] = [];
-  const id = (name: string) => `${options.prefix ?? ""}${name}`;
-  const payloadBytes = options.payloadBytes ?? 65536;
+  const selectedProfile = CAPACITY_PROFILES[profileId];
+  const id = (name: string) => `${selectedProfile.prefix}${name}`;
+  const payloadBytes = selectedProfile.payload;
+  const formal = selectedProfile.formal;
   const valid = (value: Latency | undefined, samples: number): boolean => !!value && value.n === samples &&
     [value.p50_ms, value.p95_ms, value.p99_ms].every(n => Number.isFinite(n) && n >= 0) &&
     value.p50_ms <= value.p95_ms && value.p95_ms <= value.p99_ms;
   const [baseline, final] = axes;
   const depths = `${baseline?.target_commits ?? "?"} to ${final?.target_commits ?? "?"} commits`;
   const ready = formal && axes.length === 2 && baseline !== undefined && final !== undefined &&
-    baseline.target_commits < final.target_commits &&
+    baseline.target_commits === selectedProfile.counts[0] && final.target_commits === selectedProfile.counts[1] &&
     baseline.status === "passed" && final.status === "passed" &&
     [baseline, final].every(axis => axis.completed_commits === axis.target_commits &&
       axis.projection_json_bytes === payloadBytes && axis.sample_window === 1000 && axis.cleanup_verified &&
       valid(axis.warm?.commit, 1000) && valid(axis.warm?.head, 3000) &&
       valid(axis.warm?.receipt, 2000) && valid(axis.warm?.scan_100, 200));
   rows.push({id: id("matched_profile_execution"), status: axes.some(axis => axis.status === "failed") ? "failed" :
-    ready ? "passed" : "missing", scope: `complete ${payloadBytes}-byte matched runs (${depths}) and declared sample counts`});
+    ready ? "passed" : "missing", scope: `complete ${payloadBytes}-byte matched runs at ${selectedProfile.counts[0]} to ${selectedProfile.counts[1]} commits (observed ${depths}) and declared sample counts`});
   const add = (name: string, value: number | undefined, budget: number,
     unit: "ms" | "ratio" | "delta_ms" | "bytes") => {
     if (!ready || value === undefined || !Number.isFinite(value) || (value < 0 && unit !== "delta_ms")) {
@@ -175,7 +172,7 @@ export function capacityLedger(axes: readonly CapacityAxis[], formal: boolean,
   // cumulative baseline -> final growth implied by per-commit traffic measured
   // at both depths under the identical matched workload, so a per-commit cost
   // that grows with history depth fails the <=15x budget.
-  const growthFactor = options.growthFactor ?? 10;
+  const growthFactor = selectedProfile.counts[1] / selectedProfile.counts[0];
   const perCommitGrowth = (name: string, baselinePerCommit: number | undefined,
     finalPerCommit: number | undefined, method: string) => {
     const ratio = baselinePerCommit !== undefined && finalPerCommit !== undefined &&
@@ -204,10 +201,10 @@ export function capacityLedger(axes: readonly CapacityAxis[], formal: boolean,
   // them; every other report keeps them as explicit missing evidence. These
   // axis-coverage rows keep their canonical ids across profiles.
   const headroomScope: [string, string][] = [];
-  if (!options.coversOneMib) {
+  if (profileId !== "matched-1m" || !ready) {
     headroomScope.push(["payload_one_mib", "the 1 MiB live-projection axis runs in its own matched-1m report"]);
   }
-  if (!options.coversHeadroom) {
+  if (profileId !== "headroom-64k" || !ready) {
     headroomScope.push(["headroom_300k", "the 300,000-commit headroom axis runs in its own headroom-64k report"]);
   }
   headroomScope.push(["burst_60s", "10 commits/s for 60 s bursts are not launched by this profile"]);

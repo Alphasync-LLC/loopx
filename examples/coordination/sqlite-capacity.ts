@@ -17,21 +17,14 @@ import {selectLocalSqliteAuthority} from "../../loopx/control_plane/coordination
 import {engageLegacyCoordinationWriterFence} from "../../loopx/control_plane/coordination/legacy_writer_fence.ts";
 import {canonicalAuthoritySha256} from "../../loopx/control_plane/coordination/authority_store_codec.ts";
 import {authorityProjectionFixture} from "../../tests/control_plane_ts/authority_projection_fixture.ts";
-import {capacityLedger, latency, type CapacityAxis, type QualificationRow} from "./sqlite-capacity-report.ts";
+import {CAPACITY_PROFILES, capacityLedger, latency, type CapacityAxis, type CapacityProfileId,
+  type QualificationRow} from "./sqlite-capacity-report.ts";
 
 const {values: options} = parseArgs({options: {
   profile: {type: "string", default: "rehearsal"}, output: {type: "string"},
   python: {type: "string", default: "python3"}, cli: {type: "boolean", default: false},
 }});
 const goal = "sqlite-capacity";
-/** Each profile keeps the workload identical except for the axis it isolates. */
-const PROFILES = {
-  rehearsal: {payload: 65536, counts: [100, 1000], formal: false},
-  "matched-64k": {payload: 65536, counts: [10000, 100000], formal: true},
-  "matched-1m": {payload: 1048576, counts: [10000, 100000], formal: true},
-  "headroom-64k": {payload: 65536, counts: [100000, 300000], formal: true},
-} as const;
-type CapacityProfileId = keyof typeof PROFILES;
 const script = fileURLToPath(import.meta.url), repository = fileURLToPath(new URL("../../", import.meta.url));
 const sqlite = (() => {
   try { return sqliteAuthorityRuntime(); }
@@ -46,8 +39,9 @@ const sqlite = (() => {
   }
 })(); // Fail before creating a qualification database.
 
-assert(options.profile in PROFILES, `profile must be one of ${Object.keys(PROFILES).join(", ")}`);
-const profile = PROFILES[options.profile as CapacityProfileId];
+assert(options.profile in CAPACITY_PROFILES, `profile must be one of ${Object.keys(CAPACITY_PROFILES).join(", ")}`);
+const profileId = options.profile as CapacityProfileId;
+const profile = CAPACITY_PROFILES[profileId];
 const formal = profile.formal;
 const report: Record<string, unknown> = {
   schema_version: "loopx_sqlite_capacity_report_v1", profile: options.profile,
@@ -81,14 +75,9 @@ for (const count of profile.counts) {
   const axis = await measureAxis(count); axes.push(axis);
   if (axis.status === "failed") break;
 }
-// The budget matrix is unchanged; the row prefix and depth ratio say which
-// axis the report speaks for, and the coverage flags drop only the headroom
-// rows this report itself ran.
-const ledger = capacityLedger(axes, formal, options.profile === "matched-1m"
-  ? {prefix: "one_mib_", payloadBytes: 1048576, coversOneMib: true}
-  : options.profile === "headroom-64k"
-    ? {prefix: "headroom_300k_", payloadBytes: 65536, growthFactor: 3, coversHeadroom: true}
-    : {});
+// The ledger validates the measured axes against the same profile the runner
+// used, before its dedicated coverage row can disappear.
+const ledger = capacityLedger(axes, profileId);
 const sourceStable = (report.source as Record<string, unknown>).source_tree_sha256 === sourceIdentity().source_tree_sha256;
 if (!sourceStable) ledger.push({id: "source_stability", status: "failed", scope: "source changed while the profile was running"});
 Object.assign(report, {axes, ledger, source_stable: sourceStable, status: axes.some(axis => axis.status === "failed") ||

@@ -285,9 +285,9 @@ shape with a 1 MiB live projection (rows prefixed `one_mib_`), and
 ratio). The per-axis fill wall budget is an operational guard — floored at
 2,400 s and scaled by commits and payload bytes beyond the 64 KiB 100k
 workload — never a qualification budget; the p95 and growth budgets do not
-move with it. Each report keeps the axes it did not run as
-explicit `missing` rows (`payload_one_mib`, `headroom_300k`, `burst_60s`), so a
-qualified 64 KiB report can never stand in for the axes it did not measure.
+move with it. A dedicated axis clears its coverage row only after its measured
+payload and both exact commit depths match the selected profile. Other axes
+remain explicit `missing` rows (`payload_one_mib`, `headroom_300k`, `burst_60s`).
 
 `--cli` adds 20 formal samples (three in rehearsal) for complete CLI mutation,
 status and quota, using fresh Python processes and a newly started managed

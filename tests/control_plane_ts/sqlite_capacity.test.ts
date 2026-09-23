@@ -38,16 +38,16 @@ function axis(count: number, payloadBytes = 65536): CapacityAxis {
 test("budget failure remains failed; small rehearsals and unavailable metrics stay missing", () => {
   const baseline = axis(10000), final = axis(100000);
   final.warm!.head = {n: 3000, p50_ms: 1, p95_ms: 5, p99_ms: 6};
-  const rows = capacityLedger([baseline, final], true);
+  const rows = capacityLedger([baseline, final]);
   assert.equal(rows.find(row => row.id === "head_history_growth")?.status, "failed");
   assert.equal(rows.find(row => row.id === "head_p95")?.status, "passed");
   assert.equal(rows.find(row => row.id === "logical_write_growth")?.status, "passed");
   assert.equal(rows.find(row => row.id === "wal_traffic_growth")?.status, "passed");
   assert.equal(rows.find(row => row.id === "lock_wait_observed")?.status, "passed");
   assert.equal(rows.find(row => row.id === "elapsed_soak")?.status, "missing");
-  assert(capacityLedger([baseline, final], false).every(row => row.status === "missing"));
+  assert(capacityLedger([baseline, final], "rehearsal").every(row => row.status === "missing"));
   final.status = "failed";
-  assert.equal(capacityLedger([baseline, final], true)[0]?.status, "failed");
+  assert.equal(capacityLedger([baseline, final])[0]?.status, "failed");
 });
 
 test("split storage-write rows cannot stand in for each other or hide per-commit growth", () => {
@@ -58,30 +58,30 @@ test("split storage-write rows cannot stand in for each other or hide per-commit
   // cumulative growth: beyond the 15x budget even though every latency row is
   // healthy and final file sizes stay plausible.
   final.wal_traffic_window = {...measured, wal_bytes_per_commit: 82400};
-  const amplified = capacityLedger([baseline, final], true);
+  const amplified = capacityLedger([baseline, final]);
   assert.equal(amplified.find(row => row.id === "wal_traffic_growth")?.status, "failed");
   assert.equal(amplified.find(row => row.id === "logical_write_growth")?.status, "passed");
   // The same amplification hidden inside logical writes must fail there too.
   const logicalBaseline = axis(10000), logicalFinal = axis(100000);
   logicalFinal.logical_writes = {...logicalBaseline.logical_writes!, per_commit_logical_bytes: 147456};
-  assert.equal(capacityLedger([logicalBaseline, logicalFinal], true)
+  assert.equal(capacityLedger([logicalBaseline, logicalFinal])
     .find(row => row.id === "logical_write_growth")?.status, "failed");
   // An invalidated window, absent accounting or missing probe is missing
   // evidence, never a pass from the surviving columns.
   final.wal_traffic_window = {status: "invalid", reason: "fixture"};
-  const lost = capacityLedger([baseline, final], true);
+  const lost = capacityLedger([baseline, final]);
   assert.equal(lost.find(row => row.id === "wal_traffic_growth")?.status, "missing");
   assert.equal(lost.find(row => row.id === "logical_write_growth")?.status, "passed");
   final.logical_writes = null;
   final.lock_wait = null;
-  const stripped = capacityLedger([baseline, final], true);
+  const stripped = capacityLedger([baseline, final]);
   assert.equal(stripped.find(row => row.id === "logical_write_growth")?.status, "missing");
   assert.equal(stripped.find(row => row.id === "lock_wait_observed")?.status, "missing");
   // A probe with the wrong sample count is not qualification evidence.
   const shortProbe = axis(100000);
   shortProbe.lock_wait = {status: "measured", samples: 11, held_write_lock_ms: 200,
     uncontended_commit_p50_ms: 1, observed_wait: {n: 11, p50_ms: 1, p95_ms: 2, p99_ms: 3}};
-  assert.equal(capacityLedger([axis(10000), shortProbe], true)
+  assert.equal(capacityLedger([axis(10000), shortProbe])
     .find(row => row.id === "lock_wait_observed")?.status, "missing");
 });
 
@@ -89,21 +89,20 @@ test("headroom profiles carry prefixed rows with their own depth ratio and paylo
   // matched-1m: same budgets on the 1 MiB payload axis; a 64 KiB fixture is
   // the wrong axis and stays missing even when every number is healthy.
   const oneMib = [axis(10000, 1048576), axis(100000, 1048576)];
-  const prefixed = capacityLedger(oneMib, true, {prefix: "one_mib_", payloadBytes: 1048576, coversOneMib: true});
+  const prefixed = capacityLedger(oneMib, "matched-1m");
   assert.equal(prefixed.find(row => row.id === "one_mib_matched_profile_execution")?.status, "passed");
   assert.equal(prefixed.find(row => row.id === "one_mib_wal_traffic_growth")?.status, "passed");
   assert.equal(prefixed.find(row => row.id === "one_mib_commit_p95")?.status, "passed");
   assert.equal(prefixed.find(row => row.id === "matched_profile_execution"), undefined);
   assert.equal(prefixed.find(row => row.id === "payload_one_mib"), undefined);
   assert.equal(prefixed.find(row => row.id === "headroom_300k")?.status, "missing");
-  const wrongPayload = capacityLedger([axis(10000), axis(100000)], true,
-    {prefix: "one_mib_", payloadBytes: 1048576, coversOneMib: true});
+  const wrongPayload = capacityLedger([axis(10000), axis(100000)], "matched-1m");
   assert.equal(wrongPayload.find(row => row.id === "one_mib_matched_profile_execution")?.status, "missing");
+  assert.equal(wrongPayload.find(row => row.id === "payload_one_mib")?.status, "missing");
   // headroom-64k: depth ratio is 3, so per-commit traffic may grow up to 5x
   // before the cumulative budget fails.
   const headroom = [axis(100000), axis(300000)];
-  const flat = capacityLedger(headroom, true,
-    {prefix: "headroom_300k_", payloadBytes: 65536, growthFactor: 3, coversHeadroom: true});
+  const flat = capacityLedger(headroom, "headroom-64k");
   assert.equal(flat.find(row => row.id === "headroom_300k_matched_profile_execution")?.status, "passed");
   const flatGrowth = flat.find(row => row.id === "headroom_300k_wal_traffic_growth");
   assert.equal(flatGrowth?.status, "passed");
@@ -114,16 +113,32 @@ test("headroom profiles carry prefixed rows with their own depth ratio and paylo
   const measured = headroom[0]!.wal_traffic_window;
   assert(measured?.status === "measured");
   amplified.wal_traffic_window = {...measured, wal_bytes_per_commit: measured.wal_bytes_per_commit * 6};
-  assert.equal(capacityLedger([headroom[0]!, amplified], true,
-    {prefix: "headroom_300k_", payloadBytes: 65536, growthFactor: 3, coversHeadroom: true})
+  assert.equal(capacityLedger([headroom[0]!, amplified], "headroom-64k")
     .find(row => row.id === "headroom_300k_wal_traffic_growth")?.status, "failed");
 });
 
 test("a default report keeps both dedicated headroom axes as explicit missing evidence", () => {
-  const rows = capacityLedger([axis(10000), axis(100000)], true);
+  const rows = capacityLedger([axis(10000), axis(100000)]);
   assert.equal(rows.find(row => row.id === "payload_one_mib")?.status, "missing");
   assert.equal(rows.find(row => row.id === "headroom_300k")?.status, "missing");
   assert.equal(rows.find(row => row.id === "burst_60s")?.status, "missing");
+});
+
+test("matched profile admission requires its exact baseline and final depths", () => {
+  const wrongFinal = capacityLedger([axis(10000), axis(50000)]);
+  assert.equal(wrongFinal.find(row => row.id === "matched_profile_execution")?.status, "missing");
+  assert.equal(wrongFinal.find(row => row.id === "commit_p95")?.status, "missing");
+  const wrongBaseline = capacityLedger([axis(50000), axis(100000)]);
+  assert.equal(wrongBaseline.find(row => row.id === "matched_profile_execution")?.status, "missing");
+
+  const wrongOneMib = capacityLedger([axis(10000, 1048576), axis(50000, 1048576)], "matched-1m");
+  assert.equal(wrongOneMib.find(row => row.id === "one_mib_matched_profile_execution")?.status, "missing");
+  assert.equal(wrongOneMib.find(row => row.id === "payload_one_mib")?.status, "missing");
+
+  const wrongHeadroom = capacityLedger([axis(10000), axis(100000)], "headroom-64k");
+  assert.equal(wrongHeadroom.find(row => row.id === "headroom_300k_matched_profile_execution")?.status, "missing");
+  assert.equal(wrongHeadroom.find(row => row.id === "headroom_300k_commit_p95")?.status, "missing");
+  assert.equal(wrongHeadroom.find(row => row.id === "headroom_300k")?.status, "missing");
 });
 
 test("incomplete, wrong-size or malformed evidence cannot satisfy matched budgets", () => {
@@ -136,10 +151,10 @@ test("incomplete, wrong-size or malformed evidence cannot satisfy matched budget
     (value: CapacityAxis) => {value.cleanup_verified = false;},
   ]) {
     const final = axis(100000); change(final);
-    assert.equal(capacityLedger([axis(10000), final], true).find(row => row.id === "head_p95")?.status, "missing");
+    assert.equal(capacityLedger([axis(10000), final]).find(row => row.id === "head_p95")?.status, "missing");
   }
   const final = axis(100000); final.cold_cli = null;
-  const rows = capacityLedger([axis(10000), final], true);
+  const rows = capacityLedger([axis(10000), final]);
   assert.equal(rows.find(row => row.id === "head_p95")?.status, "passed");
   assert.equal(rows.find(row => row.id === "cold_cli_status_p95")?.status, "missing");
 });
@@ -147,7 +162,7 @@ test("incomplete, wrong-size or malformed evidence cannot satisfy matched budget
 test("CLI latency improvement is retained as a signed difference", () => {
   const baseline = axis(10000), final = axis(100000);
   baseline.cold_cli!.mutation = {n: 20, p50_ms: 1, p95_ms: 8, p99_ms: 9};
-  const row = capacityLedger([baseline, final], true).find(item => item.id === "cold_cli_mutation_increment_p95");
+  const row = capacityLedger([baseline, final]).find(item => item.id === "cold_cli_mutation_increment_p95");
   assert.equal(row?.observed, -6);
   assert.equal(row?.status, "passed");
 });
