@@ -30,6 +30,16 @@ test("read captures the exact task, transitive upstream results and goal accepta
   assert.equal(check(result.receipt).ok, true);
 });
 
+test("old receipts and identical content from a different provider lineage require reread", () => {
+  const source = {...facts.source, store_identity: "file:first"};
+  const receipt = read({facts: {...facts, source}}).receipt as JsonObject;
+  assert.equal(check({...receipt, schema_version: "checkpoint_read_context_v0"}).error_code,
+    "checkpoint_read_context_unknown_or_replaced");
+  const changed = check(receipt, {facts: {...facts, source: {...source, store_identity: "file:restored"}}});
+  assert.equal(changed.error_code, "checkpoint_read_context_stale");
+  assert.deepEqual(changed.changed_components, ["source"]);
+});
+
 test("each changed decision input rejects without permitting an append", () => {
   const receipt = read().receipt;
   for (const [component, mutate] of [
