@@ -52,9 +52,11 @@ completes a `continuous_monitor` without an explicit completion identity. In
 v3, `operation_id` is null on the wire. The TypeScript owner derives it from
 the Goal id, Todo id, and `material_change_generation`. Reopening the Monitor
 advances that generation, so a receipt from an earlier cycle cannot complete
-the current open cycle. A retry of an already completed pre-v3 cycle can still
-recover its legacy unscoped receipt. Explicit identities and non-Monitor
-completion remain on v2.
+the current open cycle. If an explicit operation already completed the current
+cycle, v3 records a generation-scoped no-change receipt instead of guessing
+that a legacy unscoped receipt belongs to that cycle. A v2 retry can still
+recover a legacy receipt by supplying its original operation id. Explicit
+identities and non-Monitor completion remain on v2.
 
 The terminal method also accepts these bounded additions:
 

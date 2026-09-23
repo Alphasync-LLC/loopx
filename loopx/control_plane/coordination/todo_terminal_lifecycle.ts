@@ -472,17 +472,6 @@ function terminalRequestSha(input: CoordinationTodoTerminalLifecycleInput): stri
   });
 }
 
-function legacyUnscopedTerminalOperationId(
-  input: Pick<ImplicitMonitorCompletionInput, "goal_id" | "todo_id">,
-): string {
-  const digest = createHash("sha256").update(
-    "loopx-provider-terminal-operation-v0\0" +
-      `complete\0${input.goal_id}\0${input.todo_id}\0unscoped`,
-    "utf8",
-  ).digest("hex");
-  return `todo-terminal:${digest.slice(0, 32)}`;
-}
-
 function monitorCycleTerminalOperationId(
   input: Pick<ImplicitMonitorCompletionInput, "goal_id" | "todo_id">,
   generation: number,
@@ -585,45 +574,37 @@ async function observeImplicitMonitorCompletion(
     const target = implicitMonitorTarget(authority, input);
     if ("schema_version" in target) return {kind: "result", result: target};
     const cycleOperationId = monitorCycleTerminalOperationId(input, target.generation);
-    const candidates = target.todo.status === "done"
-      ? [cycleOperationId, legacyUnscopedTerminalOperationId(input)]
-      : [cycleOperationId];
-    let cycleChanged = false;
-    for (const operationId of candidates) {
-      const resolved: ResolvedCoordinationTodoTerminalLifecycleInput = {
-        ...input,
-        operation_id: operationId,
-      };
-      const replay = await terminalReceipt(resolved, requestSha).read(store);
-      if (replay === null) continue;
-      const current = await store.loadAuthority();
-      if (current.status !== "loaded") {
-        return {
-          kind: "result",
-          result: {
-            schema_version: COORDINATION_TODO_TERMINAL_LIFECYCLE_RESULT_SCHEMA,
-            ...current,
-            changed: false,
-          },
-        };
-      }
-      const currentTarget = implicitMonitorTarget(current, input);
-      if ("schema_version" in currentTarget) {
-        return {kind: "result", result: currentTarget};
-      }
-      if (currentTarget.todo.status === "done" &&
-          currentTarget.generation === target.generation) {
-        return {kind: "result", result: replay};
-      }
-      cycleChanged = true;
-      break;
-    }
-    if (cycleChanged) continue;
-    return {
-      kind: "admit",
-      input: {...input, operation_id: cycleOperationId},
-      authority,
+    const resolved: ResolvedCoordinationTodoTerminalLifecycleInput = {
+      ...input,
+      operation_id: cycleOperationId,
     };
+    const replay = await terminalReceipt(resolved, requestSha).read(store);
+    if (replay === null) {
+      return {
+        kind: "admit",
+        input: resolved,
+        authority,
+      };
+    }
+    const current = await store.loadAuthority();
+    if (current.status !== "loaded") {
+      return {
+        kind: "result",
+        result: {
+          schema_version: COORDINATION_TODO_TERMINAL_LIFECYCLE_RESULT_SCHEMA,
+          ...current,
+          changed: false,
+        },
+      };
+    }
+    const currentTarget = implicitMonitorTarget(current, input);
+    if ("schema_version" in currentTarget) {
+      return {kind: "result", result: currentTarget};
+    }
+    if (currentTarget.todo.status === "done" &&
+        currentTarget.generation === target.generation) {
+      return {kind: "result", result: replay};
+    }
   }
   return {
     kind: "result",
@@ -1112,6 +1093,8 @@ export async function executeCoordinationTodoTerminalLifecycle(
       "decision_rejection",
     );
   }
+  const implicitMonitorNoChange =
+    normalized.operation_id === null && authority.outcome === "no_change";
 
   // Acceptance constrains a state transition, not a verb. Every TERMINAL_COMMANDS
   // entry reaches `terminalTarget`, which writes `status: "done", done: true`,
@@ -1161,7 +1144,8 @@ export async function executeCoordinationTodoTerminalLifecycle(
   if (input.command === "complete") {
     const validationRequired = todo.completion_validation_required === true;
     const validationSha256 = todo.completion_validation_sha256;
-    if (validationRequired && (update === undefined || authorityTodo.status !== "done")) {
+    if (validationRequired && !implicitMonitorNoChange &&
+        (update === undefined || authorityTodo.status !== "done")) {
       if (typeof validationSha256 !== "string" || !/^[a-f0-9]{64}$/u.test(validationSha256)) {
         return terminalFailure(
           "completion_validation_identity_missing",
@@ -1209,7 +1193,7 @@ export async function executeCoordinationTodoTerminalLifecycle(
         requested_has_successor:
           input.successor_intents.length > 0 || input.linked_successor_todo_ids.length > 0,
         dry_run: input.dry_run,
-        validation_receipt: input.validation_receipt,
+        validation_receipt: implicitMonitorNoChange ? null : input.validation_receipt,
         completion_policy_request: input.completion_policy_request,
       });
     } catch (error) {

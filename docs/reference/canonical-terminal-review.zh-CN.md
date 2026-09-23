@@ -43,8 +43,9 @@ TS terminal owner 统一决定准入、来源新鲜度、验证计划、租约�
 `loopx_local_coordination_todo_terminal_lifecycle_request_v3` 完成它。v3 在 wire
 上把 `operation_id` 设为 null，由 TypeScript owner 根据 Goal id、Todo id 和
 `material_change_generation` 推导操作标识。Monitor 重开时 generation 递增，因此旧周期
-回执不能完成当前 open 周期；已在 v3 之前完成的周期仍可在重试时恢复 legacy unscoped
-回执。显式 identity 和非 Monitor completion 继续使用 v2。
+回执不能完成当前 open 周期。如果显式操作已经完成当前周期，v3 会写入该 generation
+的 no-change 回执，不会猜测 legacy unscoped 回执属于该周期。v2 重试仍可携带原
+operation id 恢复 legacy 回执。显式 identity 和非 Monitor completion 继续使用 v2。
 
 同一 terminal method 还接受以下受限字段：
 
