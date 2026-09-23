@@ -361,11 +361,22 @@ def deliver_stall_notice(
         config_path=config_path,
         message_id=message_id,
     )
-    # The locator of the send being attempted now replaces any older one, so the
-    # record always points at the most recent unconfirmed notice.
-    delivery_state.pop(PART_STALL_NOTICE_ATTEMPT_KEY, None)
     if reconciled is not None:
+        if reconciled.get("notice_reconciled") is not True:
+            # The provider accepted this notice and nothing can read it back, so
+            # this record is the only evidence the reader may already have it.
+            # Dropping it here would let the next retry post the same notice
+            # again; a confirmed notice, below, is the case that settles it.
+            return reconciled
+        # A confirmed notice is settled: the stall flag carries that fact from
+        # here on, so the attempt that proved it is no longer needed.
+        delivery_state.pop(PART_STALL_NOTICE_ATTEMPT_KEY, None)
         return reconciled
+    # The locator of the send being attempted now replaces any older one, so the
+    # record always points at the most recent unconfirmed notice. This runs only
+    # on the path that is about to call the provider, where the old record is
+    # genuinely superseded.
+    delivery_state.pop(PART_STALL_NOTICE_ATTEMPT_KEY, None)
 
     def record_attempt(attempt: Mapping[str, Any]) -> None:
         # The locator has to survive the attempt that produced it: a retry

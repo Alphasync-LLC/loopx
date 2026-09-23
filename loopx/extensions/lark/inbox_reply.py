@@ -585,7 +585,7 @@ def _deliver_lark_inbox_outbound(
                     {
                         "schema_version": "manager_return_delivery_attempt_v0",
                         "provider": "lark",
-                        "message_ref": "",
+                        "message_ref": None,
                         "intent_digest": intent_digest,
                         "provider_receipt": receipt,
                     }

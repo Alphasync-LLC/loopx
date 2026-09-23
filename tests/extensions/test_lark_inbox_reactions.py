@@ -1015,7 +1015,10 @@ def test_a_send_that_reports_no_message_id_records_its_intent(
         {
             "schema_version": "manager_return_delivery_attempt_v0",
             "provider": "lark",
-            "message_ref": "",
+            # The provider supplied no message id, so the locator is absent
+            # rather than an invalid empty string the canonical contract would
+            # reject: the attempt records the write, not a readback target.
+            "message_ref": None,
             "intent_digest": attempts[0]["intent_digest"],
             "provider_receipt": sent["idempotency_key"],
         }
