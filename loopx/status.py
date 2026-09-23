@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 import re
 from typing import Any
 
 from .control_plane.work_items.replan_history_codec import (
-    REPLAN_HISTORY_NEUTRAL_CLASSIFICATIONS as AUTONOMOUS_RUN_HISTORY_NEUTRAL_CLASSIFICATIONS,  # noqa: F401 - compatibility export
+    REPLAN_HISTORY_NEUTRAL_CLASSIFICATIONS as _REPLAN_HISTORY_NEUTRAL_CLASSIFICATIONS,
 )
 
 from .control_plane import compact_control_plane_policy
@@ -351,6 +350,14 @@ BACKLOG_HYGIENE_HINT_PATTERN = re.compile(
 )
 AUTONOMOUS_REPLAN_SCHEMA_VERSION = "autonomous_replan_obligation_v0"
 DEAD_MONITOR_REPEAT_SCHEMA_VERSION = "dead_monitor_repeat_v0"
+# Refs #4447: one definition for this vocabulary, owned by the control-plane
+# codec that now feeds the replan history policy across status and quota. The
+# facade keeps exporting the established public name for existing callers as an
+# identity alias instead of restating the values, which also keeps the audited
+# import-only export allowlist unchanged.
+AUTONOMOUS_RUN_HISTORY_NEUTRAL_CLASSIFICATIONS = (
+    _REPLAN_HISTORY_NEUTRAL_CLASSIFICATIONS
+)
 
 
 
