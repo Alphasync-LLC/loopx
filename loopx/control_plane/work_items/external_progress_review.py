@@ -210,6 +210,7 @@ def external_progress_review_trigger(
     normalized_agent_id = str(agent_id or "").strip()
     by_turn, by_key = index_progress_review_receipts(receipts)
     segment: list[tuple[str, dict[str, Any], Mapping[str, Any] | None, str | None]] = []
+    window_runs: list[dict[str, Any]] = []
     seen_turns: set[str] = set()
     seen_evidence: set[str] = set()
     consecutive = longest = 0
@@ -226,6 +227,9 @@ def external_progress_review_trigger(
         turn = _progress_turn_instance_id(run)
         if turn:
             if turn in seen_turns:
+                # A retry is not another transition, but its typed claim is
+                # still part of this Turn's history until the ACK boundary.
+                window_runs.append(run)
                 continue
             seen_turns.add(turn)
             receipt, ambiguous = by_turn.get(turn), False
@@ -242,6 +246,7 @@ def external_progress_review_trigger(
             assert receipt is not None
             evidence_id = str(receipt.get("evidence_id") or "")
             if evidence_id in seen_evidence:
+                window_runs.append(run)
                 continue
             seen_evidence.add(evidence_id)
             consecutive += 1
@@ -253,6 +258,7 @@ def external_progress_review_trigger(
         else:
             consecutive = 0
         segment.append((verdict, run, receipt, reason))
+        window_runs.append(run)
     if longest < required:
         return None
     drift_rows = [(run, receipt) for verdict, run, receipt, _ in segment if verdict == "drift"]
@@ -267,7 +273,7 @@ def external_progress_review_trigger(
     window: list[dict[str, Any]] = []
     window_fingerprints: set[str] = set()
     baseline_run: dict[str, Any] | None = None
-    for _, run, _, _ in segment:
+    for run in window_runs:
         observation = progress_observation_from_run(run)
         if observation is None or observation["fingerprint"] in window_fingerprints:
             continue

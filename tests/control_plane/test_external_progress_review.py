@@ -210,6 +210,50 @@ def test_same_turn_retry_and_same_evidence_count_once() -> None:
     assert trigger([run(2, turn="t2"), run(1, turn="t1")], same_evidence) is None
 
 
+def test_retry_claim_remains_in_external_obligation_and_cannot_be_replayed() -> None:
+    """One logical Turn counts once, but all of its typed claims bind the ACK."""
+
+    newest_retry = run(3, turn="t2")
+    newest_retry.pop("progress_observation")
+    earlier_retry = run(2, turn="t2")
+    first_turn = run(1, turn="t1")
+    for row in (earlier_retry, first_turn):
+        row["progress_observation"]["surface_id"] = "retry"
+        row["progress_observation"]["evidence_ids"] = [f"evidence-{row['generated_at'][-3:-1]}"]
+    runs = [newest_retry, earlier_retry, first_turn]
+    receipts = [receipt(2, turn="t2"), receipt(1, turn="t1")]
+    evidence = trigger(runs, receipts)
+    assert evidence is not None and evidence["run_count"] == 2
+    assert [claim["hypothesis_id"] for claim in evidence["progress_window"]] == [
+        "hypothesis-2", "hypothesis-1",
+    ]
+    obligation = autonomous_replan_obligation_from_runs(
+        runs, agent_todos=None, external_progress_review=_context("assist", receipts),
+    )
+    assert obligation is not None and obligation["triggers"][0]["kind"] == EXTERNAL_PROGRESS_REVIEW_TRIGGER_KIND
+    replay = semantic_delta_from_writeback(
+        obligation=obligation, progress_observation=earlier_retry["progress_observation"],
+    )
+    assert replay["accepted"] is False
+    assert replay["satisfying_outcomes"] == []
+    pivot = semantic_delta_from_writeback(
+        obligation=obligation,
+        progress_observation={
+            **earlier_retry["progress_observation"], "hypothesis_id": "hypothesis-new",
+            "evidence_ids": ["evidence-new"],
+        },
+    )
+    assert pivot["accepted"] is True and pivot["satisfying_outcomes"] == ["new_hypothesis"]
+    for mode in ("off", "shadow"):
+        assert autonomous_replan_obligation_from_runs(
+            runs, agent_todos=None, external_progress_review=_context(mode, receipts),
+        ) is None
+    assert autonomous_replan_obligation_from_runs(runs, agent_todos=None) is None
+    # An accepted ACK within the same Turn still cuts off older retry claims.
+    earlier_retry["autonomous_replan_ack"] = {"recorded": True, "semantic_delta": {"accepted": True}}
+    assert trigger(runs, receipts) is None
+
+
 def test_contract_revision_change_invalidates_earlier_receipts() -> None:
     runs = [run(2, turn="t2"), run(1, turn="t1")]
     receipts = [receipt(2, turn="t2", contract="contract-2"), receipt(1, turn="t1")]
