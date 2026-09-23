@@ -1,13 +1,11 @@
 from __future__ import annotations
 from .effective_action import EffectiveAction
 
-import json
 from collections.abc import Mapping
 from pathlib import Path
 
 from ...file_lock import exclusive_file_lock
 from ...rollout_event_log import (
-    ROLLOUT_EVENT_SCHEMA_VERSION,
     _append_rollout_event_line,
     build_rollout_event,
     load_rollout_events,
@@ -410,21 +408,7 @@ def upgrade_identityless_heartbeat_receipt(
     log_path = rollout_event_log_path(runtime_root, goal_id)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with exclusive_file_lock(log_path):
-        try:
-            lines = log_path.read_text(encoding="utf-8").splitlines()
-        except OSError:
-            lines = []
-        events: list[dict[str, object]] = []
-        for line in lines:
-            try:
-                parsed = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if (
-                isinstance(parsed, dict)
-                and parsed.get("schema_version") == ROLLOUT_EVENT_SCHEMA_VERSION
-            ):
-                events.append(parsed)
+        events = load_rollout_events(log_path)
         matching = _heartbeat_receipt_events(
             events,
             goal_id=goal_id,

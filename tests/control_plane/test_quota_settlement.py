@@ -300,16 +300,22 @@ def test_turn_guard_upgrades_matching_legacy_receipt_to_explicit_empty_scope(
     }
 
 
+@pytest.mark.parametrize(
+    "torn_record",
+    [
+        b'{"schema_version":"loopx_rollout_event_v0"',
+        b'{"summary":"' + "雪".encode()[:2],
+    ],
+    ids=["ascii", "mid-utf8"],
+)
 def test_turn_guard_remains_readable_after_a_torn_rollout_tail(
     tmp_path: Path,
+    torn_record: bytes,
 ) -> None:
     runtime_root = tmp_path / "runtime"
     event_path = rollout_event_log_path(runtime_root, GOAL_ID)
     event_path.parent.mkdir(parents=True)
-    event_path.write_text(
-        '{"schema_version":"loopx_rollout_event_v0"',
-        encoding="utf-8",
-    )
+    event_path.write_bytes(torn_record)
     identity = SettlementIdentity(GOAL_ID, AGENT_ID, TODO_ID, TURN_ID)
 
     written = ensure_turn_heartbeat_settlement_receipt(
