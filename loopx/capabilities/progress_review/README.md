@@ -22,7 +22,7 @@ periodic review after 20 durable runs.
 | Joins receipts to run rows by `turn_instance_id`, else by `(generated_at, agent_id)` | Overwrites or supplements the Agent's own `progress_observation` |
 | Counts only `completed` receipts whose selected drift signal is `True` | Counts `unknown`, `abstained`, `failed`, `stale` or missing receipts |
 | Stops the streak at an acknowledged autonomous replan and re-arms | Pauses turns, opens user gates, or settles Goal acceptance |
-| Binds the newest typed `progress_observation` in the window as the obligation's `progress_baseline`; the shared outcome policy refuses an acknowledgement that repeats it or only renames identifiers over its evidence ids | Lets the observer or its model acknowledge, or accepts a renamed identifier as a pivot |
+| Binds the newest typed `progress_observation` in the window as the obligation's `progress_baseline` and carries every distinct claim of the window as `progress_window`; the shared outcome policy refuses an acknowledgement that replays any of them or only renames identifiers over their evidence ids | Lets the observer or its model acknowledge, or accepts a renamed or replayed identifier as a pivot |
 | Keeps a formed obligation open while newer transitions are unevaluated, failed, abstained, stale or unattributable, and reports how many | Treats missing evaluation as evidence that the drift was handled |
 | Skips neutral bookkeeping rows (quota spend/void) like the existing replan policy | Treats a bookkeeping row as a gap or as progress |
 | Counts only receipts bound to the revision the Goal owner pinned, and reports when newer receipts are bound elsewhere | Follows the observer basis on its own; the pin is manual |
@@ -67,6 +67,13 @@ Each receipt carries only typed fields:
 - `drift_signal.noul` and `drift_signal.choice`: `true`, `false` or null;
 - `timing_ns`, `usage`, `label_probability_threshold`, `recorded_at`.
 
+`sequence` is the writing observer's local counter and restarts at zero when
+`drift init` creates a new observer state. The core never compares sequences
+across observers: receipts are ordered by the run's `generated_at`, then
+`recorded_at`, then `sequence` (`progress_review_receipt_order_key`), in the
+loader, in the load limit, in the newest-revision check and in the join of two
+receipts for one transition.
+
 The drift signals follow rule `progress_review_signal_rule_v1` with the label
 threshold `t`; the core recomputes them from the typed judgments when it reads a
 receipt and rejects any receipt whose booleans disagree:
@@ -106,12 +113,16 @@ An `assist` obligation is discharged only the way every autonomous replan
 obligation is: the Agent's next `refresh-state` must carry typed evidence that
 the shared outcome policy (`work_item.replan_semantics`) accepts for this
 source. The obligation binds the newest typed progress observation in the
-window, evaluated or not, as `progress_baseline`, so no claim already on record
-can acknowledge. Against that baseline the policy accepts:
+window, evaluated or not, as `progress_baseline`, and carries every distinct
+claim of the window as `progress_window`, so no claim already on record can
+acknowledge. Against that window the policy accepts:
 
 - a new surface, hypothesis or probe family **that cites at least one evidence
-  id absent from the baseline**; renaming identifiers over the baseline's
-  evidence ids is refused with `progress_identity_without_new_evidence`;
+  id absent from the baseline and from every claim in the window**; renaming
+  identifiers over those evidence ids is refused with
+  `progress_identity_without_new_evidence`, and replaying a claim already made
+  in the window is refused with `progress_observation_replayed`. Returning to an
+  earlier hypothesis on genuinely new evidence is a typed pivot and is accepted;
 - a new concrete blocker, or a coverage-backed terminal state;
 - a fresh evidence-linked vision path (`continue`, `no_change` or `replan`)
   with an acceptance summary and evidence refs, so an Agent that reviews the

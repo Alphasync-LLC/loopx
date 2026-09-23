@@ -14,7 +14,7 @@
 | 按 `turn_instance_id` 关联 run 行，缺失时退回 `(generated_at, agent_id)` | 覆盖或补充 Agent 自己的 `progress_observation` |
 | 只计入状态为 `completed` 且所选漂移信号为 `True` 的回执 | 把 `unknown`、`abstained`、`failed`、`stale` 或缺失的回执算作漂移 |
 | 在已确认的自主重规划处停止计数并重新武装 | 暂停 Turn、打开 user gate、判定 Goal 验收 |
-| 把窗口内最新的类型化 `progress_observation` 绑定为义务的 `progress_baseline`；共享的出口策略拒绝原样重提、也拒绝只改标识但沿用其 evidence id 的 ack | 让观察器或其模型来 ack，或把改名当成转向 |
+| 把窗口内最新的类型化 `progress_observation` 绑定为义务的 `progress_baseline`，并把窗口内每条不同的声明作为 `progress_window` 一并携带；共享的出口策略拒绝回放其中任何一条、也拒绝只改标识但沿用其 evidence id 的 ack | 让观察器或其模型来 ack，或把改名、回放当成转向 |
 | 已形成的义务在更新的转换处于未评估、失败、弃权、过期或无法归属时保持打开，并报告数量 | 把缺少评估当成漂移已被处理的证据 |
 | 像现有重规划策略一样跳过 neutral 记账行（配额消费/作废） | 把记账行当成缺口或进展 |
 | 只计入绑定到 Goal 负责人所 pin 修订的回执，并在更新的回执绑定到别处时报告 | 自动跟随观察器 basis；pin 是手动的 |
@@ -50,6 +50,8 @@ loopx configure-goal --goal-id <goal-id> --clear-progress-review-configuration -
 - `drift_signal.noul`、`drift_signal.choice`：`true`、`false` 或 null；
 - `timing_ns`、`usage`、`label_probability_threshold`、`recorded_at`。
 
+`sequence` 是写回执的观察器的本地计数，`drift init` 创建新的观察器状态时会从 0 重新计数。核心从不跨观察器比较 sequence：加载、加载上限、最新修订判断和同一转换两条回执的合并，都按 run 的 `generated_at`、再 `recorded_at`、再 `sequence` 排序（`progress_review_receipt_order_key`）。
+
 漂移信号遵循规则 `progress_review_signal_rule_v1`，按标签阈值 `t` 推导；核心读取回执时会从类型化判断重新计算，并拒绝布尔值不一致的回执：
 
 - `noul`：`P(serves_acceptance) ≤ 1−t` **且** `P(evidence_increment) ≤ 1−t` 为漂移；任一概率 `≥ t` 为非漂移；其余为 null。`behavior_change` 只记录、不参与判定。
@@ -61,9 +63,9 @@ loopx configure-goal --goal-id <goal-id> --clear-progress-review-configuration -
 
 ## 解除
 
-`assist` 义务只能按所有自主重规划义务的方式解除：Agent 的下一次 `refresh-state` 必须携带共享出口策略（`work_item.replan_semantics`）对这个来源接受的类型化证据。义务把窗口内最新的类型化进展观察（无论是否已评估）绑定为 `progress_baseline`，因此任何已经在记录里的声明都不能用来 ack。相对该基线，策略接受：
+`assist` 义务只能按所有自主重规划义务的方式解除：Agent 的下一次 `refresh-state` 必须携带共享出口策略（`work_item.replan_semantics`）对这个来源接受的类型化证据。义务把窗口内最新的类型化进展观察（无论是否已评估）绑定为 `progress_baseline`，并把窗口内每条不同的声明作为 `progress_window` 一并携带，因此任何已经在记录里的声明都不能用来 ack。相对整个窗口，策略接受：
 
-- **至少引用一个基线里没有的 evidence id** 的新 surface、hypothesis 或 probe family；只改标识、沿用基线 evidence id 的写回被拒绝，`reason_code` 为 `progress_identity_without_new_evidence`；
+- **至少引用一个基线和窗口内所有声明都没有的 evidence id** 的新 surface、hypothesis 或 probe family；只改标识、沿用这些 evidence id 的写回被拒绝（`progress_identity_without_new_evidence`），回放窗口内已经做过的声明被拒绝（`progress_observation_replayed`）；凭真正的新证据回到更早的 hypothesis 是类型化转向，会被接受；
 - 新的具体 blocker，或有覆盖证据的终态；
 - 一条新的证据关联 vision path（`continue`、`no_change` 或 `replan`），带验收摘要与 evidence refs——复核被评估的工作后决定保留原计划的 Agent，由此获得一个类型化出口。
 

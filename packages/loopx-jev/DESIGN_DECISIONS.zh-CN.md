@@ -96,7 +96,7 @@ Claude 记录中的模型为 `claude-haiku-4-5-20251001`、`claude-sonnet-5`、`
 
 ## 闭环与录制对照结果（2026-09-21，2026-09-22 修订）
 
-闭环完全通过 LoopX 已有契约完成。观察器为每个入队事件写类型化回执（先 pending、评估后覆盖）到 Goal 运行时；核心 capability [`progress_review`](../../loopx/capabilities/progress_review/README.zh-CN.md) 通过一个严格 schema 读取回执，从类型化判断重新计算漂移布尔值，按 turn 身份并校验 Agent/Todo 一致后关联 run 行，`assist` 模式下把连续 N 条绑定到**已 pin** 的 Goal 契约修订的已完成漂移回执变成已有的 `autonomous_replan_obligation`（`kind: external_progress_review_drift`）。refresh-state 的 writeback 用同一个义务判断 ack，被接受的重规划使 trigger 重新武装。类型化重复保险丝保持优先；未评估回执（pending、failed、abstained、stale、undecided、歧义、缺失或绑定到其他修订）会打断尚未形成的连续段，但永不解除已形成的义务；未 pin 的 `assist` 不触发任何义务并在 status 中说明原因。解除遵循共享的 TypeScript 出口 owner，它给这个来源单独的策略：改名只在带有基线之外的 evidence id 时才能解除，证据关联的 vision path 是合法出口。
+闭环完全通过 LoopX 已有契约完成。观察器为每个入队事件写类型化回执（先 pending、评估后覆盖）到 Goal 运行时；核心 capability [`progress_review`](../../loopx/capabilities/progress_review/README.zh-CN.md) 通过一个严格 schema 读取回执，从类型化判断重新计算漂移布尔值，按 turn 身份并校验 Agent/Todo 一致后关联 run 行，`assist` 模式下把连续 N 条绑定到**已 pin** 的 Goal 契约修订的已完成漂移回执变成已有的 `autonomous_replan_obligation`（`kind: external_progress_review_drift`）。refresh-state 的 writeback 用同一个义务判断 ack，被接受的重规划使 trigger 重新武装。类型化重复保险丝保持优先；未评估回执（pending、failed、abstained、stale、undecided、歧义、缺失或绑定到其他修订）会打断尚未形成的连续段，但永不解除已形成的义务；未 pin 的 `assist` 不触发任何义务并在 status 中说明原因。解除遵循共享的 TypeScript 出口 owner，它给这个来源单独的策略：改名只在带有义务窗口内所有声明之外的 evidence id 时才能解除，回放窗口内的声明永不解除，证据关联的 vision path 是合法出口。
 
 对第一版闭环（2026-09-21）的外部评审指出四个缺陷，本次修订用确定性方式而非模型调参修复：
 
@@ -111,6 +111,8 @@ Claude 记录中的模型为 `claude-haiku-4-5-20251001`、`claude-sonnet-5`、`
 | （维护者第二次精确 head 评审，P1）只改 `hypothesis_id`、沿用同一份 evidence id 就能以 `new_hypothesis` 解除义务；README 承诺的证据关联 vision 出口在 `replan_semantics.ts` 中并未授予这个来源 | 出口 owner 给 `external_progress_review_drift` 单独策略：`new_surface`/`new_hypothesis`/`new_probe_family` 只在编解码器的 `evidence_novel` 为真时解除（否则 `progress_identity_without_new_evidence`），`fresh_vision_path_outcome` 进入 required-any-of，requirements 投影同时给出两个出口；真实 writeback 拒绝改名、接受 `continue` vision path（闭环回归） |
 | （维护者第二次精确 head 评审，P1）两条漂移回执之上出现第三条 pending、一条 failed/abstained 回执或一条无回执的 run，派生义务就消失 | 形成与存续是同一次扫描上的两条规则：连续段只由无缺口的已评估漂移形成；形成后未评估转换既不延长也不解除它，并作为 `unevaluated_transitions` 报告；基线绑定窗口内最新的类型化声明，pending 的声明不能被重提为 ack |
 | （维护者第二次精确 head 评审）pin 被写成契约变化时自动失效 | 明确为手动 pin；最新回执绑定到别处时 status 报告 `rebind_hint: newer_receipts_under_unpinned_revision`；“0/7 误报”改写为已评估的 0/6 加一轮按失败关闭、无判定 |
+| （`c98a00be0` 增量复核，A）新颖性只相对单条基线判断，回放窗口内更早的完整声明（或在最新声明 pending 时回放前一条）会以 `new_hypothesis` 解除义务 | trigger 把窗口内每条不同的类型化声明作为 `progress_window` 携带；编解码器对其 evidence id 并集报告 `evidence_novel`、对其指纹集合报告 `observation_repeated`；出口 owner 对这个来源拒绝重放（`progress_observation_replayed`）；真实 writeback 拒绝回放第 1 轮。凭真正的新证据回到更早的 hypothesis 仍是类型化转向 |
+| （`c98a00be0` 增量复核，B）`sequence` 是观察器本地计数，新观察器状态从 0 重新计数，`max(sequence)` 会为 `rebind_hint` 选错“最新”回执，加载上限也可能丢掉最新转换 | 加载器、context 与同一转换的回执合并都按 run 的 `generated_at`、再 `recorded_at`、再 `sequence` 排序（`progress_review_receipt_order_key`）；从不跨观察器比较 sequence |
 
 `packages/loopx-jev/tests/test_closed_loop.py` 用同一段真实 `refresh-state` 序列跑四种方式：默认 `off` 无信号；`shadow` 显示回执但无义务；未 pin 的 `assist` 被阻断并报告 `contract_revision_unpinned`；pin 后的 `assist` 触发义务，`loopx status` 显示它，一次真实的已确认重规划使其重新武装，之后单轮漂移不足以再触发。
 

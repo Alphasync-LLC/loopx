@@ -186,8 +186,8 @@ ambiguous, missing or bound to another revision) break a streak that has not
 formed and never dissolve one that has; unpinned `assist` raises nothing and
 says so in status. Discharge follows the shared TypeScript outcome owner, which
 gives this source its own policy: renamed identifiers discharge only with
-evidence ids absent from the baseline, and an evidence-linked vision path is a
-legal exit.
+evidence ids absent from every claim in the obligation window, a replayed claim
+never discharges, and an evidence-linked vision path is a legal exit.
 
 An external review of the first closed-loop version (2026-09-21) found four
 defects that this revision fixes deterministically rather than by model tuning:
@@ -203,6 +203,8 @@ defects that this revision fixes deterministically rather than by model tuning:
 | (maintainer second exact-head review, P1) Renaming `hypothesis_id` over the same evidence ids discharged the obligation as `new_hypothesis`, and the README promised an evidence-linked vision exit that `replan_semantics.ts` did not grant to this source | The outcome owner gives `external_progress_review_drift` its own policy: `new_surface`/`new_hypothesis`/`new_probe_family` discharge only when the codec's `evidence_novel` fact is true (`progress_identity_without_new_evidence` otherwise), `fresh_vision_path_outcome` is required-any-of, and the requirements projection names both exits; the real writeback refuses the rename and accepts a `continue` vision path (closed-loop regression) |
 | (maintainer second exact-head review, P1) A third pending, a failed or abstained receipt, or a run without a receipt above two drift receipts made the derived obligation disappear | Formation and persistence are separate rules over one scan: a streak forms only from gap-free evaluated drift; once formed, unevaluated transitions neither extend nor dissolve it and are reported as `unevaluated_transitions`; the baseline binds the newest typed claim in the window, so a pending claim cannot be re-submitted as the acknowledgement |
 | (maintainer second exact-head review) The pin read as automatic invalidation on contract change | Documented as a manual pin; status reports `rebind_hint: newer_receipts_under_unpinned_revision` when the newest receipt is bound elsewhere; "0/7 false flags" restated as 0/6 evaluated plus one failed-closed round with no verdict |
+| (incremental review of `c98a00be0`, A) Novelty was judged against the single baseline, so replaying the older complete claim of the window (or, with a pending newest claim, the previous one) discharged as `new_hypothesis` | The trigger carries every distinct typed claim of the window as `progress_window`; the codec reports `evidence_novel` against the union of their evidence ids and `observation_repeated` against their fingerprints; the outcome owner refuses a replay for this source (`progress_observation_replayed`); the real writeback refuses replaying round 1. Returning to an earlier hypothesis on genuinely new evidence stays a typed pivot |
+| (incremental review of `c98a00be0`, B) `sequence` is an observer-local counter that restarts at zero for a new observer state, so `max(sequence)` chose the wrong newest receipt for `rebind_hint` and the load limit could drop the newest transitions | Receipts are ordered by the run's `generated_at`, then `recorded_at`, then `sequence` (`progress_review_receipt_order_key`) in the loader, the context and the same-transition join; sequences are never compared across observers |
 
 `packages/loopx-jev/tests/test_closed_loop.py` runs one real `refresh-state`
 sequence four ways: default `off` produces no signal; `shadow` shows receipts

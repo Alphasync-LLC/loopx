@@ -196,7 +196,13 @@ that has not yet formed, and it neither extends nor dissolves an obligation
 that has. Only an acknowledged replan or a newer completed on-goal verdict ends
 an obligation. The pin is manual: when the newest receipt is bound to a
 revision other than the pinned one, `loopx status` reports
-`rebind_hint: newer_receipts_under_unpinned_revision`.
+`rebind_hint: newer_receipts_under_unpinned_revision`. A receipt's `sequence` is
+this observer state's local counter and restarts at zero when `drift init`
+creates a new state; the core orders receipts by the run's `generated_at`, then
+`recorded_at`, so a re-initialised observer never reads as older than the state
+it replaced. Under `assist` the obligation carries every typed claim made while
+it formed; replaying one of them, or renaming identifiers over their evidence
+ids, is not an acknowledgement.
 
 `assist` changes the Agent's work contract: it raises a `required` obligation
 with a stop condition and an acknowledgement requirement. The obligation binds
