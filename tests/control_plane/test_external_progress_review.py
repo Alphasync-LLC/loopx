@@ -657,6 +657,47 @@ def test_external_review_discharge_refuses_renamed_identifiers_over_the_same_evi
     assert semantic_delta_from_writeback(obligation=fuse, progress_observation=renamed)["accepted"] is True
 
 
+def test_external_review_replay_policy_covers_blocker_and_terminal_claims() -> None:
+    baseline = normalize_progress_observation({
+        "schema_version": "typed_progress_observation_v0", "result_class": "advanced",
+        "hypothesis_id": "latest", "evidence_ids": ["evidence-latest"],
+    })
+    earlier_claims = (
+        {"result_class": "blocked", "blocker_id": "blocker-old", "evidence_ids": ["evidence-old"]},
+        {"result_class": "exploration_exhausted", "coverage_scope_id": "coverage-old",
+         "coverage_complete": True, "evidence_ids": ["evidence-old"]},
+        {"result_class": "no_followup", "coverage_scope_id": "coverage-old",
+         "evidence_ids": ["evidence-old"]},
+    )
+    for earlier in earlier_claims:
+        earlier = {"schema_version": "typed_progress_observation_v0", **earlier}
+        obligation = {
+            "triggers": [{"kind": EXTERNAL_PROGRESS_REVIEW_TRIGGER_KIND}],
+            "progress_baseline": baseline,
+            "progress_window": [baseline, normalize_progress_observation(earlier)],
+        }
+        terminal_vision = (
+            {"state": "no_followup", "path_delta": {"outcome": "stop"}}
+            if earlier["result_class"] == "no_followup" else None
+        )
+        replayed = semantic_delta_from_writeback(
+            obligation=obligation, progress_observation=earlier, agent_vision=terminal_vision,
+        )
+        assert replayed["accepted"] is False, earlier["result_class"]
+        assert replayed["reason_code"] == "progress_observation_replayed"
+        assert semantic_delta_from_writeback(
+            obligation=obligation, progress_observation=earlier, agent_vision=_vision("continue"),
+        )["satisfying_outcomes"] == ["fresh_vision_path_outcome"]
+        successor = {**earlier, "evidence_ids": ["evidence-new"]}
+        if earlier["result_class"] == "blocked":
+            successor["blocker_id"] = "blocker-new"
+        else:
+            successor["coverage_scope_id"] = "coverage-new"
+        assert semantic_delta_from_writeback(
+            obligation=obligation, progress_observation=successor, agent_vision=terminal_vision,
+        )["accepted"] is True
+
+
 def test_external_review_discharge_covers_every_claim_in_a_long_visible_window() -> None:
     """Pending transitions must not push an old claim outside replay protection."""
 

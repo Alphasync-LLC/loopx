@@ -117,10 +117,14 @@ export function projectReplanSemantics(value: unknown): JsonObject {
   const identityOutcome = outcomes.some(outcome => PROGRESS_IDENTITY_OUTCOMES.has(outcome));
   // A claim already made while the obligation formed is not a new disposition,
   // whatever the delta against the single baseline says.
-  const replayed = externalReview && identityOutcome && observation.observation_repeated === true;
+  const replayed = externalReview && observation.observation_repeated === true;
   const identityWithoutEvidence = externalReview && identityOutcome && !replayed &&
     observation.evidence_novel !== true;
-  if (replayed || identityWithoutEvidence) outcomes = outcomes.filter(outcome => !PROGRESS_IDENTITY_OUTCOMES.has(outcome));
+  // A repeated observation contributes no new disposition, regardless of
+  // whether the codec named an identity, blocker, successor or terminal exit.
+  // Evaluate an independently evidenced Vision path after removing the replay.
+  if (replayed) outcomes = [];
+  else if (identityWithoutEvidence) outcomes = outcomes.filter(outcome => !PROGRESS_IDENTITY_OUTCOMES.has(outcome));
   const inconsistentTerminal = outcomes.includes("coverage_backed_no_followup") &&
     (vision.state !== "no_followup" || path.outcome !== "stop");
   if (inconsistentTerminal) outcomes = outcomes.filter(outcome => outcome !== "coverage_backed_no_followup");

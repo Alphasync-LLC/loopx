@@ -107,21 +107,28 @@ test("external progress review: renamed identifiers discharge only behind new ev
   assert.equal(mixed.accepted, true);
   assert.deepEqual(mixed.satisfying_outcomes, ["new_concrete_blocker"]);
   assert.equal("reason_code" in mixed, false);
-  // A claim already made while the obligation formed is refused even when it
-  // looks novel against the single baseline; the replay reason takes precedence.
-  const replayed = qualify({delta_kinds: ["new_hypothesis"], evidence_novel: true, observation_repeated: true});
-  assert.equal(replayed.accepted, false);
-  assert.equal(replayed.reason_code, "progress_observation_replayed");
-  assert.deepEqual(replayed.outcomes, []);
+  // A claim already made while the obligation formed cannot supply any
+  // progress outcome, including blocker and coverage-backed terminal exits.
+  for (const outcome of ["new_surface", "new_hypothesis", "new_probe_family", "new_runnable_successor",
+    "new_concrete_blocker", "coverage_backed_exploration_exhausted", "coverage_backed_no_followup"]) {
+    const replayed = qualify({delta_kinds: [outcome], evidence_novel: true, observation_repeated: true});
+    assert.equal(replayed.accepted, false, outcome);
+    assert.equal(replayed.reason_code, "progress_observation_replayed", outcome);
+    assert.deepEqual(replayed.outcomes, [], outcome);
+  }
   const replayedWithBlocker = qualify({delta_kinds: ["new_hypothesis", "new_concrete_blocker"], evidence_novel: true, observation_repeated: true});
-  assert.equal(replayedWithBlocker.accepted, true);
-  assert.deepEqual(replayedWithBlocker.satisfying_outcomes, ["new_concrete_blocker"]);
-  assert.equal("reason_code" in replayedWithBlocker, false);
+  assert.equal(replayedWithBlocker.accepted, false);
+  assert.deepEqual(replayedWithBlocker.satisfying_outcomes, []);
+  assert.equal(replayedWithBlocker.reason_code, "progress_observation_replayed");
   assert.equal(qualify({delta_kinds: ["new_hypothesis"], evidence_novel: true, observation_repeated: false}).accepted, true);
+  assert.equal(qualify({delta_kinds: ["new_concrete_blocker"], evidence_novel: false, observation_repeated: false}).accepted, true);
   // Keeping the plan on evidence is a legal exit for this source.
   const kept = qualify(undefined, vision);
   assert.equal(kept.accepted, true);
   assert.deepEqual(kept.satisfying_outcomes, ["fresh_vision_path_outcome"]);
+  const replayedWithVision = qualify({delta_kinds: ["coverage_backed_no_followup"], observation_repeated: true}, vision);
+  assert.equal(replayedWithVision.accepted, true);
+  assert.deepEqual(replayedWithVision.satisfying_outcomes, ["fresh_vision_path_outcome"]);
   assert.equal(qualify(undefined, {...vision, path_delta: {outcome: "wait", evidence_refs: ["e"]}}).accepted, false);
   assert.equal(qualify({delta_kinds: ["new_hypothesis"], evidence_novel: false}, vision).accepted, true);
 });

@@ -222,12 +222,12 @@ def test_same_sequence_off_sees_nothing_and_assist_raises_the_obligation(sequenc
     # Repeating the evaluated observation, or the same hypothesis with fresh
     # evidence ids, is not a discharge: the obligation binds that window's typed
     # baseline and the real writeback rejects both.
-    for non_novel in (
-        {"schema_version": "typed_progress_observation_v0", "result_class": "advanced", "surface_id": "retry", "hypothesis_id": "hypothesis-2", "evidence_ids": ["evidence-2"]},
-        {"schema_version": "typed_progress_observation_v0", "result_class": "advanced", "surface_id": "retry", "hypothesis_id": "hypothesis-2", "evidence_ids": ["evidence-fresh"]},
+    for non_novel, message in (
+        ({"schema_version": "typed_progress_observation_v0", "result_class": "advanced", "surface_id": "retry", "hypothesis_id": "hypothesis-2", "evidence_ids": ["evidence-2"]}, "already claimed in the obligation window"),
+        ({"schema_version": "typed_progress_observation_v0", "result_class": "advanced", "surface_id": "retry", "hypothesis_id": "hypothesis-2", "evidence_ids": ["evidence-fresh"]}, "typed semantic delta"),
     ):
         time.sleep(1.05)
-        with pytest.raises(ValueError, match="typed semantic delta"):
+        with pytest.raises(ValueError, match=message):
             refresh_state_run(
                 registry_path=registry,
                 runtime_root_override=str(runtime),
@@ -380,9 +380,12 @@ def test_retried_turn_claim_is_rejected_by_real_refresh_writeback(tmp_path):
     typed_retry = run(2, turn="t2", agent=AGENT_ID)
     untyped_retry = run(3, turn="t2", agent=AGENT_ID)
     untyped_retry.pop("progress_observation")
-    for row in (first, typed_retry):
-        row["progress_observation"]["surface_id"] = "retry"
-        row["progress_observation"]["evidence_ids"] = [f"evidence-{row['generated_at'][-3:-1]}"]
+    first["progress_observation"] = {
+        "schema_version": "typed_progress_observation_v0", "result_class": "blocked",
+        "blocker_id": "blocker-already-recorded", "evidence_ids": ["evidence-already-recorded"],
+    }
+    typed_retry["progress_observation"]["surface_id"] = "retry"
+    typed_retry["progress_observation"]["evidence_ids"] = ["evidence-2"]
     index = runtime / "goals" / GOAL_ID / "runs" / "index.jsonl"
     index.parent.mkdir(parents=True, exist_ok=True)
     index.write_text("".join(json.dumps(row) + "\n" for row in (first, typed_retry, untyped_retry)))
@@ -412,15 +415,22 @@ def test_retried_turn_claim_is_rejected_by_real_refresh_writeback(tmp_path):
         _newest_first_runs(runtime), agent_todos=None, external_progress_review=context,
     )
     assert obligation is not None and obligation["required"] is True
-    assert [claim["hypothesis_id"] for claim in obligation["progress_window"]] == [
-        "hypothesis-2", "hypothesis-1",
-    ]
+    assert [claim["result_class"] for claim in obligation["progress_window"]] == ["advanced", "blocked"]
     before = len(_newest_first_runs(runtime))
-    with pytest.raises(ValueError, match="typed semantic delta"):
+    with pytest.raises(ValueError, match="already claimed in the obligation window"):
         _refresh(
             project, runtime, registry, autonomous_replan_recorded=True,
             repair_delta_kinds=["blocker"],
             progress_observation=typed_retry["progress_observation"],
+        )
+    assert len(_newest_first_runs(runtime)) == before
+    # The older blocker is also in the same window. It is not a new blocker
+    # merely because the latest baseline is an advanced claim.
+    with pytest.raises(ValueError, match="already claimed in the obligation window"):
+        _refresh(
+            project, runtime, registry, autonomous_replan_recorded=True,
+            repair_delta_kinds=["blocker"],
+            progress_observation=first["progress_observation"],
         )
     assert len(_newest_first_runs(runtime)) == before
     assert _refresh(
@@ -464,7 +474,7 @@ def test_outstanding_evaluations_keep_the_obligation_and_an_evidence_linked_visi
     # The writeback owner sees the same obligation: re-submitting the pending
     # claim, or renaming its hypothesis over its evidence ids, is refused.
     for observation, message in (
-        ({"hypothesis_id": "hypothesis-3", "evidence_ids": ["evidence-3"]}, "typed semantic delta"),
+        ({"hypothesis_id": "hypothesis-3", "evidence_ids": ["evidence-3"]}, "already claimed in the obligation window"),
         ({"hypothesis_id": "hypothesis-4", "evidence_ids": ["evidence-3"]}, "evidence ids absent from the evaluated baseline"),
     ):
         time.sleep(1.05)
