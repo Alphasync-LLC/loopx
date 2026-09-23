@@ -10,7 +10,7 @@ from itertools import islice
 from pathlib import Path
 from typing import Any
 
-from .file_lock import exclusive_file_lock
+from .file_lock import exclusive_run_index_lock
 from .authority import goal_authority_registry_summary
 from .control_plane import compact_control_plane_policy
 from .control_plane.goals.activation import (
@@ -179,7 +179,7 @@ def write_reserved_run_artifacts(
     ingest_usage_into_run_record(record, index_record=index_record)
     # GH-C07: one lock per goal history index, shared with the repair path.
     index_path = runs_dir / "index.jsonl"
-    with exclusive_file_lock(index_path, operation="history_run_append"):
+    with exclusive_run_index_lock(index_path, operation="history_run_append"):
         json_path, markdown_path = reserve_unique_run_paths(runs_dir, generated_at)
         index_record["json_path"] = str(json_path)
         index_record["markdown_path"] = str(markdown_path)
@@ -681,7 +681,7 @@ def repair_index_duplicates(
         # GH-C07: read and rewrite the index under the same lock the append
         # path takes. A dry run only reports, so it must not block writers.
         lock = (
-            exclusive_file_lock(index_path, operation="history_index_repair")
+            exclusive_run_index_lock(index_path, operation="history_index_repair")
             if execute
             else nullcontext()
         )
