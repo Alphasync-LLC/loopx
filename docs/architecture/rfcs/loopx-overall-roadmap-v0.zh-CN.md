@@ -434,6 +434,12 @@ L3 检查点：独立领取/接管、原子 claim 准入与维护共用 typed le
 - **退出：** 相关真实 CLI/backend、不可变 baseline 与候选对照、负例/mutation、三臂演练及适用 D2 至少十日 soak；D3 切换保留明确批准。此次审计没有执行新的 soak，也未晋升 provider。
 - **回滚：** 按已审阅的 fenced export/import 和 schema-aware downgrade，不能靠替换二进制恢复旧写权威。
 
+[Goal instance/recovery 提案](goal-instance-identity-and-orphan-recovery-v0.zh-CN.md)
+为 R2/R3 retirement 和迟到结果安全提供有界 R5 依赖。M0 codec 已交付，lifetime
+admission、commit fence 和 recovery 尚未交付。复用 TS transaction 与既有 provider
+owner，先资格化本地路径；R6 service identity、D1–D3 promotion 独立验收。本检查点
+不激活 identity，也不要求所有 R1–R4 改动等待完整 lifecycle。
+
 ### R6：本地与云端汇合
 
 - **Owner：** shared-authority provider/service、session host adapter、collaboration；基础是已有 PostgreSQL admission/identity-rotation seam，不重写 store。

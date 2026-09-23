@@ -136,6 +136,15 @@ changes.
   - **Current boundary:** Milestones, blocking guards, and legal transitions are
     specified as a read-only projection; no canonical lifecycle projection has
     shipped.
+- [Goal Instance Identity and Orphan Recovery v0](goal-instance-identity-and-orphan-recovery-v0.md)
+  ([中文版](goal-instance-identity-and-orphan-recovery-v0.zh-CN.md))
+  - **RFC status:** Draft.
+  - **Delivery on `main`:** Identity/recovery proposal; the guided orphan fence
+    and M0 registry codec shipped separately in #4808 and #4917.
+  - **Current boundary:** Defines R5 lifetime fencing for R2/R3 consumers,
+    incompatible activation beyond codec-only v1, typed commit/recovery ownership,
+    exact legacy cleanup and product readback. Instance minting, activation and
+    resolution remain unshipped; R6 and D1–D3 keep their own qualification gates.
 
 ## Planning, Research, And Adaptive Intelligence
 
