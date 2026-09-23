@@ -92,7 +92,10 @@ from .control_plane.goals.vision_checkpoint import (
     prepare_vision_refresh,
 )
 from .control_plane.goals.goal_frontier import latest_agent_vision_from_runs
-from .control_plane.goals.checkpoint_context_io import checkpoint_commit_guard
+from .control_plane.goals.checkpoint_context_io import (
+    checkpoint_commit_guard, commit_checkpoint_run, require_complete_checkpoint_index, inspect_checkpoint_replay,
+)
+from .file_lock import exclusive_run_index_lock
 from .registry import registry_goals, resolve_state_file
 from .runtime import validate_goal_id_path_segment
 from .state_projection import (
@@ -880,7 +883,7 @@ def refresh_state_run(
     runtime_root = resolve_runtime_root(registry, runtime_root_override, registry_path=registry_path)
     # State-dependent admission through the final append remains serialized.
     # Only pure input validation runs before this transitional persistence lock.
-    with (nullcontext() if dry_run else exclusive_file_lock(
+    with (nullcontext() if dry_run else exclusive_run_index_lock(
         runtime_root / "goals" / safe_goal_id / "runs" / "index.jsonl", operation="refresh-state"
     )):
         settlement_identity = None
@@ -892,6 +895,8 @@ def refresh_state_run(
         prior_writeback_run = None
         checkpoint_supplement = False
         if todo_id or normalized_replan_obligation_id or turn_instance_id:
+            if checkpoint_read_context_id or agent_vision_packet or vision_unchanged_reason:
+                require_complete_checkpoint_index(runtime_root / "goals" / safe_goal_id / "runs" / "index.jsonl")
             if not turn_scoped_settlement_qualified:
                 raise ValueError(
                     TURN_SCOPED_SETTLEMENT_REQUIREMENT + ": " + turn_scoped_settlement_gap
@@ -903,7 +908,7 @@ def refresh_state_run(
                 todo_id=todo_id,
                 turn_instance_id=turn_instance_id,
                 replan_obligation_id=normalized_replan_obligation_id,
-                refresh_retry={
+                refresh_retry=(refresh_retry_request := {
                     "checkpoint_read_context_id": checkpoint_read_context_id,
                     "external_delivery": external_delivery,
                     "vision": agent_vision_packet,
@@ -923,7 +928,7 @@ def refresh_state_run(
                     "delivery_batch_scale": normalized_delivery_batch_scale,
                     "delivery_boundary": normalized_delivery_boundary,
                     "progress_observation": normalized_progress_observation,
-                },
+                }),
             )
             if settlement_readback is None:
                 raise RuntimeError("exact settlement readback unexpectedly returned not-found")
@@ -941,6 +946,8 @@ def refresh_state_run(
             checkpoint_supplement = bool(
                 refresh_recovery["decision"] == "supplement_checkpoint"
             )
+            if refresh_recovery.get("decision") in {"replay", "repair_receipt"} and prior_writeback_run:
+                inspect_checkpoint_replay(runtime_root, safe_goal_id, prior_writeback_run)
             recovery_payload = refresh_recovery_payload(
                 settlement_readback, registry_path=registry_path, runtime_root=runtime_root,
                 goal_id=safe_goal_id, dry_run=dry_run,
@@ -1421,13 +1428,25 @@ def refresh_state_run(
                 index_record["markdown_path"] = str(markdown_path)
                 payload["json_path"] = str(json_path)
                 payload["markdown_path"] = str(markdown_path)
-                json_path.write_text(
-                    json.dumps(record, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
-                    encoding="utf-8",
-                )
-                markdown_path.write_text(render_state_refresh_markdown(payload) + "\n", encoding="utf-8")
-                with index_path.open("a", encoding="utf-8") as f:
-                    f.write(json.dumps(index_record, ensure_ascii=False, allow_nan=False) + "\n")
+                if checkpoint_supplement:
+                    saved = commit_checkpoint_run(runtime_root=runtime_root, registry_path=registry_path,
+                        state_file=resolved_state_file, identity=settlement_identity,
+                        refresh_retry=refresh_retry_request, record=record, index_record=index_record,
+                        markdown=render_state_refresh_markdown(payload) + "\n")
+                    for projection in (record, index_record, payload):
+                        projection["vision_checkpoint"]["read_context"] = saved["context"]
+                    for projection in (index_record, payload):
+                        projection.update({key: saved[key] for key in ("json_path", "markdown_path")})
+                    if saved["replayed"]:
+                        payload.update(appended=False, idempotent_replay=True)
+                else:
+                    json_path.write_text(
+                        json.dumps(record, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
+                        encoding="utf-8",
+                    )
+                    markdown_path.write_text(render_state_refresh_markdown(payload) + "\n", encoding="utf-8")
+                    with index_path.open("a", encoding="utf-8") as f:
+                        f.write(json.dumps(index_record, ensure_ascii=False, allow_nan=False) + "\n")
         if sync_global and route_status in {"missing", "ambiguous"}:
             payload["ok"] = False
             payload["partial_write"] = not dry_run

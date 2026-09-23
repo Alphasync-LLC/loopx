@@ -8,19 +8,17 @@ from pathlib import Path
 from typing import Any, Iterator
 from uuid import uuid4
 
-from ...file_lock import exclusive_cross_runtime_file_lock, exclusive_file_lock
+from ...file_lock import exclusive_cross_runtime_file_lock, exclusive_run_index_lock, cross_runtime_lock_witness
 from ...history import load_index, load_registry
 from ...paths import resolve_runtime_root
 from ...registry import atomic_write_json
 from ...runtime import validate_goal_id_path_segment
 from ..coordination.legacy_writer_fence import legacy_coordination_todo_lock_path
-from ..coordination.local_authority import read_canonical_todos_if_promoted
 from ..coordination.shadow_management import shadow_maintenance_lock_target, require_shadow_primary_write_allowed
-from ..effect_runtime import effect_runtime_result
+from ..effect_runtime import effect_runtime_result, EffectRuntimeRejected
 from ..quota.settlement import SettlementIdentity, read_heartbeat_settlement
 from ..todos.active_state_todo_parser import parse_todo_source
 from ..todos.machine_region import find_todo_source_regions
-from .acceptance import inspect_goal_acceptance
 from .active_state_metadata import split_state_frontmatter
 from .goal_frontier import latest_agent_vision_from_runs
 
@@ -32,8 +30,16 @@ class CheckpointReadContextRejected(ValueError):
         self.payload = {"checkpoint_read_context": result}
 
 
+def _checkpoint_effect(method: str, request: dict[str, Any]) -> Any:
+    try:
+        return effect_runtime_result(method, request)
+    except EffectRuntimeRejected as error:
+        raise CheckpointReadContextRejected({"ok": False, "error": str(error),
+            "error_code": error.diagnostic_code, "reread_required": False}) from error
+
+
 def _evaluate(**request: Any) -> dict[str, Any]:
-    result = effect_runtime_result("goal.checkpoint_read_context.evaluate", request)
+    result = _checkpoint_effect("goal.checkpoint_read_context.evaluate", request)
     if not isinstance(result, dict) or not isinstance(result.get("ok"), bool):
         raise RuntimeError("invalid typed checkpoint read context result")
     if not result["ok"]:
@@ -46,12 +52,25 @@ def _receipt_path(root: Path, identity: SettlementIdentity) -> Path:
     return root / "goals" / identity.goal_id / "checkpoint-contexts" / f"{digest}.json"
 
 
+def require_complete_checkpoint_index(index: Path) -> None:
+    """Framing check before replay too; typed settlement validates the rows."""
+    try:
+        content = index.read_bytes()
+    except FileNotFoundError:
+        return
+    if content and not content.endswith(b"\n"):
+        raise CheckpointReadContextRejected({
+            "ok": False, "error_code": "checkpoint_commit_unknown", "reread_required": False,
+            "error": "checkpoint index has an incomplete tail; inspect the original Turn before retrying",
+        })
+
+
 @contextmanager
 def _source_guard(root: Path, goal_id: str, state_file: Path) -> Iterator[None]:
     """Caller holds runs/index first. Match promotion's M -> Todo -> state order.
 
-    Canonical local writers hold M; legacy Todo writers hold Todo/state; prose
-    writers hold state. Hold all three until the checkpoint index row is appended.
+    M prevents source cutover; it does not exclude canonical provider commits.
+    The native commit additionally fences the real provider through its append.
     Do not run projection sync or a new state mutation inside this guard.
     """
     with ExitStack() as locks:
@@ -65,40 +84,35 @@ def _source_guard(root: Path, goal_id: str, state_file: Path) -> Iterator[None]:
         yield
 
 
-def _source_facts(
+def _local_source_facts(
     root: Path, registry_path: Path, state_file: Path, identity: SettlementIdentity,
 ) -> dict[str, Any]:
-    # The existing provider adapter fails closed after cutover. Never repair or
-    # fall back to stale Markdown when a selected provider cannot answer.
-    canonical = read_canonical_todos_if_promoted(runtime_root=root, goal_id=identity.goal_id)
     text = state_file.read_text(encoding="utf-8")
     metadata, body = split_state_frontmatter(text)
     lines = body.splitlines()
     regions = find_todo_source_regions(lines)
     owned = {i for region in regions for i in range(region.start, region.end)}
     prose = "\n".join(line for i, line in enumerate(lines) if i not in owned).strip()
-    acceptance = None
-    if canonical is None:
-        active, archived, _ = parse_todo_source(text)
-        todos = [*active["user"], *active["agent"], *archived]
-    else:
-        todos = canonical["todos"]
-        inspected = inspect_goal_acceptance(
-            registry_path=registry_path, runtime_root=str(root), goal_id=identity.goal_id,
-            agent_id=identity.agent_id,
-        )
-        # Exclude verifier observations and unrelated provider commits; retain
-        # the owner revision and the complete actual acceptance document.
-        acceptance = {key: inspected.get(key) for key in ("revision", "contract_digest", "contract")}
+    active, archived, _ = parse_todo_source(text)
+    todos = [*active["user"], *active["agent"], *archived]
     runs, _ = load_index(root / "goals" / identity.goal_id / "runs" / "index.jsonl")
     newest = [run for _, run in sorted(enumerate(runs),
         key=lambda pair: (str(pair[1].get("generated_at") or ""), pair[0]), reverse=True)]
     return {
-        "todos": todos, "frontmatter": metadata, "goal_prose": prose, "acceptance": acceptance,
+        "todos": todos, "frontmatter": metadata, "goal_prose": prose, "acceptance": None,
         "agent_vision": latest_agent_vision_from_runs(newest, goal_id=identity.goal_id, agent_id=identity.agent_id),
         "source": {"state_file": str(state_file.resolve()), "runtime_root": str(root.resolve()),
-                   "authority": canonical["source_authority"] if canonical else "legacy_markdown"},
+                   "authority": "legacy_markdown"},
     }
+
+
+def _source_facts(root: Path, registry_path: Path, state_file: Path, identity: SettlementIdentity) -> dict[str, Any]:
+    # The typed owner derives Todo and complete acceptance from one head and
+    # fails closed after cutover. Local parsed Markdown cannot override it.
+    return _checkpoint_effect("goal.checkpoint_read_context.source", {
+        "runtime_root": str(root.resolve()), "goal_id": identity.goal_id,
+        "facts": _local_source_facts(root, registry_path, state_file, identity),
+    })
 
 
 def read_checkpoint_context(
@@ -117,7 +131,8 @@ def read_checkpoint_context(
         project_override=project, state_file_override=state_file)
     if agent_id not in registered_agents_for_goal(goal):
         raise ValueError("checkpoint-context requires a registered Agent")
-    with exclusive_file_lock(root / "goals" / goal_id / "runs" / "index.jsonl", operation="checkpoint-context"):
+    with exclusive_run_index_lock(root / "goals" / goal_id / "runs" / "index.jsonl", operation="checkpoint-context"):
+        require_complete_checkpoint_index(root / "goals" / goal_id / "runs" / "index.jsonl")
         readback = read_heartbeat_settlement(root, goal_id=goal_id, agent_id=agent_id,
             todo_id=todo_id, turn_instance_id=turn_instance_id, replan_obligation_id=replan_obligation_id)
         if readback is None or readback.identity.value is None or readback.writeback_run is None:
@@ -141,7 +156,8 @@ def checkpoint_commit_guard(
     *, runtime_root: Path, registry_path: Path, state_file: Path,
     identity: SettlementIdentity, read_context_id: str | None,
 ) -> Iterator[dict[str, Any]]:
-    """Compare and append under the same source locks, never check then unlock."""
+    """Capture/preview under source locks. The native save repeats the check
+    under the real provider fence; this preliminary check is not the commit."""
     with _source_guard(runtime_root, identity.goal_id, state_file):
         try:
             receipt = json.loads(_receipt_path(runtime_root, identity).read_text(encoding="utf-8"))
@@ -150,6 +166,37 @@ def checkpoint_commit_guard(
         result = _evaluate(phase="check", identity=identity.as_dict(), read_context_id=read_context_id,
             receipt=receipt, facts=_source_facts(runtime_root, registry_path, state_file, identity))
         yield result
+
+
+def commit_checkpoint_run(
+    *, runtime_root: Path, registry_path: Path, state_file: Path, identity: SettlementIdentity,
+    refresh_retry: dict[str, Any], record: dict[str, Any], index_record: dict[str, Any], markdown: str,
+) -> dict[str, Any]:
+    """Handoff the held locks and parsed bytes to one native save operation."""
+    root = runtime_root.resolve()
+    index = root / "goals" / identity.goal_id / "runs" / "index.jsonl"
+    targets = (index, shadow_maintenance_lock_target(root, identity.goal_id),
+               legacy_coordination_todo_lock_path(runtime_root=root, goal_id=identity.goal_id), state_file)
+    result = _checkpoint_effect("goal.checkpoint_read_context.commit", {
+        "runtime_root": str(root), "state_file": str(state_file.resolve()), "identity": identity.as_dict(),
+        "locks": [cross_runtime_lock_witness(target) for target in targets],
+        "state_sha256": hashlib.sha256(state_file.read_bytes()).hexdigest(),
+        "index_sha256": hashlib.sha256(index.read_bytes()).hexdigest(),
+        "facts": _local_source_facts(root, registry_path, state_file, identity),
+        "refresh_retry": refresh_retry, "record": record, "index_record": index_record, "markdown": markdown,
+    })
+    if not isinstance(result, dict) or not isinstance(result.get("ok"), bool):
+        raise RuntimeError("invalid typed checkpoint commit result")
+    if not result["ok"]:
+        raise CheckpointReadContextRejected(result)
+    return result
+
+
+def inspect_checkpoint_replay(runtime_root: Path, goal_id: str, prior: dict[str, Any]) -> None:
+    if isinstance(prior.get("vision_checkpoint"), dict) and prior["vision_checkpoint"].get("read_context"):
+        _checkpoint_effect("goal.checkpoint_read_context.inspect_replay", {
+            "runtime_root": str(runtime_root.resolve()), "goal_id": goal_id, "prior": prior,
+        })
 
 
 def render_checkpoint_context(payload: dict[str, Any]) -> str:

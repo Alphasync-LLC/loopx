@@ -1,11 +1,11 @@
 /** Read basis for a missing-checkpoint supplement, not an execution/permission lease.
- * The host holds the Goal source writer locks through the checkpoint append. */
+ * The commit effect holds source/index claims and the real provider fence. */
 import type {JsonObject} from "../effect_program.ts";
 import {jsonObject, requireJsonObject, requireNonEmptyString} from "../runtime_decode.ts";
 import {EffectRuntimeRequestError} from "../effect_runtime_errors.ts";
 import {canonicalAuthoritySha256} from "../coordination/authority_store_codec.ts";
 
-const RECEIPT_SCHEMA = "checkpoint_read_context_v0";
+const RECEIPT_SCHEMA = "checkpoint_read_context_v1";
 // Exact presentation fields only. Unknown future fields remain part of the basis.
 const DISPLAY_FIELDS = new Set(["index", "source_section", "schema_version"]);
 const todoFacts = (todo: JsonObject): JsonObject => Object.fromEntries(
@@ -69,7 +69,8 @@ function snapshot(request: JsonObject): JsonObject {
     agent_vision: facts.agent_vision,
     source: facts.source,
   };
-  return {basis, versions: Object.fromEntries(Object.entries(basis).map(([key, value]) =>
+  return {basis, provider_revision: facts.provider_revision ?? null,
+    versions: Object.fromEntries(Object.entries(basis).map(([key, value]) =>
     [key, canonicalAuthoritySha256(value)]))};
 }
 
@@ -94,7 +95,7 @@ export function evaluateCheckpointReadContext(value: unknown): JsonObject {
     return {ok: true, ...projected, receipt: {
       schema_version: RECEIPT_SCHEMA, read_context_id: requireNonEmptyString(token, "read_context_id"),
       identity, dependency_todo_ids: ids(request.dependency_todo_ids, "dependency_todo_ids"),
-      versions: projected.versions,
+      versions: projected.versions, provider_revision: projected.provider_revision,
     }};
   }
   if (request.phase !== "check") throw new EffectRuntimeRequestError("unknown checkpoint read context phase");

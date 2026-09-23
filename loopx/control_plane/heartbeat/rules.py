@@ -23,7 +23,7 @@ HEARTBEAT_NOTIFICATION_RULE_SHORT = (
 )
 HEARTBEAT_VISION_WRITEBACK_RULE_SHORT = (
     "本轮精确monitor-poll提交→不refresh/spend；"
-    "其余no-change=surface_only/no spend；material=outcome+vision；"
+    "其余no-change=surface_only/no spend；writeback material=outcome+vision；"
     "缺则同轮checkpoint-context重判，按凭据仅补vision；"
     "过期重读；unchanged→真实--vision-unchanged-reason。"
 )
