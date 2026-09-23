@@ -186,6 +186,25 @@ def _idempotency_body(payload: Mapping[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if key != "event_id"}
 
 
+def _append_rollout_event_line(
+    log_path: Path,
+    payload: Mapping[str, Any],
+) -> None:
+    """Append one readable JSONL row after any torn final record."""
+
+    encoded = (
+        json.dumps(dict(payload), sort_keys=True, ensure_ascii=False).encode("utf-8")
+        + b"\n"
+    )
+    with log_path.open("a+b") as handle:
+        handle.seek(0, 2)
+        if handle.tell() > 0:
+            handle.seek(-1, 2)
+            if handle.read(1) != b"\n":
+                handle.write(b"\n")
+        handle.write(encoded)
+
+
 def rollout_event_log_path(runtime_root: Path, goal_id: str) -> Path:
     # Goal ids are used as directory names throughout the control plane. Keep
     # this shared path helper fail-closed so every reader and writer inherits
@@ -393,7 +412,7 @@ def append_rollout_event(log_path: Path, event: Mapping[str, Any]) -> dict[str, 
                 if _idempotency_body(existing) == _idempotency_body(payload):
                     return existing
                 raise ValueError(f"conflicting rollout event_id: {event_id}")
-            handle.write(json.dumps(payload, sort_keys=True, ensure_ascii=False) + "\n")
+        _append_rollout_event_line(log_path, payload)
     return payload
 
 
@@ -436,7 +455,7 @@ def append_rollout_event_once(
                     if _idempotency_body(existing) == _idempotency_body(payload):
                         return existing, False
                     raise ValueError(f"conflicting rollout event_id: {event_id}")
-            handle.write(json.dumps(payload, sort_keys=True, ensure_ascii=False) + "\n")
+        _append_rollout_event_line(log_path, payload)
     return payload, True
 
 

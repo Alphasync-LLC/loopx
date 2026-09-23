@@ -8,6 +8,7 @@ from pathlib import Path
 from ...file_lock import exclusive_file_lock
 from ...rollout_event_log import (
     ROLLOUT_EVENT_SCHEMA_VERSION,
+    _append_rollout_event_line,
     build_rollout_event,
     load_rollout_events,
     rollout_event_log_path,
@@ -271,8 +272,7 @@ def ensure_turn_heartbeat_settlement_receipt(
             caused_by=source_event_id or None,
             details=details,
         )
-        with log_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(receipt, sort_keys=True, ensure_ascii=False) + "\n")
+        _append_rollout_event_line(log_path, receipt)
         return receipt
 
 
@@ -354,10 +354,7 @@ def retain_pending_heartbeat_action_selection(
             caused_by=source_event_id,
             details=details,
         )
-        with log_path.open("a", encoding="utf-8") as handle:
-            handle.write(
-                json.dumps(retained, sort_keys=True, ensure_ascii=False) + "\n"
-            )
+        _append_rollout_event_line(log_path, retained)
         return retained, True
 
 
@@ -495,10 +492,7 @@ def upgrade_identityless_heartbeat_receipt(
             caused_by=source_event_id,
             details=corrected_details,
         )
-        with log_path.open("a", encoding="utf-8") as handle:
-            handle.write(
-                json.dumps(corrected, sort_keys=True, ensure_ascii=False) + "\n"
-            )
+        _append_rollout_event_line(log_path, corrected)
         return corrected, True
 
 
