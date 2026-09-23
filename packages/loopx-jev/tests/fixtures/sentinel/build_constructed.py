@@ -244,10 +244,10 @@ CASES: dict[str, dict[int, dict[str, str | None]]] = {
 }
 
 
-def main() -> None:
+def write_snapshots(root: Path) -> None:
     for case_id, rounds in CASES.items():
         for round_number, files in rounds.items():
-            directory = ROOT / case_id / f"r{round_number}"
+            directory = root / case_id / f"r{round_number}"
             directory.mkdir(parents=True, exist_ok=True)
             for name, text in files.items():
                 # Stored with a .txt suffix so pytest never collects fixture
@@ -258,6 +258,10 @@ def main() -> None:
                         target.unlink()
                     continue
                 target.write_text(text, encoding="utf-8")
+
+
+def main() -> None:
+    write_snapshots(ROOT)
     print(f"wrote {len(CASES)} constructed cases under {ROOT}")
 
 

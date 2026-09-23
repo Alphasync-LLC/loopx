@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import runpy
 from pathlib import Path
 
 import pytest
@@ -36,6 +37,20 @@ def test_committed_matrix_loads_with_frozen_gold_labels() -> None:
     assert all(case["provenance"]["repository"] == "loopx-project/loopx" for case in real)
     assert all(case["gold"]["drift_from_round"] is None for case in real)
     assert all(round_item["self_report"]["result_class"] == "advanced" for case in matrix["cases"] for round_item in case["rounds"])
+
+
+def test_committed_constructed_snapshots_match_generator_byte_for_byte(tmp_path: Path) -> None:
+    """The frozen replay inputs must stay identical to their authored recipe."""
+
+    generator = runpy.run_path(str(FIXTURES / "build_constructed.py"))["write_snapshots"]
+    generator(tmp_path)
+    frozen = FIXTURES / "constructed"
+    generated_paths = {path.relative_to(tmp_path) for path in tmp_path.rglob("*.txt")}
+    frozen_paths = {path.relative_to(frozen) for path in frozen.rglob("*.txt")}
+    assert generated_paths == frozen_paths
+    assert generated_paths
+    for relative_path in sorted(generated_paths):
+        assert (tmp_path / relative_path).read_bytes() == (frozen / relative_path).read_bytes(), relative_path
 
 
 def test_matrix_loader_rejects_loose_input(tmp_path: Path) -> None:
