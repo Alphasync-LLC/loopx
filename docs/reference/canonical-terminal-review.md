@@ -45,8 +45,18 @@ proposals retain their existing protocol.
 ## Wire and migration boundary
 
 The current Python terminal adapter sends
-`loopx_local_coordination_todo_terminal_lifecycle_request_v2`. The existing
-terminal method accepts these bounded additions:
+`loopx_local_coordination_todo_terminal_lifecycle_request_v2` for named
+operations. It sends
+`loopx_local_coordination_todo_terminal_lifecycle_request_v3` only when it
+completes a `continuous_monitor` without an explicit completion identity. In
+v3, `operation_id` is null on the wire. The TypeScript owner derives it from
+the Goal id, Todo id, and `material_change_generation`. Reopening the Monitor
+advances that generation, so a receipt from an earlier cycle cannot complete
+the current open cycle. A retry of an already completed pre-v3 cycle can still
+recover its legacy unscoped receipt. Explicit identities and non-Monitor
+completion remain on v2.
+
+The terminal method also accepts these bounded additions:
 
 - `review_basis`, when present, contains exactly `provider_revision` and
   `registry_sha256`. It binds reviewed intent and is part of receipt identity.
@@ -74,8 +84,9 @@ if authority has reverted to an unpromoted legacy path.
 
 No provider default, promotion, permission, retention or storage format changes.
 Rollback restores compatible code while retaining provider data, receipts and
-writer fences. Older code cannot execute v2; regenerate a preview with compatible
-code instead of stripping its review fields. Markdown stays a permanent display.
+writer fences. Code that does not recognize the request version cannot execute
+it; regenerate a preview with compatible code instead of stripping its review
+fields or supplying an operation id for v3. Markdown stays a permanent display.
 These changes close the terminal review/recovery family, not all leased metadata
 updates, executor-held external-effect fencing, D1–D3 or whole-Goal cutover.
 

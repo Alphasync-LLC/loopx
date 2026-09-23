@@ -37,8 +37,16 @@ TS terminal owner 统一决定准入、来源新鲜度、验证计划、租约�
 
 ## 协议与迁移边界
 
-当前 Python adapter 使用 `loopx_local_coordination_todo_terminal_lifecycle_request_v2`，
-复用已有 terminal method，新增字段限定为：
+当前 Python adapter 对具名操作使用
+`loopx_local_coordination_todo_terminal_lifecycle_request_v2`。仅当
+`continuous_monitor` 未提供显式 completion identity 时，adapter 使用
+`loopx_local_coordination_todo_terminal_lifecycle_request_v3` 完成它。v3 在 wire
+上把 `operation_id` 设为 null，由 TypeScript owner 根据 Goal id、Todo id 和
+`material_change_generation` 推导操作标识。Monitor 重开时 generation 递增，因此旧周期
+回执不能完成当前 open 周期；已在 v3 之前完成的周期仍可在重试时恢复 legacy unscoped
+回执。显式 identity 和非 Monitor completion 继续使用 v2。
+
+同一 terminal method 还接受以下受限字段：
 
 - `review_basis`：若提供，精确包含 `provider_revision` 和 `registry_sha256`，绑定
   已审核意图并进入回执 identity。
@@ -58,8 +66,9 @@ v2 保留原 CLI terminal fingerprint，不改写旧回执。带审核 basis 的
 的 legacy authority，公共 facade 拒绝落入旧写路径。
 
 本次不改变 provider 默认值、晋升、权限、保留策略或存储格式。回滚保留 provider
-数据、回执和 writer fence，恢复兼容代码；旧代码不能执行 v2，应重新生成兼容预览，
-不能剥掉审核字段。Markdown 仍是永久显示。此批闭合终结审核/恢复调用族，不等于
+数据、回执和 writer fence，恢复兼容代码；无法识别请求版本的代码不能执行该请求，
+应重新生成兼容预览，不能剥掉审核字段，也不能为 v3 补造 operation id。Markdown
+仍是永久显示。此批闭合终结审核/恢复调用族，不等于
 全部 leased metadata、executor-held effect fence、D1–D3 或整 Goal 切换完成。
 
 共享 provider conformance 使用完整复杂 fixture、native/imported 两种记录，覆盖审核/
