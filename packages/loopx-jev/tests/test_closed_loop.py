@@ -265,10 +265,33 @@ def test_same_sequence_off_sees_nothing_and_assist_raises_the_obligation(sequenc
             dry_run=False,
             sync_global=False,
         )
+    # Replaying the first round's complete claim looks novel against the
+    # newest baseline alone; the obligation carries the whole window, so the
+    # real writeback refuses it too.
+    time.sleep(1.05)
+    with pytest.raises(ValueError, match="already claimed in the obligation window"):
+        refresh_state_run(
+            registry_path=registry,
+            runtime_root_override=str(runtime),
+            goal_id=GOAL_ID,
+            project=project,
+            state_file=None,
+            classification="state_refreshed",
+            recommended_action="Return to the first slice.",
+            delivery_batch_scale="single_surface",
+            delivery_outcome="surface_only",
+            agent_id=AGENT_ID,
+            autonomous_replan_recorded=True,
+            repair_delta_kinds=["blocker"],
+            progress_observation={"schema_version": "typed_progress_observation_v0", "result_class": "advanced", "surface_id": "retry", "hypothesis_id": "hypothesis-1", "evidence_ids": ["evidence-1"]},
+            dry_run=False,
+            sync_global=False,
+        )
     runs = _newest_first_runs(runtime)
     assist = external_progress_review_context(_goal(registry), runtime)
     still_open = autonomous_replan_obligation_from_runs(runs, agent_todos=None, external_progress_review=assist)
     assert still_open is not None and still_open["progress_baseline"]["hypothesis_id"] == "hypothesis-2"
+    assert [item["hypothesis_id"] for item in still_open["progress_window"]] == ["hypothesis-2", "hypothesis-1"]
 
     # An acknowledged bounded replan with a genuinely new blocker re-arms the trigger; one more drift round is not enough.
     time.sleep(1.05)
