@@ -159,3 +159,17 @@ def test_projection_carries_no_hint_when_the_journal_recorded_no_failure() -> No
 def test_attempt_must_be_a_plain_positive_integer(attempt: object) -> None:
     with pytest.raises(ValueError, match="positive integer"):
         build_host_failure_record("rate_limited", attempt=attempt)  # type: ignore[arg-type]
+
+
+def test_a_non_retryable_record_cannot_carry_or_claim_a_retry_policy() -> None:
+    claimed = build_host_failure_record("auth_failed", attempt=1)
+    claimed["retryable"] = True
+
+    with pytest.raises(ValueError, match="retryability does not match its kind"):
+        normalize_host_failure_record(claimed)
+
+    carried = build_host_failure_record("auth_failed", attempt=1)
+    carried["retry"] = build_host_failure_record("rate_limited", attempt=1)["retry"]
+
+    with pytest.raises(ValueError, match="must not declare retry policy"):
+        normalize_host_failure_record(carried)
