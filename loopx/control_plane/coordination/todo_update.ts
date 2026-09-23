@@ -132,7 +132,7 @@ export async function executeCoordinationTodoUpdate(
       goal_id: input.goal_id, todo_id: input.todo_id, expected_role: input.expected_role as "user" | "agent" | null,
       command: "complete", actor_agent_id: input.actor_agent_id, registered_agents: input.registered_agents,
       lifecycle_grants: input.lifecycle_grants ?? [], authority_reason: input.authority_reason ?? null,
-      decision_outcome: null, operation_id: input.operation_id,
+      decision_outcome: null, operation_identity: {kind: "explicit", operation_id: input.operation_id},
       lease_idempotency_key: input.lease_idempotency_key ?? null, lease_expected_version: input.lease_expected_version ?? null,
       allow_user_gate_auto_acquire: input.lease_idempotency_key == null && input.lease_expected_version == null, requested_no_followup: intent.no_followup === true,
       requested_completion_turn_key: null, requested_completion_identity_source: null,

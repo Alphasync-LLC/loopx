@@ -80,6 +80,7 @@ import {
 import {
   COORDINATION_TODO_TERMINAL_LIFECYCLE_RESULT_SCHEMA,
   executeCoordinationTodoTerminalLifecycle,
+  decodeTerminalOperationIntent,
 } from "./todo_terminal_lifecycle.ts";
 import {
   acknowledgeLocalArchiveAttempt,
@@ -105,10 +106,7 @@ export const LOCAL_COORDINATION_TODO_CREATE_REQUEST_SCHEMA =
   "loopx_local_coordination_todo_create_request_v0";
 export const LOCAL_COORDINATION_TODO_CREATE_WITNESSED_REQUEST_SCHEMA = "loopx_local_coordination_todo_create_request_v1";
 export const LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_REQUEST_SCHEMA =
-  "loopx_local_coordination_todo_terminal_lifecycle_request_v0";
-export const LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_WITNESSED_REQUEST_SCHEMA = "loopx_local_coordination_todo_terminal_lifecycle_request_v1";
-export const LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_SOURCE_BOUND_REQUEST_SCHEMA = "loopx_local_coordination_todo_terminal_lifecycle_request_v2";
-export const LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_MONITOR_CYCLE_REQUEST_SCHEMA = "loopx_local_coordination_todo_terminal_lifecycle_request_v3";
+  "loopx_local_coordination_todo_terminal_lifecycle_request_v3";
 export const LOCAL_COORDINATION_TODO_ARCHIVE_REQUEST_SCHEMA =
   "loopx_local_coordination_todo_archive_request_v0";
 export const LOCAL_COORDINATION_TODO_ARCHIVE_ACK_REQUEST_SCHEMA =
@@ -1270,22 +1268,12 @@ export async function terminalLifecycleLocalCoordinationTodo(
     decision_read_from_provider: true, legacy_fallback_used: false};
   try {
     const input = requireJsonObject(value, "local coordination Todo terminal request");
-    if (input.schema_version !== LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_REQUEST_SCHEMA &&
-        input.schema_version !== LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_WITNESSED_REQUEST_SCHEMA &&
-        input.schema_version !== LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_SOURCE_BOUND_REQUEST_SCHEMA &&
-        input.schema_version !== LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_MONITOR_CYCLE_REQUEST_SCHEMA) {
-      throw new TypeError("local coordination Todo terminal request schema mismatch");
+    if (input.schema_version !== LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_REQUEST_SCHEMA) {
+      throw new TypeError("local coordination Todo terminal request schema mismatch; regenerate with the current runtime");
     }
-    const monitorCycleRequest =
-      input.schema_version === LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_MONITOR_CYCLE_REQUEST_SCHEMA;
-    const sourceBound = monitorCycleRequest ||
-      input.schema_version === LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_SOURCE_BOUND_REQUEST_SCHEMA;
-    if (!sourceBound && ["review_basis", "validation_source_provider_revision", "validation_declaration_sha256"].some(key => Object.hasOwn(input, key))) {
-      throw new TypeError("terminal source binding requires request v2 or newer");
-    }
+    const operationIntent = decodeTerminalOperationIntent(input);
     const reviewBasis = input.review_basis == null ? undefined : requireJsonObject(input.review_basis, "terminal review basis");
-    const authoritySourcesCurrent = registryAuthoritySourceCheck(input,
-      input.schema_version !== LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_REQUEST_SCHEMA, reviewBasis?.registry_sha256);
+    const authoritySourcesCurrent = registryAuthoritySourceCheck(input, true, reviewBasis?.registry_sha256);
     if (!Array.isArray(input.registered_agents) || !Array.isArray(input.lifecycle_grants) ||
         !Array.isArray(input.successor_intents) ||
         !Array.isArray(input.linked_successor_todo_ids)) {
@@ -1308,44 +1296,15 @@ export async function terminalLifecycleLocalCoordinationTodo(
       requireAuthorityStoreId(todoId, "linked successor Todo id"));
     const successorIntents = input.successor_intents.map((intent, index) =>
       requireJsonObject(intent, `successor_intents[${index}]`));
-    if (monitorCycleRequest && input.operation_id !== null) {
-      throw new TypeError("Monitor cycle request requires null operation_id");
-    }
-    if (monitorCycleRequest &&
-        (input.command !== "complete" ||
-          input.requested_completion_turn_key !== null)) {
-      throw new TypeError(
-        "implicit Monitor cycle identity requires an unkeyed completion",
-      );
-    }
-    const monitorCycleIdentity = monitorCycleRequest
-      ? {
-        command: "complete",
-        operation_id: null,
-        requested_completion_turn_key: null,
-      } as const
-      : null;
     return await withCanonicalWriter(root, goalId, input.dry_run === true, async () => {
       const store = await openRuntimeStore(root, goalId, dependencies);
       sourceAuthority = sourceAuthorityFor(store);
       providerEvidence.source_authority = sourceAuthority;
-      const operationIdentity = monitorCycleIdentity ?? {
-        command: requireAuthorityStoreId(input.command, "command") as
-          "complete" | "supersede",
-        operation_id: requireAuthorityStoreId(input.operation_id, "operation id"),
-        requested_completion_turn_key:
-          input.requested_completion_turn_key === null ||
-            input.requested_completion_turn_key === undefined
-            ? null : claimAgentValue(
-              input.requested_completion_turn_key,
-              "requested_completion_turn_key",
-            ),
-      };
       return {...await executeCoordinationTodoTerminalLifecycle(store, {
-        ...(sourceBound ? {validation_source_provider_revision: input.validation_source_provider_revision == null
+        validation_source_provider_revision: input.validation_source_provider_revision == null
           ? null : requireAuthorityStoreId(input.validation_source_provider_revision, "validation source provider revision"),
-          validation_declaration_sha256: input.validation_declaration_sha256 == null
-            ? null : requireAuthorityStoreId(input.validation_declaration_sha256, "validation declaration digest")} : {}),
+        validation_declaration_sha256: input.validation_declaration_sha256 == null
+          ? null : requireAuthorityStoreId(input.validation_declaration_sha256, "validation declaration digest"),
         ...(reviewBasis === undefined ? {} : {review_basis: {
           ...reviewBasis,
           provider_revision: requireAuthorityStoreId(reviewBasis.provider_revision, "review provider revision"),
@@ -1355,7 +1314,7 @@ export async function terminalLifecycleLocalCoordinationTodo(
         todo_id: requireAuthorityStoreId(input.todo_id, "todo id"),
         expected_role: input.role === null || input.role === undefined
           ? null : requireAuthorityStoreId(input.role, "role") as "agent" | "user",
-        ...operationIdentity,
+        ...operationIntent,
         actor_agent_id: input.actor_agent_id === null || input.actor_agent_id === undefined
           ? null : claimAgentValue(input.actor_agent_id, "actor_agent_id"),
         registered_agents: registeredAgents,

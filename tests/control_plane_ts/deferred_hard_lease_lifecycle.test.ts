@@ -56,7 +56,7 @@ function resume(operation_id: string): CoordinationTodoUpdateInput {
 function supersede(operation_id: string): CoordinationTodoTerminalLifecycleInput {
   return {goal_id: GOAL, todo_id: TODO, expected_role: "agent", command: "supersede",
     actor_agent_id: OWNER, registered_agents: AGENTS, lifecycle_grants: [], authority_reason: null,
-    decision_outcome: null, operation_id, lease_idempotency_key: null,
+    decision_outcome: null, operation_identity: {kind: "explicit" as const, operation_id: operation_id}, lease_idempotency_key: null,
     lease_expected_version: null, allow_user_gate_auto_acquire: false,
     requested_no_followup: false, requested_completion_turn_key: null,
     requested_completion_identity_source: null, linked_successor_todo_ids: [], successor_intents: [],

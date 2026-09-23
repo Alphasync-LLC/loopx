@@ -57,7 +57,7 @@ function terminalRequest(
     lifecycle_grants: [],
     authority_reason: null,
     decision_outcome: null,
-    operation_id: operationId,
+    operation_identity: {kind: "explicit" as const, operation_id: operationId},
     lease_idempotency_key: null,
     lease_expected_version: null,
     allow_user_gate_auto_acquire: false,
@@ -97,7 +97,7 @@ function implicitMonitorRetryRequest(
 ) {
   return {
     ...terminalRequest(fixture, "ignored"),
-    operation_id: null,
+    operation_identity: {kind: "current_monitor_cycle" as const},
     validation_declaration: null,
     validation_receipt: null,
     now,
@@ -363,7 +363,7 @@ export function registerMonitorObservationUpdateConformance(provider: string, fa
       }});
       const secondCompletion = await executeCoordinationTodoTerminalLifecycle(
         racedReceipt,
-        {...terminalRequest(fixture, "ignored"), operation_id: null,
+        {...terminalRequest(fixture, "ignored"), operation_identity: {kind: "current_monitor_cycle" as const},
           now: secondReactivation.now},
       );
       assert.equal(reactivated, true);

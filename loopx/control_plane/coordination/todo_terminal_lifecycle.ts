@@ -109,25 +109,57 @@ interface CoordinationTodoTerminalLifecycleBaseInput {
   readonly now: Date;
 }
 
-export type CoordinationTodoTerminalLifecycleInput =
-  | (CoordinationTodoTerminalLifecycleBaseInput & {
+/** Caller intent; durable receipts continue to use the resolved operation id. */
+export type TerminalOperationIdentity =
+  | {readonly kind: "explicit"; readonly operation_id: string}
+  | {readonly kind: "current_monitor_cycle"};
+
+type TerminalOperationIntent =
+  | {
       readonly command: TerminalCommand;
-      readonly operation_id: string;
+      readonly operation_identity: Extract<TerminalOperationIdentity, {kind: "explicit"}>;
       readonly requested_completion_turn_key: string | null;
-    })
-  | (CoordinationTodoTerminalLifecycleBaseInput & {
+    }
+  | {
       readonly command: "complete";
-      readonly operation_id: null;
+      readonly operation_identity: Extract<TerminalOperationIdentity, {kind: "current_monitor_cycle"}>;
       readonly requested_completion_turn_key: null;
-    });
-type ResolvedCoordinationTodoTerminalLifecycleInput = Extract<
-  CoordinationTodoTerminalLifecycleInput,
-  {readonly operation_id: string}
->;
-type ImplicitMonitorCompletionInput = Extract<
-  CoordinationTodoTerminalLifecycleInput,
-  {readonly operation_id: null}
->;
+    };
+export type CoordinationTodoTerminalLifecycleInput = CoordinationTodoTerminalLifecycleBaseInput & TerminalOperationIntent;
+type ResolvedCoordinationTodoTerminalLifecycleInput = CoordinationTodoTerminalLifecycleInput & {
+  readonly operation_id: string;
+};
+
+/** Shared intent decoder for the wire adapter and direct typed callers. */
+export function decodeTerminalOperationIntent(value: {
+  readonly command?: unknown;
+  readonly operation_identity?: unknown;
+  readonly requested_completion_turn_key?: unknown;
+}): TerminalOperationIntent {
+  if (Object.hasOwn(value, "operation_id")) {
+    throw new AuthorityStoreProtocolError("use operation_identity instead of top-level operation_id");
+  }
+  const identity = canonicalAuthorityObject(value.operation_identity, "terminal operation identity");
+  const command = requireLiteral(value.command, TERMINAL_COMMANDS, "command");
+  const turnKey = optionalString(value.requested_completion_turn_key, "requested_completion_turn_key");
+  if (value.requested_completion_turn_key != null && (turnKey === null || turnKey.trim().length === 0)) {
+    throw new AuthorityStoreProtocolError("requested_completion_turn_key must be a non-empty string or null");
+  }
+  if (identity.kind === "explicit" &&
+      Object.keys(identity).every(key => key === "kind" || key === "operation_id")) {
+    return {command, operation_identity: {kind: "explicit",
+      operation_id: requireAuthorityStoreId(identity.operation_id, "operation id")},
+      requested_completion_turn_key: turnKey};
+  }
+  if (identity.kind === "current_monitor_cycle" && Object.keys(identity).length === 1) {
+    if (command !== "complete" || turnKey !== null) {
+      throw new AuthorityStoreProtocolError("current Monitor cycle identity requires an unkeyed completion");
+    }
+    return {command: "complete", operation_identity: {kind: "current_monitor_cycle"},
+      requested_completion_turn_key: null};
+  }
+  throw new AuthorityStoreProtocolError("invalid terminal operation identity: expected explicit or current_monitor_cycle");
+}
 type LoadedAuthority = Extract<
   Awaited<ReturnType<AuthorityStore["loadAuthority"]>>,
   {status: "loaded"}
@@ -327,11 +359,7 @@ function normalizeTerminalInput(
   }
   const successorIntents = raw.successor_intents.map((intent, index) =>
     canonicalAuthorityObject(intent, `successor_intents[${index}]`));
-  const command = requireLiteral(raw.command, TERMINAL_COMMANDS, "command");
-  const requestedCompletionTurnKey = optionalString(
-    raw.requested_completion_turn_key,
-    "requested_completion_turn_key",
-  );
+  const operationIntent = decodeTerminalOperationIntent(raw);
   const normalized = {
     ...raw,
     ...(raw.review_basis === undefined ? {} : {review_basis: {...raw.review_basis}}),
@@ -339,7 +367,7 @@ function normalizeTerminalInput(
     todo_id: requireAuthorityStoreId(raw.todo_id, "todo id"),
     expected_role: raw.expected_role === null
       ? null : requireLiteral(raw.expected_role, TODO_ROLES, "expected_role"),
-    command,
+    ...operationIntent,
     actor_agent_id: optionalAgent(raw.actor_agent_id, "actor_agent_id"),
     registered_agents: registeredAgents,
     lifecycle_grants: lifecycleGrants(raw.lifecycle_grants),
@@ -356,7 +384,6 @@ function normalizeTerminalInput(
       "allow_user_gate_auto_acquire",
     ),
     requested_no_followup: requireBoolean(raw.requested_no_followup, "requested_no_followup"),
-    requested_completion_turn_key: requestedCompletionTurnKey,
     requested_completion_identity_source:
       raw.requested_completion_identity_source === null
         ? null
@@ -387,23 +414,7 @@ function normalizeTerminalInput(
     dry_run: requireBoolean(raw.dry_run, "dry_run"),
     now: requireDate(raw.now, "now"),
   };
-  if (raw.operation_id === null) {
-    if (command !== "complete" || requestedCompletionTurnKey !== null) {
-      throw new AuthorityStoreProtocolError(
-        "implicit Monitor cycle identity requires an unkeyed completion",
-      );
-    }
-    return {
-      ...normalized,
-      command: "complete",
-      operation_id: null,
-      requested_completion_turn_key: null,
-    };
-  }
-  return {
-    ...normalized,
-    operation_id: requireAuthorityStoreId(raw.operation_id, "operation id"),
-  };
+  return normalized;
 }
 
 function terminalFailure(
@@ -473,7 +484,7 @@ function terminalRequestSha(input: CoordinationTodoTerminalLifecycleInput): stri
 }
 
 function monitorCycleTerminalOperationId(
-  input: Pick<ImplicitMonitorCompletionInput, "goal_id" | "todo_id">,
+  input: Pick<CoordinationTodoTerminalLifecycleInput, "goal_id" | "todo_id">,
   generation: number,
 ): string {
   const digest = createHash("sha256").update(
@@ -526,7 +537,7 @@ type ImplicitMonitorAttemptObservation =
 
 function implicitMonitorTarget(
   authority: LoadedAuthority,
-  input: ImplicitMonitorCompletionInput,
+  input: CoordinationTodoTerminalLifecycleInput,
 ): {readonly todo: JsonObject; readonly generation: number} |
     CoordinationTodoTerminalLifecycleResult {
   try {
@@ -556,7 +567,7 @@ function implicitMonitorTarget(
 
 async function observeImplicitMonitorCompletion(
   store: AuthorityStore,
-  input: ImplicitMonitorCompletionInput,
+  input: CoordinationTodoTerminalLifecycleInput,
   requestSha: string,
 ): Promise<ImplicitMonitorAttemptObservation> {
   for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -939,7 +950,7 @@ export async function executeCoordinationTodoTerminalLifecycle(
   const requestSha = terminalRequestSha(normalized);
   let input: ResolvedCoordinationTodoTerminalLifecycleInput;
   let head: LoadedAuthority;
-  if (normalized.operation_id === null) {
+  if (normalized.operation_identity.kind === "current_monitor_cycle") {
     const initial = await observeImplicitMonitorCompletion(store, normalized, requestSha);
     if (initial.kind === "result") return initial.result;
     if (!await authoritySourcesCurrent()) return terminalFailure(AUTHORITY_SOURCE_CHANGED.code,
@@ -949,7 +960,7 @@ export async function executeCoordinationTodoTerminalLifecycle(
     input = observation.input;
     head = observation.authority;
   } else {
-    input = normalized;
+    input = {...normalized, operation_id: normalized.operation_identity.operation_id};
     // Named operation recovery reports history, not present execution authority.
     const receipt = terminalReceipt(input, requestSha);
     const replay = await receipt.read(store);
@@ -1094,7 +1105,7 @@ export async function executeCoordinationTodoTerminalLifecycle(
     );
   }
   const implicitMonitorNoChange =
-    normalized.operation_id === null && authority.outcome === "no_change";
+    normalized.operation_identity.kind === "current_monitor_cycle" && authority.outcome === "no_change";
 
   // Acceptance constrains a state transition, not a verb. Every TERMINAL_COMMANDS
   // entry reaches `terminalTarget`, which writes `status: "done", done: true`,

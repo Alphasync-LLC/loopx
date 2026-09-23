@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {resolve} from "node:path";
 import test from "node:test";
 import {
-  LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_MONITOR_CYCLE_REQUEST_SCHEMA,
+  LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_REQUEST_SCHEMA,
   terminalLifecycleLocalCoordinationTodo,
   updateLocalCoordinationTodo,
 } from "../../loopx/control_plane/coordination/local_authority_runtime.ts";
@@ -36,7 +36,7 @@ test("malformed completion facts fail before any provider read", async () => {
 
 function monitorCycleTerminalRequest(overrides: Record<string, unknown> = {}) {
   return {
-    schema_version: LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_MONITOR_CYCLE_REQUEST_SCHEMA,
+    schema_version: LOCAL_COORDINATION_TODO_TERMINAL_LIFECYCLE_REQUEST_SCHEMA,
     runtime_root: "/unused",
     registry_source: {
       path: resolve("unused-registry.json"),
@@ -51,7 +51,7 @@ function monitorCycleTerminalRequest(overrides: Record<string, unknown> = {}) {
     lifecycle_grants: [],
     authority_reason: null,
     decision_outcome: null,
-    operation_id: null,
+    operation_identity: {kind: "current_monitor_cycle" as const},
     lease_idempotency_key: null,
     lease_expected_version: null,
     allow_user_gate_auto_acquire: false,
@@ -73,21 +73,24 @@ function monitorCycleTerminalRequest(overrides: Record<string, unknown> = {}) {
   };
 }
 
-test("terminal v3 reserves null operation identity for unkeyed completion", async () => {
-  for (const [malformed, reason] of [
-    [monitorCycleTerminalRequest({operation_id: "caller-selected"}),
-      /Monitor cycle request requires null operation_id/],
-    [monitorCycleTerminalRequest({command: "supersede"}),
-      /implicit Monitor cycle identity requires an unkeyed completion/],
-    [monitorCycleTerminalRequest({requested_completion_turn_key: "explicit-turn"}),
-      /implicit Monitor cycle identity requires an unkeyed completion/],
+test("terminal identity rejects ambiguous or inapplicable intent before opening a provider", async () => {
+  for (const [overrides, reason] of [
+    [{operation_id: "caller-selected"}, /use operation_identity/],
+    [{operation_identity: null}, /terminal operation identity/],
+    [{operation_identity: undefined}, /terminal operation identity/],
+    [{requested_completion_turn_key: ""}, /must be a non-empty string/],
+    [{requested_completion_turn_key: "  "}, /must be a non-empty string/],
+    [{operation_identity: {kind: "explicit"}}, /operation id/],
+    [{operation_identity: {kind: "explicit", operation_id: ""}}, /operation id/],
+    [{operation_identity: {kind: "unknown"}}, /invalid terminal operation identity/],
+    [{operation_identity: {kind: "current_monitor_cycle", operation_id: "ambiguous"}}, /invalid terminal operation identity/],
+    [{operation_identity: {kind: "explicit", operation_id: "op", extra: true}}, /invalid terminal operation identity/],
+    [{command: "supersede"}, /requires an unkeyed completion/],
+    [{requested_completion_turn_key: "explicit-turn"}, /requires an unkeyed completion/],
   ] as const) {
     let opened = false;
-    const result = await terminalLifecycleLocalCoordinationTodo(malformed, {
-      createStore: () => {
-        opened = true;
-        throw new Error("invalid monitor cycle request reached provider");
-      },
+    const result = await terminalLifecycleLocalCoordinationTodo(monitorCycleTerminalRequest(overrides), {
+      createStore: () => {opened = true; throw new Error("invalid intent reached provider");},
     });
     assert.equal(result.status, "failed");
     assert.match(String(result.reason), reason);
@@ -95,16 +98,14 @@ test("terminal v3 reserves null operation identity for unkeyed completion", asyn
   }
 });
 
-for (const version of [0, 1]) {
-  for (const field of ["review_basis", "validation_source_provider_revision", "validation_declaration_sha256"]) {
-    test(`terminal v${version} rejects ${field} instead of dropping its obligation`, async () => {
-      let opened = false;
-      const result = await terminalLifecycleLocalCoordinationTodo({
-        schema_version: `loopx_local_coordination_todo_terminal_lifecycle_request_v${version}`, [field]: null,
-      }, {createStore: () => {opened = true; throw new Error("must not open provider");}});
-      assert.equal(result.status, "failed");
-      assert.match(String(result.reason), /source binding requires request v2/);
-      assert.equal(opened, false);
-    });
-  }
+for (const version of [0, 1, 2]) {
+  test(`retired terminal v${version} is rejected before opening a provider`, async () => {
+    let opened = false;
+    const result = await terminalLifecycleLocalCoordinationTodo(monitorCycleTerminalRequest({
+      schema_version: `loopx_local_coordination_todo_terminal_lifecycle_request_v${version}`,
+    }), {createStore: () => {opened = true; throw new Error("must not open provider");}});
+    assert.equal(result.status, "failed");
+    assert.match(String(result.reason), /schema mismatch; regenerate with the current runtime/);
+    assert.equal(opened, false);
+  });
 }
