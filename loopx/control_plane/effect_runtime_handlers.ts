@@ -1,3 +1,4 @@
+import {readShadowDrainPlan} from "./coordination/shadow_drain_plan.ts";
 import {manageLocalAuthorityArchive} from "./coordination/local_authority_archive.ts";
 import {selectPeriodicReportProgress, selectPeriodicReportApprovalRetry} from "./capabilities/periodic_report_progress.ts";
 import {planIssueFixMonitorReconciliation} from "./capabilities/issue_fix_monitor_reconciliation.ts";
@@ -575,6 +576,7 @@ export function createEffectRuntimeHandlers(
     ["coordination.local_authority_shadow.record", recordLocalAuthorityShadow],
     ["coordination.runtime_shadow.commit_entry", commitLocalAuthorityShadowEntry],
     ["coordination.runtime_shadow.outbox_read", readLocalAuthorityShadow],
+    ["coordination.runtime_shadow.plan_drain", readShadowDrainPlan],
     [
       "effect.program_from_ordered_steps",
       (params) => effectProgramFromOrderedSteps(
