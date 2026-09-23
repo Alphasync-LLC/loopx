@@ -35,11 +35,13 @@ def automation_cadence(
     return result
 
 
-def cadence_progression(progression: list[int], min_interval_minutes: int) -> list[int]:
+def cadence_schedule(
+    projections: dict[str, Any], min_interval_minutes: int
+) -> dict[str, Any]:
     return effect_runtime_result(
-        "quota.automation_cadence.progression",
+        "quota.automation_cadence.schedule",
         {
-            "progression": progression,
+            **projections,
             "min_interval_minutes": min_interval_minutes,
         },
-    )["progression"]
+    )
