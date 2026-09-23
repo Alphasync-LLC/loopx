@@ -11,6 +11,7 @@ from datetime import timedelta
 from typing import Any
 
 from ..quota.decision_summary import compact_quota_decision
+from ..quota.automation_cadence import cadence_progression
 from ..runtime.time import now_utc, utc_isoformat
 from ..todos.frontier_deadline import build_frontier_recheck_plan
 from .arbitration import (
@@ -679,6 +680,14 @@ class _SchedulerHintBuilder:
                 or app_cadence_progression[-1] != bounded_interval
             ):
                 app_cadence_progression.append(bounded_interval)
+        cadence_policy = _dict_or_empty(self.payload.get("automation_cadence"))
+        floor = int(cadence_policy.get("min_interval_minutes") or 0)
+        if floor:
+            # The legacy 60-minute cap is a backoff preference, not owner authority.
+            local_cadence_progression = cadence_progression(local_cadence_progression, floor)
+            app_cadence_progression = cadence_progression(app_cadence_progression, floor)
+            app_host_max = max(app_host_max, floor)
+            codex_max = max(codex_max, floor)
         app_initial_interval = app_cadence_progression[0]
         local_initial_interval = local_cadence_progression[0]
         final_replan_check = {
@@ -881,6 +890,18 @@ class _SchedulerHintBuilder:
             },
             "no_spend_for_cadence_change": True,
         }
+        if floor:
+            app_automation["execution_interval_policy"] = cadence_policy
+            app_automation["guarantee"] = {
+                "pre_model_atomic_admission": "not_qualified",
+                "model_wakeup_tokens_prevented": False,
+                "schedule_readback_required": True,
+                "unsupported_schedule_action": "pause_affected_automation",
+                "boundary": "schedule recommendation only; App hook coverage is not qualified",
+                "on_apply_failure": "pause_affected_automation_do_not_shorten_interval",
+            }
+            if host_failure_suppressed:
+                app_automation.update(host_action="pause_current_heartbeat", apply="pause_affected_automation")
         stateful_backoff = app_automation["stateful_backoff"]
         if host_update_failures:
             stateful_backoff["host_update_failures"] = [
@@ -942,7 +963,7 @@ class _SchedulerHintBuilder:
                     scheduler_before=self.payload,
                     surface=app_surface,
                 )
-                if app_surface == CODEX_APP_SURFACE:
+                if app_surface == CODEX_APP_SURFACE and not floor:
                     app_automation["fallback_hint"] = build_codex_app_scheduler_fallback_hint(
                         goal_id=goal_id,
                         agent_id=agent_id,
@@ -957,7 +978,7 @@ class _SchedulerHintBuilder:
                 identity_signature=identity_signature,
                 available_capabilities=self.scheduler_ack_capabilities,
                 after=(
-                    "automation_update_rrule_success"
+                    ("automation_update_then_readback_actual_rrule" if floor else "automation_update_rrule_success")
                     if apply_needed
                     else "matching_host_rrule_observed"
                 ),
