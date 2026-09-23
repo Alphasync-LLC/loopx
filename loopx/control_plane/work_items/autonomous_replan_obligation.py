@@ -724,6 +724,10 @@ def build_autonomous_replan_obligation(
         # hypothesis, probe family, blocker or terminal coverage against it.
         if isinstance(review_evidence.get("progress_baseline"), dict):
             extra_fields["progress_baseline"] = review_evidence["progress_baseline"]
+        # Every typed claim made while the obligation formed travels with it, so
+        # the outcome owner can refuse a replay of any of them, not only the newest.
+        if isinstance(review_evidence.get("progress_window"), list):
+            extra_fields["progress_window"] = list(review_evidence["progress_window"])
         extra_fields["external_progress_review"] = {
             "schema_version": review_evidence.get("schema_version"),
             "signal": review_evidence.get("signal"),

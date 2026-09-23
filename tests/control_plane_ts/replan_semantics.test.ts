@@ -107,6 +107,17 @@ test("external progress review: renamed identifiers discharge only behind new ev
   assert.equal(mixed.accepted, true);
   assert.deepEqual(mixed.satisfying_outcomes, ["new_concrete_blocker"]);
   assert.equal("reason_code" in mixed, false);
+  // A claim already made while the obligation formed is refused even when it
+  // looks novel against the single baseline; the replay reason takes precedence.
+  const replayed = qualify({delta_kinds: ["new_hypothesis"], evidence_novel: true, observation_repeated: true});
+  assert.equal(replayed.accepted, false);
+  assert.equal(replayed.reason_code, "progress_observation_replayed");
+  assert.deepEqual(replayed.outcomes, []);
+  const replayedWithBlocker = qualify({delta_kinds: ["new_hypothesis", "new_concrete_blocker"], evidence_novel: true, observation_repeated: true});
+  assert.equal(replayedWithBlocker.accepted, true);
+  assert.deepEqual(replayedWithBlocker.satisfying_outcomes, ["new_concrete_blocker"]);
+  assert.equal("reason_code" in replayedWithBlocker, false);
+  assert.equal(qualify({delta_kinds: ["new_hypothesis"], evidence_novel: true, observation_repeated: false}).accepted, true);
   // Keeping the plan on evidence is a legal exit for this source.
   const kept = qualify(undefined, vision);
   assert.equal(kept.accepted, true);
@@ -119,6 +130,8 @@ test("the identity rule is scoped to the external review source", () => {
   const fuse = {triggers: [{kind: "typed_progress_repeat"}]};
   assert.equal(projectReplanSemantics({operation: "qualify", obligation: fuse,
     observation_delta: {delta_kinds: ["new_hypothesis"], evidence_novel: false}}).accepted, true);
+  assert.equal(projectReplanSemantics({operation: "qualify", obligation: fuse,
+    observation_delta: {delta_kinds: ["new_hypothesis"], observation_repeated: true}}).accepted, true);
   assert.equal((projectReplanSemantics({operation: "requirements", obligation: fuse}).required_any_of as string[])
     .includes("fresh_vision_path_outcome"), false);
   // A vision duty on the same obligation keeps the stricter vision policy.

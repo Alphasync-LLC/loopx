@@ -15,7 +15,8 @@ type SemanticOutcome = typeof PROGRESS_OUTCOMES[number] | typeof VISION_OUTCOMES
 const KNOWN_OUTCOMES: ReadonlySet<string> = new Set([...PROGRESS_OUTCOMES, ...VISION_OUTCOMES]);
 // Outcomes that a renamed identifier alone can produce. An external progress
 // review found the evaluated identifiers not serving the goal, so for that
-// source they discharge only behind evidence ids absent from the baseline.
+// source they discharge only behind evidence ids absent from the whole
+// obligation window, and never by replaying a claim already made in it.
 const PROGRESS_IDENTITY_OUTCOMES: ReadonlySet<string> = new Set(["new_surface", "new_hypothesis", "new_probe_family"]);
 const VISION_TRIGGERS = new Set([
   "vision_acceptance_gap", "vision_checkpoint_missing", "vision_outcome_checkpoint_required",
@@ -73,7 +74,7 @@ function writebackProjection(required: SemanticOutcome[], externalReview: boolea
         vision_authoring: visionAuthoringContract(),
         path_outcomes: [...FRESH_PATH_DISPOSITIONS],
         identity_outcomes_require_new_evidence: true,
-        rule: "Consecutive evaluated transitions did not serve the goal contract. Discharge with a typed observation whose new surface, hypothesis or probe family cites at least one evidence id absent from the bound baseline, a new concrete blocker, or coverage-backed terminal state; or author an evidence-linked vision path (continue, no_change or replan) from observed evidence when the plan should stand. Renamed identifiers over the baseline's evidence ids do not discharge.",
+        rule: "Consecutive evaluated transitions did not serve the goal contract. Discharge with a typed observation whose new surface, hypothesis or probe family cites at least one evidence id absent from every claim in the obligation window, a new concrete blocker, or coverage-backed terminal state; or author an evidence-linked vision path (continue, no_change or replan) from observed evidence when the plan should stand. Renamed identifiers over the window's evidence ids, or a claim already made in the window, do not discharge.",
       },
     };
   }
@@ -113,9 +114,13 @@ export function projectReplanSemantics(value: unknown): JsonObject {
   if (outcomes.some(outcome => !KNOWN_OUTCOMES.has(outcome))) {
     throw new EffectRuntimeRequestError("observation_delta contains an unknown typed outcome");
   }
-  const identityWithoutEvidence = externalReview && observation.evidence_novel !== true &&
-    outcomes.some(outcome => PROGRESS_IDENTITY_OUTCOMES.has(outcome));
-  if (identityWithoutEvidence) outcomes = outcomes.filter(outcome => !PROGRESS_IDENTITY_OUTCOMES.has(outcome));
+  const identityOutcome = outcomes.some(outcome => PROGRESS_IDENTITY_OUTCOMES.has(outcome));
+  // A claim already made while the obligation formed is not a new disposition,
+  // whatever the delta against the single baseline says.
+  const replayed = externalReview && identityOutcome && observation.observation_repeated === true;
+  const identityWithoutEvidence = externalReview && identityOutcome && !replayed &&
+    observation.evidence_novel !== true;
+  if (replayed || identityWithoutEvidence) outcomes = outcomes.filter(outcome => !PROGRESS_IDENTITY_OUTCOMES.has(outcome));
   const inconsistentTerminal = outcomes.includes("coverage_backed_no_followup") &&
     (vision.state !== "no_followup" || path.outcome !== "stop");
   if (inconsistentTerminal) outcomes = outcomes.filter(outcome => outcome !== "coverage_backed_no_followup");
@@ -125,6 +130,7 @@ export function projectReplanSemantics(value: unknown): JsonObject {
     outcomes.push("fresh_vision_path_outcome");
   }
   const satisfying = inconsistentTerminal ? [] : outcomes.filter(outcome => required.includes(outcome as SemanticOutcome));
+  const replayRefused = replayed && !satisfying.length && !inconsistentTerminal;
   const identityRefused = identityWithoutEvidence && !satisfying.length && !inconsistentTerminal;
   return {
     schema_version: "replan_semantic_delta_v0", accepted: satisfying.length > 0,
@@ -132,9 +138,11 @@ export function projectReplanSemantics(value: unknown): JsonObject {
     observation_fingerprint: observation.observation_fingerprint ?? null,
     reason: satisfying.length ? "writeback changes an outcome accepted by this obligation source"
       : inconsistentTerminal ? "coverage-backed no-follow-up requires agent_vision.state=no_followup and path_delta.outcome=stop"
-      : identityRefused ? "external progress review accepts a new surface, hypothesis or probe family only with evidence ids absent from the evaluated baseline"
+      : replayRefused ? "external progress review does not accept a typed observation already claimed in the obligation window"
+      : identityRefused ? "external progress review accepts a new surface, hypothesis or probe family only with evidence ids absent from the evaluated baseline and every claim in the obligation window"
       : "writeback does not satisfy this obligation's typed outcomes",
     ...(inconsistentTerminal ? {reason_code: "no_followup_vision_path_inconsistent"}
+      : replayRefused ? {reason_code: "progress_observation_replayed"}
       : identityRefused ? {reason_code: "progress_identity_without_new_evidence"} : {}),
   };
 }

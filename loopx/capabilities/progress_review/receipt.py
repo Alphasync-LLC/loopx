@@ -332,13 +332,39 @@ def write_progress_review_receipt(
     return path
 
 
+def progress_review_receipt_order_key(receipt: Mapping[str, Any]) -> tuple[str, float, int]:
+    """Newest-first ordering that is valid across observer states.
+
+    A receipt's `sequence` is the writing observer's local counter: a new
+    observer state (a re-run `drift init`, a new basis revision) starts at
+    zero, so sequences from different observers are not comparable. The run's
+    own `generated_at` orders transitions; `recorded_at` orders late
+    evaluations of one transition; `sequence` only breaks the remaining ties.
+    """
+
+    run = receipt.get("run")
+    generated_at = str(run.get("generated_at") or "") if isinstance(run, Mapping) else ""
+    recorded = receipt.get("recorded_at")
+    recorded_at = (
+        float(recorded)
+        if isinstance(recorded, (int, float)) and not isinstance(recorded, bool)
+        else 0.0
+    )
+    return (generated_at, recorded_at, int(receipt.get("sequence") or 0))
+
+
 def load_progress_review_receipts(
     runtime_root: Path,
     goal_id: str,
     *,
     limit: int = MAX_LOADED_RECEIPTS,
 ) -> tuple[list[dict[str, Any]], int]:
-    """Return newest-first valid receipts plus the number of rejected files."""
+    """Return newest-first valid receipts plus the number of rejected files.
+
+    Newest is decided by `progress_review_receipt_order_key`, so the load limit
+    keeps the latest transitions even when an older observer state wrote
+    higher local sequence numbers.
+    """
 
     root = progress_review_receipt_root(runtime_root, goal_id)
     if not root.is_dir():
@@ -363,7 +389,7 @@ def load_progress_review_receipts(
             rejected += 1
             continue
         receipts.append(normalized)
-    receipts.sort(key=lambda item: (item["sequence"], item["recorded_at"]), reverse=True)
+    receipts.sort(key=progress_review_receipt_order_key, reverse=True)
     return receipts[: max(1, int(limit))], rejected
 
 
@@ -424,8 +450,10 @@ def progress_review_receipt_summary(
     if newest_contract_revision is not None:
         summary["newest_receipt_contract_revision"] = newest_contract_revision
     if pinned and newest_contract_revision and newest_contract_revision != pinned:
-        # The pin does not follow the observer basis; the newest receipt is
-        # bound elsewhere, so no current evidence will accrue until re-pinned.
+        # The pin does not follow the observer basis; the receipt for the newest
+        # transition is bound elsewhere, so no current evidence will accrue
+        # until re-pinned. "Newest" follows the run order, never the observer's
+        # local sequence.
         summary["rebind_hint"] = "newer_receipts_under_unpinned_revision"
     return summary
 
@@ -442,6 +470,7 @@ __all__ = [
     "PROGRESS_REVIEW_NOUL_QUESTIONS",
     "PROGRESS_REVIEW_RECEIPT_SCHEMA_VERSION",
     "PROGRESS_REVIEW_RECEIPT_STATUSES",
+    "progress_review_receipt_order_key",
     "PROGRESS_REVIEW_SIGNAL_KEYS",
     "load_progress_review_receipts",
     "normalize_progress_review_receipt",

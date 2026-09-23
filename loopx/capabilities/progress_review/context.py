@@ -23,7 +23,11 @@ def external_progress_review_context(
     """
 
     from .policy import progress_review_goal_policy
-    from .receipt import load_progress_review_receipts, progress_review_receipt_summary
+    from .receipt import (
+        load_progress_review_receipts,
+        progress_review_receipt_order_key,
+        progress_review_receipt_summary,
+    )
 
     policy = progress_review_goal_policy(goal)
     goal_id = str(goal.get("id") or "").strip()
@@ -34,7 +38,8 @@ def external_progress_review_context(
     except (OSError, ValueError):
         loaded, rejected = [], 0
     pinned = policy.get("contract_revision")
-    newest = max(loaded, key=lambda item: int(item.get("sequence") or 0), default=None)
+    # Newest by run order, never by the observer's local sequence counter.
+    newest = max(loaded, key=progress_review_receipt_order_key, default=None)
     newest_revision = str(newest["contract_revision"]) if newest else None
     if pinned:
         # Only receipts bound to the pinned revision are current evidence; the

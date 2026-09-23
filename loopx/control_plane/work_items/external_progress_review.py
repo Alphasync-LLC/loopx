@@ -38,9 +38,28 @@ EXTERNAL_PROGRESS_REVIEW_UNEVALUATED_REASONS: tuple[str, ...] = (
     "other_revision",  # receipt bound to a revision that is not pinned
 )
 
+# Typed claims carried on the obligation so the outcome owner can refuse a
+# replay of any of them; bounded because the window is bounded by formation.
+EXTERNAL_PROGRESS_REVIEW_WINDOW_LIMIT = 32
+
 RunKey = tuple[str, str]
 AckRecorded = Callable[[dict[str, Any]], bool]
 Verdict = tuple[str, str | None]
+
+
+def _receipt_recency(receipt: Mapping[str, Any]) -> tuple[float, int]:
+    """Order receipts for one transition: later evaluation wins.
+
+    `sequence` is a per-observer-state counter and is not comparable across
+    observer states; `recorded_at` is the evaluation clock and breaks ties
+    between an observer that re-evaluated the same transition.
+    """
+
+    recorded = receipt.get("recorded_at")
+    return (
+        float(recorded) if isinstance(recorded, (int, float)) and not isinstance(recorded, bool) else 0.0,
+        int(receipt.get("sequence") or 0),
+    )
 
 
 def _run_key(run: Mapping[str, Any]) -> RunKey:
@@ -73,7 +92,7 @@ def index_progress_review_receipts(
         turn = str(run.get("turn_instance_id") or "").strip()
         if turn:
             previous = by_turn.get(turn)
-            if previous is None or int(previous.get("sequence") or 0) < sequence:
+            if previous is None or _receipt_recency(previous) < _receipt_recency(receipt):
                 by_turn[turn] = receipt
             continue
         key = _run_key(run)
@@ -85,7 +104,7 @@ def index_progress_review_receipts(
                 receipt.get("evidence_id")
             ):
                 by_key[key] = None
-            elif int(existing.get("sequence") or 0) < sequence:
+            elif _receipt_recency(existing) < _receipt_recency(receipt):
                 by_key[key] = receipt
         else:
             by_key[key] = receipt
@@ -179,8 +198,10 @@ def external_progress_review_trigger(
     - retries of one logical turn are one transition, one evidence id counts
       once, neutral bookkeeping rows are neither counted nor gaps;
     - the newest typed progress observation in the window, evaluated or not,
-      becomes the obligation's `progress_baseline`, so no claim the Agent has
-      already made can acknowledge; a window without one raises nothing.
+      becomes the obligation's `progress_baseline`, and every distinct typed
+      observation in the window is carried as `progress_window`, so no claim
+      the Agent has already made can acknowledge; a window without any typed
+      observation raises nothing.
     """
 
     if signal not in EXTERNAL_PROGRESS_REVIEW_SIGNALS:
@@ -242,18 +263,27 @@ def external_progress_review_trigger(
     latest_run, latest_receipt = drift_rows[0]
     assert latest_receipt is not None
     oldest_run = drift_rows[-1][0]
-    # Bind the newest typed claim in the window, whether or not its evaluation
-    # finished: an acknowledgement must go beyond everything already claimed.
-    # Without any typed observation to bind, an acknowledgement could not be
-    # told apart from a repeat of the evaluated work, so nothing is raised.
-    baseline_run = next(
-        (run for _, run, _, _ in segment if progress_observation_from_run(run) is not None),
-        None,
-    )
-    if baseline_run is None:
+    # Carry every distinct typed claim in the window, newest first, whether or
+    # not its evaluation finished: an acknowledgement must go beyond everything
+    # already claimed, not only beyond the newest claim. Without any typed
+    # observation to bind, an acknowledgement could not be told apart from a
+    # repeat of the evaluated work, so nothing is raised.
+    window: list[dict[str, Any]] = []
+    window_fingerprints: set[str] = set()
+    baseline_run: dict[str, Any] | None = None
+    for _, run, _, _ in segment:
+        observation = progress_observation_from_run(run)
+        if observation is None or observation["fingerprint"] in window_fingerprints:
+            continue
+        if baseline_run is None:
+            baseline_run = run
+        window_fingerprints.add(observation["fingerprint"])
+        window.append(observation)
+        if len(window) >= EXTERNAL_PROGRESS_REVIEW_WINDOW_LIMIT:
+            break
+    if baseline_run is None or not window:
         return None
-    baseline = progress_observation_from_run(baseline_run)
-    assert baseline is not None
+    baseline = window[0]
     by_reason: dict[str, int] = {}
     newer_than_latest_drift = 0
     for verdict, _, _, reason in segment:
@@ -287,6 +317,7 @@ def external_progress_review_trigger(
         "progress_baseline": baseline,
         "progress_fingerprint": baseline["fingerprint"],
         "baseline_generated_at": str(baseline_run.get("generated_at") or ""),
+        "progress_window": window,
         "frontier_identity": EXTERNAL_PROGRESS_REVIEW_FRONTIER_PREFIX
         + str(latest_receipt["evidence_id"]),
         # The model holds no authority; the Goal owner's assist policy does.
@@ -337,6 +368,7 @@ __all__ = [
     "EXTERNAL_PROGRESS_REVIEW_TRIGGER_KIND",
     "EXTERNAL_PROGRESS_REVIEW_TRIGGER_SCHEMA_VERSION",
     "EXTERNAL_PROGRESS_REVIEW_UNEVALUATED_REASONS",
+    "EXTERNAL_PROGRESS_REVIEW_WINDOW_LIMIT",
     "external_progress_review_obligation",
     "external_progress_review_trigger",
     "index_progress_review_receipts",

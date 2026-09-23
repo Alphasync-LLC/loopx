@@ -99,9 +99,14 @@ def test_two_consecutive_completed_drift_receipts_trigger() -> None:
     assert result["agent_id"] == AGENT
     assert "delta" not in result and "text" not in result
     assert result["model_authority"] == "none"
-    # The newest counted run's typed observation is bound as the discharge baseline.
+    # The newest counted run's typed observation is bound as the discharge baseline,
+    # and every distinct typed claim in the window travels with the trigger.
     assert result["progress_baseline"] == normalize_progress_observation(runs[0]["progress_observation"])
     assert result["progress_fingerprint"] == result["progress_baseline"]["fingerprint"]
+    assert result["progress_window"] == [
+        normalize_progress_observation(runs[0]["progress_observation"]),
+        normalize_progress_observation(runs[1]["progress_observation"]),
+    ]
 
 
 def test_bound_baseline_rejects_a_repeated_observation_and_accepts_new_evidence() -> None:
@@ -180,6 +185,20 @@ def test_acknowledged_replan_rearms_the_trigger() -> None:
     runs = [run(4, turn="t4"), run(3, turn="t3"), run(2, turn="t2", ack=True)]
     receipts = [receipt(4, turn="t4"), receipt(3, turn="t3"), receipt(2, turn="t2")]
     assert trigger(runs, receipts) is not None
+
+
+def test_same_transition_receipts_prefer_the_later_evaluation_over_the_local_sequence() -> None:
+    """A re-initialised observer restarts `sequence` at zero; recency is the clock."""
+
+    runs = [run(2, turn="t2"), run(1, turn="t1")]
+    stale_high_sequence = {**receipt(9, turn="t2", noul=False, choice=False), "recorded_at": 10.0}
+    fresh_low_sequence = {**receipt(0, turn="t2"), "recorded_at": 20.0}
+    receipts = [stale_high_sequence, fresh_low_sequence, {**receipt(1, turn="t1"), "recorded_at": 5.0}]
+    result = trigger(runs, receipts)
+    assert result is not None and result["run_count"] == 2
+    # Reversed recency: the on-goal verdict is the later evaluation and ends the streak.
+    stale_high_sequence["recorded_at"], fresh_low_sequence["recorded_at"] = 20.0, 10.0
+    assert trigger(runs, receipts) is None
 
 
 def test_same_turn_retry_and_same_evidence_count_once() -> None:
@@ -261,6 +280,7 @@ def test_formed_streak_survives_newer_unevaluated_transitions() -> None:
         # not: acknowledging with a claim already on record is not a pivot.
         assert result["progress_baseline"]["hypothesis_id"] == "hypothesis-3"
         assert result["baseline_generated_at"] == "2026-09-21T00:00:03Z"
+        assert [item["hypothesis_id"] for item in result["progress_window"]] == ["hypothesis-3", "hypothesis-2", "hypothesis-1"]
     # No receipt at all for the newest transition.
     result = trigger(runs, streak)
     assert result is not None and result["unevaluated_transitions"]["by_reason"] == {"missing": 1}
@@ -551,6 +571,21 @@ def test_external_review_discharge_refuses_renamed_identifiers_over_the_same_evi
     assert blocker["accepted"] is True and "new_concrete_blocker" in blocker["satisfying_outcomes"]
     kept = qualify(None, _vision("continue"))
     assert kept["accepted"] is True and kept["satisfying_outcomes"] == ["fresh_vision_path_outcome"]
+    # Replaying the older claim of the window (a new hypothesis against the
+    # single baseline, with evidence absent from that baseline) is refused:
+    # novelty is judged against every claim that formed the obligation.
+    older = normalize_progress_observation(runs[1]["progress_observation"])
+    replayed = qualify(dict(older))
+    assert replayed["accepted"] is False
+    assert replayed["reason_code"] == "progress_observation_replayed"
+    # The older hypothesis id over the window's evidence ids is a rename, not a pivot.
+    assert qualify({**older, "evidence_ids": baseline["evidence_ids"]})["reason_code"] == "progress_identity_without_new_evidence"
+    # Returning to an earlier hypothesis on genuinely new evidence is a typed pivot.
+    returned = qualify({**older, "evidence_ids": [*older["evidence_ids"], "evidence-fresh"]})
+    assert returned["accepted"] is True and returned["satisfying_outcomes"] == ["new_hypothesis"]
+    # A replayed claim beside an evidence-linked vision path is accepted for the vision only.
+    both_replayed = qualify(dict(older), _vision("continue"))
+    assert both_replayed["accepted"] is True and both_replayed["satisfying_outcomes"] == ["fresh_vision_path_outcome"]
     assert qualify(None, _vision("replan"))["accepted"] is True
     assert qualify(None, _vision("wait"))["accepted"] is False
     assert qualify(None, _vision("continue", evidence=[]))["accepted"] is False
@@ -605,3 +640,57 @@ def test_context_loader_reports_a_rebind_hint_when_the_newest_receipt_is_bound_e
     unpinned = {"id": "rebind-goal", "control_plane": {"progress_review": {"mode": "shadow"}}}
     loaded = external_progress_review_context(unpinned, tmp_path)
     assert loaded is not None and "rebind_hint" not in loaded["summary"]
+
+
+def test_newest_receipt_follows_run_order_not_the_observer_local_sequence(tmp_path) -> None:
+    """A re-initialised observer restarts `sequence` at zero under a new revision."""
+
+    from loopx.capabilities.progress_review.receipt import (
+        load_progress_review_receipts,
+        write_progress_review_receipt,
+    )
+
+    def stored(sequence: int, contract: str, *, generated_at: str, recorded_at: float, turn: str) -> dict[str, object]:
+        record = {
+            **receipt(sequence, turn=turn, contract=contract),
+            "schema_version": "progress_review_receipt_v0",
+            "signal_rule_version": "progress_review_signal_rule_v1",
+            "goal_id": "order-goal",
+            "question_version": "scoped-progress-sentinel-v2",
+            "model": "fixture-v1",
+            "judgments": {
+                "choice": {"relation": "off_goal", "increment": "no_new_evidence"},
+                "noul": {"behavior_change": 0.05, "serves_acceptance": 0.04, "evidence_increment": 0.1},
+            },
+            "label_probability_threshold": 0.6,
+            "recorded_at": recorded_at,
+        }
+        record["run"] = {**record["run"], "generated_at": generated_at}
+        return record
+
+    # Old observer state under R1 wrote sequences 1 and 2.
+    write_progress_review_receipt(tmp_path, "order-goal", stored(1, "contract-1", generated_at="2026-09-21T00:00:01Z", recorded_at=1.0, turn="t1"))
+    write_progress_review_receipt(tmp_path, "order-goal", stored(2, "contract-1", generated_at="2026-09-21T00:00:02Z", recorded_at=2.0, turn="t2"))
+    # New observer state under R2 starts again at sequence 0, for a later transition.
+    write_progress_review_receipt(tmp_path, "order-goal", stored(0, "contract-2", generated_at="2026-09-21T00:00:05Z", recorded_at=5.0, turn="t5"))
+
+    loaded, rejected = load_progress_review_receipts(tmp_path, "order-goal")
+    assert rejected == 0
+    assert [item["run"]["turn_instance_id"] for item in loaded] == ["t5", "t2", "t1"]
+    # The load limit keeps the newest transition, not the highest local sequence.
+    limited, _ = load_progress_review_receipts(tmp_path, "order-goal", limit=1)
+    assert [item["run"]["turn_instance_id"] for item in limited] == ["t5"]
+
+    pinned_old = {"id": "order-goal", "control_plane": {"progress_review": {"mode": "assist", "contract_revision": _digest("contract-1")}}}
+    context = external_progress_review_context(pinned_old, tmp_path)
+    assert context is not None
+    assert context["summary"]["newest_receipt_contract_revision"] == _digest("contract-2")
+    assert context["summary"]["rebind_hint"] == "newer_receipts_under_unpinned_revision"
+    assert context["summary"]["stale_receipts"] == 1
+    pinned_new = {"id": "order-goal", "control_plane": {"progress_review": {"mode": "assist", "contract_revision": _digest("contract-2")}}}
+    context = external_progress_review_context(pinned_new, tmp_path)
+    assert context is not None
+    assert context["summary"]["newest_receipt_contract_revision"] == _digest("contract-2")
+    assert "rebind_hint" not in context["summary"]
+    assert context["summary"]["stale_receipts"] == 2
+    assert context["summary"]["latest"]["run"]["turn_instance_id"] == "t5"
