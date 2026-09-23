@@ -77,6 +77,15 @@ export function todoUpdateAdmissionRejection(
       : "Todo update is outside the actor's registered owner/binding scope";
     return reject(code, reason);
   }
+  // Promotion deliberately preserves legacy claims without inventing leases.
+  // An explicitly granted controller must be able to repair planning state on
+  // that unleased claim; otherwise a stale blocked/deferred status can never
+  // become eligible enough for the real owner to acquire its first lease.
+  // Once any lease lineage exists, the ordinary holder/CAS fence still wins.
+  const delegatedUnleasedOverride =
+    authorityDecision.authority_mode === "delegated_orchestration_override" &&
+    mode === "hard_lease" && lease === undefined &&
+    input.lease_idempotency_key == null && input.lease_expected_version == null;
   // Preserve the single-agent compatibility path only for genuinely
   // unowned work. An empty registry is not evidence that an arbitrary actor
   // may rewrite an already-owned Todo.
@@ -102,8 +111,8 @@ export function todoUpdateAdmissionRejection(
     }
     return null;
   }
-  if (lease !== undefined || mode === "hard_lease" ||
-      input.lease_idempotency_key != null || input.lease_expected_version != null) {
+  if (!delegatedUnleasedOverride && (lease !== undefined || mode === "hard_lease" ||
+      input.lease_idempotency_key != null || input.lease_expected_version != null)) {
     try {
       const fence = evaluateCanonicalTaskLeaseProof({todo, lease, handoff_mode: mode,
         registered_agents: input.registered_agents, actor_agent_id: input.actor_agent_id,

@@ -146,9 +146,11 @@ def test_engaged_fence_reads_typescript_provider_result(
     tmp_path: Path,
 ) -> None:
     _engage_fence(tmp_path)
-    monkeypatch.setattr(
-        "loopx.control_plane.coordination.local_authority.effect_runtime_result",
-        lambda method, params: {
+    calls: list[tuple[str, float]] = []
+
+    def _read(method: str, _params: object, *, timeout: float) -> dict[str, object]:
+        calls.append((method, timeout))
+        return {
             "status": "loaded",
             "todos": [{"todo_id": "todo_a", "role": "agent", "status": "open"}],
             "todo_read_model": _todo_read_model(1),
@@ -157,7 +159,11 @@ def test_engaged_fence_reads_typescript_provider_result(
             "source_authority": "file_v0",
             "decision_read_from_provider": True,
             "legacy_fallback_used": False,
-        },
+        }
+
+    monkeypatch.setattr(
+        "loopx.control_plane.coordination.local_authority.effect_runtime_result",
+        _read,
     )
     result = read_canonical_todos_if_promoted(
         runtime_root=tmp_path,
@@ -165,6 +171,7 @@ def test_engaged_fence_reads_typescript_provider_result(
     )
     assert result is not None
     assert result["todos"][0]["todo_id"] == "todo_a"
+    assert calls == [("coordination.local_authority.todo_list", 15.0)]
 
 
 def test_promoted_claim_adapter_invokes_typescript_without_markdown_fallback(
@@ -908,7 +915,7 @@ def test_engaged_fence_never_falls_back_when_provider_is_missing(
     _engage_fence(tmp_path)
     monkeypatch.setattr(
         "loopx.control_plane.coordination.local_authority.effect_runtime_result",
-        lambda method, params: {
+        lambda method, params, **_kwargs: {
             "status": "missing",
             "source_authority": "file_v0",
             "decision_read_from_provider": True,
@@ -990,7 +997,7 @@ def test_promoted_claim_rejection_preserves_legacy_valueerror_contract(
     _engage_fence(tmp_path)
     monkeypatch.setattr(
         "loopx.control_plane.coordination.local_authority.effect_runtime_result",
-        lambda method, params: {
+        lambda method, params, **_kwargs: {
             "status": "failed",
             "failure_kind": "decision_rejection",
             "reason_code": "todo_not_open",
@@ -1142,7 +1149,7 @@ def test_todo_list_uses_provider_after_cutover_even_when_markdown_disagrees(
     state_file.unlink()
     monkeypatch.setattr(
         "loopx.control_plane.coordination.local_authority.effect_runtime_result",
-        lambda method, params: {
+        lambda method, params, **_kwargs: {
             "status": "loaded",
             "todos": [
                 {
@@ -1462,10 +1469,10 @@ Continue provider-first delivery.
         return result
 
     def count_authority_runtime_call(
-        method: str, params: dict[str, object]
+        method: str, params: dict[str, object], **kwargs: object
     ) -> object:
         runtime_calls.append(method)
-        return original_authority_runtime_result(method, params)
+        return original_authority_runtime_result(method, params, **kwargs)
 
     monkeypatch.setattr(
         provider_terminal_lifecycle,
@@ -1991,10 +1998,10 @@ def test_promoted_terminal_retry_reuses_receipt_after_projection_crash(
         return original_effect_runtime_result(method, params)
 
     def count_authority_runtime_call(
-        method: str, params: dict[str, object]
+        method: str, params: dict[str, object], **kwargs: object
     ) -> object:
         runtime_calls.append(method)
-        return original_authority_runtime_result(method, params)
+        return original_authority_runtime_result(method, params, **kwargs)
 
     monkeypatch.setattr(
         provider_terminal_lifecycle,

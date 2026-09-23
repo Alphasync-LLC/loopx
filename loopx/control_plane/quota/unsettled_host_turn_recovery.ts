@@ -21,7 +21,10 @@ import {
   requireJsonObject,
   requireNonEmptyString,
 } from "../runtime_decode.ts";
-import { readGoalHeartbeatReceipts } from "../rollout_receipt_log.ts";
+import {
+  goalHeartbeatReceiptsFromSnapshot,
+  readGoalRolloutEventSnapshot,
+} from "../rollout_receipt_log.ts";
 import { isCommittedMonitorPollEffect } from "./settlement_phase.ts";
 import {
   heartbeatReceiptBinding,
@@ -35,7 +38,8 @@ import {
 } from "./heartbeat_receipt_identity.ts";
 import {
   QUOTA_SETTLEMENT_READBACK_REQUEST_SCHEMA,
-  readQuotaSettlement,
+  readQuotaSettlementFromSnapshot,
+  readQuotaSettlementSnapshot,
 } from "./settlement_readback.ts";
 
 export const PRIOR_HOST_TURN_CLOSEOUT_PREFLIGHT_REQUEST_SCHEMA =
@@ -125,7 +129,6 @@ function selectCloseoutCandidates(
   excludeTurnInstanceId: string | null,
 ): { candidates: PriorHostTurnCloseoutCandidate[]; turnsValidated: number } {
   const perTurn = new Map<string, HeartbeatReceiptFact[]>();
-  const newestFirst: string[] = [];
   for (const event of receipts) {
     const fact = heartbeatReceiptFactFromEvent(event);
     const turnInstanceId = fact.run_id;
@@ -133,16 +136,21 @@ function selectCloseoutCandidates(
       continue;
     }
     const existing = perTurn.get(turnInstanceId);
-    if (existing) existing.push(fact);
-    else perTurn.set(turnInstanceId, [fact]);
-    const position = newestFirst.indexOf(turnInstanceId);
-    if (position !== -1) newestFirst.splice(position, 1);
-    newestFirst.push(turnInstanceId);
+    if (existing) {
+      existing.push(fact);
+      // Map insertion order is the append-order recency index. Moving an
+      // existing Turn to the tail avoids an O(T) indexOf/splice for every
+      // receipt while preserving "last receipt wins recency" exactly.
+      perTurn.delete(turnInstanceId);
+      perTurn.set(turnInstanceId, existing);
+    } else {
+      perTurn.set(turnInstanceId, [fact]);
+    }
   }
 
   const candidates: PriorHostTurnCloseoutCandidate[] = [];
   let validated = 0;
-  for (const turnInstanceId of [...newestFirst].reverse()) {
+  for (const turnInstanceId of [...perTurn.keys()].reverse()) {
     const entries = (perTurn.get(turnInstanceId) ?? []).map((fact) => ({
       fact,
       value: fact,
@@ -203,8 +211,12 @@ export async function preflightPriorHostTurnCloseout(
   value: unknown,
 ): Promise<JsonObject> {
   const request = decodePreflightRequest(value);
-  const receipts = await readGoalHeartbeatReceipts(
+  const rolloutSnapshot = await readGoalRolloutEventSnapshot(
     request.runtime_root,
+    request.goal_id,
+  );
+  const receipts = goalHeartbeatReceiptsFromSnapshot(
+    rolloutSnapshot,
     request.goal_id,
     request.agent_id,
   );
@@ -222,10 +234,16 @@ export async function preflightPriorHostTurnCloseout(
       turns_validated: turnsValidated,
     };
   }
+  const settlementSnapshot = await readQuotaSettlementSnapshot(
+    request.runtime_root,
+    request.goal_id,
+    rolloutSnapshot,
+  );
   let newestSettledTurn: string | null = null;
   for (const selected of candidates) {
-    const readback = await readQuotaSettlement(
+    const readback = readQuotaSettlementFromSnapshot(
       settlementReadbackRequest(request, selected),
+      settlementSnapshot,
     );
     if (readback.found === true && !bundleFailed(readback, "settlement")) {
       // A newer settled Turn cannot hide an older missing closeout. Keep
@@ -386,16 +404,36 @@ function acceptedLifecycleCloseout(todo: CandidateTodoFacts | null): AcceptedClo
   return settled ? "typed_blocker_or_lifecycle_transition" : null;
 }
 
+type RecoveryRepair = "monitor_poll" | "resume_prior_turn" | "lifecycle";
+
+function recoveryRepair(
+  bindingKind: HeartbeatReceiptBinding["binding_kind"],
+  todo: CandidateTodoFacts | null,
+): RecoveryRepair {
+  if (bindingKind !== "todo" || todo === null) return "lifecycle";
+  if (todo.task_class === MONITOR_TASK_CLASS) return "monitor_poll";
+  // Missing receipts do not prove an external dependency. Re-enter
+  // the original guard to recheck eligibility and retain its settlement id.
+  // This is a recovery route, never an accepted closeout or delivery grant.
+  return todo.task_class === "advancement_task" && todo.status === "open" &&
+      !todo.has_resume_when
+    ? "resume_prior_turn"
+    : "lifecycle";
+}
+
 function recoveryObligation(
-  repair: "monitor_poll" | "lifecycle",
+  repair: RecoveryRepair,
   bindingId: string,
 ): JsonObject {
+  const obligation = repair === "resume_prior_turn"
+    ? "reenter_original_guard_then_settle"
+    : "author_typed_closeout_then_continue_successor";
   return {
     lane: "control_plane_recovery",
     next_lane: "advancement_task",
-    obligation: "author_typed_closeout_then_continue_successor",
+    obligation,
     contract: "repair_prior_turn_closeout",
-    contract_obligation: "author_typed_closeout_then_continue_successor",
+    contract_obligation: obligation,
     must_attempt_work: true,
     delivery_allowed: false,
     notify: "DONT_NOTIFY",
@@ -404,9 +442,12 @@ function recoveryObligation(
     reason: "a prior must-attempt heartbeat has no legal closeout receipt",
     recommendation_reason: "prior must-attempt host Turn is missing a legal closeout",
     unsettled_reason: "prior must-attempt host Turn remains unsettled",
-    recommended_action:
-      `Recover prior unsettled host Turn for ${bindingId}; use a typed ` +
-      "lifecycle observation, then rerun quota and continue independent work",
+    recommended_action: repair === "resume_prior_turn"
+      ? `Recover prior unsettled host Turn for ${bindingId}; re-enter its original ` +
+        "guard, inspect existing effects, then resume and settle verified work under " +
+        "that identity before rerunning the current Turn; do not invent an external wait"
+      : `Recover prior unsettled host Turn for ${bindingId}; use a typed ` +
+        "lifecycle observation, then rerun quota and continue eligible work",
     repair,
   };
 }
@@ -490,9 +531,7 @@ export function reduceUnsettledHostTurnRecovery(value: unknown): JsonObject {
     recovery.binding_target_key = todo.target_key;
     recovery.binding_cadence = todo.cadence;
   }
-  const repair = todo?.task_class === MONITOR_TASK_CLASS
-    ? "monitor_poll" as const
-    : "lifecycle" as const;
+  const repair = recoveryRepair(selected.binding_kind, todo);
   // The typed repair lane lets the CLI renderer project its command list
   // without re-deriving which closeout family the Turn belongs to.
   recovery.repair = repair;
