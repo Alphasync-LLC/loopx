@@ -7,7 +7,7 @@ from contextlib import ExitStack, nullcontext
 from pathlib import Path
 from typing import Any
 
-from .control_plane.runtime.time import now_local_iso
+from .control_plane.runtime.time import chronology_key, now_local_iso
 from .control_plane.work_items.delivery_history import require_consistent_delivery_claim
 from .control_plane.work_items.delivery_batch_scale import (
     DELIVERY_BATCH_SCALE_CHOICES as DELIVERY_BATCH_SCALE_CHOICES,
@@ -1040,7 +1040,10 @@ def refresh_state_run(
                 run
                 for _, run in sorted(
                     enumerate(existing_runs),
-                    key=lambda item: (str(item[1].get("generated_at") or ""), item[0]),
+                    key=lambda item: (
+                        *chronology_key(item[1].get("generated_at")),
+                        item[0],
+                    ),
                     reverse=True,
                 )
             ]
