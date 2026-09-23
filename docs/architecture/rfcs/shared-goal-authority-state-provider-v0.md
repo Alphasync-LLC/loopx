@@ -31,6 +31,15 @@
 
 ## Current implementation checkpoint
 
+Handoff-mode changes now share one TS ownership-fact classifier before and
+after promotion. Legacy event-only claims reject rather than disappear at a
+Markdown boundary; event append locks protect the observation through writeback.
+Canonical changes reuse durable command receipt recovery. This is an L2/L3
+compatibility correction with Python decision deletion, not cohort migration,
+SQLite D2 completion or a default flip. The remaining 5–8 packages still depend
+on executor/consumer closure, qualification, integrated migration and onboarding.
+[Operation, repair and recovery](../../reference/handoff-mode.md).
+
 The terminal caller family now binds review and validation to the canonical
 source and recovers historical receipts independently of private argv. Agent
 completion and Monitor stop share current-head display acknowledgement with
@@ -2930,8 +2939,11 @@ display limits, not just a sorted in-memory list.
 The full-source/list-filter boundary preserves evaluated resume facts. Bootstrap
 and writer-outbox capture share the typed archived-dependency selector, bringing
 referenced completion records into canonical state so readers can recompute those
-facts independently. New legacy archive moves preserve role; old agent-only class
-records allow bounded role reconstruction, never inferred user approval authority.
+facts independently. New legacy Agent archive moves preserve role and the existing
+read classification. Old Agent-only class records allow bounded role reconstruction;
+records with an explicit Agent role may retain the legacy read class when no class
+was recorded. The TS selector admits that separate codec fact and uses the same
+class for closure and materialization, never inferring user approval authority.
 Duplicate/contradictory identities are rejected, and historical nodes/leases do not
 re-enter active lanes. The three-arm rehearsal checks this closure against real
 providers; derived readiness is not evidence. General historical import and the

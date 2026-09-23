@@ -29,6 +29,7 @@ from .legacy_writer_fence import legacy_coordination_writer_fence_path
 
 
 LOCAL_COORDINATION_TODO_LIST_METHOD = "coordination.local_authority.todo_list"
+LOCAL_COORDINATION_TODO_LIST_TIMEOUT_SECONDS = 15.0
 LOCAL_COORDINATION_TODO_CLAIM_WITNESSED_REQUEST_SCHEMA = (
     "loopx_local_coordination_todo_claim_request_v1"
 )
@@ -205,6 +206,11 @@ def read_canonical_todos_if_promoted(
             **({"include_leases": True} if include_leases else {}),
             **({"projection_readback": dict(projection_readback)} if projection_readback is not None else {}),
         },
+        # Promoted goals can carry hundreds of preserved Todos.  Keep the
+        # generic Effect request budget strict, but give this known bounded
+        # canonical scan the same cold-start allowance as the neighbouring
+        # shadow/lease authority reads.
+        timeout=LOCAL_COORDINATION_TODO_LIST_TIMEOUT_SECONDS,
     )
     if not isinstance(result, Mapping):
         raise LocalCoordinationAuthorityUnavailable(

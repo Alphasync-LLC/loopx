@@ -18,6 +18,7 @@ import stat
 import subprocess
 import sys
 import time
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -29,7 +30,12 @@ from .todos import list_goal_todos
 from .control_plane.effect_runtime import effect_runtime_result, EffectRuntimeRemoteError
 from .control_plane.goals.acceptance import inspect_goal_acceptance, validate_goal_task_acceptance, goal_task_validation_files_current
 from .control_plane.coordination.local_authority import local_authority_is_promoted
-from .control_plane.turn_driver.journal_store import turn_journal_path
+from .control_plane.todos.handoff_mode import show_goal_handoff_mode
+from .control_plane.turn_driver.journal_store import (
+    find_loopx_turn_key_by_settlement_identity,
+    load_turn_journal,
+    turn_journal_path,
+)
 from .control_plane.turn_driver.host_binding import turn_host_arg_option
 from .control_plane.collaboration.inbox import _hash, _read, _write, _root, _receipt
 from .control_plane.collaboration.peers import return_result
@@ -42,6 +48,129 @@ from .control_plane.collaboration.peers import (
     request,
     require_operation_id,
 )
+
+
+_PINNED_MODULE_LAUNCHER = (
+    "import runpy,sys;"
+    "release_root,module=sys.argv[1:3];"
+    "sys.path.insert(0,release_root);"
+    "sys.argv=[module,*sys.argv[3:]];"
+    "runpy.run_module(module,run_name='__main__')"
+)
+
+
+def _release_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def _pinned_release_environment() -> dict[str, str]:
+    """Keep managed children on the release that admitted the delegation.
+
+    A delegated workspace may itself be a LoopX checkout.  Plain
+    ``python -m loopx...`` prepends that workspace to ``sys.path`` and can
+    silently run an older control plane than the parent process.  Safe-path
+    mode removes the current directory while an explicit release-root
+    ``PYTHONPATH`` keeps source checkouts and installed releases deterministic.
+    Safe-path is selected on LoopX's own argv instead of exported globally:
+    host and acceptance scripts may legitimately import sibling modules.
+    """
+
+    environment = os.environ.copy()
+    release_root = str(_release_root())
+    inherited = [
+        entry
+        for entry in environment.get("PYTHONPATH", "").split(os.pathsep)
+        if entry and Path(entry).resolve(strict=False) != Path(release_root)
+    ]
+    environment["PYTHONPATH"] = os.pathsep.join([release_root, *inherited])
+    environment.pop("PYTHONSAFEPATH", None)
+    return environment
+
+
+def _python_module_command(module: str) -> list[str]:
+    return [sys.executable, "-P", "-m", module]
+
+
+def _pinned_module_command(module: str, *, interpreter: str | None = None) -> list[str]:
+    """Build a self-contained module argv for hosts that sanitize env vars."""
+
+    return [
+        interpreter or sys.executable,
+        "-P",
+        "-c",
+        _PINNED_MODULE_LAUNCHER,
+        str(_release_root()),
+        module,
+    ]
+
+
+def _mcp_python_candidates() -> tuple[Path, ...]:
+    configured = os.environ.get("LOOPX_MCP_PYTHON")
+    managed = (
+        Path.home()
+        / ".local"
+        / "share"
+        / "loopx"
+        / "mcp-venv"
+        / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    )
+    values: list[Path] = []
+    if configured:
+        selected = Path(configured).expanduser()
+        if not selected.is_absolute():
+            raise ValueError("LOOPX_MCP_PYTHON must be an absolute path")
+        values.append(selected)
+    values.extend([Path(sys.executable), managed])
+    # Do not resolve interpreter symlinks: a venv's ``python`` commonly points
+    # at the base executable, but its original path is what selects the venv
+    # site-packages containing FastMCP.
+    return tuple(dict.fromkeys(values))
+
+
+@lru_cache(maxsize=1)
+def _mcp_python_executable() -> str:
+    """Resolve a Python that can actually serve the required stdio MCP.
+
+    LoopX itself intentionally has no mandatory third-party dependencies.  Its
+    installers provision the shared MCP venv separately, so a managed Codex
+    child must not assume that the control-plane interpreter also has FastMCP.
+    """
+
+    for candidate in _mcp_python_candidates():
+        if not candidate.is_file():
+            continue
+        try:
+            probe = subprocess.run(
+                [
+                    str(candidate),
+                    "-P",
+                    "-c",
+                    "from mcp.server.fastmcp import FastMCP",
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=_pinned_release_environment(),
+                timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if probe.returncode == 0:
+            return str(candidate)
+    raise ValueError(
+        "LoopX collaboration MCP runtime is unavailable; provision the shared "
+        "LoopX MCP venv or set LOOPX_MCP_PYTHON to a compatible interpreter"
+    )
+
+
+def _mcp_module_command() -> list[str]:
+    # Codex intentionally sanitizes PYTHONPATH for stdio MCP children.  Carry
+    # the admitted release root in argv and rebuild sys.path inside the child
+    # rather than trusting ambient process state.
+    return _pinned_module_command(
+        "loopx.collaboration_mcp",
+        interpreter=_mcp_python_executable(),
+    )
 
 
 def create_server(
@@ -276,18 +405,33 @@ class Delegations:
         # No inherited stdio pipes: closing the conversation cannot cancel or
         # hang this bounded execution. The worker owns a kernel single-flight lock.
         operation_id = require_operation_id(operation_id)
-        subprocess.Popen([
-            sys.executable, "-m", "loopx.collaboration_mcp", "--delegation-action", "worker", "--runtime-root", str(self.root),
+        subprocess.Popen([*_python_module_command("loopx.collaboration_mcp"),
+            "--delegation-action", "worker", "--runtime-root", str(self.root),
             "--registry", str(self.registry), "--goal-id", self.goal_id,
             "--agent-id", self.agent_id, "--execution-config", str(self.config), "--operation-id=" + operation_id,
         ], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True, close_fds=True)
+            start_new_session=True, close_fds=True, env=_pinned_release_environment())
 
     def resume(self, operation_id: str) -> dict:
-        row = _read(self.path(operation_id))
-        self._bound(row)
-        if row["status"] not in {"accepted", "rejected"}:
-            self.binding(row["identity"]["binding"]["id"], require_active=True)
+        path = self.path(operation_id)
+        try:
+            with exclusive_file_lock(
+                path, policy=LockAcquisitionPolicy.SINGLE_FLIGHT
+            ):
+                row = _read(path)
+                binding = self._bound(row)
+                if row["status"] == "rejected":
+                    self._recover_validated_settlement(path, row, binding)
+                should_spawn = row["status"] not in {"accepted", "rejected"}
+                if should_spawn:
+                    self.binding(
+                        row["identity"]["binding"]["id"], require_active=True
+                    )
+        except LockAcquireTimeoutError:
+            # A live worker already owns the operation lock.  Observation is
+            # sufficient; spawning another process cannot advance settlement.
+            return self.read(operation_id)
+        if should_spawn:
             self._spawn(operation_id)
         return self.read(operation_id)
 
@@ -305,6 +449,85 @@ class Delegations:
         if row["identity"]["binding"] != binding:
             raise ValueError("delegation binding changed; reconcile original execution")
         return binding
+
+    @staticmethod
+    def _turn_instance_id(row: dict) -> str:
+        return str(
+            row.get("turn_instance_id")
+            or "delegation-" + row["identity"]["request_id"][:32]
+        )
+
+    def _matching_turn_key(self, row: dict, binding: dict) -> str | None:
+        """Find only the journal bound to this operation's settlement identity."""
+
+        return find_loopx_turn_key_by_settlement_identity(
+            self.root,
+            goal_id=self.goal_id,
+            agent_id=binding["agent_id"],
+            todo_id=binding["todo_id"],
+            turn_instance_id=self._turn_instance_id(row),
+        )
+
+    def _validated_turn_journal(self, row: dict, binding: dict) -> dict | None:
+        turn_key = self._matching_turn_key(row, binding)
+        if turn_key is None:
+            return None
+        journal = load_turn_journal(
+            turn_journal_path(self.root, goal_id=self.goal_id, turn_key=turn_key)
+        )
+        if journal is None:
+            return None
+        phases = journal.get("completed_phases")
+        validation = journal.get("task_validation")
+        host_result = journal.get("host_result")
+        if (
+            journal.get("status") != "in_progress"
+            or journal.get("result_kind") != "validated_progress"
+            or phases != ["host_execute", "typed_result", "validation"]
+            or not isinstance(validation, dict)
+            or validation.get("ok") is not True
+            or not isinstance(host_result, dict)
+            or host_result.get("turn_key") != turn_key
+            or host_result.get("result_kind") != "validated_progress"
+        ):
+            return None
+        row["turn_key"] = turn_key
+        return journal
+
+    def _recover_validated_settlement(
+        self, path: Path, row: dict, binding: dict
+    ) -> bool:
+        """Reopen only an exact, independently validated settlement boundary."""
+
+        journal = self._validated_turn_journal(row, binding)
+        if journal is None:
+            return False
+        decision = effect_runtime_result(
+            "collaboration.delegation.recover_validated_settlement",
+            {
+                "from": row["status"],
+                "identity_matched": True,
+                "journal_status": journal.get("status"),
+                "result_kind": journal.get("result_kind"),
+                "completed_phases": journal.get("completed_phases"),
+                "task_validation_passed": (
+                    isinstance(journal.get("task_validation"), dict)
+                    and journal["task_validation"].get("ok") is True
+                ),
+            },
+        )
+        row["status"] = decision["status"]
+        row["turn_result"] = {
+            "status": journal.get("status"),
+            "result_kind": journal.get("result_kind"),
+            "resume_turn_key": row["turn_key"],
+            "reason": "validated Turn settlement requires same-operation recovery",
+            "host_failure": None,
+            "error": None,
+        }
+        row.pop("error", None)
+        _write(path, row)
+        return True
 
     def adopt_result(self, operation_id: str, consumer_operation_id: str) -> dict:
         return delegation_results.adopt_result(self, operation_id, consumer_operation_id)
@@ -349,16 +572,24 @@ class Delegations:
         _write(path, row)
 
     def _cli(self, binding: dict, *args: str, timeout: int = 60) -> dict:
-        completed = subprocess.run([
-            sys.executable, "-m", "loopx.cli", "--registry", str(self.registry),
+        completed = subprocess.run([*_python_module_command("loopx.cli"),
+            "--registry", str(self.registry),
             "--runtime-root", str(self.root), "--format", "json", *args,
-        ], cwd=binding["workspace"], capture_output=True, text=True, encoding="utf-8", timeout=timeout)
+        ], cwd=binding["workspace"], capture_output=True, text=True, encoding="utf-8",
+            timeout=timeout, env=_pinned_release_environment())
         try:
             value = json.loads(completed.stdout)
         except ValueError as exc:
             raise ValueError("delegation CLI returned no structured result") from exc
         if completed.returncode and "turn" not in args:
-            raise ValueError("delegation canonical command rejected")
+            raise ValueError(
+                str(
+                    value.get("error")
+                    or value.get("reason")
+                    or value.get("reason_code")
+                    or "delegation canonical command rejected"
+                )
+            )
         return value
 
     def _validate(self, binding: dict) -> None:
@@ -424,7 +655,12 @@ class Delegations:
     def _execution_arguments(self, binding: dict, operation_id: str) -> list[str]:
         """Exactly the same profile, workspace and validation arguments for preview/run."""
         # Preserve the journaled validator argv so existing Turns retain their resume identity.
-        validator = [sys.executable, "-m", "loopx.collaboration_mcp", "--delegation-action", "validate", "--runtime-root", str(self.root),
+        # Turn validation intentionally runs with a reduced environment.  Carry
+        # the admitted release root in argv just like the native MCP command;
+        # PYTHONPATH pinning on the parent CLI is not a durable validator
+        # identity and may be removed by the host boundary.
+        validator = [*_pinned_module_command("loopx.collaboration_mcp"),
+                     "--delegation-action", "validate", "--runtime-root", str(self.root),
                      "--registry", str(self.registry), "--goal-id", self.goal_id,
                      "--agent-id", self.agent_id, "--execution-config", str(self.config),
                      "--workspace", binding["workspace"], "--operation-id", operation_id]
@@ -433,10 +669,7 @@ class Delegations:
             mcp_server = {
                 "schema_version": "codex_stdio_mcp_server_v0",
                 "name": "loopx_delegation",
-                "command": [
-                    sys.executable,
-                    "-m",
-                    "loopx.collaboration_mcp",
+                "command": [*_mcp_module_command(),
                     "--runtime-root",
                     str(self.root),
                     "--registry",
@@ -459,57 +692,272 @@ class Delegations:
                      "--validation-failure-kind", "repair_required", *native_tools,
                      *binding["host_args"]]
 
+    def _record_turn_result(
+        self, path: Path, row: dict, result: dict, *, publish: bool = True
+    ) -> None:
+        turn_key = result.get("resume_turn_key")
+        if turn_key:
+            # Validate the public shape before persisting an address supplied
+            # by the CLI boundary.
+            turn_journal_path(self.root, goal_id=self.goal_id, turn_key=turn_key)
+            row["turn_key"] = turn_key
+        row["turn_result"] = {
+            key: result.get(key)
+            for key in (
+                "status",
+                "result_kind",
+                "resume_turn_key",
+                "reason",
+                "host_failure",
+                "error",
+            )
+        }
+        if publish:
+            self._observe(path, row, "turn_returned")
+        else:
+            _write(path, row)
+
+    def _receiver_adopted(self, row: dict, binding: dict) -> bool:
+        request_id = row["identity"]["request_id"]
+        decision, error = _receipt(
+            self.root,
+            "decisions",
+            _entry(self.root, self.goal_id, binding["agent_id"], request_id),
+        )
+        return not error and bool(decision) and decision["decision"] == "adopt"
+
+    def _delegation_bootstrap(self, row: dict, binding: dict) -> dict:
+        request_id = row["identity"]["request_id"]
+        return {
+            "request_id": request_id,
+            "brief": _entry(
+                self.root, self.goal_id, binding["agent_id"], request_id
+            )["brief"],
+            "instruction": (
+                "Use the loopx_delegation tools to read_context and call "
+                "assess_request for this request before working. If you adopt "
+                "it, call return_result with the evidence-backed conclusion "
+                "after validation. Final-answer prose alone is not an adoption "
+                "or return receipt."
+            ),
+        }
+
+    def _write_delegation_bootstrap(self, row: dict, binding: dict) -> None:
+        """Expose the compatibility file only while the delegated host runs.
+
+        Some generic hosts still read ``DELEGATION.json`` directly.  It is a
+        host input, not a delivery artifact, so retaining the untracked file
+        after the host exits would make the completion workspace fail its own
+        clean-worktree guard.  Never overwrite an unrelated caller file.
+        """
+
+        path = Path(binding["workspace"]) / "DELEGATION.json"
+        expected = self._delegation_bootstrap(row, binding)
+        if path.exists():
+            if _read(path) != expected:
+                raise ValueError(
+                    "delegation bootstrap path is occupied by another request"
+                )
+            return
+        _write(path, expected)
+
+    def _clear_delegation_bootstrap(self, row: dict, binding: dict) -> None:
+        """Remove only this operation's host input before workspace validation."""
+
+        path = Path(binding["workspace"]) / "DELEGATION.json"
+        if not path.exists():
+            return
+        if _read(path) != self._delegation_bootstrap(row, binding):
+            raise ValueError(
+                "delegation bootstrap changed while the delegated host was running"
+            )
+        path.unlink()
+
+    def _acquire_delegation_lease(
+        self, path: Path, row: dict, binding: dict
+    ) -> dict:
+        """Acquire the promoted hard lease before worker or completion effects."""
+
+        if not local_authority_is_promoted(
+            runtime_root=self.root,
+            goal_id=self.goal_id,
+        ):
+            row["task_lease"] = {"required": False, "handoff_mode": "legacy"}
+            _write(path, row)
+            return row["task_lease"]
+        handoff_mode = show_goal_handoff_mode(
+            registry_path=self.registry,
+            runtime_root_arg=str(self.root),
+            goal_id=self.goal_id,
+        )["handoff_mode"]
+        if handoff_mode != "hard_lease":
+            row["task_lease"] = {
+                "required": False,
+                "handoff_mode": handoff_mode,
+            }
+            _write(path, row)
+            return row["task_lease"]
+        lease_key = self._turn_instance_id(row)
+        result = self._cli(
+            binding,
+            "todo",
+            "claim",
+            "--goal-id",
+            self.goal_id,
+            "--todo-id",
+            binding["todo_id"],
+            "--claimed-by",
+            binding["agent_id"],
+            "--agent-id",
+            binding["agent_id"],
+            "--claim-operation-id",
+            "delegation-claim-" + row["identity"]["request_id"][:32],
+            "--task-lease-idempotency-key",
+            lease_key,
+        )
+        lease = result.get("lease")
+        if (
+            result.get("ok") is not True
+            or not isinstance(lease, dict)
+            or lease.get("owner") != binding["agent_id"]
+            or lease.get("idempotency_key") != lease_key
+            or lease.get("status") != "active"
+            or not isinstance(lease.get("version"), int)
+        ):
+            raise ValueError(
+                str(
+                    result.get("error")
+                    or result.get("reason")
+                    or "delegation task lease acquisition rejected"
+                )
+            )
+        row["task_lease"] = {
+            "required": True,
+            "handoff_mode": "hard_lease",
+            "idempotency_key": lease_key,
+            "version": lease["version"],
+        }
+        _write(path, row)
+        return row["task_lease"]
+
+    def _complete_delegated_todo(self, row: dict, binding: dict) -> None:
+        lease = row.get("task_lease")
+        if not isinstance(lease, dict):
+            raise ValueError("delegation Todo completion requires its acquired task lease")
+        arguments = [
+            "todo",
+            "complete",
+            "--goal-id",
+            self.goal_id,
+            "--agent-id",
+            binding["agent_id"],
+            "--todo-id",
+            binding["todo_id"],
+            "--claimed-by",
+            binding["agent_id"],
+            "--turn-instance-id",
+            self._turn_instance_id(row),
+            "--note",
+            "Bounded delegated work; requester owns synthesis.",
+        ]
+        if lease.get("required") is True:
+            arguments += [
+                "--task-lease-idempotency-key",
+                str(lease["idempotency_key"]),
+                "--task-lease-expected-version",
+                str(lease["version"]),
+            ]
+        else:
+            arguments.append("--no-follow-up")
+        result = self._cli(binding, *arguments)
+        if result.get("ok") is not True:
+            raise ValueError(
+                str(result.get("error") or result.get("reason") or "delegation Todo completion rejected")
+            )
+
     def _execute(self, path: Path, row: dict, binding: dict) -> None:
         request_id = row["identity"]["request_id"]
         common = ["--goal-id", self.goal_id, "--agent-id", binding["agent_id"]]
-        host = binding["host_args"]
         execution = self._execution_arguments(binding, row["identity"]["operation_id"])
-        if row["status"] == "prepared":
-            selected_host = turn_host_arg_option(host, "--host")
-            if not selected_host:
-                raise ValueError("delegation host_args require --host")
-            iteration_context = (
-                turn_host_arg_option(host, "--iteration-context")
-                or "resume-if-available"
-            )
-            _write(Path(binding["workspace"]) / "DELEGATION.json", {
-                "request_id": request_id, "brief": _entry(self.root, self.goal_id, binding["agent_id"], request_id)["brief"],
-                "instruction": "Read context and assess this request independently before working. Return results through the bound tools.",
-            })
-            plan = self._cli(binding, "turn", "plan", *common, "--todo-id", binding["todo_id"],
-                             "--turn-instance-id", "delegation-" + request_id[:32],
-                             "--execution-mode", "isolated-headless", "--scan-root", binding["workspace"],
-                             "--host", selected_host,
-                             "--iteration-context", iteration_context,
-                             "--include-transaction-detail")
-            decision = effect_runtime_result("collaboration.delegation.turn_plan", {"plan": plan})
-            if decision["state"] != "planned":
-                raise ValueError(f"delegation Turn plan rejected: {decision['reason']}")
-            row["turn_key"] = decision["turn_key"]
-            self._observe(path, row, "running")
         try:
+            if row["status"] == "prepared":
+                row["turn_instance_id"] = self._turn_instance_id(row)
+                self._write_delegation_bootstrap(row, binding)
+                self._acquire_delegation_lease(path, row, binding)
+                self._observe(path, row, "running")
             if row["status"] == "running":
-                journal = turn_journal_path(self.root, goal_id=self.goal_id, turn_key=row["turn_key"])
-                selector = (["--resume-turn-key", row["turn_key"]] if journal.exists() else
-                            ["--todo-id", binding["todo_id"], "--turn-instance-id", "delegation-" + request_id[:32]])
+                turn_key = self._matching_turn_key(row, binding)
+                selector = (
+                    ["--resume-turn-key", turn_key]
+                    if turn_key
+                    else [
+                        "--todo-id",
+                        binding["todo_id"],
+                        "--turn-instance-id",
+                        self._turn_instance_id(row),
+                    ]
+                )
                 result = self._cli(binding, "turn", "run-once", *common, *selector, *execution,
                                    "--execute", timeout=binding["timeout_seconds"] + 60)
-                row["turn_result"] = {key: result.get(key) for key in ("status", "result_kind", "resume_turn_key", "reason", "host_failure", "error")}
-                self._observe(path, row, "turn_returned")
+                self._record_turn_result(path, row, result)
+        finally:
+            # The compatibility bootstrap is private host input.  Keeping it
+            # after the host returns (including an exception or timeout) makes
+            # an otherwise clean Git worktree fail canonical validation.
+            self._clear_delegation_bootstrap(row, binding)
+        try:
+            todo_completed_for_settlement = False
             result = row["turn_result"]
             if result.get("status") != "committed" or result.get("result_kind") != "validated_progress":
-                row["error"] = "delegation Turn rejected; inspect the original Turn before retrying"
-                self._observe(path, row, "rejected")
-                return
-            decision, error = _receipt(self.root, "decisions", _entry(self.root, self.goal_id, binding["agent_id"], request_id))
-            if error or not decision or decision["decision"] != "adopt":
+                journal = self._validated_turn_journal(row, binding)
+                if journal is None:
+                    row["error"] = str(
+                        result.get("error")
+                        or result.get("reason")
+                        or "delegation Turn rejected; inspect the original Turn before retrying"
+                    )[:180]
+                    self._observe(path, row, "rejected")
+                    return
+                if not self._receiver_adopted(row, binding):
+                    row["error"] = "delegation receiver did not adopt the request"
+                    self._observe(path, row, "rejected")
+                    return
+                self._bound(row, require_active=True)
+                delegation_results.require_dependencies(
+                    self, binding, delegation_results.operation_brief(self, row)
+                )
+                if not isinstance(row.get("task_lease"), dict):
+                    self._acquire_delegation_lease(path, row, binding)
+                self._complete_delegated_todo(row, binding)
+                todo_completed_for_settlement = True
+                result = self._cli(
+                    binding,
+                    "turn",
+                    "run-once",
+                    *common,
+                    "--resume-turn-key",
+                    row["turn_key"],
+                    *execution,
+                    "--execute",
+                    timeout=binding["timeout_seconds"] + 60,
+                )
+                self._record_turn_result(path, row, result, publish=False)
+            if result.get("status") != "committed" or result.get("result_kind") != "validated_progress":
+                raise ValueError(
+                    str(
+                        result.get("error")
+                        or result.get("reason")
+                        or "validated delegation settlement remains incomplete"
+                    )
+                )
+            if not self._receiver_adopted(row, binding):
                 row["error"] = "delegation receiver did not adopt the request"
                 self._observe(path, row, "rejected")
                 return
             self._bound(row, require_active=True)  # revocation or rebinding while the model ran
             delegation_results.require_dependencies(self, binding, delegation_results.operation_brief(self, row))
-            self._cli(binding, "todo", "complete", *common, "--todo-id", binding["todo_id"],
-                      "--no-follow-up", "--note", "Bounded delegated work; requester owns synthesis.")
+            if not todo_completed_for_settlement:
+                self._complete_delegated_todo(row, binding)
             row["artifacts"] = self._accepted(binding)
             if not (_root(self.root) / "replies" / request_id / "conclusion.json").exists():
                 return_result(self.root, self.goal_id, binding["agent_id"], request_id,
