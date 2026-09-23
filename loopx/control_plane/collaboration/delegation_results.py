@@ -20,7 +20,17 @@ def dependencies(service, binding, brief):
     inputs = [item for item in brief["inputs"] if "delegation" in item]
     if not inputs:
         return []
-    materials = input_readiness(service.registry, service.goal_id, {"inputs": inputs}, workspace=binding["workspace"])
+    # The operator-owned binding already authorizes the managed worker's
+    # absolute workspace.  It may intentionally live in another repository,
+    # unlike an ambient peer-inbox workspace which still requires a canonical
+    # project alias before it can replace the Goal root.
+    materials = input_readiness(
+        service.registry,
+        service.goal_id,
+        {"inputs": inputs},
+        workspace=binding["workspace"],
+        configured_workspace=True,
+    )
     result = []
     for item, material in zip(inputs, materials, strict=True):
         link = item["delegation"]

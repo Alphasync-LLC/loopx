@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {recordDelegationAdoption, delegationInventoryItem, delegationInventoryQuery, delegationPreflight, delegationTurnPlanDecision, selectDelegationBinding, transitionDelegationObservation} from "../../loopx/control_plane/collaboration/delegation.ts";
+import {recordDelegationAdoption, delegationInventoryItem, delegationInventoryQuery, delegationPreflight, delegationTurnPlanDecision, recoverValidatedDelegationSettlement, selectDelegationBinding, transitionDelegationObservation} from "../../loopx/control_plane/collaboration/delegation.ts";
 
 const binding = {id: "review", agent_id: "reviewer", todo_id: "todo_review", workspace: "/fixture",
   requesters: ["coordinator", "analyst"], host_args: ["--host", "dsh"], timeout_seconds: 60, output_refs: ["output.json"]};
@@ -29,6 +29,30 @@ test("message receipt and model return do not imply accepted work", () => {
   assert.throws(() => transitionDelegationObservation({from: "rejected", to: "running"}), /transition/);
   assert.deepEqual(transitionDelegationObservation({from: "turn_returned", to: "accepted",
     canonical_done: true, acceptance_ready: true, artifacts_current: true}), {status: "accepted"});
+});
+
+test("a false rejection can reopen only for exact validated settlement recovery", () => {
+  const evidence = {
+    from: "rejected",
+    identity_matched: true,
+    journal_status: "in_progress",
+    result_kind: "validated_progress",
+    task_validation_passed: true,
+    completed_phases: ["host_execute", "typed_result", "validation"],
+  };
+  assert.deepEqual(recoverValidatedDelegationSettlement(evidence), {
+    status: "turn_returned",
+    recovery_kind: "settlement_only",
+    host_reexecution_allowed: false,
+  });
+  for (const patch of [
+    {from: "turn_returned"},
+    {identity_matched: false},
+    {journal_status: "committed"},
+    {result_kind: "host_failure"},
+    {task_validation_passed: false},
+    {completed_phases: ["host_execute", "typed_result"]},
+  ]) assert.throws(() => recoverValidatedDelegationSettlement({...evidence, ...patch}));
 });
 
 test("inventory paging is bounded and never interprets a missing result as accepted", () => {

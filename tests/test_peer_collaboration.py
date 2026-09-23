@@ -396,6 +396,16 @@ def test_input_versions_follow_receiver_worktree_and_reject_unrelated_workspace(
     outside.mkdir()
     result = input_readiness(registry, "delivery", brief, workspace=outside)[0]
     assert result["status"] == "available" and result["basis"] == "goal_workspace"
+    (outside / "inputs").mkdir()
+    (outside / "inputs/demand.csv").write_text("configured delegation version")
+    result = input_readiness(
+        registry,
+        "delivery",
+        brief,
+        workspace=outside,
+        configured_workspace=True,
+    )[0]
+    assert result["status"] == "changed" and result["basis"] == "receiver_worktree"
 
 
 def test_unrelated_damaged_return_route_does_not_break_legacy_inbox(scenario):

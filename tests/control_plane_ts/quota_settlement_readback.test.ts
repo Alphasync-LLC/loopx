@@ -16,6 +16,7 @@ import {
   projectSemanticReplanGuard,
   QUOTA_SETTLEMENT_READBACK_REQUEST_SCHEMA,
   readQuotaSettlement,
+  readQuotaSettlementSnapshot,
 } from "../../loopx/control_plane/quota/settlement_readback.ts";
 
 const goalId = "settlement-goal";
@@ -63,6 +64,12 @@ async function fixture(options: {
    * turn but carries no settlement binding.
    */
   guardUnbound?: boolean;
+  /**
+   * Commit the guard's own deferred explicit selection for this Turn: the
+   * receipt retains the chosen Todo but still carries no settlement binding,
+   * because the guard bound the preemption only on argument-less reentry.
+   */
+  guardDeferred?: boolean;
   writeback?: boolean;
   spend?: boolean;
   completion?: boolean;
@@ -106,6 +113,25 @@ async function fixture(options: {
       },
     }];
   const runs: Record<string, unknown>[] = [];
+  if (options.guardDeferred) {
+    events.push({
+      schema_version: "loopx_rollout_event_v0",
+      event_id: "event-guard-deferred",
+      event_kind: "quota_should_run",
+      goal_id: goalId,
+      agent_id: agentId,
+      run_id: turnId,
+      status: "action_selection_deferred",
+      details: {
+        pending_action_selection_todo_id: todoId,
+        pending_action_selection_state: "deferred",
+        pending_action_selection_reason: "autonomous_replan",
+        settlement_effect_id: "",
+        todo_id: "",
+        replan_obligation_id: "",
+      },
+    });
+  }
   if (options.writeback) {
     events.push({
       schema_version: "loopx_rollout_event_v0",
@@ -371,7 +397,9 @@ test("names the unbound same-turn receipt and the repair instead of a mismatch",
   const result = await readQuotaSettlement(request(runtimeRoot));
 
   const failure = (result.settlement as any).result.failure;
-  assert.equal(failure.kind, "identity_mismatch");
+  // The receipt exists and is well-formed, so the missing binding has its own
+  // kind instead of reading as a mismatch against a second record.
+  assert.equal(failure.kind, "receipt_unbound");
   assert.match(failure.reason, /carries no settlement binding yet/);
   assert.match(
     failure.reason,
@@ -383,6 +411,40 @@ test("names the unbound same-turn receipt and the repair instead of a mismatch",
     binding_kind: "unbound",
     requested_binding_kind: "todo",
     turn_instance_id: turnId,
+  });
+});
+
+test("names the argument-less guard reentry for a deferred explicit selection", async () => {
+  // A deferred explicit selection is also identity-less, but its repair is not
+  // "rebind with --todo-id": that re-enters the same preemption and defers
+  // again, which is how a caller ends up looping instead of settling. The
+  // retained selection tells the two unbound states apart, so the refusal can
+  // name the reentry that actually binds the preemption.
+  const runtimeRoot = await fixture({ guardUnbound: true, guardDeferred: true });
+
+  const result = await readQuotaSettlement(request(runtimeRoot));
+
+  const failure = (result.settlement as any).result.failure;
+  // Both unbound states share the receipt's own failure kind; the deferred
+  // selection is told apart by the repair text and the retained selection.
+  assert.equal(failure.kind, "receipt_unbound");
+  assert.match(failure.reason, /carries no settlement binding yet/);
+  assert.match(
+    failure.reason,
+    new RegExp(
+      `quota should-run --turn-instance-id ${turnId}(?! --todo-id)`,
+    ),
+  );
+  assert.match(failure.reason, /without --todo-id/);
+  assert.doesNotMatch(
+    failure.reason,
+    new RegExp(`--todo-id ${todoId}`),
+  );
+  assert.deepEqual(failure.details, {
+    binding_kind: "unbound",
+    requested_binding_kind: "todo",
+    turn_instance_id: turnId,
+    deferred_selection_todo_id: todoId,
   });
 });
 
@@ -838,6 +900,14 @@ test("rejects malformed request authority at the runtime boundary", async () => 
   await assert.rejects(
     readQuotaSettlement(request(runtimeRoot, { runtime_root: "relative" })),
     /runtime_root must be absolute/,
+  );
+  await assert.rejects(
+    readQuotaSettlementSnapshot("relative", goalId),
+    /runtime_root must be absolute/,
+  );
+  await assert.rejects(
+    readQuotaSettlementSnapshot(runtimeRoot, "../other-goal"),
+    /goal_id must be a single path segment/,
   );
   await assert.rejects(
     readQuotaSettlement(request(runtimeRoot, { schema_version: "future" })),

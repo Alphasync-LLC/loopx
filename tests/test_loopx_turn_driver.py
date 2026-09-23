@@ -2114,6 +2114,27 @@ raise SystemExit(0 if artifact.read_text(encoding="utf-8") == "completed" else 7
     assert "todo_id=todo_fixture0001 status=done" in state
     assert "LoopX%20Turn%20validated%20completion" in state
     assert f"completion_turn_key={payload['resume_turn_key']}" in state
+    guard_events = [
+        event
+        for event in (
+            json.loads(line)
+            for line in (
+                runtime
+                / "goals"
+                / "loopx-turn-fixture"
+                / "rollout-event-log.jsonl"
+            )
+            .read_text(encoding="utf-8")
+            .splitlines()
+        )
+        if event.get("event_kind") == "quota_should_run"
+        and event.get("run_id") == payload["resume_turn_key"]
+    ]
+    assert len(guard_events) == 1
+    # Managed Turn uses the same explicit semantic-replan guard as ordinary
+    # quota should-run.  Null means this admitted Turn selected no obligation;
+    # an obligation opened while its host runs belongs to the next Turn.
+    assert guard_events[0]["details"]["semantic_replan_obligation_id"] is None
 
     next_plan_output = io.StringIO()
     with contextlib.redirect_stdout(next_plan_output):
@@ -3309,11 +3330,14 @@ def test_turn_run_once_cli_resumes_session_from_recoverable_failed_turn(
     project, runtime, registry = _write_live_fixture(tmp_path)
     session_available = False
     session_actions: list[str] = []
+    session_binding_calls = 0
 
     def fake_session_binding(
         _runtime_root: Path,
         _turn_envelope: dict[str, object],
     ) -> dict[str, str] | None:
+        nonlocal session_binding_calls
+        session_binding_calls += 1
         if not session_available:
             return None
         return {
@@ -3399,3 +3423,7 @@ def test_turn_run_once_cli_resumes_session_from_recoverable_failed_turn(
     assert recovered["status"] == "stopped"
     assert recovered["quota_slot_spend_count"] == 0
     assert session_actions == ["start_new", "resume"]
+    # A journal resume resolves the saved Turn before consulting Codex session
+    # state.  Rebuilding a binding from the fresh decision can fail after the
+    # selected Todo has already completed and disappeared from the live route.
+    assert session_binding_calls == 2

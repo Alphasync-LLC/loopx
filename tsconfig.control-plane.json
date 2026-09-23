@@ -150,6 +150,7 @@
     "tests/control_plane_ts/refresh_recovery.test.ts",
     "tests/control_plane_ts/vision_wait_coverage.test.ts",
     "tests/control_plane_ts/shared_goal_alignment.test.ts",
+    "tests/control_plane_ts/replan_history.test.ts",
     "tests/control_plane_ts/goal_amendment_proposal.test.ts"
   ]
 }

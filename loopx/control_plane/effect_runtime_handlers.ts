@@ -1,3 +1,4 @@
+import {manageLocalAuthorityArchive} from "./coordination/local_authority_archive.ts";
 import {selectPeriodicReportProgress, selectPeriodicReportApprovalRetry} from "./capabilities/periodic_report_progress.ts";
 import {planIssueFixMonitorReconciliation} from "./capabilities/issue_fix_monitor_reconciliation.ts";
 import {projectPeerOrchestration} from "./quota/peer_orchestration.ts";
@@ -6,13 +7,14 @@ import {evaluateTodoPriority} from "./todos/priority.ts";
 import {evaluateUserCompletion} from "./todos/user_completion.ts";
 import {projectTodoSuccession, projectTodoClosure} from "./todos/succession.ts";
 import {projectTodoSummaryLanes, projectLegacyTodoWorkCounts} from "./todos/summary_lanes.ts";
-import {recordDelegationAdoption, delegationInventoryItem, delegationInventoryQuery, delegationPreflight, delegationTurnPlanDecision, selectDelegationBinding, transitionDelegationObservation} from "./collaboration/delegation.ts";
+import {recordDelegationAdoption, delegationInventoryItem, delegationInventoryQuery, delegationPreflight, delegationTurnPlanDecision, recoverValidatedDelegationSettlement, selectDelegationBinding, transitionDelegationObservation} from "./collaboration/delegation.ts";
 import {planChatMode} from "./collaboration/chat_mode.ts";
 import {resolveConversationScope} from "./collaboration/conversation_scope.ts";
 import {previewTeamPlan, planTeamTransaction, teamTransactionIdentity} from "./work_items/team_plan.ts";
 import {commitLocalTeamPlan} from "./work_items/team_plan_authority.ts";
 import {inspectLocalGoalAcceptance, commitLocalGoalAcceptance,
   commitLocalGoalAcceptanceVerification} from "./goals/acceptance_authority.ts";
+import {planLegacyHandoffMode} from "./coordination/handoff_mode_legacy_plan.ts";
 import {planHandoffMode} from "./coordination/handoff_mode_policy.ts";
 import {setLocalHandoffMode} from "./coordination/handoff_mode_runtime.ts";
 import {projectOwnershipObservation} from "./coordination/ownership_observation.ts";
@@ -120,6 +122,7 @@ import {
 } from "./turn_driver/delivery_continuity.ts";
 import { reduceTurnSettlementTransaction } from "./turn_driver/settlement.ts";
 import { evaluateHostTodoCompletion } from "./turn_driver/host_todo_completion.ts";
+import { projectReplanHistory } from "./work_items/replan_history.ts";
 import { projectReplanSemantics } from "./work_items/replan_semantics.ts";
 import {
   projectReplanSettlementContract,
@@ -539,6 +542,7 @@ export function createEffectRuntimeHandlers(
     ],
     ["coordination.runtime_shadow.rollback", rollbackCoordinationRuntimeShadow],
     ["coordination.local_authority.promote", promoteLocalCoordinationAuthority],
+    ["coordination.authority_archive.manage", manageLocalAuthorityArchive],
     ["coordination.local_authority.promotion_review", reviewLocalCoordinationAuthorityPromotion],
     ["coordination.local_authority.promotion_reviewed", executeReviewedCoordinationPromotion],
     ["coordination.local_authority.todo_continuation", continueLocalTodo],
@@ -551,6 +555,7 @@ export function createEffectRuntimeHandlers(
     ["coordination.local_authority.todo_update", updateLocalCoordinationTodo],
     ["coordination.local_authority.monitor_poll", pollLocalCoordinationMonitor],
     ["coordination.handoff_mode.plan", planHandoffMode],
+    ["coordination.handoff_mode.legacy_plan", planLegacyHandoffMode],
     ["coordination.local_authority.handoff_mode_set", setLocalHandoffMode],
     ["coordination.local_authority.todo_terminal", terminalLifecycleLocalCoordinationTodo],
     ["coordination.local_authority.todo_archive", archiveLocalCoordinationTodos],
@@ -681,6 +686,7 @@ export function createEffectRuntimeHandlers(
     ["collaboration.chat_mode", planChatMode],
     ["collaboration.conversation.scope", resolveConversationScope],
     ["collaboration.delegation.observe", transitionDelegationObservation],
+    ["collaboration.delegation.recover_validated_settlement", recoverValidatedDelegationSettlement],
     ["collaboration.delegation.adoption", recordDelegationAdoption],
     [
       "collaboration.request.normalize",
@@ -789,6 +795,7 @@ export function createEffectRuntimeHandlers(
     ["turn.host_todo_completion.evaluate", evaluateHostTodoCompletion],
     ["work_item.replan_settlement.project", projectReplanSettlementContract],
     ["work_item.replan_semantics.project", projectReplanSemantics],
+  ["work_item.replan_history.project", projectReplanHistory],
     [
       "work_item.replan_settlement.reentry",
       projectTodoLifecycleSettlementReentry,

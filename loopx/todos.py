@@ -1308,15 +1308,16 @@ def update_goal_todo(
         validation_failure = completion_validation_gate.get("failure")
         if validation_failure is not None:
             return validation_failure
+    write_class = "todo_claim" if claim_only else "todo_update"
     with legacy_todo_write_transaction(
-        registry_path, goal_id, resolved_state_file, agent_id or claimed_by, "todo_update", dry_run,
+        registry_path, goal_id, resolved_state_file, agent_id or claimed_by, write_class, dry_run,
         runtime_root=shadow_runtime_root,
     ), ExitStack() as handoff_gate_stack:
         original = resolved_state_file.read_text(encoding="utf-8")
         shadow_capture = begin_todo_runtime_shadow_capture(
             registry_path=registry_path, runtime_root=shadow_runtime_root,
             goal_id=goal_id, state_path=resolved_state_file,
-            write_class="todo_update", original_text=original,
+            write_class=write_class, original_text=original,
         )
         lines = original.splitlines()
         updated_at = now_local()
@@ -1507,7 +1508,6 @@ def update_goal_todo(
         if changed and not dry_run:
             write_captured_todo_state(shadow_capture, runtime_root=shadow_runtime_root, goal_id=goal_id,
                 state_path=resolved_state_file, text=new_text)
-    write_class = "todo_claim" if claim_only else "todo_update"
     payload = {
         "ok": True,
         "dry_run": dry_run,

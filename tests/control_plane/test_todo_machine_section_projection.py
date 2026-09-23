@@ -253,6 +253,104 @@ def test_projection_keeps_validation_revision_receipts_provider_only() -> None:
     assert replay.changed is False
 
 
+def test_projection_converges_stale_markdown_after_validator_revision() -> None:
+    old_declaration = {
+        "validation_command": None,
+        "validation_command_argv": [
+            "python",
+            "-m",
+            "pytest",
+            "-q",
+            "tests/test_goal_topic_runtime.py",
+        ],
+        "validation_label": "manager route reconciliation tests",
+        "validation_timeout_seconds": None,
+    }
+    new_declaration = {
+        **old_declaration,
+        "validation_command_argv": [
+            "python",
+            "-m",
+            "pytest",
+            "-q",
+            "tests/extensions/test_lark_goal_topic_runtime.py",
+        ],
+    }
+    record = deepcopy(_records()[0])
+    record.update(
+        completion_validation_required=True,
+        completion_validation_sha256=completion_validation_declaration_sha256(
+            old_declaration
+        ),
+    )
+    old_projection = render_canonical_todo_sections(
+        SOURCE,
+        [record],
+        provider_revision="validation-before-revision",
+        private_validation_declarations={"todo_agent": old_declaration},
+    )
+
+    record.update(
+        completion_validation_sha256=completion_validation_declaration_sha256(
+            new_declaration
+        ),
+        completion_validation_revision=1,
+    )
+    revised = render_canonical_todo_sections(
+        old_projection.markdown,
+        [record],
+        provider_revision="validation-after-revision",
+        private_validation_declarations={"todo_agent": new_declaration},
+    )
+
+    assert revised.changed is True
+    assert "tests%2Fextensions%2Ftest_lark_goal_topic_runtime.py" in revised.markdown
+    assert "tests%2Ftest_goal_topic_runtime.py" not in revised.markdown
+    replay = render_canonical_todo_sections(
+        revised.markdown,
+        [record],
+        provider_revision="validation-after-revision",
+    )
+    assert replay.changed is False
+
+
+def test_projection_rejects_divergent_sidecar_not_selected_by_authority() -> None:
+    authority_declaration = {
+        "validation_command": "python3 -c 'raise SystemExit(0)'",
+        "validation_command_argv": None,
+        "validation_label": "authority validator",
+        "validation_timeout_seconds": 5,
+    }
+    divergent_declaration = {
+        **authority_declaration,
+        "validation_command": "python3 -c 'raise SystemExit(1)'",
+    }
+    record = deepcopy(_records()[0])
+    record.update(
+        completion_validation_required=True,
+        completion_validation_sha256=completion_validation_declaration_sha256(
+            authority_declaration
+        ),
+    )
+    authority_projection = render_canonical_todo_sections(
+        SOURCE,
+        [record],
+        provider_revision="validation-authority",
+        private_validation_declarations={"todo_agent": authority_declaration},
+    )
+
+    with pytest.raises(
+        TodoSectionProjectionError,
+        match="divergent private validation declarations",
+    ):
+        render_canonical_todo_sections(
+            authority_projection.markdown,
+            [record],
+            provider_revision="validation-authority",
+            private_validation_declarations={"todo_agent": divergent_declaration},
+        )
+
+
 def test_projection_renders_native_archive_with_role_and_replays() -> None:
     source = SOURCE + "\n## Completed Work Archive\n\n- [x] stale archive\n"
     records = _records()
