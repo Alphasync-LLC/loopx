@@ -38,10 +38,6 @@ EXTERNAL_PROGRESS_REVIEW_UNEVALUATED_REASONS: tuple[str, ...] = (
     "other_revision",  # receipt bound to a revision that is not pinned
 )
 
-# Typed claims carried on the obligation so the outcome owner can refuse a
-# replay of any of them; bounded because the window is bounded by formation.
-EXTERNAL_PROGRESS_REVIEW_WINDOW_LIMIT = 32
-
 RunKey = tuple[str, str]
 AckRecorded = Callable[[dict[str, Any]], bool]
 Verdict = tuple[str, str | None]
@@ -279,8 +275,6 @@ def external_progress_review_trigger(
             baseline_run = run
         window_fingerprints.add(observation["fingerprint"])
         window.append(observation)
-        if len(window) >= EXTERNAL_PROGRESS_REVIEW_WINDOW_LIMIT:
-            break
     if baseline_run is None or not window:
         return None
     baseline = window[0]
@@ -368,7 +362,6 @@ __all__ = [
     "EXTERNAL_PROGRESS_REVIEW_TRIGGER_KIND",
     "EXTERNAL_PROGRESS_REVIEW_TRIGGER_SCHEMA_VERSION",
     "EXTERNAL_PROGRESS_REVIEW_UNEVALUATED_REASONS",
-    "EXTERNAL_PROGRESS_REVIEW_WINDOW_LIMIT",
     "external_progress_review_obligation",
     "external_progress_review_trigger",
     "index_progress_review_receipts",

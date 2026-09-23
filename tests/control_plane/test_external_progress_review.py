@@ -597,6 +597,41 @@ def test_external_review_discharge_refuses_renamed_identifiers_over_the_same_evi
     assert semantic_delta_from_writeback(obligation=fuse, progress_observation=renamed)["accepted"] is True
 
 
+def test_external_review_discharge_covers_every_claim_in_a_long_visible_window() -> None:
+    """Pending transitions must not push an old claim outside replay protection."""
+
+    runs = [run(number, turn=f"t{number}") for number in range(35, 0, -1)]
+    for number, row in enumerate(reversed(runs), start=1):
+        row["progress_observation"]["surface_id"] = "retry"
+        row["progress_observation"]["evidence_ids"] = [f"evidence-{number}"]
+    receipts = [receipt(2, turn="t2"), receipt(1, turn="t1")]
+    obligation = autonomous_replan_obligation_from_runs(
+        runs, agent_todos=None, external_progress_review=_context("assist", receipts)
+    )
+    assert obligation is not None and obligation["required"] is True
+    assert len(obligation["progress_window"]) == len(runs)
+    oldest = normalize_progress_observation(runs[-1]["progress_observation"])
+    refused = semantic_delta_from_writeback(
+        obligation=obligation, progress_observation=oldest
+    )
+    assert refused["accepted"] is False
+    assert refused["reason_code"] == "progress_observation_replayed"
+    pivot = semantic_delta_from_writeback(
+        obligation=obligation,
+        progress_observation={
+            **oldest,
+            "evidence_ids": ["evidence-not-in-window"],
+        },
+    )
+    assert pivot["accepted"] is True
+    assert "new_hypothesis" in pivot["satisfying_outcomes"]
+    kept = semantic_delta_from_writeback(
+        obligation=obligation, progress_observation=None, agent_vision=_vision()
+    )
+    assert kept["accepted"] is True
+    assert kept["satisfying_outcomes"] == ["fresh_vision_path_outcome"]
+
+
 def test_context_loader_reports_a_rebind_hint_when_the_newest_receipt_is_bound_elsewhere(tmp_path) -> None:
     from loopx.capabilities.progress_review.receipt import write_progress_review_receipt
 
