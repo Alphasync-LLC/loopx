@@ -472,7 +472,9 @@ def append_human_reward(
             exclusive_cross_runtime_file_lock(state_file_to_write, operation="reward_summary")
             if state_file_to_write is not None else nullcontext()
         )
-        with state_lock:
+        # Match refresh/history: index first, then the source state lock.
+        from .file_lock import exclusive_run_index_lock
+        with exclusive_run_index_lock(index_path, operation="reward_append"), state_lock:
             if state_file_to_write is not None:
                 original = state_file_to_write.read_text(encoding="utf-8")
                 planned, changed = insert_progress_ledger_entry(
