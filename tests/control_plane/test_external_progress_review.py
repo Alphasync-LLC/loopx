@@ -459,6 +459,22 @@ def test_typed_fuse_keeps_precedence_over_external_review() -> None:
     assert obligation["triggers"][0]["kind"] == "typed_progress_repeat"
 
 
+def test_external_review_precedes_periodic_review_only_in_assist() -> None:
+    runs = [run(sequence, turn=f"t{sequence}") for sequence in range(20, 0, -1)]
+    receipts = [receipt(2, turn="t2"), receipt(1, turn="t1")]
+    plain = autonomous_replan_obligation_from_runs(runs, agent_todos=None)
+    shadow = autonomous_replan_obligation_from_runs(
+        runs, agent_todos=None, external_progress_review=_context("shadow", receipts)
+    )
+    assisted = autonomous_replan_obligation_from_runs(
+        runs, agent_todos=None, external_progress_review=_context("assist", receipts)
+    )
+    assert plain is not None and plain["triggers"][0]["kind"] == "periodic_review_due"
+    assert shadow == plain
+    assert assisted is not None
+    assert assisted["triggers"][0]["kind"] == EXTERNAL_PROGRESS_REVIEW_TRIGGER_KIND
+
+
 def test_attach_surfaces_summary_and_binds_review_into_obligation() -> None:
     runs = [run(2, turn="t2"), run(1, turn="t1")]
     receipts = [receipt(2, turn="t2"), receipt(1, turn="t1")]

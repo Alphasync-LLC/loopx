@@ -79,6 +79,38 @@ test("delegated reassign cannot smuggle a copy edit or override exclusion/bindin
   }
 });
 
+test("delegated controller reopens a promoted legacy claim before its first lease", async () => {
+  const {store, request} = await seeded({status: "blocked", done: false, claimed_by: "agent-a"});
+  const head = await store.loadAuthority();
+  assert.equal(head.status, "loaded");
+  if (head.status !== "loaded") return;
+  await store.commitAuthority({operation_id: "promote-without-inventing-lease",
+    expected_provider_revision: head.provider_revision, events: [], receipts: [],
+    next_projection: {...head.head, handoff_mode: "hard_lease", leases: []}});
+  const edit = {...request, operation_id: "reviewed-reopen", actor_agent_id: "agent-b",
+    patch: {note: "Promotion resolved the stale blocker"}, clear_fields: [],
+    planning_intent: {status: "open", reason: "Canonical authority is promoted"},
+    authority_reason: "Reviewed controller recovery after promotion",
+    lifecycle_grants: [{agent_id: "agent-b", actions: ["update"], requires_reason: true}]};
+  assert.equal((await executeCoordinationTodoUpdate(store, edit)).status, "applied");
+  const after = await store.loadAuthority();
+  assert.equal(after.status, "loaded");
+  if (after.status !== "loaded") return;
+  const updated = (after.head.todos as Record<string, unknown>[])[0]!;
+  assert.equal(updated.status, "open");
+  assert.equal(updated.claimed_by, "agent-a");
+  assert.equal(updated.note, "Promotion resolved the stale blocker");
+  assert.deepEqual(after.head.leases, []);
+  await store.commitAuthority({operation_id: "worker-acquired-first-lease",
+    expected_provider_revision: after.provider_revision, events: [], receipts: [],
+    next_projection: {...after.head, leases: [{todo_id: "todo_a", owner: "agent-a",
+      status: "active", expires_at: "2026-09-06T00:00:00Z", idempotency_key: "execution-a",
+      version: 1, lease_epoch: 1, write_scopes: []}]}});
+  assert.equal((await executeCoordinationTodoUpdate(store, {...edit,
+    operation_id: "controller-cannot-cross-live-lease",
+    patch: {note: "Must not cross active execution"}})).reason_code, "lease_fence_required");
+});
+
 test("native planning edit commits nonterminal state and clears its wait atomically", async () => {
   const {store, request} = await seeded({task_class: "advancement_task"});
   const edit = {...request, patch: {text: "Old text"}, clear_fields: [], planning_intent: {

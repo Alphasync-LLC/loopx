@@ -30,6 +30,9 @@ from ..control_plane.quota.settlement import (
     read_heartbeat_settlement,
 )
 from ..control_plane.quota.turn_envelope import build_turn_envelope
+from ..control_plane.work_items.autonomous_replan_obligation import (
+    replan_obligation_id_from_packet,
+)
 from ..control_plane.runtime.status_projection_cache import (
     resolve_status_projection_cache_runtime_root,
 )
@@ -112,6 +115,7 @@ def handle_turn_command(
             args, registry_path=registry_path, runtime_root_arg=runtime_root_arg,
             output_format=output_format, print_payload=print_payload,
         )
+    payload: dict[str, Any] = {}
     try:
         if getattr(args, "todo_id", None) is not None and (
             getattr(args, "resume_turn_key", None)
@@ -170,6 +174,7 @@ def handle_turn_command(
             args.turn_command == "run-once"
             and args.host == "codex-cli"
             and not resume_requested
+            and not args.resume_turn_key
             and turn_envelope.get("effective_action") != EffectiveAction.GOVERNED_CAPABILITY_INTENT.value
         ):
             session_binding = codex_cli_session_binding(runtime_root, turn_envelope)
@@ -394,6 +399,16 @@ def handle_turn_command(
                 ensure_turn_heartbeat_settlement_receipt(
                     runtime_root,
                     settlement_identity,
+                    semantic_replan_guard_scoped=(
+                        "replan_action_packet" in envelope
+                    ),
+                    semantic_replan_obligation_id=(
+                        replan_obligation_id_from_packet(
+                            envelope.get("replan_action_packet")
+                        )
+                        if "replan_action_packet" in envelope
+                        else None
+                    ),
                 )
 
             def require_effect_ref(
@@ -1066,6 +1081,12 @@ def handle_turn_command(
         else:
             raise ValueError("turn requires the `plan` or `run-once` subcommand")
     except Exception as exc:  # noqa: BLE001 - CLI boundary renders typed JSON failure
+        planned_transaction = (
+            payload.get("transaction")
+            if isinstance(payload.get("transaction"), Mapping)
+            else {}
+        )
+        planned_turn_key = str(planned_transaction.get("turn_key") or "")
         payload = {
             **({"error_code": exc.code, **getattr(exc, "payload", {})} if isinstance(getattr(exc, "code", None), str) else {}),
             "ok": False,
@@ -1082,6 +1103,16 @@ def handle_turn_command(
                 "scheduler_acknowledged": False,
                 "quota_spent": False,
             },
+            **(
+                {
+                    "resume_turn_key": planned_turn_key,
+                    "journal_ref": (
+                        f"turn:{planned_turn_key.removeprefix('sha256:')[:16]}"
+                    ),
+                }
+                if args.turn_command == "run-once" and planned_turn_key
+                else {}
+            ),
             **(
                 {"recovery_decision": exc.decision}
                 if isinstance(exc, TurnRecoveryBlockedError)

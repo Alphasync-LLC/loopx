@@ -14,7 +14,8 @@ from ..configure_goal import configure_goal, render_configure_goal_markdown
 from ..control_plane.goals.configure_goal_service import (
     configure_goal_with_global_sync,
 )
-from ..file_lock import exclusive_file_lock, lock_timeout_error_fields
+from ..control_plane.projects.registry_codec import project_registry_transaction
+from ..file_lock import lock_timeout_error_fields
 from ..global_registry import sync_project_registry_to_global
 from ..history import load_registry
 from ..registry import registry_goals
@@ -24,7 +25,6 @@ from ..thread_agent_binding import (
     resolve_thread_agent_binding,
     unbind_thread_agent_in_registry,
 )
-from ..upgrade import build_upgrade_plan
 from .goal_lifecycle import (
     handle_goal_lifecycle_command,
     register_goal_lifecycle_command,
@@ -191,11 +191,7 @@ def register_agent_via_source_registry(
                 "registered_agents": merged_agents,
                 "changed": merged_agents != existing_agents,
                 "written": False,
-                "host_loop_activation": loop_activation_for_goal(
-                    registry_path=global_path,
-                    runtime_root_arg=runtime_root_arg,
-                    goal_id=goal_id,
-                ),
+                "host_loop_activation": unresolved_host_loop_activation(),
                 "global_registry_writability": global_writability,
                 "global_sync": {
                     "ok": False,
@@ -217,12 +213,24 @@ def register_agent_via_source_registry(
         "verified": False,
     }
     if execute:
-        with exclusive_file_lock(
+        with project_registry_transaction(
             source_registry_path,
             agent_id=requested_agents[0] if len(requested_agents) == 1 else None,
             operation="register_agent",
-        ):
-            source_goal = _registry_goal(source_registry_path, goal_id)
+        ) as registry_transaction:
+            source_goal = next(
+                (
+                    item
+                    for item in registry_goals(registry_transaction.payload_copy())
+                    if item.get("id") == goal_id
+                ),
+                None,
+            )
+            if source_goal is None:
+                raise ValueError(
+                    f"{goal_id}: registry does not contain the goal: "
+                    f"{source_registry_path}"
+                )
             existing_agents = _goal_registered_agents(source_goal)
             collisions = [
                 agent_id for agent_id in requested_agents if agent_id in existing_agents
@@ -247,6 +255,7 @@ def register_agent_via_source_registry(
                 registered_agents=merged_agents,
                 agent_model="peer_v1",
                 execute=True,
+                _registry_transaction=registry_transaction,
             )
             if configure_payload.get("written"):
                 sync_payload = sync_project_registry_to_global(
@@ -305,60 +314,20 @@ def register_agent_via_source_registry(
         "global_sync": sync_payload or {"enabled": bool(execute), "wrote": False},
         "registration_readback": readback_payload,
     }
-    result["host_loop_activation"] = loop_activation_for_goal(
-        registry_path=global_path,
-        runtime_root_arg=runtime_root_arg,
-        goal_id=goal_id,
-    )
+    result["host_loop_activation"] = unresolved_host_loop_activation()
     return result
 
 
-def loop_activation_for_goal(
-    *,
-    registry_path: Path,
-    runtime_root_arg: str | None,
-    goal_id: str,
-) -> dict[str, object]:
-    try:
-        plan = build_upgrade_plan(
-            registry_path=registry_path,
-            runtime_root_override=runtime_root_arg,
-            goal_ids=[goal_id],
-        )
-        goals = plan.get("managed_heartbeats") if isinstance(plan.get("managed_heartbeats"), list) else []
-        if not goals:
-            return {
-                "schema_version": "loopx_host_loop_activation_v0",
-                "host_surface": "codex_app_heartbeat",
-                "status": "unavailable",
-                "activated": False,
-                "recommended_action": (
-                    "run loopx upgrade-plan for this goal; do not claim setup complete until "
-                    "host_loop_activation.activated=true or a concrete host-tool gate is reported"
-                ),
-            }
-        activation = goals[0].get("host_loop_activation")
-        if isinstance(activation, dict):
-            return activation
-    except Exception as exc:
-        return {
-            "schema_version": "loopx_host_loop_activation_v0",
-            "host_surface": "codex_app_heartbeat",
-            "status": "error",
-            "activated": False,
-            "error": str(exc),
-            "recommended_action": (
-                "repair the host-loop activation check; do not claim setup complete until "
-                "host_loop_activation.activated=true or a concrete host-tool gate is reported"
-            ),
-        }
+def unresolved_host_loop_activation() -> dict[str, object]:
     return {
         "schema_version": "loopx_host_loop_activation_v0",
-        "host_surface": "codex_app_heartbeat",
-        "status": "unknown",
+        "host_surface": "unresolved",
+        "status": "selection_required",
         "activated": False,
         "recommended_action": (
-            "create or update the Codex App heartbeat automation from loopx heartbeat-prompt"
+            "run `loopx agent-onboard --list-agent-types`, then rerun onboarding "
+            "with the exact agent type; do not claim setup complete until the "
+            "host-specific activation is proven or a concrete host-tool gate is reported"
         ),
     }
 
@@ -578,11 +547,7 @@ def handle_registry_admin_command(
                 execute=bool(args.execute),
             )
             if payload.get("ok"):
-                payload["host_loop_activation"] = loop_activation_for_goal(
-                    registry_path=registry_path,
-                    runtime_root_arg=args.runtime_root,
-                    goal_id=args.goal_id,
-                )
+                payload["host_loop_activation"] = unresolved_host_loop_activation()
         except Exception as exc:
             payload = {
                 "ok": False,

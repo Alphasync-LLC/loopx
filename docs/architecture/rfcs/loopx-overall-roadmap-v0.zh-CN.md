@@ -228,6 +228,7 @@ Muse 设计页在浏览器超时，其文章通过网页检索读取。本次调
 | [Provider-Neutral Post-Writeback Capability Hooks v0](provider-neutral-post-writeback-capability-hooks-v0.zh-CN.md) | S3/S8 | Draft；periodic-report 首个 vertical 已实现 | P1：R3 返回/后继复用 durable intent；hook 失败隔离，不能加入主事务或直接执行 effect |
 | [Agent IM, LoopX, And OpenViking Collaboration v0](agent-im-openviking-collaboration-v0.md) | S3/S6/S8 | Draft；三 owner 集成仍待资格 | P1/P2：IM 投递、LoopX work authority、OV context 分离；断线重放/权限撤销/来源失效 |
 | [外部证据研究能力 v0](external-evidence-research-capability-v0.zh-CN.md) | S8/S11 | Draft；已实现类型化 Core plan/admission/retirement 与 CLI 切片 | P1：用同一 provenance 回执分别验收一个 host-method 与一个 connector 的真实执行，再补 frontend/Lark 同源投影 |
+| [自动执行准入 v0](automatic-execution-admission-v0.zh-CN.md) | S7/S2/S4 | Draft；本地候选，宿主未推广 | P0：App 调度建议下限优先；M2 原子启动/hook 验收，M3 设置验收 |
 | [Per-Goal Usage, Token, and Cost Surfacing v0](goal-usage-token-cost-v0.md) | S7/S5 | Draft；Codex aggregate/cost 展示已有切片 | P0 观测→P1 多 provider：未知不作零、重复扣费去重、价格来源/时效；usage 不自动授权预算 |
 | [Intelligent Review and Dynamic Presentation Surfaces v0](intelligent-review-presentation-surfaces-v0.zh-CN.md) | S5 | Draft；action/attention 纵切及本地交付链/验收复盘已实现 | P1：跨渠道披露和受治理的修订/结算复盘；本地可见性不代表 G2 通过 |
 | [Human Attention Wishlist v0](human-attention-wishlist-v0.zh-CN.md) | S5/S11 | Draft；Held | P3：第二个重复真实需求出现才重开；sidecar 不改变 gate/quota/调度 |
@@ -433,6 +434,12 @@ L3 检查点：独立领取/接管、原子 claim 准入与维护共用 typed le
 - **交付：** 用已选本地 profile 验证完整来源读取、单向 Markdown 投影、event/receipt 保留、重启恢复、容量与长期成本；source 失败不能回退 legacy。R1 不能把大计划正文塞入 coordination head。
 - **退出：** 相关真实 CLI/backend、不可变 baseline 与候选对照、负例/mutation、三臂演练及适用 D2 至少十日 soak；D3 切换保留明确批准。此次审计没有执行新的 soak，也未晋升 provider。
 - **回滚：** 按已审阅的 fenced export/import 和 schema-aware downgrade，不能靠替换二进制恢复旧写权威。
+
+[Goal instance/recovery 提案](goal-instance-identity-and-orphan-recovery-v0.zh-CN.md)
+为 R2/R3 retirement 和迟到结果安全提供有界 R5 依赖。M0 codec 已交付，lifetime
+admission、commit fence 和 recovery 尚未交付。复用 TS transaction 与既有 provider
+owner，先资格化本地路径；R6 service identity、D1–D3 promotion 独立验收。本检查点
+不激活 identity，也不要求所有 R1–R4 改动等待完整 lifecycle。
 
 ### R6：本地与云端汇合
 
