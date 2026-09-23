@@ -244,6 +244,27 @@ def test_same_sequence_off_sees_nothing_and_assist_raises_the_obligation(sequenc
                 dry_run=False,
                 sync_global=False,
             )
+    # Renaming the hypothesis over the evaluated evidence ids is exactly the
+    # pattern the review found; the external-review outcome policy refuses it.
+    time.sleep(1.05)
+    with pytest.raises(ValueError, match="evidence ids absent from the evaluated baseline"):
+        refresh_state_run(
+            registry_path=registry,
+            runtime_root_override=str(runtime),
+            goal_id=GOAL_ID,
+            project=project,
+            state_file=None,
+            classification="state_refreshed",
+            recommended_action="Rename the hypothesis.",
+            delivery_batch_scale="single_surface",
+            delivery_outcome="surface_only",
+            agent_id=AGENT_ID,
+            autonomous_replan_recorded=True,
+            repair_delta_kinds=["blocker"],
+            progress_observation={"schema_version": "typed_progress_observation_v0", "result_class": "advanced", "surface_id": "retry", "hypothesis_id": "hypothesis-renamed", "evidence_ids": ["evidence-2"]},
+            dry_run=False,
+            sync_global=False,
+        )
     runs = _newest_first_runs(runtime)
     assist = external_progress_review_context(_goal(registry), runtime)
     still_open = autonomous_replan_obligation_from_runs(runs, agent_todos=None, external_progress_review=assist)
@@ -303,3 +324,104 @@ def test_on_goal_receipts_never_raise_an_obligation_in_assist(sequence):
     context = external_progress_review_context(_goal(registry), runtime)
     assert context is not None and context["summary"]["drift_counts"] == {"noul": 0, "choice": 0}
     assert autonomous_replan_obligation_from_runs(runs, agent_todos=None, external_progress_review=context) is None
+
+
+def _refresh(project, runtime, registry, **overrides):
+    options = dict(
+        registry_path=registry,
+        runtime_root_override=str(runtime),
+        goal_id=GOAL_ID,
+        project=project,
+        state_file=None,
+        classification="state_refreshed",
+        recommended_action="Continue the retry slice.",
+        delivery_batch_scale="single_surface",
+        delivery_outcome="surface_only",
+        agent_id=AGENT_ID,
+        dry_run=False,
+        sync_global=False,
+    )
+    options.update(overrides)
+    return refresh_state_run(**options)
+
+
+def test_outstanding_evaluations_keep_the_obligation_and_an_evidence_linked_vision_discharges_it(sequence):
+    """Formation needs verdicts; persistence does not. Only evidence ends it."""
+
+    project, runtime, registry, work, config, state, env, revision = sequence
+    # The Agent already holds a vision before any drift, as a real Goal would.
+    _refresh(project, runtime, registry, recommended_action="Start the retry slice.", agent_vision_packet={
+        "vision_patch": {"acceptance_summary": "deliver() retries one transient TimeoutError", "replan_trigger_summary": "No behaviour change on retry.py"},
+    })
+    for number in (1, 2):
+        _cosmetic_round(work, config, state, env, registry, runtime, project, number)
+    _drain_with_drift(state, config)
+    # A third transition is captured while the policy is still off, so no guard
+    # applies and its evaluation is outstanding when the owner turns assist on.
+    _cosmetic_round(work, config, state, env, registry, runtime, project, 3)
+    configure_goal(
+        registry_path=registry, goal_id=GOAL_ID, progress_review_mode="assist",
+        progress_review_drift_threshold=2, progress_review_contract_revision=revision, execute=True,
+    )
+    runs = _newest_first_runs(runtime)
+    assist = external_progress_review_context(_goal(registry), runtime)
+    assert assist is not None and assist["summary"]["pending_receipts"] == 1
+    open_obligation = autonomous_replan_obligation_from_runs(runs, agent_todos=None, external_progress_review=assist)
+    assert open_obligation is not None
+    review = open_obligation["external_progress_review"]
+    assert review["run_count"] == 2 and review["unevaluated_transitions"]["by_reason"] == {"pending": 1}
+    # The baseline is the newest typed claim, the still-pending third round.
+    assert open_obligation["progress_baseline"]["hypothesis_id"] == "hypothesis-3"
+    # The writeback owner sees the same obligation: re-submitting the pending
+    # claim, or renaming its hypothesis over its evidence ids, is refused.
+    for observation, message in (
+        ({"hypothesis_id": "hypothesis-3", "evidence_ids": ["evidence-3"]}, "typed semantic delta"),
+        ({"hypothesis_id": "hypothesis-4", "evidence_ids": ["evidence-3"]}, "evidence ids absent from the evaluated baseline"),
+    ):
+        time.sleep(1.05)
+        with pytest.raises(ValueError, match=message):
+            _refresh(project, runtime, registry, autonomous_replan_recorded=True, repair_delta_kinds=["blocker"], progress_observation={
+                "schema_version": "typed_progress_observation_v0", "result_class": "advanced", "surface_id": "retry", **observation,
+            })
+    # The outstanding evaluation fails closed: still no verdict, still open.
+    calls = {"n": 0}
+
+    def failing(request, config_, key):
+        calls["n"] += 1
+        return {"response": {"model": request["model"], "answers": {}}}
+
+    drift.drain(state, config, transport=failing, credential=lambda: "fixture")
+    assert calls["n"] == 1
+    runs = _newest_first_runs(runtime)
+    assist = external_progress_review_context(_goal(registry), runtime)
+    assert assist is not None and assist["summary"]["status_counts"].get("failed") == 1
+    still_open = autonomous_replan_obligation_from_runs(runs, agent_todos=None, external_progress_review=assist)
+    assert still_open is not None
+    assert still_open["external_progress_review"]["unevaluated_transitions"]["by_reason"] == {"failed": 1}
+    # Reviewing and keeping the plan on evidence is a legal exit: the fresh
+    # evidence-linked vision path discharges the obligation and re-arms it.
+    time.sleep(1.05)
+    kept = _refresh(project, runtime, registry, autonomous_replan_recorded=True, repair_delta_kinds=["blocker"],
+        recommended_action="Keep the retry slice; implement the TimeoutError retry next.",
+        agent_vision_packet={
+            "agent_id": AGENT_ID,
+            "state": "active",
+            # `continue` keeps the acceptance as seeded; changing it would be a
+            # durable replan and the vision prepare gate demands `outcome=replan`.
+            "vision_patch": {"acceptance_summary": "deliver() retries one transient TimeoutError"},
+            "path_delta": {
+                "schema_version": "goal_path_delta_v0",
+                "outcome": "continue",
+                "prior_assumption": "Renaming the delay constant prepared the retry slice.",
+                "observed_reality": "The evaluated deltas changed no behaviour; the retry branch is still missing.",
+                "retained": ["retry.py stays the surface; the next slice adds the retry branch."],
+                "evidence_refs": ["evidence:progress-review-vision-continue"],
+            },
+        })
+    assert kept.get("ok") is True
+    runs = _newest_first_runs(runtime)
+    ack = runs[0].get("autonomous_replan_ack") or {}
+    assert ack.get("recorded") is True
+    assert ack["semantic_delta"]["satisfying_outcomes"] == ["fresh_vision_path_outcome"]
+    assist = external_progress_review_context(_goal(registry), runtime)
+    assert autonomous_replan_obligation_from_runs(runs, agent_todos=None, external_progress_review=assist) is None
