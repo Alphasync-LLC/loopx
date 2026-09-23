@@ -139,13 +139,12 @@ changes.
 - [Goal Instance Identity and Orphan Recovery v0](goal-instance-identity-and-orphan-recovery-v0.md)
   ([中文版](goal-instance-identity-and-orphan-recovery-v0.zh-CN.md))
   - **RFC status:** Draft.
-  - **Delivery on `main`:** Proposal only; the orphaned-state bootstrap fence
-    is already shipped separately.
-  - **Current boundary:** Proposes source-registry-owned lifetime identity,
-    a strict registry envelope that mechanically excludes old writers, exact
-    binding validation, and preview-first orphan recovery. No instance minting,
-    registry activation, binding enforcement, or resolution mutation has
-    shipped.
+  - **Delivery on `main`:** Identity/recovery proposal; the guided orphan fence
+    and M0 registry codec shipped separately in #4808 and #4917.
+  - **Current boundary:** Defines R5 lifetime fencing for R2/R3 consumers,
+    incompatible activation beyond codec-only v1, typed commit/recovery ownership,
+    exact legacy cleanup and product readback. Instance minting, activation and
+    resolution remain unshipped; R6 and D1–D3 keep their own qualification gates.
 
 ## Planning, Research, And Adaptive Intelligence
 

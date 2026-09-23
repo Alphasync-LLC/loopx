@@ -1,11 +1,11 @@
 # Goal Instance Identity and Orphan Recovery (v0)
 
 - **RFC status:** Draft
-- **Delivery maturity:** Proposal
+- **Delivery maturity:** Identity/recovery proposal; codec prerequisite shipped in #4917
 - **Authors / owners:** LoopX contributors
 - **Created:** 2026-09-23
 - **Last normative revision:** 2026-09-23
-- **Implementation baseline:** `d3dc4083c9c73911addeae8c0643640f0046874b`
+- **Implementation baseline:** `23edcb19c70394480e3a9ebe8a960f5a320c5342`
 - **Related contracts:** [Issue #4801](https://github.com/loopx-project/loopx/issues/4801), [orphan fence slice #4808](https://github.com/loopx-project/loopx/pull/4808)
 - **Language mirror:** [Chinese semantic mirror](goal-instance-identity-and-orphan-recovery-v0.zh-CN.md)
 
@@ -30,16 +30,15 @@ This RFC makes five linked decisions:
 2. Every durable host, session, channel, automation, Turn, and quota binding
    carries the exact pair. The source project registry, not a global
    projection or a binding store, authorizes execution.
-3. Instance identity is enabled only in a strict project-registry envelope
-   that released legacy binaries cannot decode as a registry. This is the
-   mechanical mixed-writer gate.
+3. Instance identity needs an incompatible activation format plus commit-time
+   fencing. The shipped M0 codec is not an identity-enforcement protocol;
+   rejecting one old decoder alone does not exclude every old effect path.
 4. Orphan recovery is one preview-first, journaled lifecycle operation with
    explicit per-candidate `adopt`, `migrate`, `archive`, or `delete`
    dispositions. It never guesses or merges.
-5. Legacy registries and bindings remain inspectable and migratable. In the
-   final enforcement release they are read-only: they cannot activate a host,
-   resume a session, deliver a channel event, wake automation, mutate Goal
-   state, or spend quota.
+5. Activation is explicit and registry-wide. Within an activated registry,
+   unstamped bindings are read-only. Non-activated projects retain their legacy
+   behavior and have no ABA guarantee; a fleet-wide default change is separate.
 
 The existing state-file locations, host-specific runtime directory layouts,
 provider revision domains, leases, and global registry role do not become new
@@ -68,8 +67,8 @@ delete-and-recreate.
 No individual host or session store can solve this locally. If a host invents
 identity, it becomes a second Goal authority. If deletion synchronously knows
 every provider, it becomes a cross-owner distributed cleanup transaction.
-LoopX instead needs one authority-bearing identity and a final source-registry
-check at every effect boundary.
+LoopX needs one source-owned lifetime identity, with admission and commit fenced
+against retirement. An identity match is necessary, not an authorization grant.
 
 ### Invariants
 
@@ -82,13 +81,15 @@ check at every effect boundary.
 4. A stale, missing, malformed, or legacy binding cannot authorize execution
    for an instance-aware Goal.
 5. A stale global projection may route a lookup but cannot authorize a write.
-6. An incomplete orphan-resolution journal blocks every Goal activation and
-   mutation, including after a project Goal record has been published.
+6. Before source safety is complete, a resolution journal blocks ordinary
+   activation/mutation of that Goal, including after registry publication. Exact
+   recovery remains available; completed-source projection retry is separate.
 7. Resolution leaves exactly one selected writable state authority or leaves
    the Goal absent with no writable candidate.
 8. Destructive resolution requires a verified targeted backup, exact plan
    digest, explicit Goal confirmation, and post-write readback.
-9. Crash retry reuses the prepared instance ID and provider idempotency keys.
+9. Crash retry reuses prepared identity and owner idempotency keys; every plan,
+   including archive/delete-only plans, journals before its first mutation.
 10. A released old writer cannot silently open or rewrite an instance-aware
     project registry.
 
@@ -119,49 +120,72 @@ check at every effect boundary.
   semantics beyond binding them to a Goal instance.
 - Allowing an old binary to downgrade or edit a strict registry.
 
+### Roadmap placement and contract cooperation
+
+The [overall roadmap](loopx-overall-roadmap-v0.md) measures accepted outcomes,
+human attention and recovery. This RFC contributes a bounded R5 lifetime fence
+that R2/R3 can consume; it does not complete R1–R7 or promote a provider.
+
+| Existing owner / contract | Contribution and boundary |
+| --- | --- |
+| [TS convergence](typescript-control-plane-migration-v0.md), R5 | Put match, admission, retirement and recovery transitions in the typed kernel; keep Python codec, filesystem and host adapters. Do not add a second Python policy engine or per-field RPCs. |
+| [Shared authority](shared-goal-authority-state-provider-v0.md), D1–D3 / R6 | Bind the existing head, operation receipts and authorization projection to lifetime. Provider incarnation, revision, lease epoch and Goal instance remain different domains; no default cutover or new store. |
+| [Shared alignment](shared-goal-alignment-and-governed-amendment-v0.md), R4 | Identity is not intent, permission or work revision. Preserve `intent_basis` source-facts semantics; amendments remain with their existing owner. |
+| [Semantic handoff](capable-manager-semantic-handoff-v0.md), [collaboration](agent-im-openviking-collaboration-v0.md), R2/R3 | Bind request, adoption, result and original-conversation return to the instance. Late A results cannot settle B; transport success and registration do not prove acceptance. |
+| [Single-owner daemon](single-owner-local-daemon-v0.md) | Reuse profile quiescence and actual executor drain; a PID, package version or stopped heartbeat is not proof that old writers cannot return. Daemon identity grants no Goal authority. |
+
+[#4808](https://github.com/loopx-project/loopx/pull/4808) owns the shipped guided
+fence; [#4912](https://github.com/loopx-project/loopx/pull/4912) proposes diagnosis;
+[#4915](https://github.com/loopx-project/loopx/pull/4915) proposes host-neutral
+paths. Reuse those owners without treating open PRs as shipped. Canonical Todos
+own execution status; this document owns acceptance and dependency boundaries.
+
 ## 4. Current-system contract
 
-These are implementation facts at the named baseline, not proposed behavior:
+At the named main baseline, [#4917](https://github.com/loopx-project/loopx/pull/4917)
+has shipped `control_plane/projects/registry_codec.py`, format-preserving
+transactions and a production I/O census. It reads legacy objects and strict
+`loopx_project_registry_envelope_v1` arrays and accepts writer protocol
+`goal_instance_v1`. It does **not** mint, compare or enforce Goal instances.
+Therefore a codec-capable but identity-unaware binary is part of the old-writer
+population; the original object-root-only argument is insufficient.
 
-- `loopx/bootstrap.py` builds and merges Goal records by `id`. A forced merge
-  may replace the full Goal record.
-- `loopx/registry.py` and `loopx/history.py` accept any JSON object as a
-  registry. They do not reject an unknown `schema_version`.
-- The project registry is normally `.loopx/registry.json`; global registry
-  entries carry `source_registry` and are synchronized projections.
-- `loopx/control_plane/goals/orphaned_goal_state.py` discovers current and
-  legacy state candidates and supplies the #4808 read-side bootstrap fence.
-- `loopx/state_backup.py` owns the existing backup format and verification
-  mechanics.
-- Goal deletion and host/session/channel data have separate owners. Deleting a
-  registry Goal does not prove every attachment was physically removed.
-- Current Goal attachments generally bind by `goal_id`, path, session ID, or a
-  store-specific revision. None identifies one same-name Goal lifetime.
-- The current registry loader's permissive object decoding means an additive
-  capability field or warning cannot stop a released old binary from writing.
+The project registry owns configuration and source identity; the global registry
+is a host-local route projection. Canonical coordination already has typed TS
+transaction owners, independent provider incarnations and receipts.
+`coordination/authority_source.ts` and `authority_source_capture.py` witness
+registry facts, explicitly without a transaction spanning registry and provider.
+Their digest recheck must not be advertised as retirement serialization.
 
-This RFC therefore treats mixed-writer exclusion as a storage-format
-requirement, not a diagnostic recommendation.
+`orphaned_goal_state.py` discovers current/legacy candidates and fences guided
+bootstrap. `state_backup.py` owns backup/verification. Bootstrap updates, Goal
+deletion, sessions, channels and quota remain distinct callers. Their current
+alias/revision bindings do not prove lifetime continuity. No instance activation
+or orphan mutation command described below has shipped at this baseline.
 
 ## 5. Proposed architecture
 
 ### 5.1 Ownership and authority
 
-The source project registry owns Goal identity. It mints a
-`goal_instance_id` only while holding the existing registry mutation lock and
-only when it commits a fresh Goal record. The global registry copies that
-identity and remains a routing projection.
+Placement: existing Goal/project lifecycle in the built-in control plane; no
+new public capability id, provider id or extension distribution. File, SQLite
+and PostgreSQL keep their existing provider contracts and qualification gates.
 
-`loopx/control_plane/goals/identity.py` owns pure parsing and comparison. It
-cannot mint or persist an ID. Current storage owners persist and validate their
-own bindings. `orphaned_goal_state.py` remains read-only discovery and fence
-logic. The new
-`loopx/control_plane/goals/orphaned_goal_state_resolution.py` owns resolution
-policy, journaling, recovery, and receipts while delegating file backup,
-registry mutation, and owner-local cleanup to existing owners.
+The source authority alone allocates and publishes `goal_instance_id`. A prepared
+resolution may reserve one ID durably; it has no execution authority until the
+lifecycle commit. The global registry only copies it. Pure match and lifecycle
+transitions belong in the nearest typed TS Goal boundary, consuming source facts
+through one coarse transaction. Python adapts CLI, codec, filesystem, backup and
+host effects, and executes typed plans without duplicating transition rules.
 
-No binding record, host state, timestamp, state-file path, or global registry
-entry may create, infer, repair, or override Goal identity.
+The project registry remains the local source of identity. For a future R6
+service profile, its versioned authorization projection and instance are admitted
+by the authenticated authority service. Remote workers do not open a laptop's
+path, allocate from a local clone or use a global projection as authority. Until
+that path is qualified, instance enforcement is explicitly local-profile only.
+
+No binding, path, timestamp or content hash may infer identity. Existing grant,
+claim, lease, quota, stop and intent checks still apply after an exact match.
 
 ### 5.2 Goal identity model
 
@@ -169,40 +193,12 @@ entry may create, infer, repair, or override Goal identity.
 canonical form is `ginst_` followed by 32 lowercase hexadecimal characters,
 providing 128 random bits.
 
-```python
-from dataclasses import dataclass
-from typing import Literal, NewType
-
-GoalId = NewType("GoalId", str)
-GoalInstanceId = NewType("GoalInstanceId", str)
-
-
-@dataclass(frozen=True, slots=True)
-class GoalRef:
-    goal_id: GoalId
-    goal_instance_id: GoalInstanceId
-
-
-@dataclass(frozen=True, slots=True)
-class LegacyGoalRef:
-    goal_id: GoalId
-
-
-RegisteredGoalRef = GoalRef | LegacyGoalRef
-
-
-@dataclass(frozen=True, slots=True)
-class BindingMatch:
-    decision: Literal[
-        "current",
-        "legacy_read_only",
-        "missing_goal_instance_id",
-        "goal_instance_mismatch",
-        "goal_not_registered",
-        "resolution_in_progress",
-        "invalid",
-    ]
-```
+The typed contract distinguishes `GoalRef { goal_id, goal_instance_id }` from
+`LegacyGoalRef { goal_id }`. `BindingMatch` is an exhaustive result with
+`current`, `legacy_read_only`, `missing_goal_instance_id`,
+`goal_instance_mismatch`, `goal_not_registered`, `resolution_in_progress`, and
+`invalid` variants. These are kernel decisions; generated/decoded Python
+representations are wire adapters, not a second matching implementation.
 
 An instance-aware Goal record contains:
 
@@ -232,18 +228,18 @@ The matching matrix is exhaustive:
 
 | Registry state | Binding state | Read-only inspection | Execution or mutation |
 | --- | --- | ---: | ---: |
-| Exact instance | Exact same instance | allow | allow after final source check |
+| Exact instance | Exact same instance | allow | allow under commit fence and existing grants |
 | Exact instance | Missing instance | allow with finding | reject |
 | Exact instance | Different instance | allow with finding | reject |
-| Legacy Goal | Legacy binding | allow with finding | reject in enforcement release |
+| Legacy Goal | Legacy binding | allow with finding | reject in activated registry |
 | Legacy Goal | Instance binding | allow with finding | reject |
 | Goal absent | Any binding | allow as historical | reject |
-| Resolution incomplete | Any binding | allow with finding | reject |
+| Resolution source safety incomplete | Any binding | allow with finding | reject ordinary execution; exact recovery only |
 | Invalid record | Any | fail closed | reject |
 
-An earlier observation release may report legacy execution without blocking it,
-but it cannot claim the ABA invariant. The enforcement release has no
-`legacy_compatible` execution branch.
+Observation and non-activated projects retain legacy execution without an ABA
+guarantee. An activated project has no `legacy_compatible` execution branch.
+The exact-match row also requires active lifecycle state and existing grants.
 
 ### 5.3 Identity independence
 
@@ -264,142 +260,105 @@ The following revision domains remain independent:
 
 `--force` cannot replace an instance ID. Imports into a new project authority
 mint a new identity rather than copying an identity owned by another registry.
+Restoring an authority into a replacement deployment follows the existing
+incarnation/restore contract; copying a registry backup must not resurrect stale
+writers or create a second writable authority.
 
-### 5.4 Strict registry envelope and mixed-writer gate
+### 5.4 Activation format and mixed-writer gate
 
-Instance identity is activated per project registry, not per Goal. The
-activated registry keeps the same path but changes from the legacy JSON-object
-root to a strict two-element JSON-array envelope:
+Identity activates per project registry, not per Goal. Reuse the M0 codec and
+I/O census; do not build another registry loader. M0's v1 format/protocol remains
+codec-only. Proposed activation uses an incompatible header schema
+`loopx_project_registry_envelope_v2` and `minimum_writer_protocol: goal_instance_v2`
+with the existing two-element `[header, payload]` shape and payload digest.
+The final identifiers require the M2 compatibility matrix before release.
 
-```json
-[
-  {
-    "schema_version": "loopx_project_registry_envelope_v1",
-    "minimum_writer_protocol": "goal_instance_v1",
-    "payload_sha256": "sha256:..."
-  },
-  {
-    "schema_version": "0.1",
-    "goals": []
-  }
-]
-```
-
-This shape is intentionally incompatible with released legacy loaders, which
-require the JSON root to be an object. They fail before selecting a Goal or
-performing a registry-backed mutation. An additive object field is forbidden
-because old code would ignore it.
-
-New code opens both formats through one registry codec:
-
-```python
-@dataclass(frozen=True, slots=True)
-class OpenedProjectRegistry:
-    format: Literal["legacy_object_v0", "strict_envelope_v1"]
-    payload: dict[str, object]
-    writer_protocol: str | None
-    payload_sha256: str
-
-
-def open_project_registry(path: Path) -> OpenedProjectRegistry: ...
-
-
-def mutate_project_registry(
-    path: Path,
-    operation: str,
-    reducer: Callable[[OpenedProjectRegistry], ProjectRegistryMutation],
-) -> ProjectRegistryReceipt: ...
-```
-
-The transaction API preserves the envelope, validates the payload digest, and
-owns atomic writeback. Direct project-registry writes are forbidden after M0.
-A repository check maintains an exhaustive list of project-registry writers
-and fails when a new bypass appears.
-
-Activation is preview-first and registry-wide:
+Changing only the minimum writer string is insufficient: M0 readers can decode
+an unknown writer protocol, and a state mutation may never rewrite the registry.
+The new schema must reject identity-unaware **read-to-effect** paths as well as
+registry writes. Old global-object routes and already-loaded processes need
+separate exclusion; no header can retrospectively constrain cached code.
 
 ```console
 loopx activate-goal-instance-identity --project . --format json
-
-loopx activate-goal-instance-identity \
-  --project . \
-  --execute \
-  --plan-revision sha256:31ab... \
-  --confirm-registry-path .loopx/registry.json
+loopx activate-goal-instance-identity --project . --execute \
+  --plan-revision sha256:31ab... --confirm-registry-path .loopx/registry.json
 ```
 
-The apply operation requires:
+Activation must:
 
-1. no active host, session, automation, or Goal mutation lease for any Goal in
-   the registry;
-2. a verified backup of the legacy object and affected local bindings;
-3. all installed first-party hosts to advertise `goal_instance_v1`;
-4. every current Goal to receive one freshly minted instance ID in the same
-   atomic envelope write;
-5. all legacy bindings to become non-executable until explicitly re-created;
-6. readback through the new codec and a black-box rejection check against the
-   oldest supported released writer.
+1. Stop new admissions and durably quiesce all Goals in the registry through
+   existing lifecycle/host owners; drain or explicitly reconcile admitted effects.
+   Inventory direct CLI, attached/managed hosts, global routes, automation and
+   provider writers. A disconnected or unaccounted writer blocks activation.
+2. Verify a targeted backup, host protocol support and the exact preview digest.
+   A capability advertisement is evidence to inspect, not write authority.
+3. Prepare a durable activation journal and one ID per current Goal, then publish
+   the incompatible envelope atomically under the registry transaction. The
+   same IDs survive retry; no ID is minted in ordinary M0/M1 execution.
+4. Bind owner state through explicit reviewed migration/reconnection. Missing
+   stamps never inherit authority by alias. Reopen admission only after required
+   commit fences and readbacks are installed; pending projection delivery alone
+   must not authorize or duplicate effects.
 
-A newly created empty project may start directly with the strict envelope. An
-existing legacy registry cannot mint any instance ID until registry-wide
-activation succeeds. `adopt` or `migrate` on an orphan may activate an empty
-legacy registry in the same prepared transaction. If other legacy Goals exist,
-the operation blocks and requires registry-wide activation first.
+Before publication, abort leaves the legacy object. After publication, only
+forward repair is legal; never unwrap for an old writer. Fresh projects may
+opt into the complete profile. Installation or codec availability does not
+activate it. Fleet-wide legacy shutdown is a separate release decision.
 
-The global registry remains an object projection because it is not an
-execution authority. Old global writers can at worst make the projection stale;
-all executable paths re-read the strict source registry. Status reports the
-stale projection and a current writer repairs it.
+Test all compatibility classes: object-only packages, codec-only M0/M1 packages,
+and enforcement packages; test direct source and global routes, warm processes,
+state writes, resume, quota and delivery. Require unchanged business state and
+receipts on rejection, not only unchanged registry bytes. Local drain plus
+unsupported source decoding must be proved for the supported package range;
+where an old route bypasses both, activation remains unavailable until an
+existing owner can mechanically exclude it. Same-principal deliberate filesystem
+tampering is outside this mixed-version safety model.
 
-Deleting the strict registry file, extracting its payload into a legacy object,
-or editing around the envelope is unsupported manual corruption. The threat
-model prevents accidental mixed-version first-party writes, not deliberate
-filesystem tampering by the same operating-system principal.
+### 5.5 Binding owners and commit fencing
 
-### 5.5 Binding owners and final checks
+| Existing owner | Instance-bound state and decisive boundary |
+| --- | --- |
+| Registry / attached host / Chat | Session/thread and activation binding; route selection, resume and executor admission |
+| Turn / scheduler / quota | Work selection, lineage, settlement, debit/void and replay identity |
+| Todo / coordination / lease | Head/provider binding, work mutation, claim/renew/reclaim and receipts |
+| Handoff / inbox / outbox | Request, receiver adoption, accepted artifact, result delivery and historical readback |
+| Goal Channel / Lark / heartbeat | Connection, delayed inbound/outbound event and wake admission |
+| Pi / OpenCode / other first-party hosts | Host action, execution binding and quota/state writeback |
 
-The first implementation uses a private exhaustive owner table. It is not a
-public plugin interface:
+Maintain one private exhaustive owner inventory with stable locator, revision,
+content digest, observed typed reference and cleanup support. Sorted inventory
+and owner revisions enter plans. Reuse the M0 I/O census for registry access;
+binding/effect coverage is a distinct inventory, not proof from the writer count.
 
-| Owner | Durable binding | Required final check |
-| --- | --- | --- |
-| Project registry | session and thread bindings | before returning a resumable route |
-| Attached host | activation and lock identity | before lock or execution request |
-| Chat store | Goal session and upstream thread | before create, direct resume, or latest lookup |
-| Turn driver | lineage and host session digest | before queue and settlement |
-| Pi and OpenCode | local authority/binding record | before host action and quota call |
-| Goal Channel / Lark | channel binding and connection | before inbound or outbound delivery |
-| Heartbeat automation | installed command and parsed inventory | before wake and quota call |
-| Scheduler and quota | executable hint and spend request | before Todo selection and spend |
+Resolve route → validate source/authorized projection → compare exact reference
+and lifecycle → check existing permissions → admit the operation → commit under
+the owning fence. A last-moment read alone leaves a check/use race:
+A passes the check, deletion/recreation publishes B, then A writes the reused
+path or spends quota. The contract requires an explicit linearization boundary:
 
-Each inventory row contains a stable owner revision:
+- Locally, lifecycle retirement and each short protected commit share the same
+  instance admission guard with documented lock order. Do not hold a registry
+  lock across a model call, network request or user validation.
+- In canonical transactions, propagate the original source witness and instance
+  to the TS owner; check the current instance at the commit boundary under the
+  lifecycle guard. Existing CAS and lease fences remain required. A witness
+  hash or Goal ID alone is not this guard.
+- Retirement closes admission first, drains admitted commits and reconciles
+  pending external effects in their existing journals, then publishes retirement.
+  Uncertain external effects prevent declaring retirement/reuse complete. An
+  external provider without fencing is not retroactively cancellable.
+- A shared service must serialize lifetime and mutation admission server-side,
+  with tenant/actor checks and restore incarnation. A local file lock does not
+  qualify R6; no cross-ledger atomicity is implied.
 
-```python
-@dataclass(frozen=True, slots=True)
-class BindingObservation:
-    owner: str
-    locator: str
-    binding_revision: str
-    content_sha256: str
-    observed_goal_ref: GoalRef | LegacyGoalRef | None
-    cleanup_mode: Literal["local_idempotent", "external_unverified", "none"]
-```
-
-The complete sorted inventory and each `binding_revision` enter migration and
-orphan-resolution plan digests. Adding a first-party durable owner requires
-updating the owner table and its exhaustiveness test.
-
-All executable paths follow the same order:
-
-1. Resolve a route, possibly through the global registry.
-2. Open the source project registry through the strict codec.
-3. Reject a legacy Goal or incomplete resolution journal.
-4. Compare the exact registered and supplied `GoalRef`.
-5. Revalidate immediately before the first effect at that boundary.
-6. Only then create a lock, return a resumable record, deliver, write, or spend.
-
-A check at host activation does not replace the check at state writeback or
-quota spend. Long-lived processes may outlive deletion and recreation.
+Scope operation/replay keys, canonical state selection and late results to the
+instance even when physical paths retain the alias. Old receipts remain readable
+as A's history, but cannot grant B a lease, satisfy B's acceptance or debit B.
+Do not silently relabel historical receipts. Selected provider state must either
+be newly initialized for B or explicitly imported through its reviewed lifecycle.
+A stale writer that pauses after validation and resumes after recreation must
+produce no B-side write, delivery, debit or ownership change.
 
 ### 5.6 Orphan resolution command
 
@@ -418,8 +377,8 @@ loopx resolve-orphaned-goal-state \
   --format json
 ```
 
-- `adopt` keeps one selected candidate at its already canonical location and
-  registers it under a fresh Goal instance.
+- `adopt` retains selected state content at its canonical location under a fresh
+  Goal instance; it does not revive former claims, grants or execution bindings.
 - `migrate` moves one selected candidate through the canonical state-path
   helper, under the same human Goal ID, then registers a fresh instance.
 - `archive` moves a candidate outside every active Goal root.
@@ -428,7 +387,11 @@ loopx resolve-orphaned-goal-state \
 At most one candidate may be `adopt` or `migrate`. All other candidates must be
 `archive` or `delete`. An archive/delete-only plan leaves the Goal absent.
 There is no implicit winner, content merge, arbitrary destination path, or
-renamed target Goal.
+renamed target Goal. The first resolution profile is project-local legacy file
+state. If a candidate routes to promoted canonical/provider state, fail closed
+with its existing authority migration/import route; moving Markdown cannot adopt
+a File/SQLite/PostgreSQL head. Any later provider support must preserve source
+selection, incarnation, historical receipts and D1–D3 gates.
 
 Preview validates before computing its digest:
 
@@ -460,65 +423,64 @@ loopx resolve-orphaned-goal-state \
 
 ### 5.7 Resolution transaction and journal
 
-The journal lives under
-`.loopx/lifecycle/orphaned-goal-state/<goal-id>/<plan-revision>.json`. It is
-lifecycle metadata, not another Goal registry.
+Use a typed lifecycle with `prepared`, `applying`, `source_committed`,
+`complete`, `rollback_prepared`, and `rolled_back` states. The journal lives under
+`.loopx/lifecycle/orphaned-goal-state/<goal-id>/<plan-revision>.json`; it is
+recovery metadata, not another registry. TS owns transitions and allowed effects;
+existing Python/host adapters execute them and return observations.
 
-The apply transaction:
+1. Acquire lifecycle/registry/affected-owner guards in documented order. Exact
+   completed replay returns its historical receipt; it does not reactivate a Goal.
+2. Before preparation, rebuild and compare the full registry, candidate-tree,
+   inventory, creation-specification and plan digests; mismatch has no effects.
+3. Verify targeted backup, then durably prepare **every** plan before any move or
+   deletion, including archive/delete-only plans. Reserve a new ID only if creating
+   a Goal; retain candidate preimages, planned postimages and owner operation keys.
+4. Apply each disposition under its guard. Persist intent before the effect and
+   reconcile actual pre/post state after crash-before-ack. Neither state matching
+   requires replaying a deletion; neither matching state permits guessing.
+5. Publish the new Goal only once selected content is canonical and competitors
+   are inactive. Resume a prepared plan from its recorded phase; do not demand
+   the original preview's pre-mutation digests after successful partial work.
+6. Obtain required local invalidation receipts, verify the source and safety
+   fences, and commit the lifecycle. Complete registry-wide activation first when
+   other legacy Goals exist. Other Goals are outside the resolution guard's scope.
+7. Deliver the global projection and operator result through existing retry
+   owners. Projection failure is typed `pending_sync`, not a second authority or
+   permission to repeat the source commit.
 
-1. Acquires lifecycle, registry, and affected owner locks in one documented
-   order.
-2. Returns the existing complete receipt for an exact replay.
-3. Rebuilds the plan and requires the same registry, candidate, owner, Goal
-   specification, and plan digests.
-4. Writes and verifies one targeted backup through `state_backup.py`.
-5. If a Goal will be created, mints its instance ID and durably writes it to a
-   `prepared` journal before the first candidate mutation.
-6. Applies candidate dispositions idempotently, recording each step. Archive
-   destinations include the plan revision.
-7. Publishes the project Goal only after the selected candidate reaches its
-   canonical final route and all competing candidates are inactive.
-8. Requests owner-local revocation using the exact retired
-   `(goal_id, goal_instance_id)` selector and stable idempotency keys.
-9. Synchronizes the project record to the global projection.
-10. Reads back every candidate, owner receipt, registry, global projection,
-    backup proof, and final orphan fence before marking the journal complete.
+Before source safety is established, the journal blocks ordinary activation and
+mutation for this Goal, even if its record is published. Only an exact
+resolution/resume operation may perform its declared recovery effects. After
+source commit plus required invalidation, projection lag may remain visible
+without holding unrelated Goals or source-authorized local work indefinitely.
+Every event-driven wake is advisory; source checks still decide admission.
 
-A prepared or incomplete journal blocks all activation and mutation even if
-step 7 already published the project Goal. Retry reuses the journaled instance
-ID, resolution ID, owner selectors, and provider idempotency keys.
+The receipt records plan/resolution/terminal-journal digests; candidate pre/post
+digests; exact source Goal reference; backup manifest verification; each owner
+observation, revision, operation and readback; local removal receipts; and typed
+projection/manual-cleanup findings. Exclude raw private content. Recovery must
+remain available while new lifecycle admissions are disabled.
 
-The completion receipt includes:
+### 5.8 Logical revocation and legacy cleanup
 
-- plan revision, resolution ID, and terminal journal digest;
-- each pre- and post-operation candidate digest;
-- source project registry digest and exact Goal reference;
-- global projection result and digest, or a typed pending-sync finding;
-- backup path-independent manifest digest and verification proof;
-- every binding-owner observation, revision, cleanup request, and readback;
-- every local removal receipt;
-- each external `manual_cleanup_required` finding;
-- final orphan and in-progress fence results.
+Exact instance mismatch plus the commit fence is the safety boundary; physical
+external deletion is hygiene. Typed cleanup selectors distinguish:
 
-### 5.8 Logical revocation and owner cleanup
+- `instance`: exact retired `(goal_id, goal_instance_id)`;
+- `legacy_observation`: exact owner locator + observed revision + content digest,
+  admitted only while the lifecycle guard proves the Goal absent/inactive.
 
-Exact instance mismatch is the safety boundary. Resolution does not depend on
-physical deletion from every store.
+A legacy orphan has no retired instance to invent. If its owner supports exact
+conditional removal, revalidate the observation under the owner guard and remove
+only that record. If the revision changed, stop/replan. If the provider cannot
+prove exact removal, retain the now-inert record with `manual_cleanup_required`.
+Never use Goal-ID-only bulk cleanup or stamp a legacy binding to make it deletable.
 
-The revocation selector is always the full retired pair:
-
-```python
-@dataclass(frozen=True, slots=True)
-class RevocationSelector:
-    goal_id: GoalId
-    retired_goal_instance_id: GoalInstanceId
-```
-
-Goal-ID-only cleanup is forbidden because it can delete a newly created
-instance. Local owners that support idempotent removal must return a receipt
-before resolution completes. An external provider without verifiable deletion
-remains logically inert and yields `manual_cleanup_required`; this finding does
-not make stale execution possible.
+Required local logical invalidation receipts gate source completion; optional
+physical cleanup and external manual cleanup have separate retry state. A new
+binding created by a different lifetime cannot match the legacy selector. Test
+legacy and stamped orphans independently, including a revision race.
 
 ### 5.9 Rollback
 
@@ -543,7 +505,9 @@ loopx rollback-orphaned-goal-resolution \
 Rollback may restore verified bytes only to an orphaned, fenced state. It
 never restores a retired Goal instance ID or binding authority. It is rejected
 after any post-resolution Goal write, Todo mutation, quota spend, session or
-channel creation, automation installation, or binding revision. A successful
+channel creation, automation installation, or binding revision. Rollback itself
+journals before its first mutation and uses the same retirement/commit guard,
+so checking eligibility cannot race a new business write. A successful
 rollback removes the newly created Goal through the lifecycle owner, restores
 candidate bytes, verifies their digests, and makes diagnosis unhealthy with
 `orphaned_goal_state`.
@@ -552,21 +516,22 @@ If rollback is no longer legal, recovery is a forward operation: finish the
 journal, retire the new Goal through normal lifecycle, and create another
 resolution plan.
 
-### 5.10 Module map
+### 5.10 Bounded refactor and delivery owners
 
-| Module | Responsibility |
+| Existing boundary | Change and deletion requirement |
 | --- | --- |
-| `loopx/control_plane/goals/identity.py` | Goal reference types, parsers, and exhaustive match policy |
-| `loopx/control_plane/projects/registry_codec.py` | Legacy object and strict envelope decoding, digest verification, format-preserving transactions |
-| `loopx/bootstrap.py` | Mint only on committed fresh creation; preserve identity on update |
-| `loopx/global_registry.py` | Copy identity, classify instance replacement, never mint |
-| `loopx/control_plane/goals/orphaned_goal_state.py` | Candidate discovery and read-side fence |
-| `loopx/control_plane/goals/orphaned_goal_state_resolution.py` | Plan, apply, journal recovery, revocation orchestration, rollback |
-| `loopx/state_backup.py` | Targeted backup plan, archive, manifest, and verification |
-| Existing binding owners | Persist their pair, validate it, and perform owner-local cleanup |
-| `loopx/control_plane/goals/global_registry_health.py` | Typed health findings |
-| `loopx/diagnose.py` | Render findings without becoming another detector or writer |
-| CLI adapters | Parse arguments and render typed results only |
+| TS Goal lifecycle + `coordination/authority_source.ts` | One typed reference/match/admission/recovery rule set; extend whole transactions, remove duplicate host decisions. The witness is evidence, not a cross-store lock. |
+| `control_plane/projects/registry_codec.py` | Extend shipped codec/protocol checks and existing transaction; retain v1 compatibility without granting v2 enforcement. |
+| `bootstrap.py` / Goal deletion | Use the lifecycle transaction; preserve identity on config updates and fence retirement/recreation. |
+| `orphaned_goal_state.py` / `state_backup.py` | Keep discovery and backup effects; a thin resolution adapter drives the typed plan instead of a new Python state machine. |
+| Existing binding / delivery owners | Persist exact refs and commit fences; retain owner-local journals and idempotency instead of a central provider cleanup framework. |
+| Diagnosis / CLI / Chat / frontend / Lark | Render the same lifecycle result and recovery action, with audience filtering; no second detector or independent repair state. |
+
+Characterize ordinary bootstrap/update/deletion and default-off paths before
+refactoring. Ship a whole local retirement/recreation path with actual consumers;
+do not add unused Goal abstractions, per-field RPCs or a new scheduler. Larger
+cross-host and provider-import work stays with R6/D1–D3, not a prerequisite for
+the local legacy-file recovery outcome.
 
 ## 6. Alternatives and design choices
 
@@ -621,28 +586,23 @@ candidate contents, session payloads, local absolute paths, provider handles,
 and raw state remain private runtime data and must not enter public receipts,
 logs, fixtures, or documentation.
 
-The strict envelope provides format-level split-brain prevention for supported
-first-party binaries. Activation remains blocked until:
+The format gate and effect-owner fences jointly exclude supported mixed writers.
+Activation requires source/global/warm-process negative tests for object-only,
+codec-only and enforcement binaries. Test helpers use isolated synthetic state;
+never probe a live Goal to demonstrate rejection.
 
-- all in-repository project-registry writers use the codec transaction;
-- packaged Python and TypeScript surfaces pass the same writer inventory;
-- every installed first-party host reports the required protocol;
-- a black-box test proves the oldest supported old package rejects the strict
-  fixture and leaves its bytes unchanged;
-- current code proves exact read/write/readback and crash safety.
+Non-activated legacy projects retain existing behavior. Activated projects allow
+legacy inspection, backup and migration previews but reject unstamped execution.
+An observation finding cannot advertise ABA protection. Protocol names must
+represent the full enforced contract, not merely a decoder's availability.
 
-Legacy object registries remain readable for status, diagnosis, backup,
-activation preview, and orphan-resolution preview. During the observation
-release they may still execute with an explicit no-guarantee finding. During
-the enforcement release they are read-only until activation completes.
+An activated registry cannot be downgraded. Unsupported source schema/protocol
+must fail before a business effect, including effects that do not edit registry
+bytes. Recovery uses a current compatible release and never unwraps the payload.
 
-A strict registry cannot be downgraded. Current code must emit
-`unsupported_registry_writer_protocol` before mutation when it cannot satisfy
-the manifest. Recovery uses a current or newer release; it never unwraps the
-payload for an old writer.
-
-Source-registry unavailability, digest mismatch, malformed envelope, missing
-instance, incomplete resolution, or owner-inventory ambiguity fails closed.
+Within the activated profile, source unavailability, digest mismatch, malformed
+envelope, missing instance, incomplete source safety or owner-inventory ambiguity
+fails closed.
 Global projection unavailability may delay visibility but cannot grant
 execution.
 
@@ -650,7 +610,7 @@ execution.
 
 Migration has two scopes:
 
-1. **Fresh project.** Create a strict empty envelope and mint the first Goal in
+1. **Fresh opted-in project.** Create the activation envelope and mint the first Goal in
    its committed registry transaction.
 2. **Existing project.** Preview registry-wide activation, quiesce every Goal,
    back up the registry and local bindings, stamp every current Goal with a new
@@ -661,7 +621,8 @@ No existing attachment is automatically blessed. There is no evidence that an
 unstamped record belongs to the current lifetime rather than a prior same-name
 Goal.
 
-The activation cutover point is the verified strict-envelope write:
+The activation cutover point is the verified incompatible-envelope write;
+admission remains closed until required owner fences/readbacks complete:
 
 - Before it, abort leaves the legacy object authoritative.
 - After it, old binaries and unstamped bindings are unsupported and fail
@@ -670,8 +631,8 @@ The activation cutover point is the verified strict-envelope write:
 - Returning to legacy execution is not rollback.
 
 Orphan archive/delete may run without identity activation because it creates no
-Goal. Orphan adopt/migrate requires an already strict registry, a fresh strict
-registry, or an atomic registry-wide activation admitted by the same plan.
+Goal. Orphan adopt/migrate requires an already activated registry, a fresh activated
+registry, or a journaled registry-wide activation admitted by the same plan.
 
 Before resolution preparation, abort changes nothing. After preparation, retry
 the same plan. The separate rollback command is legal only before any
@@ -683,20 +644,25 @@ post-resolution business write and restores orphaned, non-executable bytes.
 | --- | --- | --- | --- |
 | Same-name recreation is fenced | Delete A, preserve every attachment, create B with same alias, exercise all owners | Every old path rejects before effect or quota | Does not require physical provider deletion |
 | Updates preserve lifetime | Force-update config, reconnect provider, renew lease, start Turn | Same instance ID in registry and new records | Does not preserve binding revisions |
-| Legacy is read-only | Exercise status, backup, migration preview, activation, resume, delivery, write, spend | Reads succeed with finding; every effect rejects | Observation release is explicitly weaker |
-| Old writer is mechanically denied | Run oldest supported released package against strict fixture | Non-zero typed/decode failure and byte-identical registry | Covers supported first-party package, not arbitrary scripts |
+| Unstamped execution is read-only inside activated scope | Exercise status, backup, migration preview, resume, delivery, write, spend | Reads succeed with finding; ordinary business effects reject; explicit migration remains available | Non-activated legacy behavior is unchanged |
+| Old writer is mechanically denied | Object-only, codec-only and enforcement packages; source/global/warm-process paths | Rejection before business effects, state/receipts unchanged | Decoder rejection alone is insufficient |
 | Strict codec is exhaustive | Static writer inventory plus Python/TS conformance | No direct project-registry write bypass | Test helpers may use isolated fixtures |
 | Source authority beats global projection | Make global entry stale and invoke every executable route | Source mismatch rejects | Global routing availability is separate |
 | Preview is pure | Preview 1, 2, and 4 candidates | No file, registry, binding, or journal write | Read-only filesystem metadata access allowed |
 | Plan binds full state | Change candidate, owner revision, registry, or Goal spec after preview | Apply rejects before backup or mutation | None |
 | Path validation fails closed | Symlink, escape, duplicate path, non-regular or unreadable candidate | Preview/apply rejects | Canonical helper owns legal destination |
-| Crash retry is idempotent | Crash after every journaled step | One instance ID, no duplicate archive/delete, same owner keys | External manual cleanup may remain |
-| Published-but-incomplete stays fenced | Crash after project publication before global sync/completion | Activation, mutation, and quota reject | Status remains readable |
-| Cleanup failure is safe | Fail one local and one external owner cleanup | Instance mismatch stays inert; journal retries local owner; external finding persists | Completion waits for required local receipts |
+| Crash retry is idempotent | Every plan type; crash before/after each effect and journal acknowledgement | One prepared ID when applicable, exact reconciliation, no duplicate effect | Archive/delete-only is journaled too |
+| Published-but-unsafe stays fenced | Crash after publication before required invalidation/source readback | Activation, mutation and quota reject; exact recovery works | Completed source with only projection lag is separately pending-sync |
+| Cleanup failure is safe | Stamped and legacy bindings; changed legacy revision; local invalidation failure | Exact cleanup only; inert external records; required local invalidation retries | No invented retired identity |
 | Receipt is complete | Compare receipt to owner table and all readbacks | Every owner/candidate/registry/global/backup/fence row present | Raw private contents excluded |
 | Backup precedes destruction | Inject failure before and after backup verification | No destruction before proof; verified restore works | Archive-only still receives targeted backup |
 | Rollback is fenced | Roll back before and after a post-resolution write | Early rollback restores orphan fence; late rollback rejects | Never restores old authority |
 | Diagnostics remain unhealthy | Create orphan, legacy, mismatch, stale global, and incomplete journal states | Typed findings and exact next action | Diagnosis performs no repair |
+| Commit race is fenced | Pause A after match, retire/recreate B, resume A; race rollback with a write | No B-side write, debit, delivery or ownership change | Real local entrypoint; real isolated provider for affected canonical paths |
+| History stays historical | Same alias and operation key across lifetimes; delayed accepted result | A receipt/result cannot authorize or settle B | Historical A readback stays available |
+| Default-off parity | Same input with activation off/on against immutable pre-change baseline | Off preserves schema, guidance, state and effects; on rejects stale refs | No live project migration |
+| Provider boundary is honest | Native authority candidate presented to file-only resolution | No file-only adoption; existing import route identified | No D1–D3 or R6 qualification claimed |
+| Product recovery is complete | CLI and packaged frontend; qualified Lark route | Preview → confirmation → crash/resume → source and original-entry readback | Untested transports explicitly remain unqualified |
 
 The implementation must also run existing bootstrap, registry, deletion,
 session, host, Goal Channel, heartbeat, quota, backup, docs-governance, and
@@ -726,6 +692,14 @@ Status and diagnosis are read-only. They can inspect a legacy registry,
 historical binding, strict envelope, and incomplete journal. They cannot stamp
 identity, repair a global projection, choose a candidate, or complete cleanup.
 
+CLI, packaged frontend and Lark consume the same preview/confirm/resume result.
+Show selected/competing candidates, execution block, backup proof, pending sync
+and the exact next action. A stale session should explain the retired lifetime
+and offer an explicitly authorized new binding, never silently resume it.
+Return completion to the initiating conversation. Reuse existing settings and
+action editors; a CLI-first slice must name unqualified companion surfaces and
+cannot claim the complete product journey. This RFC itself changes no UI.
+
 The lifecycle retains one verified backup and one terminal receipt per
 resolution according to the existing backup retention policy. An incomplete
 journal is never garbage-collected automatically. Local cleanup retry is
@@ -734,39 +708,38 @@ already prevents execution.
 
 ## 11. Normative delivery plan
 
-| Milestone | Shipped behavior | Entry gate | Exit evidence | Rollback |
-| --- | --- | --- | --- | --- |
-| M0: registry codec and writer census | Dual-format read codec, strict format-preserving transaction, exhaustive writer inventory; no identity minting | RFC review | Current suites plus direct-writer ratchet and old-package strict-fixture rejection | Remove unused codec; all registries remain legacy objects |
-| M1: observation and stamped bindings | Identity types, owner inventory, additive binding fields, diagnostics, no enforcement | M0 green | Cross-owner read/write fixtures; legacy behavior explicitly marked unprotected | Stop emitting optional binding fields |
-| M2: activation and strict creation | Preview-first registry activation; fresh projects use strict envelope; IDs minted only in strict transactions | M0/M1 green; host capability census | Quiescence, backup, old-writer denial, strict readback, update-preserves-ID tests | Before envelope write only; afterward forward repair |
-| M3: final enforcement | Legacy execution read-only; exact final source checks at every owner and quota boundary | Migration guidance shipped; executable caller inventory complete | ABA, stale global, long-lived process, and missing-ID rejection matrix | No downgrade; use current release and migration |
-| M4: orphan resolution | Preview, targeted backup, prepared journal, candidate dispositions, owner cleanup, complete receipt | M2/M3 identity boundary | Purity, path, crash-point, cleanup, and receipt acceptance rows | Resume or digest-bound rollback to fenced orphan state |
-| M5: legacy cohort migration | Registry-wide migration for existing projects and host reconnection | M2-M4 operational evidence | End-to-end multi-Goal migration and diagnostics | Before cutover abort; after cutover forward repair |
+| Milestone | Outcome and prerequisite | Decisive exit / rollback |
+| --- | --- | --- |
+| M0: shipped codec prerequisite | Reuse #4917 codec/transaction/I/O census; no lifetime enforcement | v1 read/write support is shipped, not proof of old-writer exclusion. Do not rebuild or remove the now-used codec. |
+| M1: characterize owners and typed rules | Inventory binding/effect producers and consumers; characterize baseline; implement only rules used by the selected lifecycle | Default-off parity, typed negative matrix, source/global/warm-process compatibility census. No minting or automatic activation. |
+| M2: opt-in local lifetime transaction | Incompatible activation + retirement/recreation guard + selected local owner enforcement as one usable slice | Real CLI local ABA/concurrency/crash/replay path; retain M2/M3 activation hold until every supported effect owner is fenced. Before cutover abort; afterward forward repair. |
+| M3: supported-owner qualification | Complete host, quota, Todo/lease, handoff, channel and automation paths for the activated profile | Every inventory row qualified, including delayed results and unsupported binaries; no legacy fallback inside activated projects. Non-activated behavior unchanged. |
+| M4: orphan recovery | Reuse fence/diagnosis/path/backup owners; journaled file-state resolution with exact legacy cleanup | Preview, destructive/retry/rollback negatives and original-entry readback. Archive/delete can ship earlier without identity creation; native-provider adoption stays blocked. |
+| M5: migration and product acceptance | M2–M4 plus multi-Goal quiescence/reconnection; packaged frontend and qualified Lark | 2–3 workers, dependency artifact, interrupted A, recreated B and late A return; unrelated Goal progresses; B accepted independently. No duplicate protected effect. |
 
-M0 must land before any code can mint `goal_instance_id`. M3 cannot claim the
-ABA guarantee while any first-party executable path retains legacy fallback.
-M4 may ship archive/delete before adopt/migrate, provided it does not create a
-Goal or weaken the existing fence.
+M0 is a prerequisite checkpoint, not the next unstarted task. The next slice
+owns M1 compatibility/consumer characterization and the M2 local lifecycle seam;
+do not ship a field-only milestone as the ABA outcome. M2 and M3 describe
+implementation order, not permission to activate a partially fenced system.
+R2/R3 consume the completed local slice; R6 service adoption and D1–D3 provider
+promotion retain their own acceptance. No new paid cohort or soak is authorized.
 
-## 12. Open decisions
+## 12. Open decisions and holds
 
-1. **Minimum supported old package.** Release owner decides before M0 exit.
-   Recommendation: test the oldest version still named in the support policy,
-   plus the immediately previous release. Evidence: black-box mutation matrix.
-2. **Activation command naming and confirmation token.** CLI owner decides
-   before M2. Recommendation: the registry-wide
-   `activate-goal-instance-identity` command shown here, because the envelope
-   boundary cannot honestly be per Goal.
-3. **Canonical migration destination.** State-path owner decides before M4.
-   Recommendation: consume the canonical helper from the host-neutral path
-   work; do not accept a free-form target path.
-4. **Global sync terminality.** Registry owner decides before M4.
-   Recommendation: retain `local_committed` until the global projection
-   readback succeeds, while source checks continue to block execution through
-   the incomplete journal.
-5. **Retention periods.** Operations owner decides before M4. Recommendation:
-   reuse current targeted-backup retention and retain terminal receipts at
-   least as long as any owner can retain a stale binding.
+1. **Supported package/profile matrix:** release and host owners pin all supported
+   object-only, codec-only and enforcement packages and exclusion evidence before
+   M2 activation. v2 names are proposed; protocol support requires semantics.
+2. **Exact commit guard:** Goal lifecycle and TS transaction owners must choose
+   and prove the local retirement/commit lock and external-effect drain contract
+   before M2. A digest recheck alone cannot discharge this hold.
+3. **Canonical destination/provider import:** reuse the current path owner; follow
+   #4915 without assuming merge. Provider-state adoption needs its own reviewed
+   import contract; the first file-only slice rejects it.
+4. **Service profile:** R6 chooses authenticated identity projection and server
+   serialization. No remote local-path requirement or cloned writable registry.
+5. **Retention/default rollout:** existing backup/receipt owners decide retention;
+   incomplete journals are never automatically collected. Fleet-wide enforcement
+   or default activation requires a separate disclosed migration/release decision.
 
 ---
 
@@ -774,28 +747,29 @@ Goal or weaken the existing fence.
 
 ### 2026-09-23 — Design synthesis
 
-- **Baseline:** `d3dc4083c9c73911addeae8c0643640f0046874b`
-- **Delivered:** RFC proposal only.
+- **Baseline:** `23edcb19c70394480e3a9ebe8a960f5a320c5342`
+- **Delivered:** Revised RFC proposal; M0 codec prerequisite shipped separately.
 - **Evidence:** Current registry, bootstrap, deletion, binding, orphan-fence,
   backup, global-projection, and documentation contracts were inspected.
-- **Known gaps:** No runtime implementation or acceptance fixture has shipped.
-- **Effect on normative design:** Initial proposal.
+- **Known gaps:** No instance enforcement, activation or resolution fixture has shipped.
+- **Effect on normative design:** Align with roadmap/TS/shared authority; separate codec
+  compatibility from enforcement, specify commit fencing and legacy cleanup.
 
 ## Appendix B: Decision log
 
 | Date | Decision | Owner / approval | Alternatives | Normative sections changed |
 | --- | --- | --- | --- | --- |
 | 2026-09-23 | Propose source-owned random Goal instance identity plus strict registry envelope | Proposal; maintainer approval pending | Counter, path identity, additive capability marker | Initial RFC |
-| 2026-09-23 | Propose explicit journaled orphan resolution with owner-local cleanup | Proposal; maintainer approval pending | Automatic merge, centralized provider deletion | Initial RFC |
+| 2026-09-23 | Refine compatibility, typed lifecycle ownership, commit fencing and legacy cleanup against current main | Design proposal; implementation holds in Section 12 | Decoder-only exclusion, duplicate Python state machine, guessed legacy identity | Sections 3–5 and 7–12 |
 
 ## Appendix C: Evidence registry
 
 | Evidence id | Claim | Baseline / environment | Artifact or command | Result | Privacy / validity boundary |
 | --- | --- | --- | --- | --- | --- |
-| E1 | Current loaders accept arbitrary object schema and reject non-object roots | Named baseline | `loopx/registry.py`, `loopx/history.py`, `loopx/bootstrap.py` inspection | observed | Static current-code fact |
+| E1 | M0 reads/writes v1 without lifetime enforcement | Named baseline / #4917 | Registry codec and bootstrap inspection | observed | Codec compatibility is not identity admission |
 | E2 | The shipped fence blocks orphaned guided bootstrap but does not resolve it | Named baseline | Issue #4801 and PR #4808 | observed | Public issue and code scope |
 | E3 | Global entries are source projections | Named baseline | `loopx/global_registry.py` inspection | observed | Static current-code fact |
-| E4 | Strict envelope rejects the oldest supported old writer without mutation | future M0 fixture | Black-box released-package test | unverified | Required before minting |
+| E4 | Activation excludes every supported old effect path | future M1–M3 fixture | Object-only/codec-only/enforcement matrix | unverified | Source/global/warm-process coverage required before activation |
 | E5 | Every durable binding owner validates exact identity | future M1-M3 fixtures | Owner inventory conformance suite | unverified | Required before enforcement |
 | E6 | Resolution is crash-safe and recoverable | future M4 fixtures | Fault-injection and restore matrix | unverified | Required before destructive use |
 
@@ -818,7 +792,7 @@ Goal or weaken the existing fence.
   Goal.
 - An advisory compatibility check is not a writer fence when old code ignores
   it.
-- Crash safety requires persisting the new identity before the first candidate
-  move and treating the journal itself as an execution fence.
+- Crash safety requires journaling every plan before the first mutation, reserving
+  identity when applicable, and reconciling effects whose acknowledgement was lost.
 - Cleanup and authorization are separate: stale records may remain for audit
   while exact identity matching keeps them inert.

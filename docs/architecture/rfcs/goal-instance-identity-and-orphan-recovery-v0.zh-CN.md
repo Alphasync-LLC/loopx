@@ -1,11 +1,11 @@
 # Goal 实例身份与孤儿状态恢复（v0）
 
 - **RFC 状态：** Draft
-- **交付成熟度：** Proposal
+- **交付成熟度：** Identity/recovery 提案；codec 前置已由 #4917 交付
 - **作者／Owner：** LoopX contributors
 - **创建日期：** 2026-09-23
 - **最后规范修订：** 2026-09-23
-- **实现基线：** `d3dc4083c9c73911addeae8c0643640f0046874b`
+- **实现基线：** `23edcb19c70394480e3a9ebe8a960f5a320c5342`
 - **相关契约：** [Issue #4801](https://github.com/loopx-project/loopx/issues/4801)、[orphan fence 切片 #4808](https://github.com/loopx-project/loopx/pull/4808)
 - **语言镜像：** [英文语义镜像](goal-instance-identity-and-orphan-recovery-v0.md)
 
@@ -27,14 +27,13 @@
 2. 每个持久 host、session、channel、automation、Turn 和 quota binding
    都携带精确二元组。只有源项目 registry 可以授权执行；全局投影和 binding
    store 都不能授权。
-3. 只有启用严格项目 registry envelope 后才能启用实例身份。已发布的旧二进制
-   无法把该 envelope 解码为 registry，这构成 mixed-writer 的机械门禁。
+3. 实例身份需要不兼容的 activation format 加提交时 fence。已交付的 M0 codec
+   不代表 identity enforcement；拒绝一种旧 decoder 不能排除所有旧 effect 路径。
 4. 孤儿恢复是一个 preview-first、有 journal 的生命周期操作。操作者必须对每个
    candidate 明确选择 `adopt`、`migrate`、`archive` 或 `delete`，系统不得猜测
    或合并。
-5. Legacy registry 和 binding 仍可检查、备份和迁移；在最终 enforcement
-   版本中只能读取，不能激活 host、恢复 session、投递 channel、唤醒
-   automation、修改 Goal 状态或消费 quota。
+5. Activation 必须显式、以整个项目 registry 为范围。已激活项目内 unstamped
+   binding 只读；未激活项目保留 legacy 行为且不提供 ABA 保证。全局默认切换另行决策。
 
 现有 state-file 位置、host 专属 runtime 目录布局、provider revision、
 Lease 和全局 registry 的角色都不会成为新的 Goal authority。本 RFC 不批准
@@ -59,8 +58,8 @@ automation 仍然存在。之后创建同名 Goal 时，这些旧记录可能被
 
 任何单独 host 或 session store 都无法局部解决该问题。若 host 自行生成身份，
 它就成为第二个 Goal authority；若删除流程同步理解所有 provider，它就变成跨
-owner 的分布式清理事务。LoopX 需要的是一个承载 authority 的身份，以及在每个
-effect 边界对源 registry 的最终检查。
+owner 的分布式清理事务。LoopX 需要源拥有的生命周期身份，并让 admission/commit 与 retirement 串行化。
+身份匹配是必要条件，不是授权凭证。
 
 ### 不变量
 
@@ -71,13 +70,14 @@ effect 边界对源 registry 的最终检查。
    instance ID。
 4. stale、缺失、畸形或 legacy binding 不能为 instance-aware Goal 授权执行。
 5. stale 全局投影可以辅助路由，但不能授权写入。
-6. 未完成的 orphan-resolution journal 必须阻止所有 Goal 激活与修改，即使项目
-   Goal 记录已经发布。
+6. Source safety 完成前，resolution journal 阻止该 Goal 的普通激活／修改，
+   即使 registry 已发布；精确 recovery 保持可用，source 完成后的投影 retry 单独处理。
 7. resolution 最终只能留下一个被选择的可写状态 authority，或保持 Goal
    缺失且没有可写 candidate。
 8. 破坏性 resolution 必须具备已验证的定向备份、精确 plan digest、显式 Goal
    确认和写后回读。
-9. crash retry 必须复用 prepared instance ID 和 provider idempotency key。
+9. crash retry 复用 prepared identity 和 owner idempotency key；包括只做
+   archive/delete 的所有 plan，都必须在首次修改前写 journal。
 10. 已发布的旧 writer 不能静默打开或改写 instance-aware 项目 registry。
 
 ## 3. 范围与非目标
@@ -105,85 +105,79 @@ effect 边界对源 registry 的最终检查。
   语义；它们只新增 Goal instance 绑定。
 - 允许旧二进制降级或编辑严格 registry。
 
+### Roadmap 定位与契约协同
+
+[整体 roadmap](loopx-overall-roadmap-v0.zh-CN.md) 以验收结果、人的注意力成本和
+恢复能力衡量产品。本 RFC 提供 R5 的有界 lifetime fence，供 R2/R3 消费，
+不据此完成 R1–R7 或晋升 provider。
+
+| 既有 owner／契约 | 本 RFC 的贡献与边界 |
+| --- | --- |
+| [TS 收敛](typescript-control-plane-migration-v0.zh-CN.md)、R5 | Match、admission、retirement、recovery transition 归 typed kernel；Python 保留 codec、文件和 host adapter。不得新增第二套 Python policy engine 或逐字段 RPC。 |
+| [Shared authority](shared-goal-authority-state-provider-v0.zh-CN.md)、D1–D3／R6 | 将已有 head、operation receipt、authorization projection 绑定 lifetime。Provider incarnation、revision、lease epoch 与 Goal instance 相互独立；不新增 store、不切换默认。 |
+| [Shared alignment](shared-goal-alignment-and-governed-amendment-v0.zh-CN.md)、R4 | Identity 不等于 intent、permission 或 work revision。保留 `intent_basis` 的 source-facts 语义；amendment 仍归原 owner。 |
+| [语义 handoff](capable-manager-semantic-handoff-v0.zh-CN.md)、[协作](agent-im-openviking-collaboration-v0.md)、R2/R3 | Request、adoption、result 和原会话 return 绑定 instance。A 的迟到结果不能结算 B；transport 成功和 registration 不证明验收。 |
+| [单 owner daemon](single-owner-local-daemon-v0.md) | 复用 profile quiescence 和真实 executor drain；PID、package version 或停止 heartbeat 不证明旧 writer 不会回来。Daemon identity 不授予 Goal authority。 |
+
+[#4808](https://github.com/loopx-project/loopx/pull/4808) 已交付 guided fence；
+[#4912](https://github.com/loopx-project/loopx/pull/4912) 提议 diagnosis；
+[#4915](https://github.com/loopx-project/loopx/pull/4915) 提议 host-neutral paths。
+复用这些 owner，但不能将 open PR 视作已交付。Canonical Todo 拥有执行状态，
+本文件拥有验收与依赖边界。
+
 ## 4. 当前系统契约
 
-以下是指定基线上的实现事实，不是提议行为：
+在上述 main 基线上，[#4917](https://github.com/loopx-project/loopx/pull/4917)
+已交付 `control_plane/projects/registry_codec.py`、保留格式的 transaction 和
+生产 I/O census。它读取 legacy object 及 `loopx_project_registry_envelope_v1`
+array，并接受 writer protocol `goal_instance_v1`；它**不**生成、比较或强制
+Goal instance。因此，懂 codec 但不懂 identity 的版本也是旧 writer，原先
+“旧 loader 只接受 object 根”的论证不充分。
 
-- `loopx/bootstrap.py` 按 `id` 构造和合并 Goal 记录。强制合并可能替换完整
-  Goal 记录。
-- `loopx/registry.py` 和 `loopx/history.py` 接受任意 JSON object 作为
-  registry，不拒绝未知 `schema_version`。
-- 项目 registry 通常位于 `.loopx/registry.json`；全局 registry 条目携带
-  `source_registry`，属于同步投影。
-- `loopx/control_plane/goals/orphaned_goal_state.py` 发现当前和 legacy
-  state candidate，并提供 #4808 的只读 bootstrap fence。
-- `loopx/state_backup.py` 拥有现有 backup 格式和验证机制。
-- Goal 删除与 host/session/channel 数据分别由不同 owner 管理。从 registry
-  删除 Goal 不能证明所有 attachment 都已物理删除。
-- 当前 Goal attachment 通常绑定 `goal_id`、路径、session ID 或 store 专属
-  revision，没有任何字段标识一次同名 Goal 生命周期。
-- 当前 registry loader 对 object 的宽松解析意味着：新增 capability 字段或
-  告警无法阻止已发布旧二进制继续写入。
+Project registry 拥有配置和源 identity；global registry 是 host-local route
+projection。Canonical coordination 已有 typed TS transaction owner、独立的
+provider incarnation 和 receipt。`coordination/authority_source.ts` 与
+`authority_source_capture.py` 见证 registry facts，且明确不构成 registry/provider
+之间的 transaction；digest recheck 不能冒充 retirement serialization。
 
-因此，本 RFC 把 mixed-writer 排除定义为 storage-format 要求，而不是诊断建议。
+`orphaned_goal_state.py` 发现 current/legacy candidate 并阻止 guided bootstrap；
+`state_backup.py` 拥有 backup/verification。Bootstrap update、Goal deletion、
+session、channel 和 quota 仍是不同 caller，alias/revision binding 不证明
+lifetime continuity。本文所述 instance activation 和 orphan mutation command
+在该基线尚未交付。
 
 ## 5. 提议架构
 
 ### 5.1 Ownership 与 authority
 
-源项目 registry 拥有 Goal identity。只有在持有现有 registry mutation lock
-并提交全新 Goal 记录时，它才能生成 `goal_instance_id`。全局 registry 只复制
-该身份并继续作为路由投影。
+放置决策：既有 built-in control-plane Goal/project lifecycle，不新增 public
+capability id、provider id 或 extension distribution。File、SQLite、PostgreSQL
+保留各自 provider contract 和 qualification gate。
 
-`loopx/control_plane/goals/identity.py` 负责纯解析和比较，不得生成或持久化
-ID。当前 storage owner 继续持久化和校验自己的 binding。
-`orphaned_goal_state.py` 继续负责只读 discovery 和 fence。新的
-`loopx/control_plane/goals/orphaned_goal_state_resolution.py` 负责
-resolution policy、journaling、recovery 和 receipt，同时把文件备份、registry
-修改和 owner 本地清理委托给现有 owner。
+只有 source authority 可以分配、发布 `goal_instance_id`。Prepared resolution
+可持久预留一个 ID，但直到 lifecycle commit 才具备执行效力。Global registry
+只复制。纯 match、lifecycle transition 归最近的 typed TS Goal boundary，
+通过一次粗粒度 transaction 消费 source facts。Python 适配 CLI、codec、文件、
+backup、host effect，执行 typed plan，不复制状态规则。
 
-任何 binding 记录、host 状态、timestamp、state-file 路径或全局 registry
-条目都不得创建、推断、修复或覆盖 Goal identity。
+本地 registry 继续拥有源 identity。未来 R6 service profile 由经过认证的
+authority service 准入版本化 authorization projection 和 instance。远端 worker
+不能打开笔记本路径、从本地副本分配身份，或把 global projection 当 authority。
+该路径完成资格化前，instance enforcement 明确只覆盖 local profile。
+
+任何 binding、path、timestamp、content hash 都不得推断身份。匹配后仍必须执行
+既有 grant、claim、lease、quota、stop 和 intent 检查。
 
 ### 5.2 Goal identity 模型
 
 `goal_instance_id` 是 opaque、immutable、public-safe 的非凭证字段。规范格式
 为 `ginst_` 加 32 个小写十六进制字符，包含 128 个随机 bit。
 
-```python
-from dataclasses import dataclass
-from typing import Literal, NewType
-
-GoalId = NewType("GoalId", str)
-GoalInstanceId = NewType("GoalInstanceId", str)
-
-
-@dataclass(frozen=True, slots=True)
-class GoalRef:
-    goal_id: GoalId
-    goal_instance_id: GoalInstanceId
-
-
-@dataclass(frozen=True, slots=True)
-class LegacyGoalRef:
-    goal_id: GoalId
-
-
-RegisteredGoalRef = GoalRef | LegacyGoalRef
-
-
-@dataclass(frozen=True, slots=True)
-class BindingMatch:
-    decision: Literal[
-        "current",
-        "legacy_read_only",
-        "missing_goal_instance_id",
-        "goal_instance_mismatch",
-        "goal_not_registered",
-        "resolution_in_progress",
-        "invalid",
-    ]
-```
+Typed contract 区分 `GoalRef { goal_id, goal_instance_id }` 与
+`LegacyGoalRef { goal_id }`。`BindingMatch` 是穷尽结果，包含 `current`、
+`legacy_read_only`、`missing_goal_instance_id`、`goal_instance_mismatch`、
+`goal_not_registered`、`resolution_in_progress`、`invalid`。这些是 kernel
+决策；生成／解码得到的 Python representation 只作 wire adapter，不另实现 match。
 
 Instance-aware Goal 记录包含：
 
@@ -212,17 +206,18 @@ Instance-aware Goal 记录包含：
 
 | Registry 状态 | Binding 状态 | 只读检查 | 执行或修改 |
 | --- | --- | ---: | ---: |
-| 精确 instance | 完全相同的 instance | 允许 | 最终源检查后允许 |
+| 精确 instance | 完全相同的 instance | 允许 | 在 commit fence 和既有 grants 下允许 |
 | 精确 instance | 缺失 instance | 带 finding 允许 | 拒绝 |
 | 精确 instance | 不同 instance | 带 finding 允许 | 拒绝 |
-| Legacy Goal | Legacy binding | 带 finding 允许 | enforcement 版本拒绝 |
+| Legacy Goal | Legacy binding | 带 finding 允许 | 已激活 registry 中拒绝 |
 | Legacy Goal | Instance binding | 带 finding 允许 | 拒绝 |
 | Goal 缺失 | 任意 binding | 作为历史记录允许 | 拒绝 |
-| Resolution 未完成 | 任意 binding | 带 finding 允许 | 拒绝 |
+| Resolution source safety 未完成 | 任意 binding | 带 finding 允许 | 拒绝普通执行；仅允许精确 recovery |
 | 记录非法 | 任意 | fail closed | 拒绝 |
 
-较早的 observation 版本可以报告 legacy execution 而不拦截，但不能声称已满足
-ABA 不变量。Enforcement 版本不保留 `legacy_compatible` 执行分支。
+Observation 和未激活项目保留 legacy execution，但不能声称 ABA 保证。已激活项目
+没有 `legacy_compatible` execution 分支。精确匹配也必须同时满足 active
+lifecycle state 和既有 grants。
 
 ### 5.3 身份独立性
 
@@ -244,133 +239,91 @@ ABA 不变量。Enforcement 版本不保留 `legacy_compatible` 执行分支。
 `--force` 不能替换 instance ID。导入到新的项目 authority 时必须生成新 identity，
 不得复制由另一个 registry 拥有的 identity。
 
-### 5.4 严格 registry envelope 与 mixed-writer 门禁
+恢复 authority 到替代 deployment 必须遵守既有 incarnation/restore contract；
+复制 registry backup 不能复活 stale writer 或创建第二个可写 authority。
 
-Instance identity 按项目 registry 激活，而不是按单个 Goal 激活。激活后的
-registry 继续使用原路径，但 JSON 根从 legacy object 改为严格的双元素 array
-envelope：
+### 5.4 Activation format 与 mixed-writer 门禁
 
-```json
-[
-  {
-    "schema_version": "loopx_project_registry_envelope_v1",
-    "minimum_writer_protocol": "goal_instance_v1",
-    "payload_sha256": "sha256:..."
-  },
-  {
-    "schema_version": "0.1",
-    "goals": []
-  }
-]
-```
+Identity 以整个 project registry 激活，不按单 Goal 激活。复用 M0 codec 和
+I/O census，不另建 loader。M0 v1 format/protocol 只代表 codec。提议 activation
+使用不兼容的 `loopx_project_registry_envelope_v2` header schema 和
+`minimum_writer_protocol: goal_instance_v2`，保留 `[header, payload]` 与
+payload digest。最终标识须在发布前通过 M2 compatibility matrix。
 
-该形状有意与已发布 legacy loader 不兼容；旧 loader 要求 JSON 根必须是
-object，因此会在选择 Goal 或执行 registry-backed mutation 前失败。禁止只给
-object 增加字段，因为旧代码会忽略该字段。
-
-新代码只能通过统一 registry codec 打开两种格式：
-
-```python
-@dataclass(frozen=True, slots=True)
-class OpenedProjectRegistry:
-    format: Literal["legacy_object_v0", "strict_envelope_v1"]
-    payload: dict[str, object]
-    writer_protocol: str | None
-    payload_sha256: str
-
-
-def open_project_registry(path: Path) -> OpenedProjectRegistry: ...
-
-
-def mutate_project_registry(
-    path: Path,
-    operation: str,
-    reducer: Callable[[OpenedProjectRegistry], ProjectRegistryMutation],
-) -> ProjectRegistryReceipt: ...
-```
-
-Transaction API 负责保留 envelope、验证 payload digest 和原子写回。M0 后禁止
-直接写项目 registry。仓库检查维护完整的项目 registry writer 清单；新增绕过
-路径时必须失败。
-
-激活采用 preview-first，并作用于整个 registry：
+只修改 writer string 不够：M0 reader 可以解码未知 writer protocol，而状态写入
+可能根本不改 registry。新 schema 必须拒绝不懂 identity 的 **read-to-effect**
+路径和 registry write。旧 global-object route、已加载进程还需单独排除；header
+不能追溯约束缓存中的旧代码。
 
 ```console
 loopx activate-goal-instance-identity --project . --format json
-
-loopx activate-goal-instance-identity \
-  --project . \
-  --execute \
-  --plan-revision sha256:31ab... \
-  --confirm-registry-path .loopx/registry.json
+loopx activate-goal-instance-identity --project . --execute \
+  --plan-revision sha256:31ab... --confirm-registry-path .loopx/registry.json
 ```
 
-Apply 必须满足：
+Activation 必须：
 
-1. registry 中任何 Goal 都不存在活跃 host、session、automation 或 Goal
-   mutation lease；
-2. legacy object 和受影响本地 binding 已完成并验证备份；
-3. 所有已安装第一方 host 都声明 `goal_instance_v1`；
-4. 所有当前 Goal 在同一次原子 envelope 写入中获得新 instance ID；
-5. 所有 legacy binding 在显式重建前均不可执行；
-6. 新 codec 回读成功，并且 oldest supported released writer 的黑盒拒绝测试通过。
+1. 经既有 lifecycle/host owner 停止新 admission，持久 quiesce registry 中全部
+   Goal；drain 或明确 reconcile 已准入 effect。盘点 direct CLI、attached/managed
+   host、global route、automation 和 provider writer。失联或无法说明的 writer
+   阻塞 activation。
+2. 验证定向 backup、host protocol support 和精确 preview digest。Capability
+   advertisement 是待验证证据，不是写权限。
+3. Prepare durable activation journal 和每个 Goal 的一个 ID，在 registry
+   transaction 下原子发布不兼容 envelope。Retry 复用 ID；普通 M0/M1 不生成 ID。
+4. 通过显式、审阅过的迁移／重连绑定 owner state。缺 stamp 不得按 alias 继承
+   authority。必要 commit fence 和 readback 完成后才重新准入；投影待交付不能
+   授权或重复 effect。
 
-新建空项目可以直接使用严格 envelope。已有 legacy registry 在全局激活成功前
-不能生成任何 instance ID。空 legacy registry 上的 orphan `adopt` 或 `migrate`
-可以在同一个 prepared transaction 中完成激活；若还有其他 legacy Goal，则必须
-先完成 registry-wide activation。
+发布前可 abort 回 legacy object；发布后只能向前修复，禁止解包给旧 writer。
+新项目可 opt into 完整 profile；安装和 codec 可用不等于 activation。全局关闭
+legacy execution 是独立 release 决策。
 
-全局 registry 继续使用 object 投影，因为它不是执行 authority。旧全局 writer
-最多使投影 stale；所有可执行路径都必须回读严格源 registry。Status 报告 stale
-投影，并由当前 writer 修复。
+验证 object-only、codec-only M0/M1、enforcement 三类版本，包括 direct source、
+global route、warm process、state write、resume、quota、delivery。拒绝后必须
+business state 和 receipt 不变，不能只检查 registry bytes。本地 drain 加拒绝
+unsupported source decode 必须覆盖受支持版本；若旧路径同时绕过两者，保持
+activation 不可用，直到既有 owner 能机械排除。相同 OS principal 故意篡改文件
+不属于 mixed-version 安全模型。
 
-删除严格 registry、把 payload 手工提取成 legacy object，或绕过 envelope 编辑
-都属于不受支持的人工破坏。本 threat model 防止第一方 mixed-version writer 的
-意外写入，不防止同一操作系统主体蓄意篡改文件系统。
+### 5.5 Binding owner 与提交 fence
 
-### 5.5 Binding owner 与最终检查
+| 既有 owner | Instance-bound state 与关键边界 |
+| --- | --- |
+| Registry／attached host／Chat | Session/thread、activation binding；route selection、resume、executor admission |
+| Turn／scheduler／quota | Work selection、lineage、settlement、debit/void、replay identity |
+| Todo／coordination／lease | Head/provider binding、work mutation、claim/renew/reclaim、receipt |
+| Handoff／inbox／outbox | Request、receiver adoption、accepted artifact、result delivery、historical readback |
+| Goal Channel／Lark／heartbeat | Connection、迟到 inbound/outbound event、wake admission |
+| Pi／OpenCode／其他第一方 host | Host action、execution binding、quota/state writeback |
 
-首个实现使用私有穷尽 owner 表，不提供公开插件接口：
+维护一个 private 穷尽 owner inventory：稳定 locator、revision、content digest、
+observed typed reference、cleanup support。排序后的 inventory 和 owner revision
+进入 plan。Registry access 复用 M0 I/O census；binding/effect coverage 必须另外
+盘点，writer 数量不构成证明。
 
-| Owner | 持久 binding | 必须执行的最终检查 |
-| --- | --- | --- |
-| 项目 registry | session 和 thread binding | 返回可恢复 route 前 |
-| Attached host | activation 和 lock identity | 创建 lock 或 execution request 前 |
-| Chat store | Goal session 和 upstream thread | create、direct resume 或 latest lookup 前 |
-| Turn driver | lineage 和 host session digest | queue 和 settlement 前 |
-| Pi 和 OpenCode | 本地 authority/binding 记录 | host action 和 quota call 前 |
-| Goal Channel / Lark | channel binding 和 connection | 入站或出站 delivery 前 |
-| Heartbeat automation | installed command 和解析 inventory | wake 和 quota call 前 |
-| Scheduler 和 quota | executable hint 和 spend request | Todo selection 和 spend 前 |
+Resolve route → 校验 source/授权 projection → 比较精确 reference 与 lifecycle →
+既有 permission → operation admission → 在 owner fence 下提交。最后一刻读取
+仍有 check/use race：A 通过检查后暂停，删除／重建发布 B，随后 A 写入复用路径或
+消费 quota。因此必须明确 linearization boundary：
 
-每条 inventory row 包含稳定 owner revision：
+- 本地 retirement 与每笔短 protected commit 共用 instance admission guard，
+  固定 lock order；不跨 model call、network request 或 user validation 持有
+  registry lock。
+- Canonical transaction 将原 source witness 和 instance 传给 TS owner，在
+  lifecycle guard 下于 commit 边界检查当前 instance。既有 CAS、lease fence
+  仍必要；witness hash 或 Goal ID 不等于该 guard。
+- Retirement 先关闭 admission，drain 已准入 commit，并经既有 journal reconcile
+  pending external effect，再发布 retirement。不确定的外部 effect 阻止宣告
+  retirement/reuse 完成；无 fencing 的外部 provider 不能被追溯取消。
+- Shared service 必须在服务端串行化 lifetime/mutation admission，保留 tenant、
+  actor、restore incarnation 校验。本地文件锁不满足 R6，也不声称跨 ledger 原子性。
 
-```python
-@dataclass(frozen=True, slots=True)
-class BindingObservation:
-    owner: str
-    locator: str
-    binding_revision: str
-    content_sha256: str
-    observed_goal_ref: GoalRef | LegacyGoalRef | None
-    cleanup_mode: Literal["local_idempotent", "external_unverified", "none"]
-```
-
-完整排序后的 inventory 和每个 `binding_revision` 都进入 migration 与
-orphan-resolution plan digest。新增第一方持久 owner 时必须同步更新 owner 表和
-穷尽性测试。
-
-所有可执行路径遵守同一顺序：
-
-1. 解析 route，必要时通过全局 registry。
-2. 通过严格 codec 打开源项目 registry。
-3. 拒绝 legacy Goal 或未完成 resolution journal。
-4. 比较 registry 和调用方携带的精确 `GoalRef`。
-5. 在该边界第一个 effect 之前立即重新验证。
-6. 只有之后才能创建 lock、返回 resumable record、delivery、write 或 spend。
-
-Host activation 检查不能替代 state writeback 或 quota spend 检查。长生命周期
-进程可能跨越 Goal 的删除和重建。
+即使物理路径仍用 alias，operation/replay key、canonical state selection、late
+result 都必须按 instance 隔离。旧 receipt 仍可作为 A 的历史读取，但不能授予 B
+lease、满足 B acceptance 或给 B 扣费；不得静默重标历史 receipt。B 的 provider
+state 必须新建，或经既有审阅过的 lifecycle 显式导入。A 在校验后暂停、同名重建后
+恢复的反例，必须不产生任何 B-side write、delivery、debit 或 ownership change。
 
 ### 5.6 Orphan resolution 命令
 
@@ -389,8 +342,8 @@ loopx resolve-orphaned-goal-state \
   --format json
 ```
 
-- `adopt` 保持一个选中 candidate 位于已经 canonical 的位置，并以新 Goal
-  instance 注册。
+- `adopt` 在 canonical 位置保留选中 state content，以新 Goal instance 注册；
+  不恢复旧 claim、grant 或 execution binding。
 - `migrate` 通过 canonical state-path helper 移动一个选中 candidate，在相同
   human Goal ID 下注册新 instance。
 - `archive` 把 candidate 移出所有 active Goal root。
@@ -399,6 +352,11 @@ loopx resolve-orphaned-goal-state \
 最多一个 candidate 可以是 `adopt` 或 `migrate`；其余 candidate 必须是
 `archive` 或 `delete`。只有 archive/delete 的计划让 Goal 保持缺失。系统不提供
 隐式 winner、内容合并、任意 destination path 或重命名 target Goal。
+
+首个 resolution profile 仅覆盖项目本地 legacy file state。若 candidate 路由到
+已晋升 canonical/provider state，必须 fail closed 并指向既有 authority
+migration/import route；移动 Markdown 不能接管 File/SQLite/PostgreSQL head。
+后续 provider 支持必须保持 source selection、incarnation、历史 receipt 和 D1–D3。
 
 Preview 在计算 digest 前验证：
 
@@ -430,62 +388,56 @@ loopx resolve-orphaned-goal-state \
 
 ### 5.7 Resolution transaction 与 journal
 
-Journal 位于
-`.loopx/lifecycle/orphaned-goal-state/<goal-id>/<plan-revision>.json`。它是
-lifecycle metadata，不是第二个 Goal registry。
+Typed lifecycle 包含 `prepared`、`applying`、`source_committed`、`complete`、
+`rollback_prepared`、`rolled_back`。Journal 位于
+`.loopx/lifecycle/orphaned-goal-state/<goal-id>/<plan-revision>.json`，是恢复
+metadata，不是另一份 registry。TS 拥有 transition/allowed effect；既有
+Python/host adapter 执行并返回 observation。
 
-Apply transaction：
+1. 按固定顺序获取 lifecycle/registry/affected-owner guard。已完成 exact replay
+   返回历史 receipt，不重新激活 Goal。
+2. Prepare 前重建并比较完整 registry、candidate-tree、inventory、creation-spec、
+   plan digest；不匹配则无 effect。
+3. 验证定向 backup，所有 plan 在首次 move/delete 前持久 prepare，**包括只做
+   archive/delete** 的 plan。仅创建 Goal 时预留 ID；记录 candidate preimage、
+   planned postimage 和 owner operation key。
+4. 在 guard 下应用 disposition；effect 前写 intent，crash-before-ack 后核对真实
+   pre/post state。已匹配 post-state 不重复删除；两者均不匹配时不得猜测。
+5. 选中内容已 canonical、竞争 candidate 已失活后，只发布一次新 Goal。Prepared
+   plan 从已记录 phase 恢复，不要求部分成功后仍符合原 preview 的 pre-mutation digest。
+6. 收集必要 local invalidation receipt、验证 source 和 safety fence，再完成 lifecycle。
+   有其他 legacy Goal 时先完成 registry-wide activation；其他 Goal 不属于本次
+   resolution guard 范围。
+7. 通过既有 retry owner 投递 global projection 和 operator result。投影失败是
+   typed `pending_sync`，不是另一份 authority，也不能重复 source commit。
 
-1. 按一个文档化顺序获取 lifecycle、registry 和受影响 owner lock。
-2. 完全相同的 replay 直接返回已有 complete receipt。
-3. 重建 plan，并要求 registry、candidate、owner、Goal specification 和
-   plan digest 完全一致。
-4. 通过 `state_backup.py` 写入并验证一个定向 backup。
-5. 若将创建 Goal，则生成 instance ID，并在首次 candidate mutation 前把它
-   持久写入 `prepared` journal。
-6. 幂等应用 candidate disposition，并记录每一步；archive destination 包含
-   plan revision。
-7. 只有选中 candidate 到达 planned canonical route 且所有竞争 candidate
-   都失活后，才能发布项目 Goal。
-8. 使用精确 retired `(goal_id, goal_instance_id)` selector 和稳定 idempotency
-   key 请求 owner 本地 revocation。
-9. 把项目记录同步到全局投影。
-10. 回读所有 candidate、owner receipt、registry、全局投影、backup proof 和最终
-    orphan fence 后，才能把 journal 标记为 complete。
+Source safety 成立前，journal 阻止该 Goal 的普通 activation/mutation，即使已发布
+Goal record；只有精确 resolution/resume 可以执行其声明的恢复 effect。Source commit
+及必要 invalidation 完成后，投影 lag 仍需可见，但不能无限阻塞无关 Goal 或已有
+source 授权的本地工作。Event-driven wake 只作提示，source check 决定 admission。
 
-Prepared 或 incomplete journal 会阻止全部 activation 和 mutation，即使步骤 7
-已经发布项目 Goal。Retry 必须复用 journal 中的 instance ID、resolution ID、
-owner selector 和 provider idempotency key。
+Receipt 保存 plan/resolution/terminal-journal digest、candidate pre/post digest、
+精确 source Goal reference、backup manifest verification、各 owner observation、
+revision、operation、readback、local removal receipt，以及 typed projection/manual
+cleanup finding；排除 private raw content。关闭新 lifecycle admission 时仍保留恢复。
 
-Completion receipt 包含：
+### 5.8 逻辑 revocation 与 legacy cleanup
 
-- plan revision、resolution ID 和 terminal journal digest；
-- 每个 candidate 操作前后的 digest；
-- 源项目 registry digest 和精确 Goal reference；
-- 全局投影结果与 digest，或 typed pending-sync finding；
-- 与路径无关的 backup manifest digest 和验证证明；
-- 每个 binding-owner observation、revision、cleanup request 和 readback；
-- 每个本地 removal receipt；
-- 每个外部 `manual_cleanup_required` finding；
-- 最终 orphan fence 和 in-progress fence 结果。
+精确 instance mismatch 加 commit fence 构成安全边界；外部物理删除是 hygiene。
+Typed cleanup selector 区分：
 
-### 5.8 逻辑 revocation 与 owner cleanup
+- `instance`：精确 retired `(goal_id, goal_instance_id)`；
+- `legacy_observation`：精确 owner locator + observed revision + content digest，
+  仅在 lifecycle guard 证明 Goal absent/inactive 时准入。
 
-精确 instance mismatch 是安全边界。Resolution 不依赖所有 store 的物理删除。
+Legacy orphan 没有可凭空生成的 retired instance。Owner 支持条件删除时，在其 guard
+下重新校验 observation，只删除该 record；revision 改变则 stop/replan。Provider
+无法证明精确删除时，保留 inert record 并返回 `manual_cleanup_required`。不得按
+Goal ID 批量删除，也不能先给 legacy binding stamp 身份以便删除。
 
-Revocation selector 必须始终包含完整 retired pair：
-
-```python
-@dataclass(frozen=True, slots=True)
-class RevocationSelector:
-    goal_id: GoalId
-    retired_goal_instance_id: GoalInstanceId
-```
-
-禁止只按 Goal ID 清理，因为它可能删除刚创建的新 instance。支持幂等删除的本地
-owner 必须先返回 receipt，resolution 才能完成。无法验证删除结果的外部 provider
-保持逻辑 inert，并产生 `manual_cleanup_required`；该 finding 不会让 stale
-execution 重新变得可能。
+必要 local logical invalidation receipt 阻塞 source completion；可选物理清理和
+external manual cleanup 使用独立 retry state。另一个 lifetime 创建的新 binding
+不能匹配旧 legacy selector。分别验证 legacy/stamped orphan 和 revision race。
 
 ### 5.9 Rollback
 
@@ -510,28 +462,29 @@ loopx rollback-orphaned-goal-resolution \
 Rollback 只能把已验证 bytes 恢复到 orphaned、fenced 状态，不能恢复 retired
 Goal instance ID 或 binding authority。在任何 resolution 后 Goal write、Todo
 mutation、quota spend、session/channel 创建、automation 安装或 binding revision
-发生后，rollback 必须拒绝。成功 rollback 通过 lifecycle owner 删除新 Goal，
+发生后，rollback 必须拒绝。Rollback 自身也须在首次修改前写 journal，并使用同一 retirement/commit guard，
+避免资格检查与新业务写入竞争。成功 rollback 通过 lifecycle owner 删除新 Goal，
 恢复 candidate bytes，验证 digest，并让 diagnose 重新以
 `orphaned_goal_state` 报告 unhealthy。
 
 若 rollback 已不合法，恢复只能向前执行：完成 journal，通过普通 lifecycle
 退休新 Goal，再创建新的 resolution plan。
 
-### 5.10 模块地图
+### 5.10 有界重构与交付 owner
 
-| 模块 | 职责 |
+| 既有边界 | 改动与删除要求 |
 | --- | --- |
-| `loopx/control_plane/goals/identity.py` | Goal reference type、parser 和穷尽 match policy |
-| `loopx/control_plane/projects/registry_codec.py` | Legacy object／strict envelope decode、digest 验证和保留格式的 transaction |
-| `loopx/bootstrap.py` | 只在提交新建时生成 identity；更新时保留 identity |
-| `loopx/global_registry.py` | 复制 identity、分类 instance replacement、永不生成 |
-| `loopx/control_plane/goals/orphaned_goal_state.py` | Candidate discovery 和只读 fence |
-| `loopx/control_plane/goals/orphaned_goal_state_resolution.py` | Plan、apply、journal recovery、revocation 编排、rollback |
-| `loopx/state_backup.py` | 定向 backup plan、archive、manifest 和验证 |
-| 现有 binding owner | 持久化二元组、校验二元组并执行 owner 本地 cleanup |
-| `loopx/control_plane/goals/global_registry_health.py` | Typed health finding |
-| `loopx/diagnose.py` | 展示 finding，不成为新的 detector 或 writer |
-| CLI adapter | 只解析参数和渲染 typed result |
+| TS Goal lifecycle + `coordination/authority_source.ts` | 一套 typed reference/match/admission/recovery 规则；扩展完整 transaction，删除 host 重复判断。Witness 是证据，不是跨 store 锁。 |
+| `control_plane/projects/registry_codec.py` | 扩展已交付 codec/protocol check 和 transaction；保留 v1 compatibility，不赋予 v2 enforcement。 |
+| `bootstrap.py`／Goal deletion | 消费 lifecycle transaction；配置更新保留 identity，退休／重建受 fence 保护。 |
+| `orphaned_goal_state.py`／`state_backup.py` | 保留 discovery/backup effect；薄 resolution adapter 驱动 typed plan，不新增 Python 状态机。 |
+| 既有 binding／delivery owner | 持久 exact ref 和 commit fence；复用 owner-local journal/idempotency，不新增中央 provider cleanup framework。 |
+| Diagnosis／CLI／Chat／frontend／Lark | 带 audience filtering 呈现同一 lifecycle result/recovery action，不新增 detector 或独立 repair state。 |
+
+重构前刻画普通 bootstrap/update/deletion 和 default-off 路径。以真实 consumer
+交付完整本地 retirement/recreation 路径；不增加未使用 Goal abstraction、逐字段
+RPC 或 scheduler。更大的 cross-host/provider import 保留给 R6/D1–D3，不阻塞
+本地 legacy-file recovery 的有用交付。
 
 ## 6. 替代方案与设计选择
 
@@ -579,33 +532,26 @@ Identity 和 digest 是 public-safe metadata，不是凭证。Backup、candidate
 session payload、本地绝对路径、provider handle 和原始状态属于 private runtime
 data，不得进入公开 receipt、log、fixture 或文档。
 
-Strict envelope 为受支持的第一方二进制提供 format-level split-brain 防护。
-满足以下条件前不得激活：
+Format gate 与 effect-owner fence 共同排除受支持的 mixed writer。Activation
+必须通过 object-only、codec-only、enforcement 三类版本的 source/global/warm-process
+negative test。只使用隔离 synthetic state，不在活动 Goal 上验证拒绝。
 
-- 仓库内所有项目 registry writer 都使用 codec transaction；
-- 打包后的 Python 和 TypeScript surface 通过同一 writer inventory；
-- 每个已安装第一方 host 都报告所需 protocol；
-- 黑盒测试证明 oldest supported old package 拒绝 strict fixture 且 bytes
-  不变；
-- 当前代码证明精确 read/write/readback 和 crash safety。
+未激活 legacy 项目保留原行为。已激活项目允许 legacy inspect、backup、migration
+preview，但拒绝 unstamped execution。Observation finding 不能声称 ABA 保障。
+Protocol 名称必须代表完整 enforcement，而非 decoder 可用性。
 
-Legacy object registry 仍可用于 status、diagnose、backup、activation preview
-和 orphan-resolution preview。在 observation 版本中，它可以继续执行但必须明确
-报告“不提供保障”；在 enforcement 版本中，它只能读取，直至 activation 完成。
+已激活 registry 不可降级。Unsupported source schema/protocol 必须在业务 effect
+前失败，包括不修改 registry bytes 的 effect。恢复只能使用兼容版本，不解包 payload。
 
-Strict registry 不支持降级。当前代码无法满足 manifest 时，必须在修改前返回
-`unsupported_registry_writer_protocol`。恢复必须使用当前或更高版本，不能为旧
-writer 解包 payload。
-
-源 registry 不可用、digest mismatch、envelope 畸形、instance 缺失、resolution
-未完成或 owner inventory 歧义都必须 fail closed。全局投影不可用可能延迟可见性，
+在已激活 profile 内，源不可用、digest mismatch、envelope 畸形、instance 缺失、
+source safety 未完成或 owner inventory 歧义都必须 fail closed。全局投影不可用可能延迟可见性，
 但不能授权执行。
 
 ## 8. 迁移与回滚
 
 迁移有两个范围：
 
-1. **新项目。** 创建严格空 envelope，并在首次 Goal 的 committed registry
+1. **显式 opt-in 的新项目。** 创建 activation envelope，并在首次 Goal 的 committed registry
    transaction 中生成 identity。
 2. **已有项目。** Preview registry-wide activation，quiesce 每个 Goal，备份
    registry 和本地 binding，为所有当前 Goal 生成新 instance，原子写入严格
@@ -614,7 +560,8 @@ writer 解包 payload。
 不得自动认可任何现有 attachment。系统没有证据证明一条 unstamped record
 属于当前生命周期，而不是更早的同名 Goal。
 
-已验证 strict-envelope write 是 activation cutover point：
+已验证不兼容 envelope write 是 activation cutover point；必要 owner fence 和
+readback 完成前保持 admission 关闭：
 
 - 写入前，abort 让 legacy object 保持 authority。
 - 写入后，旧二进制和 unstamped binding 均不受支持并 fail closed。
@@ -622,8 +569,8 @@ writer 解包 payload。
 - 恢复 legacy execution 不属于 rollback。
 
 Orphan archive/delete 不创建 Goal，因此无需 identity activation。Orphan
-adopt/migrate 必须使用已严格化 registry、新建严格 registry，或由同一 plan
-准入原子 registry-wide activation。
+adopt/migrate 必须使用已激活 registry、新建已激活 registry，或由同一 plan
+准入有 journal 的 registry-wide activation。
 
 Resolution prepare 前 abort 不改变任何状态。Prepare 后必须重试同一个 plan。
 独立 rollback 命令仅在没有任何 resolution 后业务写入时合法，并只能恢复
@@ -635,20 +582,25 @@ orphaned、non-executable bytes。
 | --- | --- | --- | --- |
 | 同名重建被 fence | 删除 A，保留全部 attachment，以相同 alias 创建 B，遍历所有 owner | 所有旧路径在 effect 或 quota 前拒绝 | 不要求 provider 物理删除 |
 | 更新保留生命周期 | 强制更新配置、provider 重连、Lease 续期、新 Turn | Registry 和新记录使用相同 instance ID | 不要求 binding revision 不变 |
-| Legacy 只读 | 执行 status、backup、migration preview、activation、resume、delivery、write、spend | 读取带 finding 成功；所有 effect 拒绝 | Observation 版本明确更弱 |
-| 旧 writer 被机械拒绝 | 用 oldest supported released package 操作 strict fixture | 非零 typed/decode failure，registry bytes 完全不变 | 覆盖受支持第一方 package，不覆盖任意脚本 |
+| 已激活范围内 unstamped execution 只读 | 执行 status、backup、migration preview、resume、delivery、write、spend | 读取带 finding 成功；拒绝普通业务 effect；显式迁移仍可用 | 未激活 legacy 行为不变 |
+| 旧 writer 被机械拒绝 | Object-only、codec-only、enforcement 版本；source/global/warm-process | 业务 effect 前拒绝，state/receipt 不变 | Decoder rejection 本身不充分 |
 | Strict codec 穷尽 | 静态 writer inventory 加 Python/TS conformance | 不存在项目 registry 直接写绕过 | 测试 helper 可使用隔离 fixture |
 | 源 authority 胜过全局投影 | 制造 stale 全局条目，调用所有 executable route | 源 mismatch 拒绝 | 全局 routing availability 独立 |
 | Preview 纯只读 | Preview 1、2、4 个 candidate | 不写 file、registry、binding 或 journal | 允许读取 filesystem metadata |
 | Plan 绑定完整状态 | Preview 后修改 candidate、owner revision、registry 或 Goal spec | Apply 在 backup/mutation 前拒绝 | 无 |
 | 路径校验 fail closed | Symlink、escape、重复路径、非 regular 或不可读 candidate | Preview/apply 拒绝 | 合法 destination 由 canonical helper 拥有 |
-| Crash retry 幂等 | 在每个 journal step 后 crash | 单一 instance ID，无重复 archive/delete，owner key 相同 | 外部人工清理可保留 |
-| 已发布但未完成仍被 fence | 项目发布后、全局同步／完成前 crash | Activation、mutation 和 quota 拒绝 | Status 仍可读 |
-| Cleanup 失败仍安全 | 让一个本地和一个外部 owner cleanup 失败 | Instance mismatch 保持 inert；journal 重试本地 owner；外部 finding 保留 | 完成必须等待所需本地 receipt |
+| Crash retry 幂等 | 所有 plan；每个 effect 和 journal ack 前后 crash | 需要时只有一个 prepared ID；精确 reconcile，无重复 effect | 只做 archive/delete 也有 journal |
+| 已发布但不安全仍被 fence | 发布后、必要 invalidation/source readback 前 crash | Activation/mutation/quota 拒绝；精确 recovery 可用 | Source 完成后仅投影 lag 单列 pending-sync |
+| Cleanup 失败仍安全 | Stamped/legacy binding；legacy revision 改变；local invalidation 失败 | 只精确 cleanup；external record inert；必要 local invalidation 重试 | 不生成虚假 retired identity |
 | Receipt 完整 | 对照 owner 表和全部 readback | 每个 owner/candidate/registry/global/backup/fence row 都存在 | 排除原始 private 内容 |
 | 破坏前已有 backup | 在 backup 验证前后注入失败 | Proof 前不破坏；已验证 restore 可用 | Archive-only 仍做定向 backup |
 | Rollback 被 fence | 分别在 resolution 后写入前后 rollback | 早期恢复 orphan fence；晚期拒绝 | 永不恢复旧 authority |
 | 诊断持续 unhealthy | 构造 orphan、legacy、mismatch、stale global 和 incomplete journal | Typed finding 和精确 next action | Diagnose 不做 repair |
+| Commit race 被 fence | A match 后暂停，退休／重建 B，再恢复 A；rollback 与 write 竞争 | 无 B-side write/debit/delivery/ownership change | 真实本地入口；涉及 canonical path 时用真实隔离 provider |
+| 历史保持历史 | 不同 lifetime 复用 alias/operation key；迟到 accepted result | A receipt/result 不能授权或结算 B | A 历史 readback 仍可用 |
+| Default-off parity | 同输入 off/on 对比 immutable pre-change baseline | Off 保持 schema/guidance/state/effect；on 拒绝 stale ref | 不迁移活动项目 |
+| Provider 边界真实 | Native authority candidate 交给 file-only resolution | 不按文件接管；指明既有 import route | 不声称 D1–D3/R6 资格 |
+| 产品恢复完整 | CLI、packaged frontend、已资格化 Lark | Preview→确认→crash/resume→source 与原入口 readback | 未测 transport 明确不具备资格 |
 
 实现还必须运行现有 bootstrap、registry、deletion、session、host、Goal Channel、
 heartbeat、quota、backup、docs-governance 和 public-safety suite。跳过任何 owner
@@ -677,6 +629,12 @@ Status 和 diagnose 只读。它们可以检查 legacy registry、historical bin
 strict envelope 和 incomplete journal，不能 stamp identity、修复全局投影、选择
 candidate 或完成 cleanup。
 
+CLI、packaged frontend、Lark 消费同一 preview/confirm/resume result。展示选中及
+竞争 candidate、execution block、backup proof、pending sync 和精确 next action。
+Stale session 应解释旧 lifetime，并提供显式授权的新 binding，不得静默 resume。
+完成结果返回原始会话。复用已有 settings/action editor；CLI-first 切片须标出
+未资格化 companion surface，不能声称完整产品闭环。本 RFC 自身不改 UI。
+
 Lifecycle 按现有 backup retention policy 为每次 resolution 保留一个 verified
 backup 和一个 terminal receipt。Incomplete journal 不得自动 GC。本地 cleanup
 retry 必须幂等。External manual cleanup 只作提示，因为 logical revocation
@@ -684,33 +642,36 @@ retry 必须幂等。External manual cleanup 只作提示，因为 logical revoc
 
 ## 11. 规范性交付计划
 
-| 里程碑 | 交付行为 | 入口门禁 | 退出证据 | 回滚 |
-| --- | --- | --- | --- | --- |
-| M0：registry codec 与 writer census | 双格式 read codec、保留 strict format 的 transaction、穷尽 writer inventory；不生成 identity | RFC review | 当前 suites、direct-writer ratchet、old-package strict-fixture rejection | 删除未使用 codec；全部 registry 仍是 legacy object |
-| M1：observation 与 stamped binding | Identity type、owner inventory、附加 binding 字段、diagnostics；不 enforcement | M0 green | 跨 owner read/write fixture；legacy 行为明确标为不受保护 | 停止输出可选 binding 字段 |
-| M2：activation 与 strict creation | Preview-first registry activation；新项目使用 strict envelope；只在 strict transaction 中生成 ID | M0/M1 green；host capability census | Quiescence、backup、old-writer denial、strict readback、update-preserves-ID 测试 | 只可在 envelope 写入前回退；之后向前修复 |
-| M3：最终 enforcement | Legacy execution 只读；所有 owner 和 quota boundary 做精确最终源检查 | Migration guidance 已发布；executable caller inventory 完整 | ABA、stale global、long-lived process、missing-ID rejection matrix | 不降级；使用当前版本和迁移 |
-| M4：orphan resolution | Preview、定向 backup、prepared journal、candidate disposition、owner cleanup、完整 receipt | M2/M3 identity boundary | Purity、path、crash-point、cleanup、receipt 验收行 | Resume 或 digest-bound rollback 到 fenced orphan state |
-| M5：legacy cohort migration | 已有项目 registry-wide migration 和 host reconnection | M2-M4 运维证据 | 端到端 multi-Goal migration 和 diagnostics | Cutover 前 abort；之后向前修复 |
+| 里程碑 | Outcome 与前置 | 决定性退出／回滚 |
+| --- | --- | --- |
+| M0：已交付 codec 前置 | 复用 #4917 codec/transaction/I/O census；无 lifetime enforcement | v1 read/write 已交付，不证明 old-writer exclusion；不重建或删除已在使用的 codec。 |
+| M1：owner 刻画与 typed rule | 盘点 binding/effect producer/consumer、刻画基线；只实现选定 lifecycle 使用的规则 | Default-off parity、typed negative matrix、source/global/warm-process compatibility census；不 mint、不自动 activate。 |
+| M2：opt-in 本地 lifetime transaction | 不兼容 activation、retirement/recreation guard、选定本地 owner enforcement 作为完整可用切片 | 真实 CLI local ABA/concurrency/crash/replay；全部受支持 effect owner 有 fence 前保留 M2/M3 activation hold。Cutover 前 abort，之后 forward repair。 |
+| M3：受支持 owner 资格化 | 完成已激活 profile 的 host、quota、Todo/lease、handoff、channel、automation 路径 | 全 inventory row，包括 late result/unsupported binary；已激活项目无 legacy fallback，未激活行为不变。 |
+| M4：orphan recovery | 复用 fence/diagnosis/path/backup owner；journaled file-state resolution 与精确 legacy cleanup | Preview、destructive/retry/rollback negative、原入口 readback；archive/delete 可提前交付但不创建身份，native-provider adoption 仍阻塞。 |
+| M5：迁移与产品验收 | M2–M4、多 Goal quiescence/reconnection、packaged frontend、已资格化 Lark | 2–3 worker、一条产物依赖、中断 A、重建 B、迟到 A return；无关 Goal 继续，B 独立验收；无重复 protected effect。 |
 
-任何代码在 M0 前都不能生成 `goal_instance_id`。只要任何第一方可执行路径仍保留
-legacy fallback，M3 就不能声称满足 ABA 保证。M4 可以先交付 archive/delete，
-但不得创建 Goal 或削弱现有 fence。
+M0 是前置 checkpoint，不是下一个尚未开始的任务。下一切片承担 M1 compatibility/
+consumer 刻画及 M2 本地 lifecycle seam，不能把加字段当作 ABA outcome。M2/M3
+描述实现顺序，不授权激活部分有 fence 的系统。R2/R3 消费完成的本地切片；R6
+service adoption、D1–D3 provider promotion 保留各自验收。不授权付费 cohort/soak。
 
-## 12. 未决事项
+## 12. 未决事项与 hold
 
-1. **最低支持旧 package。** Release owner 在 M0 退出前决定。建议测试支持策略
-   中最旧的版本以及紧邻前一版本；证据为黑盒 mutation matrix。
-2. **Activation 命令名称和确认 token。** CLI owner 在 M2 前决定。建议使用本文
-   所示 registry-wide `activate-goal-instance-identity`，因为 envelope 边界无法
-   诚实地按单 Goal 激活。
-3. **Canonical migration destination。** State-path owner 在 M4 前决定。建议
-   使用 host-neutral path 工作提供的 canonical helper，不接受自由目标路径。
-4. **全局同步终局语义。** Registry owner 在 M4 前决定。建议在全局投影回读
-   成功前保持 `local_committed`，并由 incomplete journal 的源检查继续阻止执行。
-5. **保留期限。** Operations owner 在 M4 前决定。建议复用当前 targeted-backup
-   retention，并让 terminal receipt 的保留期不少于任一 owner 保留 stale binding
-   的时间。
+1. **受支持 package/profile matrix：** release/host owner 在 M2 activation 前固定
+   object-only、codec-only、enforcement 版本及排除证据。v2 名称是提案，support
+   必须包含语义。
+2. **精确 commit guard：** Goal lifecycle/TS transaction owner 在 M2 前选定并证明
+   本地 retirement/commit lock 与 external-effect drain contract；digest recheck
+   不能解除 hold。
+3. **Canonical destination/provider import：** 复用当前 path owner，跟随 #4915
+   但不预设已合并。Provider-state adoption 要有独立审阅的 import contract；首个
+   file-only 切片拒绝它。
+4. **Service profile：** R6 决定 authenticated identity projection 与服务端串行化；
+   不要求远端访问本地路径，不复制 writable registry。
+5. **Retention/default rollout：** 既有 backup/receipt owner 决定 retention；
+   incomplete journal 不自动 GC。全局 enforcement/default activation 需独立、
+   已披露的 migration/release 决策。
 
 ---
 
@@ -718,28 +679,29 @@ legacy fallback，M3 就不能声称满足 ABA 保证。M4 可以先交付 archi
 
 ### 2026-09-23 — 设计综合
 
-- **基线：** `d3dc4083c9c73911addeae8c0643640f0046874b`
-- **已交付：** 仅 RFC 提案。
+- **基线：** `23edcb19c70394480e3a9ebe8a960f5a320c5342`
+- **已交付：** 修订 RFC 提案；M0 codec 前置已单独交付。
 - **证据：** 已检查当前 registry、bootstrap、deletion、binding、orphan fence、
   backup、全局投影和文档契约。
-- **已知缺口：** 尚无 runtime 实现或 acceptance fixture。
-- **对规范设计的影响：** 初始提案。
+- **已知缺口：** 尚无 instance enforcement、activation 或 resolution fixture。
+- **对规范设计的影响：** 对齐 roadmap/TS/shared authority；分开 codec compatibility
+  与 enforcement，明确 commit fence、legacy cleanup。
 
 ## 附录 B：决策日志
 
 | 日期 | 决策 | Owner／批准 | 替代方案 | 变更的规范章节 |
 | --- | --- | --- | --- | --- |
 | 2026-09-23 | 提议 source-owned 随机 Goal instance identity 与 strict registry envelope | 提案；等待 maintainer 批准 | Counter、path identity、附加 capability marker | 初始 RFC |
-| 2026-09-23 | 提议显式 journaled orphan resolution 与 owner-local cleanup | 提案；等待 maintainer 批准 | 自动 merge、集中式 provider deletion | 初始 RFC |
+| 2026-09-23 | 基于当前 main 修订 compatibility、typed lifecycle ownership、commit fence、legacy cleanup | 设计提案；实现 hold 见第 12 节 | Decoder-only exclusion、重复 Python 状态机、猜测 legacy identity | 第 3–5、7–12 节 |
 
 ## 附录 C：证据登记
 
 | 证据 ID | 声明 | 基线／环境 | Artifact 或命令 | 结果 | 隐私／有效性边界 |
 | --- | --- | --- | --- | --- | --- |
-| E1 | 当前 loader 接受任意 object schema，并拒绝非 object 根 | 指定基线 | 检查 `loopx/registry.py`、`loopx/history.py`、`loopx/bootstrap.py` | observed | 静态当前代码事实 |
+| E1 | M0 读写 v1，但不 enforce lifetime | 指定基线／#4917 | Registry codec 与 bootstrap 检查 | observed | Codec compatibility 不等于 identity admission |
 | E2 | 已交付 fence 阻止 orphan guided bootstrap，但不执行 resolution | 指定基线 | Issue #4801 和 PR #4808 | observed | 公开 issue 和代码范围 |
 | E3 | 全局条目是 source projection | 指定基线 | 检查 `loopx/global_registry.py` | observed | 静态当前代码事实 |
-| E4 | Strict envelope 拒绝 oldest supported old writer 且不修改状态 | 未来 M0 fixture | 已发布 package 黑盒测试 | unverified | 生成 identity 前必须完成 |
+| E4 | Activation 排除所有受支持旧 effect 路径 | 未来 M1–M3 fixture | Object-only/codec-only/enforcement matrix | unverified | Activation 前需覆盖 source/global/warm-process |
 | E5 | 每个持久 binding owner 验证精确 identity | 未来 M1-M3 fixture | Owner inventory conformance suite | unverified | Enforcement 前必须完成 |
 | E6 | Resolution 可在 crash 后安全恢复 | 未来 M4 fixture | Fault-injection 和 restore matrix | unverified | 破坏性使用前必须完成 |
 
@@ -757,7 +719,7 @@ legacy fallback，M3 就不能声称满足 ABA 保证。M4 可以先交付 archi
 
 - 当前状态 healthy 不能证明它与更早的同名 Goal 连续。
 - 若旧代码会忽略 compatibility check，advisory check 就不是 writer fence。
-- Crash safety 要求首次移动 candidate 前持久化新 identity，并让 journal 本身
-  成为 execution fence。
+- Crash safety 要求所有 plan 在首次 mutation 前写 journal，需要时预留 identity，
+  并 reconcile 丢失 acknowledgement 的 effect。
 - Cleanup 与 authorization 是两个问题：stale record 可以保留用于 audit，同时
   由精确 identity matching 保持 inert。
