@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 from typing import Any
-from ..control_plane.quota.automation_cadence import automation_cadence
+from ..control_plane.effect_runtime import effect_runtime_result
 from ..history import load_registry
 from ..paths import resolve_runtime_root
 
@@ -74,18 +74,23 @@ def handle_automation_cadence_command(
             or args.expected_revision is not None
         ):
             raise ValueError("configuration flags require --min-interval-minutes")
-        result = automation_cadence(
-            root,
-            args.goal_id,
-            args.agent_id,
-            args.automation_id,
-            operation="configure" if change else "read",
-            min_interval_minutes=args.min_interval_minutes,
-            expected_revision=args.expected_revision,
-            owner_reference=args.owner_reference,
-            approve_reduction=args.approve_reduction,
-            execute=args.execute,
+        result = effect_runtime_result(
+            "quota.automation_cadence.manage",
+            {
+                "runtime_root": str(root),
+                "goal_id": args.goal_id,
+                "agent_id": args.agent_id,
+                "automation_id": args.automation_id,
+                "operation": "configure" if change else "read",
+                "min_interval_minutes": args.min_interval_minutes,
+                "expected_revision": args.expected_revision,
+                "owner_reference": args.owner_reference,
+                "approve_reduction": args.approve_reduction,
+                "execute": args.execute,
+            },
+            retry_safe=not change,
         )
+
     except (OSError, ValueError, RuntimeError) as exc:
         print_payload(
             {"ok": False, "error": str(exc)}, output_format(args), lambda v: v["error"]

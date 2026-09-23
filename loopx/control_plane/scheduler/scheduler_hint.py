@@ -11,7 +11,7 @@ from datetime import timedelta
 from typing import Any
 
 from ..quota.decision_summary import compact_quota_decision
-from ..quota.automation_cadence import cadence_schedule
+from ..effect_runtime import effect_runtime_result
 from ..runtime.time import now_utc, utc_isoformat
 from ..todos.frontier_deadline import build_frontier_recheck_plan
 from .arbitration import (
@@ -659,7 +659,9 @@ class _SchedulerHintBuilder:
         projections = {"local": local, "app": app, "app_max": app_max, "local_max": maximum, "floor": 0}
         policy = _dict_or_empty(self.payload.get("automation_cadence"))
         floor = policy.get("min_interval_minutes")
-        return cadence_schedule(projections, floor) if floor else projections
+        return effect_runtime_result("quota.automation_cadence.schedule", {
+            **projections, "min_interval_minutes": floor,
+        }) if floor else projections
 
     def build(
         self,
