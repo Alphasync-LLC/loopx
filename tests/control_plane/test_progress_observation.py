@@ -196,6 +196,11 @@ def test_new_probe_family_is_a_semantic_delta_but_new_evidence_alone_is_not() ->
         "new_probe_family"
     ]
     assert semantic_progress_delta(evidence_only, baseline=baseline)["accepted"] is False
+    # The codec also states whether any evidence id is absent from the baseline;
+    # obligation sources that require it behind a renamed identifier read it.
+    assert semantic_progress_delta(new_probe, baseline=baseline)["evidence_novel"] is False
+    assert semantic_progress_delta(evidence_only, baseline=baseline)["evidence_novel"] is True
+    assert semantic_progress_delta(new_probe, baseline=None)["evidence_novel"] is True
 
 
 def test_repeated_blocker_cannot_close_replan() -> None:

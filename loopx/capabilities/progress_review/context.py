@@ -34,8 +34,12 @@ def external_progress_review_context(
     except (OSError, ValueError):
         loaded, rejected = [], 0
     pinned = policy.get("contract_revision")
+    newest = max(loaded, key=lambda item: int(item.get("sequence") or 0), default=None)
+    newest_revision = str(newest["contract_revision"]) if newest else None
     if pinned:
-        # Receipts bound to another goal contract are history, never current evidence.
+        # Only receipts bound to the pinned revision are current evidence; the
+        # pin is manual, so a newer receipt under another revision means the
+        # observer basis moved and the Goal owner must re-pin (or not).
         receipts = [item for item in loaded if item["contract_revision"] == pinned]
         stale = len(loaded) - len(receipts)
     else:
@@ -44,7 +48,11 @@ def external_progress_review_context(
         "policy": policy,
         "receipts": receipts,
         "summary": progress_review_receipt_summary(
-            receipts, policy=policy, rejected=rejected, stale=stale
+            receipts,
+            policy=policy,
+            rejected=rejected,
+            stale=stale,
+            newest_contract_revision=newest_revision,
         ),
     }
 

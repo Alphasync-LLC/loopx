@@ -373,6 +373,7 @@ def progress_review_receipt_summary(
     policy: Mapping[str, Any],
     rejected: int = 0,
     stale: int = 0,
+    newest_contract_revision: str | None = None,
 ) -> dict[str, Any]:
     """Compact, prose-free projection for status surfaces."""
 
@@ -419,6 +420,13 @@ def progress_review_receipt_summary(
         # assist may only raise an obligation for receipts bound to a pinned
         # goal contract; without the pin the receipts stay observations.
         summary["assist_blocked_reason"] = "contract_revision_unpinned"
+    pinned = policy.get("contract_revision")
+    if newest_contract_revision is not None:
+        summary["newest_receipt_contract_revision"] = newest_contract_revision
+    if pinned and newest_contract_revision and newest_contract_revision != pinned:
+        # The pin does not follow the observer basis; the newest receipt is
+        # bound elsewhere, so no current evidence will accrue until re-pinned.
+        summary["rebind_hint"] = "newer_receipts_under_unpinned_revision"
     return summary
 
 

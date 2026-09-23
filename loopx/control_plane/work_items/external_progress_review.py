@@ -23,12 +23,24 @@ EXTERNAL_PROGRESS_REVIEW_TRIGGER_SCHEMA_VERSION = "external_progress_review_trig
 EXTERNAL_PROGRESS_REVIEW_SIGNALS: tuple[str, ...] = ("noul", "choice")
 EXTERNAL_PROGRESS_REVIEW_FRONTIER_PREFIX = "progress_review:"
 EXTERNAL_PROGRESS_REVIEW_PENDING_REASON = "pending_evaluation"
-# Newest transitions whose evaluation has not finished yet are neither counted
-# nor allowed to dissolve an existing streak; beyond this many the streak breaks.
-EXTERNAL_PROGRESS_REVIEW_MAX_PENDING_SKIP = 2
+# Why a captured transition carries no verdict. None of these is drift and none
+# is progress: they neither form a streak nor dissolve one that already formed.
+EXTERNAL_PROGRESS_REVIEW_UNEVALUATED_REASONS: tuple[str, ...] = (
+    "pending",  # queued by the observer, evaluation not finished
+    "not_evaluated",  # not evaluated for another typed reason
+    "failed",  # evaluation failed closed
+    "abstained",  # no decided answer
+    "stale",  # the observer invalidated the event
+    "undecided",  # completed, but the selected signal is null
+    "missing",  # no receipt for this transition
+    "unattributed",  # ambiguous fallback identity
+    "identity_conflict",  # receipt names another Agent or Todo
+    "other_revision",  # receipt bound to a revision that is not pinned
+)
 
 RunKey = tuple[str, str]
 AckRecorded = Callable[[dict[str, Any]], bool]
+Verdict = tuple[str, str | None]
 
 
 def _run_key(run: Mapping[str, Any]) -> RunKey:
@@ -102,6 +114,41 @@ def _single_agent_id(runs: list[dict[str, Any]]) -> str | None:
     return next(iter(agent_ids)) if len(agent_ids) == 1 else None
 
 
+def _verdict(
+    run: Mapping[str, Any],
+    receipt: Mapping[str, Any] | None,
+    *,
+    ambiguous: bool,
+    signal: str,
+    pinned: str,
+) -> Verdict:
+    """Classify one captured transition as drift, on_goal or unevaluated."""
+
+    if receipt is None:
+        return "unevaluated", "unattributed" if ambiguous else "missing"
+    if _identity_conflict(run, receipt):
+        return "unevaluated", "identity_conflict"
+    status = str(receipt.get("status") or "")
+    if status != "completed":
+        if (
+            status == "not_evaluated"
+            and receipt.get("reason") == EXTERNAL_PROGRESS_REVIEW_PENDING_REASON
+        ):
+            return "unevaluated", "pending"
+        if status in {"failed", "abstained", "stale"}:
+            return "unevaluated", status
+        return "unevaluated", "not_evaluated"
+    if str(receipt.get("contract_revision") or "") != pinned:
+        return "unevaluated", "other_revision"
+    drift_signal = receipt.get("drift_signal")
+    value = drift_signal.get(signal) if isinstance(drift_signal, Mapping) else None
+    if value is True:
+        return "drift", None
+    if value is False:
+        return "on_goal", None
+    return "unevaluated", "undecided"
+
+
 def external_progress_review_trigger(
     newest_first_runs: Iterable[dict[str, Any]],
     *,
@@ -113,23 +160,27 @@ def external_progress_review_trigger(
     ack_recorded: AckRecorded,
     neutral_classifications: Iterable[str] = (),
 ) -> dict[str, Any] | None:
-    """Return a trigger for consecutive completed drift receipts, else None.
+    """Return a trigger when a drift streak formed and was not discharged.
 
-    Streak rules, applied newest-first:
-    - without a pinned goal contract revision nothing triggers;
-    - an acknowledged autonomous replan ends the scan (re-arm);
-    - up to EXTERNAL_PROGRESS_REVIEW_MAX_PENDING_SKIP newest transitions whose
-      receipt is still `pending_evaluation` are skipped, not counted;
-    - a transition without a receipt, an ambiguous or identity-conflicting
-      receipt, a receipt that is not `completed`, whose drift signal is not
-      True, or bound to another contract revision, ends the scan;
-    - retries of the same logical turn are one transition;
-    - the same evidence id counts once;
-    - neutral bookkeeping rows (quota spend/void records) are neither counted
-      nor gaps, exactly as the existing replan policy treats them;
-    - the newest counted run must carry a typed progress observation, which
-      becomes the obligation's `progress_baseline`: the existing writeback
-      semantics then reject an acknowledgement that merely repeats it.
+    Formation and persistence are two rules over the same newest-first scan:
+
+    - nothing triggers without a pinned goal contract revision;
+    - the scan ends at an acknowledged autonomous replan (re-arm) or at a
+      newer `completed` receipt whose selected signal is False: the policy's
+      condition no longer holds, so nothing is open;
+    - every transition is `drift` (completed, signal True, pinned revision),
+      `on_goal` (completed, signal False) or `unevaluated` for one typed
+      reason in EXTERNAL_PROGRESS_REVIEW_UNEVALUATED_REASONS;
+    - a streak forms only from `threshold` consecutive drift transitions with
+      no unevaluated transition between them (conservative formation);
+    - once formed, newer unevaluated transitions neither extend nor dissolve
+      it: absence of evaluation is not evidence that the problem was handled;
+      they are reported so status can show how many verdicts are outstanding;
+    - retries of one logical turn are one transition, one evidence id counts
+      once, neutral bookkeeping rows are neither counted nor gaps;
+    - the newest typed progress observation in the window, evaluated or not,
+      becomes the obligation's `progress_baseline`, so no claim the Agent has
+      already made can acknowledge; a window without one raises nothing.
     """
 
     if signal not in EXTERNAL_PROGRESS_REVIEW_SIGNALS:
@@ -141,10 +192,10 @@ def external_progress_review_trigger(
     required = max(2, int(threshold))
     normalized_agent_id = str(agent_id or "").strip()
     by_turn, by_key = index_progress_review_receipts(receipts)
-    counted: list[tuple[dict[str, Any], Mapping[str, Any]]] = []
+    segment: list[tuple[str, dict[str, Any], Mapping[str, Any] | None, str | None]] = []
     seen_turns: set[str] = set()
     seen_evidence: set[str] = set()
-    pending_skipped = 0
+    consecutive = longest = 0
     for run in newest_first_runs:
         if not isinstance(run, dict):
             continue
@@ -156,64 +207,86 @@ def external_progress_review_trigger(
         if normalized_agent_id and run_agent_id not in {"", normalized_agent_id}:
             continue
         turn = _progress_turn_instance_id(run)
-        if turn and turn in seen_turns:
-            continue
-        receipt = by_turn.get(turn) if turn else by_key.get(_run_key(run))
-        if receipt is None:
-            break
         if turn:
+            if turn in seen_turns:
+                continue
             seen_turns.add(turn)
-        if _identity_conflict(run, receipt):
+            receipt, ambiguous = by_turn.get(turn), False
+        else:
+            key = _run_key(run)
+            receipt = by_key.get(key)
+            ambiguous = key in by_key and receipt is None
+        verdict, reason = _verdict(
+            run, receipt, ambiguous=ambiguous, signal=signal, pinned=pinned
+        )
+        if verdict == "on_goal":
             break
-        if (
-            receipt.get("status") == "not_evaluated"
-            and receipt.get("reason") == EXTERNAL_PROGRESS_REVIEW_PENDING_REASON
-            and not counted
-            and pending_skipped < EXTERNAL_PROGRESS_REVIEW_MAX_PENDING_SKIP
-        ):
-            pending_skipped += 1
-            continue
-        if receipt.get("status") != "completed":
+        if verdict == "drift":
+            assert receipt is not None
+            evidence_id = str(receipt.get("evidence_id") or "")
+            if evidence_id in seen_evidence:
+                continue
+            seen_evidence.add(evidence_id)
+            consecutive += 1
+            longest = max(longest, consecutive)
+        elif longest >= required:
+            # The streak above this gap already formed; older history, including
+            # transitions captured before the observer existed, is not its concern.
             break
-        drift_signal = receipt.get("drift_signal")
-        if not isinstance(drift_signal, Mapping) or drift_signal.get(signal) is not True:
-            break
-        if str(receipt.get("contract_revision") or "") != pinned:
-            break
-        evidence_id = str(receipt.get("evidence_id") or "")
-        if evidence_id in seen_evidence:
-            continue
-        seen_evidence.add(evidence_id)
-        counted.append((run, receipt))
-        if len(counted) >= required:
-            break
-    if len(counted) < required:
+        else:
+            consecutive = 0
+        segment.append((verdict, run, receipt, reason))
+    if longest < required:
         return None
-    latest_run, latest_receipt = counted[0]
-    oldest_run = counted[-1][0]
-    # Without a typed observation to bind, an acknowledgement could not be told
-    # apart from a repeat of the evaluated work, so no obligation is raised.
-    baseline = progress_observation_from_run(latest_run)
-    if baseline is None:
+    drift_rows = [(run, receipt) for verdict, run, receipt, _ in segment if verdict == "drift"]
+    latest_run, latest_receipt = drift_rows[0]
+    assert latest_receipt is not None
+    oldest_run = drift_rows[-1][0]
+    # Bind the newest typed claim in the window, whether or not its evaluation
+    # finished: an acknowledgement must go beyond everything already claimed.
+    # Without any typed observation to bind, an acknowledgement could not be
+    # told apart from a repeat of the evaluated work, so nothing is raised.
+    baseline_run = next(
+        (run for _, run, _, _ in segment if progress_observation_from_run(run) is not None),
+        None,
+    )
+    if baseline_run is None:
         return None
+    baseline = progress_observation_from_run(baseline_run)
+    assert baseline is not None
+    by_reason: dict[str, int] = {}
+    newer_than_latest_drift = 0
+    for verdict, _, _, reason in segment:
+        if verdict == "drift":
+            break
+        newer_than_latest_drift += 1
+    for verdict, _, _, reason in segment:
+        if verdict == "unevaluated" and reason:
+            by_reason[reason] = by_reason.get(reason, 0) + 1
     return {
         "kind": EXTERNAL_PROGRESS_REVIEW_TRIGGER_KIND,
         "schema_version": EXTERNAL_PROGRESS_REVIEW_TRIGGER_SCHEMA_VERSION,
         "section": "run_history",
         "signal": signal,
-        "run_count": len(counted),
+        "run_count": len(drift_rows),
         "threshold": required,
-        "pending_skipped": pending_skipped,
+        "consecutive_drift": longest,
+        "unevaluated_transitions": {
+            "total": sum(by_reason.values()),
+            "newer_than_latest_drift": newer_than_latest_drift,
+            "by_reason": by_reason,
+        },
         "agent_id": normalized_agent_id
-        or _single_agent_id([run for run, _ in counted]),
+        or _single_agent_id([run for run, _ in drift_rows]),
         "contract_revision": pinned,
-        "evidence_ids": [str(receipt["evidence_id"]) for _, receipt in counted],
-        "receipt_ids": [str(receipt["receipt_id"]) for _, receipt in counted],
+        "evidence_ids": [str(receipt["evidence_id"]) for _, receipt in drift_rows if receipt],
+        "receipt_ids": [str(receipt["receipt_id"]) for _, receipt in drift_rows if receipt],
         "latest_generated_at": str(latest_run.get("generated_at") or ""),
         "oldest_counted_generated_at": str(oldest_run.get("generated_at") or ""),
         "latest_judgments": latest_receipt.get("judgments"),
         "progress_baseline": baseline,
         "progress_fingerprint": baseline["fingerprint"],
+        "baseline_generated_at": str(baseline_run.get("generated_at") or ""),
         "frontier_identity": EXTERNAL_PROGRESS_REVIEW_FRONTIER_PREFIX
         + str(latest_receipt["evidence_id"]),
         # The model holds no authority; the Goal owner's assist policy does.
@@ -259,11 +332,11 @@ def external_progress_review_obligation(
 
 __all__ = [
     "EXTERNAL_PROGRESS_REVIEW_FRONTIER_PREFIX",
-    "EXTERNAL_PROGRESS_REVIEW_MAX_PENDING_SKIP",
     "EXTERNAL_PROGRESS_REVIEW_PENDING_REASON",
     "EXTERNAL_PROGRESS_REVIEW_SIGNALS",
     "EXTERNAL_PROGRESS_REVIEW_TRIGGER_KIND",
     "EXTERNAL_PROGRESS_REVIEW_TRIGGER_SCHEMA_VERSION",
+    "EXTERNAL_PROGRESS_REVIEW_UNEVALUATED_REASONS",
     "external_progress_review_obligation",
     "external_progress_review_trigger",
     "index_progress_review_receipts",

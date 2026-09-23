@@ -731,6 +731,8 @@ def build_autonomous_replan_obligation(
             "threshold": review_evidence.get("threshold"),
             "evidence_ids": list(review_evidence.get("evidence_ids") or []),
             "contract_revision": review_evidence.get("contract_revision"),
+            "consecutive_drift": review_evidence.get("consecutive_drift"),
+            "unevaluated_transitions": review_evidence.get("unevaluated_transitions"),
             "model_authority": "none",
             "effect": "required_obligation_under_goal_policy",
         }

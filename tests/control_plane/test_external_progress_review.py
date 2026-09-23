@@ -118,6 +118,13 @@ def test_bound_baseline_rejects_a_repeated_observation_and_accepts_new_evidence(
     assert semantic_progress_delta(same_hypothesis_new_evidence, baseline=baseline)["accepted"] is False
     new_hypothesis = {**identical, "hypothesis_id": "hypothesis-next", "evidence_ids": ["evidence-fresh"]}
     assert semantic_progress_delta(new_hypothesis, baseline=baseline)["accepted"] is True
+    # The codec states evidence novelty as a fact; the outcome owner decides
+    # which obligation sources require it behind a renamed identifier.
+    assert semantic_progress_delta(identical, baseline=baseline)["evidence_novel"] is False
+    assert semantic_progress_delta(same_hypothesis_new_evidence, baseline=baseline)["evidence_novel"] is True
+    renamed_only = {**identical, "hypothesis_id": "hypothesis-renamed"}
+    renamed_delta = semantic_progress_delta(renamed_only, baseline=baseline)
+    assert renamed_delta["delta_kinds"] == ["new_hypothesis"] and renamed_delta["evidence_novel"] is False
     new_blocker = {
         "schema_version": "typed_progress_observation_v0",
         "result_class": "blocked",
@@ -224,18 +231,112 @@ def pending(n: int, turn: str) -> dict[str, object]:
     return receipt(n, turn=turn, status="not_evaluated", noul=None, choice=None, reason="pending_evaluation")
 
 
-def test_pending_newest_evaluations_are_skipped_but_bounded() -> None:
+def failed(n: int, turn: str, *, status: str = "failed", reason: str | None = "invalid_response_or_local_io") -> dict[str, object]:
+    return receipt(n, turn=turn, status=status, noul=None, choice=None, reason=reason)
+
+
+def test_formed_streak_survives_newer_unevaluated_transitions() -> None:
+    """Absence of a verdict is not evidence that the drift was handled."""
+
     runs = [run(3, turn="t3"), run(2, turn="t2"), run(1, turn="t1")]
+    streak = [receipt(2, turn="t2"), receipt(1, turn="t1")]
+    newest_without_verdict = {
+        "pending": pending(3, "t3"),
+        "failed": failed(3, "t3"),
+        "abstained": failed(3, "t3", status="abstained", reason="insufficient_evidence_or_uncertain"),
+        "stale": failed(3, "t3", status="stale", reason="revoked_or_stale_after_response"),
+        "not_evaluated": failed(3, "t3", status="not_evaluated", reason="egress_denied"),
+        "undecided": receipt(3, turn="t3", noul=None, choice=None),
+        "identity_conflict": receipt(3, turn="t3", agent="someone-else"),
+        "other_revision": receipt(3, turn="t3", contract="contract-2"),
+    }
+    for reason, newest in newest_without_verdict.items():
+        result = trigger(runs, [newest, *streak])
+        assert result is not None, reason
+        assert result["run_count"] == 2 and result["consecutive_drift"] == 2
+        assert result["unevaluated_transitions"] == {
+            "total": 1, "newer_than_latest_drift": 1, "by_reason": {reason: 1},
+        }
+        # The baseline is the newest typed claim in the window, evaluated or
+        # not: acknowledging with a claim already on record is not a pivot.
+        assert result["progress_baseline"]["hypothesis_id"] == "hypothesis-3"
+        assert result["baseline_generated_at"] == "2026-09-21T00:00:03Z"
+    # No receipt at all for the newest transition.
+    result = trigger(runs, streak)
+    assert result is not None and result["unevaluated_transitions"]["by_reason"] == {"missing": 1}
+    # An ambiguous fallback identity is unattributed, not a break.
+    fallback_runs = [run(3), run(2, turn="t2"), run(1, turn="t1")]
+    two_for_one = [receipt(4, evidence="other"), receipt(3), *streak]
+    two_for_one[0]["run"]["generated_at"] = two_for_one[1]["run"]["generated_at"]
+    result = trigger(fallback_runs, two_for_one)
+    assert result is not None and result["unevaluated_transitions"]["by_reason"] == {"unattributed": 1}
+    # Any depth of outstanding evaluation keeps the obligation open.
+    deep_runs = [run(n, turn=f"t{n}") for n in range(6, 0, -1)]
+    deep_receipts = [pending(6, "t6"), failed(5, "t5"), pending(4, "t4"), failed(3, "t3"), *streak]
+    result = trigger(deep_runs, deep_receipts)
+    assert result is not None
+    assert result["unevaluated_transitions"] == {
+        "total": 4, "newer_than_latest_drift": 4, "by_reason": {"pending": 2, "failed": 2},
+    }
+
+
+def test_formation_requires_a_gap_free_drift_streak() -> None:
+    """Before an obligation exists, every counted transition must be evaluated drift."""
+
+    runs = [run(3, turn="t3"), run(2, turn="t2"), run(1, turn="t1")]
+    for gap in (pending(2, "t2"), failed(2, "t2"), receipt(2, turn="t2", noul=None, choice=None)):
+        assert trigger(runs, [receipt(3, turn="t3"), gap, receipt(1, turn="t1")]) is None
+    assert trigger(runs, [receipt(3, turn="t3"), receipt(1, turn="t1")]) is None
+    # Drift verdicts separated by unevaluated transitions never add up.
+    runs = [run(n, turn=f"t{n}") for n in range(5, 0, -1)]
+    scattered = [receipt(5, turn="t5"), pending(4, "t4"), receipt(3, turn="t3"), failed(2, "t2"), receipt(1, turn="t1")]
+    assert trigger(runs, scattered) is None
+
+
+def test_newer_drift_after_formation_extends_and_rebinds_the_baseline() -> None:
+    runs = [run(4, turn="t4"), run(3, turn="t3"), run(2, turn="t2"), run(1, turn="t1")]
+    receipts = [receipt(4, turn="t4"), pending(3, "t3"), receipt(2, turn="t2"), receipt(1, turn="t1")]
+    result = trigger(runs, receipts)
+    assert result is not None
+    assert result["run_count"] == 3 and result["consecutive_drift"] == 2
+    assert result["unevaluated_transitions"] == {"total": 1, "newer_than_latest_drift": 0, "by_reason": {"pending": 1}}
+    assert result["progress_baseline"]["hypothesis_id"] == "hypothesis-4"
+    assert result["frontier_identity"] == "progress_review:" + _digest("evidence-4")
+    assert result["oldest_counted_generated_at"] == "2026-09-21T00:00:01Z"
+
+
+def test_a_newer_completed_on_goal_verdict_ends_the_open_condition() -> None:
+    """A positive verdict on a newer transition is evidence; a missing one is not."""
+
+    runs = [run(3, turn="t3"), run(2, turn="t2"), run(1, turn="t1")]
+    on_goal = receipt(3, turn="t3", noul=False, choice=False)
+    assert trigger(runs, [on_goal, receipt(2, turn="t2"), receipt(1, turn="t1")]) is None
+    runs = [run(4, turn="t4"), run(3, turn="t3"), run(2, turn="t2"), run(1, turn="t1")]
+    assert trigger(runs, [receipt(4, turn="t4"), on_goal, receipt(2, turn="t2"), receipt(1, turn="t1")]) is None
+    assert trigger(runs, [pending(4, "t4"), on_goal, receipt(2, turn="t2"), receipt(1, turn="t1")]) is None
+    # An on-goal verdict bound to another revision is history, not a verdict.
+    stale_on_goal = receipt(3, turn="t3", noul=False, choice=False, contract="contract-0")
+    runs = [run(3, turn="t3"), run(2, turn="t2"), run(1, turn="t1")]
+    result = trigger(runs, [stale_on_goal, receipt(2, turn="t2"), receipt(1, turn="t1")])
+    assert result is not None and result["unevaluated_transitions"]["by_reason"] == {"other_revision": 1}
+
+
+def test_baseline_is_the_newest_typed_observation_in_the_window() -> None:
+    runs = [run(3, turn="t3"), run(2, turn="t2"), run(1, turn="t1")]
+    runs[0].pop("progress_observation")
+    receipts = [receipt(3, turn="t3"), receipt(2, turn="t2"), receipt(1, turn="t1")]
+    result = trigger(runs, receipts)
+    assert result is not None and result["progress_baseline"]["hypothesis_id"] == "hypothesis-2"
+    assert result["baseline_generated_at"] == "2026-09-21T00:00:02Z"
+    # An unevaluated newest claim still binds; the evaluated one below does not.
+    runs = [run(3, turn="t3"), run(2, turn="t2"), run(1, turn="t1")]
+    runs[1].pop("progress_observation")
     result = trigger(runs, [pending(3, "t3"), receipt(2, turn="t2"), receipt(1, turn="t1")])
-    assert result is not None and result["run_count"] == 2 and result["pending_skipped"] == 1
-    runs = [run(5, turn="t5"), run(4, turn="t4"), run(3, turn="t3"), run(2, turn="t2"), run(1, turn="t1")]
-    receipts = [pending(5, "t5"), pending(4, "t4"), pending(3, "t3"), receipt(2, turn="t2"), receipt(1, turn="t1")]
-    assert trigger(runs, receipts) is None
-    # A pending receipt in the middle of a streak is still a gap.
-    runs = [run(3, turn="t3"), run(2, turn="t2"), run(1, turn="t1")]
-    assert trigger(runs, [receipt(3, turn="t3"), pending(2, "t2"), receipt(1, turn="t1")]) is None
-    # Other non-completed newest receipts break rather than skip.
-    assert trigger(runs, [receipt(3, turn="t3", status="failed", noul=None, choice=None, reason="deadline_exceeded"), receipt(2, turn="t2"), receipt(1, turn="t1")]) is None
+    assert result is not None and result["progress_baseline"]["hypothesis_id"] == "hypothesis-3"
+    # A window with no typed observation at all raises nothing.
+    for row in runs:
+        row.pop("progress_observation", None)
+    assert trigger(runs, [pending(3, "t3"), receipt(2, turn="t2"), receipt(1, turn="t1")]) is None
 
 
 def test_signal_selection_and_agent_scoping() -> None:
@@ -394,3 +495,113 @@ def test_context_loader_is_silent_for_off_and_reads_receipts_when_on(tmp_path) -
     unpinned = {"id": "ctx-goal", "control_plane": {"progress_review": {"mode": "assist"}}}
     loaded = external_progress_review_context(unpinned, tmp_path)
     assert loaded is not None and loaded["summary"]["assist_blocked_reason"] == "contract_revision_unpinned"
+
+
+# --- discharge policy through the shared outcome owner --------------------
+
+from loopx.control_plane.work_items.progress_observation import (  # noqa: E402
+    replan_writeback_requirements,
+    semantic_delta_from_writeback,
+)
+
+
+def _vision(outcome: str = "continue", *, evidence: list[str] | None = None) -> dict[str, object]:
+    return {
+        "state": "active",
+        "vision_patch": {"acceptance_summary": "Retry acceptance still needs a behaviour-changing slice"},
+        "path_delta": {"outcome": outcome, "evidence_refs": ["evidence:review"] if evidence is None else evidence},
+    }
+
+
+def test_external_review_discharge_refuses_renamed_identifiers_over_the_same_evidence() -> None:
+    runs = [run(2, turn="t2"), run(1, turn="t1")]
+    for row in runs:
+        row["progress_observation"]["surface_id"] = "retry"
+        row["progress_observation"]["evidence_ids"] = [f"evidence-{row['generated_at'][-3:-1]}"]
+    obligation = autonomous_replan_obligation_from_runs(
+        runs, agent_todos=None,
+        external_progress_review=_context("assist", [receipt(2, turn="t2"), receipt(1, turn="t1")]),
+    )
+    assert obligation is not None
+    requirements = replan_writeback_requirements(obligation)
+    assert "fresh_vision_path_outcome" in requirements["required_any_of"]
+    assert "new_hypothesis" in requirements["required_any_of"]
+    assert "--progress-hypothesis-id" in requirements["cli_semantic_args"]
+    contract = requirements["writeback_contract"]
+    assert contract["identity_outcomes_require_new_evidence"] is True
+    assert "--agent-vision-json" in contract["alternative_cli_semantic_args"]
+
+    def qualify(observation=None, vision=None):
+        return semantic_delta_from_writeback(
+            obligation=obligation, progress_observation=observation, agent_vision=vision,
+        )
+
+    baseline = obligation["progress_baseline"]
+    renamed = {**baseline, "hypothesis_id": "hypothesis-renamed"}
+    refused = qualify(renamed)
+    assert refused["accepted"] is False
+    assert refused["reason_code"] == "progress_identity_without_new_evidence"
+    assert qualify({**renamed, "surface_id": "retry-renamed", "probe_kind": "probe-renamed"})["accepted"] is False
+    pivot = qualify({**renamed, "evidence_ids": [*baseline["evidence_ids"], "evidence-new"]})
+    assert pivot["accepted"] is True and pivot["satisfying_outcomes"] == ["new_hypothesis"]
+    blocker = qualify({
+        "schema_version": "typed_progress_observation_v0", "result_class": "blocked",
+        "blocker_id": "blocker-review", "evidence_ids": baseline["evidence_ids"],
+    })
+    assert blocker["accepted"] is True and "new_concrete_blocker" in blocker["satisfying_outcomes"]
+    kept = qualify(None, _vision("continue"))
+    assert kept["accepted"] is True and kept["satisfying_outcomes"] == ["fresh_vision_path_outcome"]
+    assert qualify(None, _vision("replan"))["accepted"] is True
+    assert qualify(None, _vision("wait"))["accepted"] is False
+    assert qualify(None, _vision("continue", evidence=[]))["accepted"] is False
+    # A renamed identifier together with a vision path is accepted for the vision, not the rename.
+    both = qualify(renamed, _vision("continue"))
+    assert both["accepted"] is True and both["satisfying_outcomes"] == ["fresh_vision_path_outcome"]
+    # The typed fuse's own obligation keeps its broader policy: the rule is scoped to the source.
+    fuse = {"triggers": [{"kind": "typed_progress_repeat", "progress_baseline": baseline}], "progress_baseline": baseline}
+    assert semantic_delta_from_writeback(obligation=fuse, progress_observation=renamed)["accepted"] is True
+
+
+def test_context_loader_reports_a_rebind_hint_when_the_newest_receipt_is_bound_elsewhere(tmp_path) -> None:
+    from loopx.capabilities.progress_review.receipt import write_progress_review_receipt
+
+    def stored(sequence: int, contract: str) -> dict[str, object]:
+        return {
+            **receipt(sequence, turn=f"t{sequence}", contract=contract),
+            "schema_version": "progress_review_receipt_v0",
+            "signal_rule_version": "progress_review_signal_rule_v1",
+            "goal_id": "rebind-goal",
+            "question_version": "scoped-progress-sentinel-v2",
+            "model": "fixture-v1",
+            "judgments": {
+                "choice": {"relation": "off_goal", "increment": "no_new_evidence"},
+                "noul": {"behavior_change": 0.05, "serves_acceptance": 0.04, "evidence_increment": 0.1},
+            },
+            "label_probability_threshold": 0.6,
+            "recorded_at": float(sequence),
+        }
+
+    write_progress_review_receipt(tmp_path, "rebind-goal", stored(1, "contract-1"))
+    pinned = {"id": "rebind-goal", "control_plane": {"progress_review": {"mode": "assist", "contract_revision": _digest("contract-1")}}}
+    loaded = external_progress_review_context(pinned, tmp_path)
+    assert loaded is not None
+    assert loaded["summary"]["newest_receipt_contract_revision"] == _digest("contract-1")
+    assert "rebind_hint" not in loaded["summary"]
+    # The observer basis moved on; the pin did not.
+    write_progress_review_receipt(tmp_path, "rebind-goal", stored(2, "contract-2"))
+    loaded = external_progress_review_context(pinned, tmp_path)
+    assert loaded is not None
+    assert loaded["summary"]["stale_receipts"] == 1
+    assert loaded["summary"]["newest_receipt_contract_revision"] == _digest("contract-2")
+    assert loaded["summary"]["rebind_hint"] == "newer_receipts_under_unpinned_revision"
+    # Re-pinning to the current basis clears the hint and drops the old receipt to history.
+    repinned = {"id": "rebind-goal", "control_plane": {"progress_review": {"mode": "assist", "contract_revision": _digest("contract-2")}}}
+    loaded = external_progress_review_context(repinned, tmp_path)
+    assert loaded is not None and "rebind_hint" not in loaded["summary"] and loaded["summary"]["stale_receipts"] == 1
+    # Shadow with a pin gets the same hint; without a pin there is nothing to rebind.
+    shadow = {"id": "rebind-goal", "control_plane": {"progress_review": {"mode": "shadow", "contract_revision": _digest("contract-1")}}}
+    loaded = external_progress_review_context(shadow, tmp_path)
+    assert loaded is not None and loaded["summary"]["rebind_hint"] == "newer_receipts_under_unpinned_revision"
+    unpinned = {"id": "rebind-goal", "control_plane": {"progress_review": {"mode": "shadow"}}}
+    loaded = external_progress_review_context(unpinned, tmp_path)
+    assert loaded is not None and "rebind_hint" not in loaded["summary"]

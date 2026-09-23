@@ -312,10 +312,16 @@ def semantic_progress_delta(
             and _has_new_terminal_coverage(current, prior)
         ):
             delta_kinds.append("coverage_backed_no_followup")
+    # Evidence novelty is a fact the codec computes; which obligation sources
+    # require it behind a renamed surface, hypothesis or probe family is decided
+    # by the TypeScript outcome owner (work_item.replan_semantics).
+    prior_evidence = set(prior.get("evidence_ids") or []) if prior else set()
+    evidence_novel = bool(set(current.get("evidence_ids") or []) - prior_evidence)
     return {
         "schema_version": "replan_semantic_delta_v0",
         "accepted": bool(delta_kinds),
         "delta_kinds": delta_kinds,
+        "evidence_novel": evidence_novel,
         "observation_fingerprint": current["fingerprint"],
         "baseline_fingerprint": prior.get("fingerprint") if prior else None,
         "reason": (
