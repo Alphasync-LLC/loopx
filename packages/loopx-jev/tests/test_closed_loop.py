@@ -11,6 +11,7 @@ the observer answers are injected, so this pins the integration, not the model.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -366,6 +367,71 @@ def _refresh(project, runtime, registry, **overrides):
     )
     options.update(overrides)
     return refresh_state_run(**options)
+
+
+def test_retried_turn_claim_is_rejected_by_real_refresh_writeback(tmp_path):
+    """A later untyped retry cannot erase an earlier claim of the same Turn."""
+
+    from loopx.capabilities.progress_review.receipt import write_progress_review_receipt
+    from tests.control_plane.test_external_progress_review import receipt, run
+
+    project, runtime, registry = _write_fixture(tmp_path / "retry-fixture")
+    first = run(1, turn="t1", agent=AGENT_ID)
+    typed_retry = run(2, turn="t2", agent=AGENT_ID)
+    untyped_retry = run(3, turn="t2", agent=AGENT_ID)
+    untyped_retry.pop("progress_observation")
+    for row in (first, typed_retry):
+        row["progress_observation"]["surface_id"] = "retry"
+        row["progress_observation"]["evidence_ids"] = [f"evidence-{row['generated_at'][-3:-1]}"]
+    index = runtime / "goals" / GOAL_ID / "runs" / "index.jsonl"
+    index.parent.mkdir(parents=True, exist_ok=True)
+    index.write_text("".join(json.dumps(row) + "\n" for row in (first, typed_retry, untyped_retry)))
+    revision = hashlib.sha256(b"contract-1").hexdigest()
+    for sequence in (1, 2):
+        write_progress_review_receipt(runtime, GOAL_ID, {
+            **receipt(sequence, turn=f"t{sequence}", agent=AGENT_ID),
+            "schema_version": "progress_review_receipt_v0",
+            "signal_rule_version": "progress_review_signal_rule_v1",
+            "goal_id": GOAL_ID,
+            "question_version": "scoped-progress-sentinel-v2",
+            "model": "fixture-v1",
+            "judgments": {
+                "choice": {"relation": "off_goal", "increment": "no_new_evidence"},
+                "noul": {"behavior_change": 0.05, "serves_acceptance": 0.04, "evidence_increment": 0.1},
+            },
+            "label_probability_threshold": 0.6,
+            "recorded_at": float(sequence),
+        })
+    configure_goal(
+        registry_path=registry, goal_id=GOAL_ID, progress_review_mode="assist",
+        progress_review_drift_threshold=2, progress_review_contract_revision=revision,
+        execute=True,
+    )
+    context = external_progress_review_context(_goal(registry), runtime)
+    obligation = autonomous_replan_obligation_from_runs(
+        _newest_first_runs(runtime), agent_todos=None, external_progress_review=context,
+    )
+    assert obligation is not None and obligation["required"] is True
+    assert [claim["hypothesis_id"] for claim in obligation["progress_window"]] == [
+        "hypothesis-2", "hypothesis-1",
+    ]
+    before = len(_newest_first_runs(runtime))
+    with pytest.raises(ValueError, match="typed semantic delta"):
+        _refresh(
+            project, runtime, registry, autonomous_replan_recorded=True,
+            repair_delta_kinds=["blocker"],
+            progress_observation=typed_retry["progress_observation"],
+        )
+    assert len(_newest_first_runs(runtime)) == before
+    assert _refresh(
+        project, runtime, registry, autonomous_replan_recorded=True,
+        repair_delta_kinds=["blocker"],
+        progress_observation={
+            **typed_retry["progress_observation"], "hypothesis_id": "hypothesis-new",
+            "evidence_ids": ["evidence-new"],
+        },
+    )["ok"] is True
+    assert _newest_first_runs(runtime)[0]["autonomous_replan_ack"]["recorded"] is True
 
 
 def test_outstanding_evaluations_keep_the_obligation_and_an_evidence_linked_vision_discharges_it(sequence):
