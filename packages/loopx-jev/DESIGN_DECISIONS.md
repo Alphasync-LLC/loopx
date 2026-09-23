@@ -181,9 +181,13 @@ the **pinned** goal contract revision into the existing
 `autonomous_replan_obligation` (`kind: external_progress_review_drift`). The
 refresh-state writeback judges an acknowledgement against the same obligation,
 so an accepted replan re-arms the trigger. The typed repeat fuse keeps
-precedence; unknown, abstained, failed, ambiguous or missing receipts break a
-streak; at most two newest pending receipts are skipped; unpinned `assist`
-raises nothing and says so in status.
+precedence; unevaluated receipts (pending, failed, abstained, stale, undecided,
+ambiguous, missing or bound to another revision) break a streak that has not
+formed and never dissolve one that has; unpinned `assist` raises nothing and
+says so in status. Discharge follows the shared TypeScript outcome owner, which
+gives this source its own policy: renamed identifiers discharge only with
+evidence ids absent from the baseline, and an evidence-linked vision path is a
+legal exit.
 
 An external review of the first closed-loop version (2026-09-21) found four
 defects that this revision fixes deterministically rather than by model tuning:
@@ -196,6 +200,9 @@ defects that this revision fixes deterministically rather than by model tuning:
 | A receipt found by turn id was not checked against Agent/Todo; an unevaluated newest run dissolved the streak | Identity agreement is required, ambiguous fallbacks are unattributed, pending receipts are skipped within a bound |
 | (maintainer exact-head review) The obligation carried no `progress_baseline`, so re-submitting the evaluated observation was accepted as `new_surface`/`new_hypothesis` and discharged it | The trigger binds the newest counted run's typed observation as `progress_baseline` and fires only when one exists; the real writeback now rejects the identical observation and the same hypothesis with fresh evidence ids, and accepts a new hypothesis or blocker (closed-loop regression) |
 | (maintainer design review) Neutral bookkeeping rows broke the streak | Neutral classifications are skipped exactly as in the existing replan policy |
+| (maintainer second exact-head review, P1) Renaming `hypothesis_id` over the same evidence ids discharged the obligation as `new_hypothesis`, and the README promised an evidence-linked vision exit that `replan_semantics.ts` did not grant to this source | The outcome owner gives `external_progress_review_drift` its own policy: `new_surface`/`new_hypothesis`/`new_probe_family` discharge only when the codec's `evidence_novel` fact is true (`progress_identity_without_new_evidence` otherwise), `fresh_vision_path_outcome` is required-any-of, and the requirements projection names both exits; the real writeback refuses the rename and accepts a `continue` vision path (closed-loop regression) |
+| (maintainer second exact-head review, P1) A third pending, a failed or abstained receipt, or a run without a receipt above two drift receipts made the derived obligation disappear | Formation and persistence are separate rules over one scan: a streak forms only from gap-free evaluated drift; once formed, unevaluated transitions neither extend nor dissolve it and are reported as `unevaluated_transitions`; the baseline binds the newest typed claim in the window, so a pending claim cannot be re-submitted as the acknowledgement |
+| (maintainer second exact-head review) The pin read as automatic invalidation on contract change | Documented as a manual pin; status reports `rebind_hint: newer_receipts_under_unpinned_revision` when the newest receipt is bound elsewhere; "0/7 false flags" restated as 0/6 evaluated plus one failed-closed round with no verdict |
 
 `packages/loopx-jev/tests/test_closed_loop.py` runs one real `refresh-state`
 sequence four ways: default `off` produces no signal; `shadow` shows receipts
@@ -207,7 +214,8 @@ round is not enough.
 The comparison harness replays a frozen matrix of 16 sequences. On the
 committed v2 recording the typed fuse fired on 0/16 sequences; the `noul` signal
 flagged 9/9 drift sequences at their gold round and reached the obligation on
-all nine, with 0/7 false flags on real upstream commits and no premature flags;
+all nine, with 0/6 false flags on the real upstream commits that completed
+evaluation (the seventh failed closed and has no verdict) and no premature flags;
 `choice` flagged 5/9. A second independent live run reproduced every outcome.
 The earlier v1 recording flagged 6/9 and missed post-implementation churn; the
 v2 wording was revised after seeing those misses on these constructed cases, so

@@ -14,9 +14,10 @@
 | 按 `turn_instance_id` 关联 run 行，缺失时退回 `(generated_at, agent_id)` | 覆盖或补充 Agent 自己的 `progress_observation` |
 | 只计入状态为 `completed` 且所选漂移信号为 `True` 的回执 | 把 `unknown`、`abstained`、`failed`、`stale` 或缺失的回执算作漂移 |
 | 在已确认的自主重规划处停止计数并重新武装 | 暂停 Turn、打开 user gate、判定 Goal 验收 |
-| 把被评估窗口的类型化 `progress_observation` 绑定为义务的 `progress_baseline`，现有 writeback 语义据此拒绝原样重提的 ack | 让观察器或其模型决定什么能解除义务 |
+| 把窗口内最新的类型化 `progress_observation` 绑定为义务的 `progress_baseline`；共享的出口策略拒绝原样重提、也拒绝只改标识但沿用其 evidence id 的 ack | 让观察器或其模型来 ack，或把改名当成转向 |
+| 已形成的义务在更新的转换处于未评估、失败、弃权、过期或无法归属时保持打开，并报告数量 | 把缺少评估当成漂移已被处理的证据 |
 | 像现有重规划策略一样跳过 neutral 记账行（配额消费/作废） | 把记账行当成缺口或进展 |
-| 要求被计数的回执共享同一个 Goal 契约修订 | 让契约变化前的回执继续生效 |
+| 只计入绑定到 Goal 负责人所 pin 修订的回执，并在更新的回执绑定到别处时报告 | 自动跟随观察器 basis；pin 是手动的 |
 
 类型化重复保险丝保持优先。只有它沉默时，回执连续段才会补充证据。
 
@@ -34,7 +35,7 @@ loopx configure-goal --goal-id <goal-id> --clear-progress-review-configuration -
 | `mode` | `off`、`shadow`、`assist` | `off` 不加载任何内容；`shadow` 记录并展示；`assist` 可以触发义务 |
 | `signal` | `noul`、`choice` | 哪一组判断算作漂移 |
 | `drift_threshold` | 2–20 | 触发义务前需要的连续已完成漂移回执数 |
-| `contract_revision` | sha256 或空 | 回执必须绑定的观察器 basis 修订，由 `loopx-jev drift init` 打印；`assist` 必需，其他修订视为过期 |
+| `contract_revision` | sha256 或空 | 回执必须绑定的观察器 basis 修订，由 `loopx-jev drift init` 打印；`assist` 必需。pin 是手动的：绑定到其他修订的回执永不计数，basis 变化本身不会让早先回执退休，最新回执绑定到别处时 status 报告 `rebind_hint: newer_receipts_under_unpinned_revision` |
 
 策略保存在 Goal 注册表的 `control_plane.progress_review`，可在 `loopx configure-goal --goal-id <goal-id>` 输出的 `feature_summary` 和 Dashboard 能力编辑器中看到。格式错误的配置块会安全地退回 `off`。
 
@@ -56,11 +57,17 @@ loopx configure-goal --goal-id <goal-id> --clear-progress-review-configuration -
 
 两道问题都针对检查点之间的变化而不是 after 状态整体：对已经满足验收的文件做改动是漂移，而服务验收条件或新增其证据的文档、负结果、前置测试不是。
 
-按 `turn_instance_id` 找到的回执在双方都给出 Agent 与 Todo 时必须一致；歧义的 `(generated_at, agent_id)` 回退匹配不做归属。观察器入队即写 pending 回执，核心最多跳过最新两条 pending 回执，使已有连续段在评估仍在进行时既不增长也不消失。绑定到非 pin 修订的回执为过期，永不计数。
+按 `turn_instance_id` 找到的回执在双方都给出 Agent 与 Todo 时必须一致；歧义的 `(generated_at, agent_id)` 回退匹配不做归属。每个被捕获的转换只有三种：**漂移**（completed、所选信号为 `true`、pin 修订）、**on-goal**（completed、信号为 `false`）或**未评估**，后者带一个类型化原因（`pending`、`failed`、`abstained`、`stale`、`undecided`、`missing`、`unattributed`、`identity_conflict`、`other_revision`、`not_evaluated`）。形成是保守的：义务需要 `drift_threshold` 个连续漂移转换，中间不能有未评估转换。存续则不然：一旦形成，更新的未评估转换既不延长也不解除义务，其数量作为 `unevaluated_transitions` 记在 trigger 上。只有已确认的重规划或更新的 completed on-goal 判定能结束它；Goal 负责人也可以把模式调回 `shadow` 或 `off`。绑定到非 pin 修订的回执是未评估的历史，永不计数。扫描范围是 Goal 保留的 run 历史（`latest_runs`），义务最多只能与该窗口同样老。
 
 ## 解除
 
-`assist` 义务只能按所有自主重规划义务的方式解除：Agent 的下一次 `refresh-state` 必须携带一条相对绑定基线改变了某个语义维度的类型化观察（带证据的新 surface、hypothesis 或 probe family，新的具体 blocker，或有覆盖证据的终态），或一条新的证据关联 vision path。原样重提被评估过的观察，或同一 hypothesis 换新的 evidence id，都会被 writeback 拒绝。因此 trigger 只在最新被计数的 run 带有类型化观察时触发；不写类型化观察的 Agent 只会得到回执与状态，不会得到义务。
+`assist` 义务只能按所有自主重规划义务的方式解除：Agent 的下一次 `refresh-state` 必须携带共享出口策略（`work_item.replan_semantics`）对这个来源接受的类型化证据。义务把窗口内最新的类型化进展观察（无论是否已评估）绑定为 `progress_baseline`，因此任何已经在记录里的声明都不能用来 ack。相对该基线，策略接受：
+
+- **至少引用一个基线里没有的 evidence id** 的新 surface、hypothesis 或 probe family；只改标识、沿用基线 evidence id 的写回被拒绝，`reason_code` 为 `progress_identity_without_new_evidence`；
+- 新的具体 blocker，或有覆盖证据的终态；
+- 一条新的证据关联 vision path（`continue`、`no_change` 或 `replan`），带验收摘要与 evidence refs——复核被评估的工作后决定保留原计划的 Agent，由此获得一个类型化出口。
+
+原样重提被绑定的观察，或同一 hypothesis 换新的 evidence id，都会被拒绝。trigger 只在窗口内有可绑定的类型化观察时触发；不写类型化观察的 Agent 只会得到回执与状态，不会得到义务。心跳的 requirements 投影同时给出两个出口：进展路径的 `cli_semantic_args` 与 vision 路径的 `alternative_cli_semantic_args`。
 
 ## 你会看到什么
 
@@ -87,7 +94,8 @@ loopx-jev sentinel compare \
 | --- | --- | --- | --- |
 | 在 gold 轮被标记的漂移序列 | 0/9 | 9/9 | 5/9 |
 | 阈值 2 下达到 `assist` 义务 | 0/9 | 9/9 | 2/9 |
-| 真实 on-goal 上游提交被误报 | 0/7 | 0/7 | 0/7 |
+| 真实 on-goal 上游提交被误报 | 0/7 | 已评估的 0/6 | 已评估的 0/6 |
+| 真实 on-goal 提交无判定（按失败关闭） | — | 1/7 | 1/7 |
 
 纯装饰性序列在第 1 轮被标记，混合序列在各自漂移轮被标记；第二次独立 live 复现了全部结果。v2 措辞是在早先录制漏检“实现落地后的改动”之后修订的，因此构造序列对新措辞不再算留出集；7 个真实提交没有用于调参。完整表格、延迟、波动与尚未证明的部分见[操作指南](../../../packages/loopx-jev/DRIFT_SHADOW.zh-CN.md)。
 
@@ -105,7 +113,7 @@ loopx-jev sentinel compare \
 4. **单独运行消费者**，例如 `loopx-jev drift drain --state-dir <dir> --config <config> --watch-seconds 600`；它为每个已评估事件在 Goal 运行时下写一条回执。
 5. **开启 `shadow`**：`loopx configure-goal --goal-id <goal-id> --progress-review-mode shadow --execute`。此后 `loopx status --format json` 会显示该 Goal 的 `external_progress_review`。
 6. **标注你看到的结果**：`loopx-jev drift status --state-dir <dir>` 列出回执；`loopx-jev drift label --state-dir <dir> --event-id <id> --truth drift|on_goal|unknown` 记录你的判断，status 按信号显示一致性。
-7. **然后才考虑 `assist`**：用 `--progress-review-contract-revision <sha256>` pin 第 2 步的修订，并设置 `--progress-review-mode assist`。连续的漂移回执会触发 Agent 必须确认的已有重规划义务。`--clear-progress-review-configuration` 回到 `off`。
+7. **然后才考虑 `assist`**：用 `--progress-review-contract-revision <sha256>` pin 第 2 步的修订，并设置 `--progress-review-mode assist`。连续的漂移回执会触发 Agent 必须确认的已有重规划义务。pin 不跟随 basis：重新运行 `drift init` 后，status 会显示 `rebind_hint`，直到你 pin 新修订。`--clear-progress-review-configuration` 回到 `off`。
 
 ## 成熟度阶梯
 

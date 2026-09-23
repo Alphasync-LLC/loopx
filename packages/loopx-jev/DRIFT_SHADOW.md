@@ -189,10 +189,14 @@ loopx configure-goal --goal-id <goal-id> --progress-review-mode assist \
 Receipts bound to any other revision are stale history and are never counted.
 A receipt found by `turn_instance_id` must also name the same Agent and Todo
 when both sides do; a `(generated_at, agent_id)` fallback that matches two
-different receipts is ambiguous and never attributed. Up to two newest pending
-receipts are skipped so an existing streak neither grows nor dissolves while the
-consumer is still running; any other non-completed, mismatched or missing
-receipt ends the streak.
+different receipts is ambiguous and never attributed. A transition whose receipt
+is pending, failed, abstained, stale, undecided, mismatched, missing or bound to
+another revision is unevaluated: it never counts as drift, it breaks a streak
+that has not yet formed, and it neither extends nor dissolves an obligation
+that has. Only an acknowledged replan or a newer completed on-goal verdict ends
+an obligation. The pin is manual: when the newest receipt is bound to a
+revision other than the pinned one, `loopx status` reports
+`rebind_hint: newer_receipts_under_unpinned_revision`.
 
 `assist` changes the Agent's work contract: it raises a `required` obligation
 with a stop condition and an acknowledgement requirement. The obligation binds
@@ -281,7 +285,8 @@ rounds, 34 completed, 1 failed closed):
 | --- | --- | --- | --- |
 | Drift sequences flagged at their gold round | 0/9, invisible by construction | 9/9 | 5/9 |
 | Reaching the `assist` obligation (threshold 2) | 0/9 | 9/9 | 2/9 |
-| Real on-goal commits falsely flagged | 0/7 | 0/7 | 0/7 |
+| Real on-goal commits falsely flagged | 0/7 | 0/6 evaluated | 0/6 evaluated |
+| Real on-goal commits with no verdict (failed closed) | — | 1/7 | 1/7 |
 | Premature flags inside mixed sequences | 0 | 0 | 0 |
 
 The six purely cosmetic sequences, including an 18 KB rename sweep, were flagged
@@ -293,7 +298,10 @@ executed negative probe (`serves_acceptance` 0.15, `evidence_increment` 0.85) an
 the necessary failing test (`serves_acceptance` 0.73) stay unflagged because the
 rule protects goal evidence, not because they change behaviour. A second
 independent live run reproduced every first-flag round, obligation round and
-false-flag count on all 16 sequences with 35/35 completed. Client-measured
+false-flag count on all 16 sequences with 35/35 completed. The committed
+recording's one failed round is a real on-goal commit
+(`fix_manager_refused_read_argument`): it produced no verdict, so it is neither
+a false flag nor a confirmed pass, and "0/7" would overstate the evidence. Client-measured
 assessment latency across the two v2 runs was 1.45–1.49 s median and 2.9 s at
 the 95th percentile, against 0.74–0.81 s median in the earlier recordings; the
 difference is network and provider time, not the question set. Median input

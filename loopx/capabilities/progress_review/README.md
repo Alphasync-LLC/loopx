@@ -22,9 +22,10 @@ periodic review after 20 durable runs.
 | Joins receipts to run rows by `turn_instance_id`, else by `(generated_at, agent_id)` | Overwrites or supplements the Agent's own `progress_observation` |
 | Counts only `completed` receipts whose selected drift signal is `True` | Counts `unknown`, `abstained`, `failed`, `stale` or missing receipts |
 | Stops the streak at an acknowledged autonomous replan and re-arms | Pauses turns, opens user gates, or settles Goal acceptance |
-| Binds the evaluated window's typed `progress_observation` as the obligation's `progress_baseline`, so the existing writeback semantics reject an acknowledgement that repeats it | Lets the observer or its model decide what discharges the obligation |
+| Binds the newest typed `progress_observation` in the window as the obligation's `progress_baseline`; the shared outcome policy refuses an acknowledgement that repeats it or only renames identifiers over its evidence ids | Lets the observer or its model acknowledge, or accepts a renamed identifier as a pivot |
+| Keeps a formed obligation open while newer transitions are unevaluated, failed, abstained, stale or unattributable, and reports how many | Treats missing evaluation as evidence that the drift was handled |
 | Skips neutral bookkeeping rows (quota spend/void) like the existing replan policy | Treats a bookkeeping row as a gap or as progress |
-| Requires one goal contract revision across the counted receipts | Keeps receipts alive across an acceptance-contract change |
+| Counts only receipts bound to the revision the Goal owner pinned, and reports when newer receipts are bound elsewhere | Follows the observer basis on its own; the pin is manual |
 
 The typed repeat fuse keeps precedence. A receipt streak only adds evidence
 when that fuse is quiet.
@@ -43,7 +44,7 @@ loopx configure-goal --goal-id <goal-id> --clear-progress-review-configuration -
 | `mode` | `off`, `shadow`, `assist` | `off` loads nothing; `shadow` records and displays; `assist` may raise the obligation |
 | `signal` | `noul`, `choice` | Which receipt judgment pair counts as drift |
 | `drift_threshold` | 2–20 | Consecutive completed drift receipts before an obligation |
-| `contract_revision` | sha256 or empty | The observer basis revision receipts must be bound to; printed by `loopx-jev drift init`. Required for `assist`; other revisions are stale |
+| `contract_revision` | sha256 or empty | The observer basis revision receipts must be bound to; printed by `loopx-jev drift init`. Required for `assist`. The pin is manual: receipts bound to other revisions are never counted, changing the basis does not retire earlier receipts by itself, and status reports `rebind_hint: newer_receipts_under_unpinned_revision` when the newest receipt is bound elsewhere |
 
 The policy lives at `control_plane.progress_review` in the goal registry and is
 visible in `loopx configure-goal --goal-id <goal-id>` under `feature_summary`
@@ -84,23 +85,44 @@ criterion or adds evidence about it is not.
 
 Receipts found by `turn_instance_id` must also agree on Agent and Todo when both
 sides name them; an ambiguous `(generated_at, agent_id)` fallback is never
-attributed. The observer writes a pending receipt when it queues an event; the
-core skips at most two newest pending receipts so an existing streak neither
-grows nor dissolves while evaluation is still running. Receipts bound to a
-revision other than the pinned one are stale and never counted.
+attributed. Every captured transition is one of three things: **drift**
+(completed, selected signal `true`, pinned revision), **on-goal** (completed,
+signal `false`) or **unevaluated** for one typed reason (`pending`, `failed`,
+`abstained`, `stale`, `undecided`, `missing`, `unattributed`,
+`identity_conflict`, `other_revision`, `not_evaluated`). Formation is
+conservative: an obligation needs `drift_threshold` consecutive drift
+transitions with no unevaluated transition between them. Persistence is not:
+once formed, newer unevaluated transitions neither extend nor dissolve the
+obligation, and their count is reported as `unevaluated_transitions` on the
+trigger. Only an acknowledged replan or a newer completed on-goal verdict ends
+it; the Goal owner can also set the mode back to `shadow` or `off`. Receipts
+bound to a revision other than the pinned one are unevaluated history and
+never counted. The scan covers the run history the Goal keeps
+(`latest_runs`), so an obligation can only be as old as that window.
 
 ## Discharge
 
 An `assist` obligation is discharged only the way every autonomous replan
-obligation is: the Agent's next `refresh-state` must carry a typed progress
-observation that changes an accepted semantic dimension against the bound
-baseline (a new surface, hypothesis or probe family with evidence, a new
-concrete blocker, or coverage-backed terminal state), or a fresh
-evidence-linked vision path. Re-submitting the observation that was evaluated,
-or the same hypothesis with new evidence ids, is rejected by the writeback. For
-that reason the trigger only fires when the newest counted run carries a typed
-observation; Agents that do not write typed observations get receipts and
-status, never an obligation.
+obligation is: the Agent's next `refresh-state` must carry typed evidence that
+the shared outcome policy (`work_item.replan_semantics`) accepts for this
+source. The obligation binds the newest typed progress observation in the
+window, evaluated or not, as `progress_baseline`, so no claim already on record
+can acknowledge. Against that baseline the policy accepts:
+
+- a new surface, hypothesis or probe family **that cites at least one evidence
+  id absent from the baseline**; renaming identifiers over the baseline's
+  evidence ids is refused with `progress_identity_without_new_evidence`;
+- a new concrete blocker, or a coverage-backed terminal state;
+- a fresh evidence-linked vision path (`continue`, `no_change` or `replan`)
+  with an acceptance summary and evidence refs, so an Agent that reviews the
+  evaluated work and keeps its plan has a typed exit.
+
+Re-submitting the bound observation, or the same hypothesis with new evidence
+ids, is refused. The trigger only fires when the window carries a typed
+observation to bind; Agents that do not write typed observations get receipts
+and status, never an obligation. The heartbeat's requirements projection names
+both exits: `cli_semantic_args` for the progress path and
+`alternative_cli_semantic_args` for the vision path.
 
 ## What you see
 
@@ -142,7 +164,8 @@ self-reporting `advanced`; one answer rejected by the strict decoder):
 | --- | --- | --- | --- |
 | Drift sequences flagged at their gold round | 0/9 | 9/9 | 5/9 |
 | Reaching the `assist` obligation at threshold 2 | 0/9 | 9/9 | 2/9 |
-| Real on-goal upstream commits falsely flagged | 0/7 | 0/7 | 0/7 |
+| Real on-goal upstream commits falsely flagged | 0/7 | 0/6 evaluated | 0/6 evaluated |
+| Real on-goal commits with no verdict (failed closed) | — | 1/7 | 1/7 |
 
 Purely cosmetic sequences were flagged at round 1, mixed sequences at their
 drift round; a second independent live run reproduced every outcome. The v2
@@ -181,7 +204,9 @@ lives in the Goal registry. Adopt it one Goal at a time:
 7. **Only then consider `assist`:** pin the revision from step 2 with
    `--progress-review-contract-revision <sha256>` and set `--progress-review-mode assist`.
    Consecutive drift receipts now raise the existing replan obligation the Agent
-   must acknowledge. `--clear-progress-review-configuration` returns to `off`.
+   must acknowledge. The pin does not follow the basis: after `drift init` is
+   re-run, status shows `rebind_hint` until you pin the new revision.
+   `--clear-progress-review-configuration` returns to `off`.
 
 ## Readiness ladder
 

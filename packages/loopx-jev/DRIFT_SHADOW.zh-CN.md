@@ -93,7 +93,7 @@ loopx configure-goal --goal-id <goal-id> --progress-review-mode assist \
   --progress-review-contract-revision <drift init 打印的 sha256> --execute
 ```
 
-绑定到其他修订的回执是过期历史，永不计数。按 `turn_instance_id` 找到的回执，在双方都给出 Agent 与 Todo 时必须一致；按 `(generated_at, agent_id)` 回退匹配到两条不同回执视为歧义，不做归属。最新的至多两条 pending 回执会被跳过，使已有连续段在消费者仍在运行时既不增长也不消失；其他未完成、不匹配或缺失的回执都会终止连续段。
+绑定到其他修订的回执是过期历史，永不计数。按 `turn_instance_id` 找到的回执，在双方都给出 Agent 与 Todo 时必须一致；按 `(generated_at, agent_id)` 回退匹配到两条不同回执视为歧义，不做归属。回执为 pending、failed、abstained、stale、undecided、不匹配、缺失或绑定到其他修订的转换是未评估的：它永不算作漂移，会打断尚未形成的连续段，但不会延长或解除已形成的义务。只有已确认的重规划或更新的 completed on-goal 判定能结束义务。pin 是手动的：最新回执绑定到非 pin 修订时，`loopx status` 报告 `rebind_hint: newer_receipts_under_unpinned_revision`。
 
 `assist` 会改变 Agent 的工作契约：它产生带 stop condition 与 ack 要求的 `required` 义务。义务会把被评估窗口的类型化进展观察绑定为基线，现有 writeback 据此拒绝原样重提该观察或仅在同一 hypothesis 下更换 evidence id 的 ack；只有存在这样的观察时才会触发。它不授予暂停、gate 或验收权限，但不是被动建议。观察器自身的 `off/shadow` 开关控制模型调用与出站；Goal 的 `off/shadow/assist` 策略控制核心如何使用已经存在的回执。关闭观察器不会撤回已写出的回执；清除 Goal 策略才会。
 
@@ -125,10 +125,11 @@ loopx configure-goal --goal-id <goal-id> --progress-review-mode assist \
 | --- | --- | --- | --- |
 | 在 gold 轮被标记的漂移序列 | 0/9，按构造不可见 | 9/9 | 5/9 |
 | 达到 `assist` 义务（阈值 2） | 0/9 | 9/9 | 2/9 |
-| 真实 on-goal 提交被误报 | 0/7 | 0/7 | 0/7 |
+| 真实 on-goal 提交被误报 | 0/7 | 已评估的 0/6 | 已评估的 0/6 |
+| 真实 on-goal 提交无判定（按失败关闭） | — | 1/7 | 1/7 |
 | 混合序列内的提前告警 | 0 | 0 | 0 |
 
-6 个纯装饰性序列（含一个 18 KB 的改名扫描）在第 1 轮被标记、第 2 轮即可触发义务；3 个混合序列恰在各自的漂移轮（第 3 轮）被标记、第 4 轮触发义务：真实实现落地后的装饰性改动现在 `serves_acceptance` 只有 0.06–0.13，旧措辞下是 0.62–0.90。已执行的负结果探测（`serves_acceptance` 0.15、`evidence_increment` 0.85）与必要的失败测试（`serves_acceptance` 0.73）不被标记，原因是规则保护目标证据，而不是因为它们改变了行为。第二次独立 live 在全部 16 个序列上复现了同样的首次告警轮、义务轮与误报数，35/35 completed。两次 v2 的客户端评估延迟中位 1.45–1.49 s、P95 2.9 s，早先录制为中位 0.74–0.81 s；差异来自网络与 provider 时段，不是问题集。输入 token 中位 1890。
+6 个纯装饰性序列（含一个 18 KB 的改名扫描）在第 1 轮被标记、第 2 轮即可触发义务；3 个混合序列恰在各自的漂移轮（第 3 轮）被标记、第 4 轮触发义务：真实实现落地后的装饰性改动现在 `serves_acceptance` 只有 0.06–0.13，旧措辞下是 0.62–0.90。已执行的负结果探测（`serves_acceptance` 0.15、`evidence_increment` 0.85）与必要的失败测试（`serves_acceptance` 0.73）不被标记，原因是规则保护目标证据，而不是因为它们改变了行为。第二次独立 live 在全部 16 个序列上复现了同样的首次告警轮、义务轮与误报数，35/35 completed。已提交录制中按失败关闭的那一轮是一个真实 on-goal 提交（`fix_manager_refused_read_argument`）：它没有判定，既不是误报也不是确认通过，写成“0/7”会夸大证据。两次 v2 的客户端评估延迟中位 1.45–1.49 s、P95 2.9 s，早先录制为中位 0.74–0.81 s；差异来自网络与 provider 时段，不是问题集。输入 token 中位 1890。
 
 相比早先录制改变了什么，以及为何还不能算留出证据：第一版问题把 `serves_acceptance` 问在整个文件上，并让 `noul` 以行为变化为门槛，只标记了 6/9，且漏掉全部“实现落地后的改动”轮；其请求还带有由样例名派生的 `goal_id`，可能暗示标签。v2 的措辞与规则是在看到这些构造序列上的漏检之后写的，因此构造用例对新措辞不再算留出集；7 个真实提交没有用于调参。35 个回答中有 1 个因所选标签不是概率 argmax 被严格解码器拒绝，该轮按失败关闭，既不算漂移也不算误报。
 

@@ -96,7 +96,7 @@ Claude 记录中的模型为 `claude-haiku-4-5-20251001`、`claude-sonnet-5`、`
 
 ## 闭环与录制对照结果（2026-09-21，2026-09-22 修订）
 
-闭环完全通过 LoopX 已有契约完成。观察器为每个入队事件写类型化回执（先 pending、评估后覆盖）到 Goal 运行时；核心 capability [`progress_review`](../../loopx/capabilities/progress_review/README.zh-CN.md) 通过一个严格 schema 读取回执，从类型化判断重新计算漂移布尔值，按 turn 身份并校验 Agent/Todo 一致后关联 run 行，`assist` 模式下把连续 N 条绑定到**已 pin** 的 Goal 契约修订的已完成漂移回执变成已有的 `autonomous_replan_obligation`（`kind: external_progress_review_drift`）。refresh-state 的 writeback 用同一个义务判断 ack，被接受的重规划使 trigger 重新武装。类型化重复保险丝保持优先；unknown、abstained、failed、歧义与缺失回执打断连续段；最新至多两条 pending 回执被跳过；未 pin 的 `assist` 不触发任何义务并在 status 中说明原因。
+闭环完全通过 LoopX 已有契约完成。观察器为每个入队事件写类型化回执（先 pending、评估后覆盖）到 Goal 运行时；核心 capability [`progress_review`](../../loopx/capabilities/progress_review/README.zh-CN.md) 通过一个严格 schema 读取回执，从类型化判断重新计算漂移布尔值，按 turn 身份并校验 Agent/Todo 一致后关联 run 行，`assist` 模式下把连续 N 条绑定到**已 pin** 的 Goal 契约修订的已完成漂移回执变成已有的 `autonomous_replan_obligation`（`kind: external_progress_review_drift`）。refresh-state 的 writeback 用同一个义务判断 ack，被接受的重规划使 trigger 重新武装。类型化重复保险丝保持优先；未评估回执（pending、failed、abstained、stale、undecided、歧义、缺失或绑定到其他修订）会打断尚未形成的连续段，但永不解除已形成的义务；未 pin 的 `assist` 不触发任何义务并在 status 中说明原因。解除遵循共享的 TypeScript 出口 owner，它给这个来源单独的策略：改名只在带有基线之外的 evidence id 时才能解除，证据关联的 vision path 是合法出口。
 
 对第一版闭环（2026-09-21）的外部评审指出四个缺陷，本次修订用确定性方式而非模型调参修复：
 
@@ -108,10 +108,13 @@ Claude 记录中的模型为 `claude-haiku-4-5-20251001`、`claude-sonnet-5`、`
 | 按 turn id 找到的回执未核对 Agent/Todo；最新一条未评估记录会使连续段消失 | 要求身份一致，歧义回退不做归属，pending 回执在上限内被跳过 |
 | （维护者精确 head 评审）义务不带 `progress_baseline`，原样重提被评估的观察会被判为 `new_surface`/`new_hypothesis` 并解除义务 | trigger 把最新被计数 run 的类型化观察绑定为 `progress_baseline`，且仅在其存在时触发；真实 writeback 现在拒绝原样观察和同 hypothesis 换新 evidence id，接受新 hypothesis 或新 blocker（闭环回归） |
 | （维护者设计评论）neutral 记账行打断连续段 | 与现有重规划策略一致地跳过 neutral 分类 |
+| （维护者第二次精确 head 评审，P1）只改 `hypothesis_id`、沿用同一份 evidence id 就能以 `new_hypothesis` 解除义务；README 承诺的证据关联 vision 出口在 `replan_semantics.ts` 中并未授予这个来源 | 出口 owner 给 `external_progress_review_drift` 单独策略：`new_surface`/`new_hypothesis`/`new_probe_family` 只在编解码器的 `evidence_novel` 为真时解除（否则 `progress_identity_without_new_evidence`），`fresh_vision_path_outcome` 进入 required-any-of，requirements 投影同时给出两个出口；真实 writeback 拒绝改名、接受 `continue` vision path（闭环回归） |
+| （维护者第二次精确 head 评审，P1）两条漂移回执之上出现第三条 pending、一条 failed/abstained 回执或一条无回执的 run，派生义务就消失 | 形成与存续是同一次扫描上的两条规则：连续段只由无缺口的已评估漂移形成；形成后未评估转换既不延长也不解除它，并作为 `unevaluated_transitions` 报告；基线绑定窗口内最新的类型化声明，pending 的声明不能被重提为 ack |
+| （维护者第二次精确 head 评审）pin 被写成契约变化时自动失效 | 明确为手动 pin；最新回执绑定到别处时 status 报告 `rebind_hint: newer_receipts_under_unpinned_revision`；“0/7 误报”改写为已评估的 0/6 加一轮按失败关闭、无判定 |
 
 `packages/loopx-jev/tests/test_closed_loop.py` 用同一段真实 `refresh-state` 序列跑四种方式：默认 `off` 无信号；`shadow` 显示回执但无义务；未 pin 的 `assist` 被阻断并报告 `contract_revision_unpinned`；pin 后的 `assist` 触发义务，`loopx status` 显示它，一次真实的已确认重规划使其重新武装，之后单轮漂移不足以再触发。
 
-对照 harness 回放冻结的 16 序列矩阵。在已提交的 v2 录制上，类型化保险丝在 0/16 序列触发；`noul` 信号在 gold 轮标记了 9/9 漂移序列并全部达到义务，真实上游提交 0/7 误报、无提前告警；`choice` 标记 5/9。第二次独立 live 复现了全部结果。早先的 v1 录制只标记 6/9 并漏掉实现落地后的改动；v2 措辞是在看到这些构造用例上的漏检后修订的，因此构造用例不是新措辞的留出证据。多次录制的客户端延迟中位 0.74–1.49 s、P95 最高 2.9 s；输入 token 中位 1890。[操作指南](DRIFT_SHADOW.zh-CN.md)列出了完整结果与限制。
+对照 harness 回放冻结的 16 序列矩阵。在已提交的 v2 录制上，类型化保险丝在 0/16 序列触发；`noul` 信号在 gold 轮标记了 9/9 漂移序列并全部达到义务，完成评估的真实上游提交 0/6 误报（第 7 个按失败关闭、无判定）、无提前告警；`choice` 标记 5/9。第二次独立 live 复现了全部结果。早先的 v1 录制只标记 6/9 并漏掉实现落地后的改动；v2 措辞是在看到这些构造用例上的漏检后修订的，因此构造用例不是新措辞的留出证据。多次录制的客户端延迟中位 0.74–1.49 s、P95 最高 2.9 s；输入 token 中位 1890。[操作指南](DRIFT_SHADOW.zh-CN.md)列出了完整结果与限制。
 
 ## 工程取舍与替代方案
 
