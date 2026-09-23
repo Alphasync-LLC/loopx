@@ -136,6 +136,16 @@ changes.
   - **Current boundary:** Milestones, blocking guards, and legal transitions are
     specified as a read-only projection; no canonical lifecycle projection has
     shipped.
+- [Goal Instance Identity and Orphan Recovery v0](goal-instance-identity-and-orphan-recovery-v0.md)
+  ([中文版](goal-instance-identity-and-orphan-recovery-v0.zh-CN.md))
+  - **RFC status:** Draft.
+  - **Delivery on `main`:** Proposal only; the orphaned-state bootstrap fence
+    is already shipped separately.
+  - **Current boundary:** Proposes source-registry-owned lifetime identity,
+    a strict registry envelope that mechanically excludes old writers, exact
+    binding validation, and preview-first orphan recovery. No instance minting,
+    registry activation, binding enforcement, or resolution mutation has
+    shipped.
 
 ## Planning, Research, And Adaptive Intelligence
 
